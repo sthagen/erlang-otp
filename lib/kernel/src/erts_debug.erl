@@ -33,12 +33,22 @@
 
 -export([breakpoint/2, disassemble/1, display/1, dist_ext_to_term/2,
          flat_size/1, get_internal_state/1, instructions/0,
+         interpreter_size/0,
          map_info/1, same/2, set_internal_state/2,
          size_shared/1, copy_shared/1, dirty_cpu/2, dirty_io/2, dirty/3,
          lcnt_control/1, lcnt_control/2, lcnt_collect/0, lcnt_clear/0,
          lc_graph/0, lc_graph_to_dot/2, lc_graph_merge/2,
          alloc_blocks_size/1]).
 
+%% Reroutes calls to the given MFA to error_handler:breakpoint/3
+%%
+%% Note that this is potentially unsafe as compiled code may assume that the
+%% targeted function returns a specific type, triggering undefined behavior if
+%% this function were to return something else.
+%%
+%% For reference, the debugger avoids the issue by purging the affected module
+%% and interpreting all functions in the module, ensuring that no assumptions
+%% are made with regard to return or argument types.
 -spec breakpoint(MFA, Flag) -> non_neg_integer() when
       MFA :: {Module :: module(),
               Function :: atom(),
@@ -91,7 +101,7 @@ copy_shared(_) ->
 
 -spec get_internal_state(W) -> term() when
       W :: reds_left | node_and_dist_references | monitoring_nodes
-         | next_pid | 'DbTable_words' | check_io_debug
+         | next_pid | 'DbTable_words' | check_io_debug | lc_graph
          | process_info_args | processes | processes_bif_info
          | max_atom_out_cache_index | nbalance | available_internal_state
          | force_heap_frags | memory
@@ -116,6 +126,11 @@ get_internal_state(_) ->
 -spec instructions() -> [string()].
 
 instructions() ->
+    erlang:nif_error(undef).
+
+-spec interpreter_size() -> pos_integer().
+
+interpreter_size() ->
     erlang:nif_error(undef).
 
 -spec ic(F) -> Result when

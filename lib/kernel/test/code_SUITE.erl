@@ -25,8 +25,8 @@
 -export([all/0, suite/0,groups/0,init_per_group/2,end_per_group/2]).
 -export([set_path/1, get_path/1, add_path/1, add_paths/1, del_path/1,
 	 replace_path/1, load_file/1, load_abs/1, ensure_loaded/1,
-	 delete/1, purge/1, purge_many_exits/1, soft_purge/1, is_loaded/1,
-	 all_loaded/1,
+	 delete/1, purge/1, purge_many_exits/0, purge_many_exits/1,
+         soft_purge/1, is_loaded/1, all_loaded/1,
 	 load_binary/1, dir_req/1, object_code/1, set_path_file/1,
 	 upgrade/1,
 	 sticky_dir/1, pa_pz_option/1, add_del_path/1,
@@ -41,7 +41,7 @@
 	 big_boot_embedded/1,
          module_status/1,
 	 native_early_modules/1, get_mode/1,
-	 normalized_paths/1]).
+	 normalized_paths/1, mult_embedded_flags/1]).
 
 -export([init_per_testcase/2, end_per_testcase/2,
 	 init_per_suite/1, end_per_suite/1]).
@@ -55,7 +55,7 @@
 
 suite() ->
     [{ct_hooks,[ts_install_cth]},
-     {timetrap,{minutes,5}}].
+     {timetrap,{seconds,30}}].
 
 all() ->
     [set_path, get_path, add_path, add_paths, del_path,
@@ -72,7 +72,8 @@ all() ->
      on_load_purge, on_load_self_call, on_load_pending,
      on_load_deleted,
      module_status,
-     big_boot_embedded, native_early_modules, get_mode, normalized_paths].
+     big_boot_embedded, native_early_modules, get_mode, normalized_paths,
+     mult_embedded_flags].
 
 %% These need to run in order
 groups() -> [{sequence, [sequence], [on_load_update,
@@ -139,6 +140,11 @@ end_per_testcase(TC, Config) when TC == mult_lib_roots;
 end_per_testcase(on_load_embedded, Config) ->
     LinkName = proplists:get_value(link_name, Config),
     _ = del_link(LinkName),
+    end_per_testcase(Config);
+end_per_testcase(upgrade, Config) ->
+    %% Make sure tracing is turned off even if the test times out.
+    erlang:trace_pattern({error_handler,undefined_function,3}, false, [global]),
+    erlang:trace(self(), false, [call]),
     end_per_testcase(Config);
 end_per_testcase(_Func, Config) ->
     end_per_testcase(Config).
@@ -349,7 +355,7 @@ load_abs(Config) when is_list(Config) ->
 ensure_loaded(Config) when is_list(Config) ->
     {module, lists} = code:ensure_loaded(lists),
     case init:get_argument(mode) of
-	{ok, [["embedded"]]} ->
+	{ok, [["embedded"] | _]} ->
 	    {error, embedded} = code:ensure_loaded(code_b_test),
 	    {error, badarg} = code:ensure_loaded(34),
 	    ok;
@@ -390,6 +396,9 @@ purge(Config) when is_list(Config) ->
     true = code_b_test:check_exit(Pid),
     process_flag(trap_exit, OldFlag),
     ok.
+
+purge_many_exits() ->
+    [{timetrap, {minutes, 2}}].
 
 purge_many_exits(Config) when is_list(Config) ->
     OldFlag = process_flag(trap_exit, true),
@@ -1556,6 +1565,11 @@ on_load_update_code_1(3, Mod) ->
 
 %% Test -on_load while trace feature 'on_load' is enabled (OTP-14612)
 on_load_trace_on_load(Config) ->
+    %% 'on_load' enables tracing for all newly loaded modules, so we make a dry
+    %% run to ensure that ancillary modules like 'merl' won't be loaded during
+    %% the actual test.
+    on_load_update(Config),
+
     Papa = self(),
     Tracer = spawn_link(fun F() -> receive M -> Papa ! M end, F() end),
     {tracer,[]} = erlang:trace_info(self(),tracer),
@@ -1821,6 +1835,28 @@ do_normalized_paths([M|Ms]) ->
 	    do_normalized_paths(Ms)
     end;
 do_normalized_paths([]) ->
+    ok.
+
+%% Make sure that the extra -mode flags are ignored
+mult_embedded_flags(_Config) ->
+    Modes = [{" -mode embedded", embedded},
+	     {" -mode interactive", interactive},
+	     {" -mode invalid", interactive}],
+
+    [ begin
+	  {ArgMode, ExpectedMode} = Mode,
+	  {ok, Node} = start_node(mode_test, ArgMode),
+	  ExpectedMode = rpc:call(Node, code, get_mode, []),
+	  true = stop_node(Node)
+      end || Mode <- Modes],
+
+    [ begin
+	  {ArgIgnoredMode, _} = IgnoredMode,
+	  {ArgRelevantMode, ExpectedMode} = RelevantMode,
+	  {ok, Node} = start_node(mode_test, ArgRelevantMode ++ ArgIgnoredMode),
+	  ExpectedMode = rpc:call(Node, code, get_mode, []),
+	  true = stop_node(Node)
+      end || IgnoredMode <- Modes, RelevantMode <- Modes],
     ok.
 
 %% Test that module_status/1 behaves as expected

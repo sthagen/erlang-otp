@@ -28,7 +28,7 @@
 
 -include("beam_ssa.hrl").
 
--import(lists, [foldl/3,keymember/3,keysort/2,last/1,map/2,mapfoldl/3,
+-import(lists, [foldl/3,keymember/3,keysort/2,map/2,mapfoldl/3,
                 reverse/1,reverse/2,sort/1,splitwith/2,takewhile/2]).
 
 -record(cg, {lcount=1 :: beam_label(),          %Label counter
@@ -37,7 +37,8 @@
              used_labels=gb_sets:empty() :: gb_sets:set(ssa_label()),
              regs=#{} :: #{beam_ssa:var_name()=>ssa_register()},
              ultimate_fail=1 :: beam_label(),
-             catches=gb_sets:empty() :: gb_sets:set(ssa_label())
+             catches=gb_sets:empty() :: gb_sets:set(ssa_label()),
+             fc_label=1 :: beam_label()
              }).
 
 -spec module(beam_ssa:b_module(), [compile:option()]) ->
@@ -114,17 +115,17 @@ functions(Forms, AtomMod) ->
 function(#b_function{anno=Anno,bs=Blocks}, AtomMod, St0) ->
     #{func_info:={_,Name,Arity}} = Anno,
     try
-        assert_badarg_block(Blocks),            %Assertion.
+        assert_exception_block(Blocks),            %Assertion.
         Regs = maps:get(registers, Anno),
         St1 = St0#cg{labels=#{},used_labels=gb_sets:empty(),
                      regs=Regs},
         {Fi,St2} = new_label(St1),              %FuncInfo label
         {Entry,St3} = local_func_label(Name, Arity, St2),
         {Ult,St4} = new_label(St3),             %Ultimate failure
-        Labels = (St4#cg.labels)#{0=>Entry,?BADARG_BLOCK=>0},
+        Labels = (St4#cg.labels)#{0=>Entry,?EXCEPTION_BLOCK=>0},
         St5 = St4#cg{labels=Labels,used_labels=gb_sets:singleton(Entry),
                      ultimate_fail=Ult},
-        {Body,St} = cg_fun(Blocks, St5),
+        {Body,St} = cg_fun(Blocks, St5#cg{fc_label=Fi}),
         Asm = [{label,Fi},line(Anno),
                {func_info,AtomMod,{atom,Name},Arity}] ++
                add_parameter_annos(Body, Anno) ++
@@ -137,10 +138,10 @@ function(#b_function{anno=Anno,bs=Blocks}, AtomMod, St0) ->
             erlang:raise(Class, Error, Stack)
     end.
 
-assert_badarg_block(Blocks) ->
-    %% Assertion: ?BADARG_BLOCK must be the call erlang:error(badarg).
+assert_exception_block(Blocks) ->
+    %% Assertion: ?EXCEPTION_BLOCK must be a call erlang:error(badarg).
     case Blocks of
-        #{?BADARG_BLOCK:=Blk} ->
+        #{?EXCEPTION_BLOCK:=Blk} ->
             #b_blk{is=[#b_set{op=call,dst=Ret,
                               args=[#b_remote{mod=#b_literal{val=erlang},
                                               name=#b_literal{val=error}},
@@ -148,7 +149,7 @@ assert_badarg_block(Blocks) ->
                    last=#b_ret{arg=Ret}} = Blk,
             ok;
         #{} ->
-            %% ?BADARG_BLOCK has been removed because it was never used.
+            %% ?EXCEPTION_BLOCK has been removed because it was never used.
             ok
     end.
 
@@ -161,7 +162,7 @@ add_parameter_annos([{label, _}=Entry | Body], Anno) ->
            (_K, _V, Acc) ->
                 Acc
         end, [], maps:get(registers, Anno)),
-    [Entry | Annos] ++ Body.
+    [Entry | sort(Annos)] ++ Body.
 
 cg_fun(Blocks, St0) ->
     Linear0 = linearize(Blocks),
@@ -384,6 +385,7 @@ classify_heap_need(is_tagged_tuple) -> neutral;
 classify_heap_need(kill_try_tag) -> gc;
 classify_heap_need(landingpad) -> gc;
 classify_heap_need(make_fun) -> gc;
+classify_heap_need(match_fail) -> gc;
 classify_heap_need(new_try_tag) -> gc;
 classify_heap_need(peek_message) -> gc;
 classify_heap_need(put_map) -> gc;
@@ -629,7 +631,7 @@ liveness_get(S, LiveMap) ->
     end.
 
 liveness_successors(Terminator) ->
-    successors(Terminator) -- [?BADARG_BLOCK].
+    successors(Terminator) -- [?EXCEPTION_BLOCK].
 
 liveness_is([#cg_alloc{}=I0|Is], Regs, Live, Acc) ->
     I = I0#cg_alloc{live=num_live(Live, Regs)},
@@ -764,9 +766,8 @@ defined(Linear, #cg{regs=Regs}) ->
 
 def([{L,#cg_blk{is=Is0,last=Last}=Blk0}|Bs], DefMap0, Regs) ->
     Def0 = def_get(L, DefMap0),
-    {Is,Def} = def_is(Is0, Regs, Def0, []),
-    Successors = successors(Last),
-    DefMap = def_successors(Successors, Def, DefMap0),
+    {Is,Def,MaybeDef} = def_is(Is0, Regs, Def0, []),
+    DefMap = def_successors(Last, Def, MaybeDef, DefMap0),
     Blk = Blk0#cg_blk{is=Is},
     [{L,Blk}|def(Bs, DefMap, Regs)];
 def([], _, _) -> [].
@@ -780,6 +781,11 @@ def_get(L, DefMap) ->
 def_is([#cg_alloc{anno=Anno0}=I0|Is], Regs, Def, Acc) ->
     I = I0#cg_alloc{anno=Anno0#{def_yregs=>Def}},
     def_is(Is, Regs, Def, [I|Acc]);
+def_is([#cg_set{op=succeeded,args=[Var]}=I], Regs, Def, Acc) ->
+    %% Var will only be defined on the success branch of the `br`
+    %% for this block.
+    MaybeDef = def_add_yreg(Var, [], Regs),
+    {reverse(Acc, [I]),Def,MaybeDef};
 def_is([#cg_set{op=kill_try_tag,args=[#b_var{}=Tag]}=I|Is], Regs, Def0, Acc) ->
     Def = ordsets:del_element(Tag, Def0),
     def_is(Is, Regs, Def, [I|Acc]);
@@ -822,13 +828,19 @@ def_is([#cg_set{anno=Anno0,dst=Dst}=I0|Is], Regs, Def0, Acc) ->
     Def = def_add_yreg(Dst, Def0, Regs),
     def_is(Is, Regs, Def, [I|Acc]);
 def_is([], _, Def, Acc) ->
-    {reverse(Acc),Def}.
+    {reverse(Acc),Def,[]}.
 
 def_add_yreg(Dst, Def, Regs) ->
     case is_yreg(Dst, Regs) of
         true -> ordsets:add_element(Dst, Def);
         false -> Def
     end.
+
+def_successors(#cg_br{bool=#b_var{},succ=Succ,fail=Fail}, Def, MaybeDef, DefMap0) ->
+    DefMap = def_successors([Fail], ordsets:subtract(Def, MaybeDef), DefMap0),
+    def_successors([Succ], Def, DefMap);
+def_successors(Last, Def, [], DefMap) ->
+    def_successors(successors(Last), Def, DefMap).
 
 def_successors([S|Ss], Def0, DefMap) ->
     case DefMap of
@@ -963,6 +975,12 @@ cg_block(Is0, Last, Next, St0) ->
     case Last of
         #cg_br{succ=Next,fail=Next} ->
             cg_block(Is0, none, St0);
+        #cg_br{succ=Same,fail=Same} when Same =:= ?EXCEPTION_BLOCK ->
+            %% An expression in this block *always* throws an exception, so we
+            %% terminate it with an 'if_end' to make sure the validator knows
+            %% that the following instructions won't actually be reached.
+            {Is,St} = cg_block(Is0, none, St0),
+            {Is++[if_end],St};
         #cg_br{succ=Same,fail=Same} ->
             {Fail,St1} = use_block_label(Same, St0),
             {Is,St} = cg_block(Is0, none, St1),
@@ -1015,6 +1033,14 @@ bif_fail({catch_tag,_}) -> {f,0}.
 
 next_block([]) -> none;
 next_block([{Next,_}|_]) -> Next.
+
+%% Certain instructions (such as get_map_element or is_nonempty_list)
+%% are only used in guards and **must** have a non-zero label;
+%% otherwise, the loader will refuse to load the
+%% module. ensure_label/2 replaces a zero label with the "ultimate
+%% failure" label to make the module loadable.  The instruction that
+%% have had the zero label replaced is **not** supposed to ever fail
+%% and actually jump to the label.
 
 ensure_label(Fail0, #cg{ultimate_fail=Lbl}) ->
     case bif_fail(Fail0) of
@@ -1071,8 +1097,8 @@ cg_block([#cg_set{op={bif,Name},dst=Dst0,args=Args0}]=Is0, {Dst0,Fail}, St0) ->
         {z,_} ->
             %% The result of the BIF call will only be used once. Convert to
             %% a test instruction.
-            Test = bif_to_test(Name, Args, ensure_label(Fail, St0)),
-            {Test,St0};
+            {Test,St1} = bif_to_test(Name, Args, ensure_label(Fail, St0), St0),
+            {Test,St1};
         _ ->
             %% Must explicitly call the BIF since the result will be used
             %% more than once.
@@ -1160,6 +1186,15 @@ cg_block([#cg_set{op=call}=I,
           #cg_set{op=succeeded,dst=Bool}], {Bool,_Fail}, St) ->
     %% A call in try/catch block.
     cg_block([I], none, St);
+cg_block([#cg_set{op=match_fail}=I,
+          #cg_set{op=succeeded,dst=Bool}], {Bool,_Fail}, St) ->
+    %% A match_fail instruction in a try/catch block.
+    cg_block([I], none, St);
+cg_block([#cg_set{op=get_map_element,dst=Dst0,args=Args0},
+          #cg_set{op=succeeded,dst=Bool}], {Bool,Fail0}, St) ->
+    [Dst,Map,Key] = beam_args([Dst0|Args0], St),
+    Fail = ensure_label(Fail0, St),
+    {[{get_map_elements,Fail,Map,{list,[Key,Dst]}}],St};
 cg_block([#cg_set{op=Op,dst=Dst0,args=Args0}=I,
           #cg_set{op=succeeded,dst=Bool}], {Bool,Fail}, St) ->
     [Dst|Args] = beam_args([Dst0|Args0], St),
@@ -1216,6 +1251,28 @@ cg_block([#cg_set{op=copy}|_]=T0, Context, St0) ->
         no ->
             {Is,St}
     end;
+cg_block([#cg_set{op=match_fail,args=Args0,anno=Anno}], none, St) ->
+    Args = beam_args(Args0, St),
+    Is = cg_match_fail(Args, line(Anno), none),
+    {Is,St};
+cg_block([#cg_set{op=match_fail,args=Args0,anno=Anno}|T], Context, St0) ->
+    FcLabel = case Context of
+                  {return,_,none} ->
+                      %% There is no stack frame. If this is a function_clause
+                      %% exception, it is safe to jump to the label of the
+                      %% func_info instruction.
+                      St0#cg.fc_label;
+                  _ ->
+                      %% This is most probably not a function_clause.
+                      %% If this is a function_clause exception
+                      %% (rare), it is not safe to jump to the
+                      %% func_info label.
+                      none
+              end,
+    Args = beam_args(Args0, St0),
+    Is0 = cg_match_fail(Args, line(Anno), FcLabel),
+    {Is1,St} = cg_block(T, Context, St0),
+    {Is0++Is1,St};
 cg_block([#cg_set{op=Op,dst=Dst0,args=Args0}=Set], none, St) ->
     [Dst|Args] = beam_args([Dst0|Args0], St),
     Is = cg_instr(Op, Args, Dst, Set),
@@ -1247,8 +1304,7 @@ cg_copy(T0, St) ->
                            end, T0),
     Moves0 = cg_copy_1(Copies, St),
     Moves1 = [Move || {move,Src,Dst}=Move <- Moves0, Src =/= Dst],
-    Scratch = {x,1022},
-    Moves = order_moves(Moves1, Scratch),
+    Moves = order_moves(Moves1),
     {Moves,T}.
 
 cg_copy_1([#cg_set{dst=Dst0,args=Args}|T], St) ->
@@ -1269,16 +1325,17 @@ cg_copy_1([], _St) -> [].
                           element(1, Val) =:= atom orelse
                           element(1, Val) =:= literal)).
 
+bif_to_test('or', [V1,V2], {f,Lbl}=Fail, St0) when Lbl =/= 0 ->
+    {SuccLabel,St} = new_label(St0),
+    {[{test,is_eq_exact,{f,SuccLabel},[V1,{atom,false}]},
+      {test,is_eq_exact,Fail,[V2,{atom,true}]},
+      {label,SuccLabel}],St};
+bif_to_test(Op, Args, Fail, St) ->
+    {bif_to_test(Op, Args, Fail),St}.
+
 bif_to_test('and', [V1,V2], Fail) ->
     [{test,is_eq_exact,Fail,[V1,{atom,true}]},
      {test,is_eq_exact,Fail,[V2,{atom,true}]}];
-bif_to_test('or', [V1,V2], {f,Lbl}=Fail) when Lbl =/= 0 ->
-    %% Labels are spaced 2 apart. We can create a new
-    %% label by incrementing the Fail label.
-    SuccLabel = Lbl + 1,
-    [{test,is_eq_exact,{f,SuccLabel},[V1,{atom,false}]},
-     {test,is_eq_exact,Fail,[V2,{atom,true}]},
-     {label,SuccLabel}];
 bif_to_test('not', [Var], Fail) ->
     [{test,is_eq_exact,Fail,[Var,{atom,false}]}];
 bif_to_test(Name, Args, Fail) ->
@@ -1448,7 +1505,12 @@ cg_call(#cg_set{anno=Anno,op=call,dst=Dst0,args=[#b_local{}=Func0|Args0]},
     Line = call_line(Where, local, Anno),
     Call = build_call(call, Arity, {f,FuncLbl}, Context, Dst),
     Is = setup_args(Args, Anno, Context, St) ++ Line ++ Call,
-    {Is,St};
+    case Anno of
+        #{ result_type := Info } ->
+            {Is ++ [{'%', {type_info, Dst, Info}}], St};
+        #{} ->
+            {Is, St}
+    end;
 cg_call(#cg_set{anno=Anno0,op=call,dst=Dst0,args=[#b_remote{}=Func0|Args0]},
         Where, Context, St) ->
     [Dst|Args] = beam_args([Dst0|Args0], St),
@@ -1482,6 +1544,42 @@ cg_call(#cg_set{anno=Anno,op=call,dst=Dst0,args=Args0},
     Call = build_call(call_fun, Arity, Func, Context, Dst),
     Is = setup_args(Args++[Func], Anno, Context, St) ++ Line ++ Call,
     {Is,St}.
+
+cg_match_fail([{atom,function_clause}|Args], Line, Fc) ->
+    case Fc of
+        none ->
+            %% There is a stack frame (probably because of inlining).
+            %% Jumping to the func_info label is not allowed by
+            %% beam_validator. Rewrite the instruction as a call to
+            %% erlang:error/2.
+            make_fc(Args, Line);
+        _ ->
+            setup_args(Args) ++ [{jump,{f,Fc}}]
+    end;
+cg_match_fail([{atom,Op}], Line, _Fc) ->
+    [Line,Op];
+cg_match_fail([{atom,Op},Val], Line, _Fc) ->
+    [Line,{Op,Val}].
+
+make_fc(Args, Line) ->
+    %% Recreate the original call to erlang:error/2.
+    Live = foldl(fun({x,X}, A) -> max(X+1, A);
+                    (_, A) -> A
+                 end, 0, Args),
+    TmpReg = {x,Live},
+    StkMoves = build_stk(reverse(Args), TmpReg, nil),
+    [{test_heap,2*length(Args),Live}|StkMoves] ++
+        [{move,{atom,function_clause},{x,0}},
+         Line,
+         {call_ext,2,{extfunc,erlang,error,2}}].
+
+build_stk([V], _TmpReg, Tail) ->
+    [{put_list,V,Tail,{x,1}}];
+build_stk([V|Vs], TmpReg, Tail) ->
+    I = {put_list,V,Tail,TmpReg},
+    [I|build_stk(Vs, TmpReg, TmpReg)];
+build_stk([], _TmpReg, nil) ->
+    [{move,nil,{x,1}}].
 
 build_call(call_fun, Arity, _Func, none, Dst) ->
     [{call_fun,Arity}|copy({x,0}, Dst)];
@@ -1521,15 +1619,15 @@ build_apply(Arity, {return,Val,N}, _Dst) when is_integer(N) ->
 build_apply(Arity, none, Dst) ->
     [{apply,Arity}|copy({x,0}, Dst)].
 
-cg_instr(put_map, [{atom,assoc},SrcMap|Ss], Dst, Set) ->
-    Live = get_live(Set),
-    [{put_map_assoc,{f,0},SrcMap,Dst,Live,{list,Ss}}];
 cg_instr(bs_get_tail, [Src], Dst, Set) ->
     Live = get_live(Set),
     [{bs_get_tail,Src,Dst,Live}];
 cg_instr(bs_get_position, [Ctx], Dst, Set) ->
     Live = get_live(Set),
     [{bs_get_position,Ctx,Dst,Live}];
+cg_instr(put_map, [{atom,assoc},SrcMap|Ss], Dst, Set) ->
+    Live = get_live(Set),
+    [{put_map_assoc,{f,0},SrcMap,Dst,Live,{list,Ss}}];
 cg_instr(Op, Args, Dst, _Set) ->
     cg_instr(Op, Args, Dst).
 
@@ -1600,8 +1698,6 @@ cg_test({float,Op0}, Fail, Args, Dst, #cg_set{anno=Anno}) ->
              '/' -> fdiv
          end,
     [line(Anno),{bif,Op,Fail,Args,Dst}];
-cg_test(get_map_element, Fail, [Map,Key], Dst, _I) ->
-    [{get_map_elements,Fail,Map,{list,[Key,Dst]}}];
 cg_test(peek_message, Fail, [], Dst, _I) ->
     [{loop_rec,Fail,{x,0}}|copy({x,0}, Dst)];
 cg_test(put_map, Fail, [{atom,exact},SrcMap|Ss], Dst, Set) ->
@@ -1701,7 +1797,7 @@ cg_catch(Agg, T0, Context, St0) ->
 
 cg_try(Agg, Tag, T0, Context, St0) ->
     {Moves0,T1} = cg_extract(T0, Agg, St0),
-    Moves = order_moves(Moves0, {x,3}),
+    Moves = order_moves(Moves0),
     [#cg_set{op=kill_try_tag}|T2] = T1,
     {T,St} = cg_block(T2, Context, St0),
     {[{try_case,Tag}|Moves++T],St}.
@@ -1724,6 +1820,14 @@ copy(Src, Dst) -> [{move,Src,Dst}].
 
 force_reg({literal,_}=Lit, Reg) ->
     {Reg,[{move,Lit,Reg}]};
+force_reg({integer,_}=Lit, Reg) ->
+    {Reg,[{move,Lit,Reg}]};
+force_reg({atom,_}=Lit, Reg) ->
+    {Reg,[{move,Lit,Reg}]};
+force_reg({float,_}=Lit, Reg) ->
+    {Reg,[{move,Lit,Reg}]};
+force_reg(nil=Lit, Reg) ->
+    {Reg,[{move,Lit,Reg}]};
 force_reg({Kind,_}=R, _) when Kind =:= x; Kind =:= y ->
     {R,[]}.
 
@@ -1745,7 +1849,7 @@ linearize(Blocks) ->
     Linear = beam_ssa:linearize(Blocks),
     linearize_1(Linear, Blocks).
 
-linearize_1([{?BADARG_BLOCK,_}|Ls], Blocks) ->
+linearize_1([{?EXCEPTION_BLOCK,_}|Ls], Blocks) ->
     linearize_1(Ls, Blocks);
 linearize_1([{L,Block0}|Ls], Blocks) ->
     Block = translate_block(L, Block0, Blocks),
@@ -1849,8 +1953,7 @@ setup_args([]) ->
     [];
 setup_args([_|_]=Args) ->
     Moves = gen_moves(Args, 0, []),
-    Scratch = {x,1+last(sort([length(Args)-1|[X || {x,X} <- Args]]))},
-    order_moves(Moves, Scratch).
+    order_moves(Moves).
 
 %% kill_yregs(Anno, #cg{}) -> [{kill,{y,Y}}].
 %%  Kill Y registers that will not be used again.
@@ -1870,47 +1973,48 @@ gen_moves([A|As], I, Acc) ->
 gen_moves([], _, Acc) ->
     keysort(3, Acc).
 
-%% order_moves([Move], ScratchReg) -> [Move]
+%% order_moves([Move]) -> [Move]
 %%  Orders move instruction so that source registers are not
 %%  destroyed before they are used. If there are cycles
 %%  (such as {move,{x,0},{x,1}}, {move,{x,1},{x,1}}),
-%%  the scratch register is used to break up the cycle.
-%%    If possible, the first move of the input list is placed
+%%  swap instructions will be used to break up the cycle.
+%%
+%%  If possible, the first move of the input list is placed
 %%  last in the result list (to make the move to {x,0} occur
 %%  just before the call to allow the Beam loader to coalesce
 %%  the instructions).
 
-order_moves(Ms, Scr) -> order_moves(Ms, Scr, []).
+order_moves(Ms) -> order_moves(Ms, []).
 
-order_moves([{move,_,_}=M|Ms0], ScrReg, Acc0) ->
-    {Chain,Ms} = collect_chain(Ms0, [M], ScrReg),
+order_moves([{move,_,_}=M|Ms0], Acc0) ->
+    {Chain,Ms} = collect_chain(Ms0, [M]),
     Acc = reverse(Chain, Acc0),
-    order_moves(Ms, ScrReg, Acc);
-order_moves([], _, Acc) -> Acc.
+    order_moves(Ms, Acc);
+order_moves([], Acc) -> Acc.
 
-collect_chain(Ms, Path, ScrReg) ->
-    collect_chain(Ms, Path, [], ScrReg).
+collect_chain(Ms, Path) ->
+    collect_chain(Ms, Path, []).
 
-collect_chain([{move,Src,Same}=M|Ms0], [{move,Same,_}|_]=Path, Others, ScrReg) ->
+collect_chain([{move,Src,Same}=M|Ms0], [{move,Same,_}|_]=Path, Others) ->
     case keymember(Src, 3, Path) of
         false ->
-            collect_chain(reverse(Others, Ms0), [M|Path], [], ScrReg);
+            collect_chain(reverse(Others, Ms0), [M|Path], []);
         true ->
-            %% There is a cycle, which we must break up.
-            {break_up_cycle(M, Path, ScrReg),reverse(Others, Ms0)}
+            %% There is a cycle.
+            {break_up_cycle(M, Path),reverse(Others, Ms0)}
     end;
-collect_chain([M|Ms], Path, Others, ScrReg) ->
-    collect_chain(Ms, Path, [M|Others], ScrReg);
-collect_chain([], Path, Others, _) ->
+collect_chain([M|Ms], Path, Others) ->
+    collect_chain(Ms, Path, [M|Others]);
+collect_chain([], Path, Others) ->
     {Path,Others}.
 
-break_up_cycle({move,Src,_}=M, Path, ScrReg) ->
-    [{move,ScrReg,Src},M|break_up_cycle1(Src, Path, ScrReg)].
+break_up_cycle({move,Src,_Dst}=M, Path) ->
+    break_up_cycle_1(Src, [M|Path], []).
 
-break_up_cycle1(Dst, [{move,Src,Dst}|Path], ScrReg) ->
-    [{move,Src,ScrReg}|Path];
-break_up_cycle1(Dst, [M|Path], LastMove) ->
-    [M|break_up_cycle1(Dst, Path, LastMove)].
+break_up_cycle_1(Dst, [{move,_Src,Dst}|Path], Acc) ->
+    reverse(Acc, Path);
+break_up_cycle_1(Dst, [{move,S,D}|Path], Acc) ->
+    break_up_cycle_1(Dst, Path, [{swap,S,D}|Acc]).
 
 %%%
 %%% General utility functions.
@@ -2017,9 +2121,7 @@ is_gc_bif(Bif, Args) ->
 %% new_label(St) -> {L,St}.
 
 new_label(#cg{lcount=Next}=St) ->
-    %% Advance the label counter by 2 to allow us to create
-    %% a label for 'or' by incrementing an existing label.
-    {Next,St#cg{lcount=Next+2}}.
+    {Next,St#cg{lcount=Next+1}}.
 
 %% call_line(tail|body, Func, Anno) -> [] | [{line,...}].
 %%  Produce a line instruction if it will be needed by the

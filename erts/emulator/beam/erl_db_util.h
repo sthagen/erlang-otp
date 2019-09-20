@@ -21,6 +21,7 @@
 #ifndef _DB_UTIL_H
 #define _DB_UTIL_H
 
+#include "erl_flxctr.h"
 #include "global.h"
 #include "erl_message.h"
 #include "erl_bif_unique.h"
@@ -101,6 +102,14 @@ typedef struct {
     } u;
 } DbUpdateHandle;
 
+/* How safe are we from double-hits or missed objects
+ * when iterating without fixation?
+ */
+enum DbIterSafety {
+    ITER_UNSAFE,      /* Must fixate to be safe */
+    ITER_SAFE_LOCKED, /* Safe while table is locked, not between trap calls */
+    ITER_SAFE         /* No need to fixate at all */
+};
 
 typedef struct db_table_method
 {
@@ -150,48 +159,61 @@ typedef struct db_table_method
 			   Eterm pattern,
 			   Sint chunk_size,
 			   int reverse,
-			   Eterm* ret);
+			   Eterm* ret,
+                           enum DbIterSafety);
     int (*db_select)(Process* p, 
 		     DbTable* tb, /* [in out] */
                      Eterm tid,
 		     Eterm pattern,
 		     int reverse,
-		     Eterm* ret);
+		     Eterm* ret,
+                     enum DbIterSafety);
     int (*db_select_delete)(Process* p, 
 			    DbTable* tb, /* [in out] */
                             Eterm tid,
 			    Eterm pattern,
-			    Eterm* ret);
+			    Eterm* ret,
+                            enum DbIterSafety);
     int (*db_select_continue)(Process* p, 
 			      DbTable* tb, /* [in out] */
 			      Eterm continuation,
-			      Eterm* ret);
+			      Eterm* ret,
+                              enum DbIterSafety*);
     int (*db_select_delete_continue)(Process* p, 
 				     DbTable* tb, /* [in out] */
 				     Eterm continuation,
-				     Eterm* ret);
+				     Eterm* ret,
+                                     enum DbIterSafety*);
     int (*db_select_count)(Process* p, 
 			   DbTable* tb, /* [in out] */
                            Eterm tid,
 			   Eterm pattern, 
-			   Eterm* ret);
+			   Eterm* ret,
+                           enum DbIterSafety);
     int (*db_select_count_continue)(Process* p, 
 				    DbTable* tb, /* [in out] */ 
 				    Eterm continuation, 
-				    Eterm* ret);
+				    Eterm* ret,
+                                    enum DbIterSafety*);
     int (*db_select_replace)(Process* p,
             DbTable* tb, /* [in out] */
             Eterm tid,
             Eterm pattern,
-            Eterm* ret);
+            Eterm* ret,
+            enum DbIterSafety);
     int (*db_select_replace_continue)(Process* p,
             DbTable* tb, /* [in out] */
             Eterm continuation,
-            Eterm* ret);
+            Eterm* ret,
+            enum DbIterSafety*);
     int (*db_take)(Process *, DbTable *, Eterm, Eterm *);
 
-    SWord (*db_delete_all_objects)(Process* p, DbTable* db, SWord reds);
-
+    SWord (*db_delete_all_objects)(Process* p,
+                                   DbTable* db,
+                                   SWord reds,
+                                   Eterm* nitems_holder_wb);
+    Eterm (*db_delete_all_objects_get_nitems_from_holder)(Process* p,
+                                                          Eterm nitems_holder);
     int (*db_free_empty_table)(DbTable* db);
     SWord (*db_free_table_continue)(DbTable* db, SWord reds);
     
@@ -212,6 +234,13 @@ typedef struct db_table_method
     ** dbterm was not updated. If the handle was of a new object and cret is
     ** not DB_ERROR_NONE, the object is removed from the table. */
     void (*db_finalize_dbterm)(int cret, DbUpdateHandle* handle);
+
+    int (*db_get_binary_info)(Process*, DbTable* tb, Eterm key, Eterm* ret);
+
+    /* Raw first/next same as first/next but also return pseudo deleted keys.
+       Only internal use by ets:info(_,binary) */
+    int (*db_raw_first)(Process*, DbTable*, Eterm* ret);
+    int (*db_raw_next)(Process*, DbTable*, Eterm key, Eterm* ret);
 
 } DbTableMethod;
 
@@ -240,6 +269,9 @@ typedef struct {
     DbTable *prev;
 } DbTableList;
 
+#define ERTS_DB_TABLE_NITEMS_COUNTER_ID 0
+#define ERTS_DB_TABLE_MEM_COUNTER_ID 1
+
 /*
  * This structure contains data for all different types of database
  * tables. Note that these fields must match the same fields
@@ -264,8 +296,11 @@ typedef struct db_table_common {
     Eterm the_name;           /* an atom */
     Binary *btid;
     DbTableMethod* meth;      /* table methods */
-    erts_atomic_t nitems; /* Total number of items in table */
-    erts_atomic_t memory_size;/* Total memory size. NOTE: in bytes! */
+    /* The ErtsFlxCtr below contains:
+     * - Total number of items in table
+     * - Total memory size (NOTE: in bytes!) */
+    ErtsFlxCtr counters;
+    char extra_for_flxctr[ERTS_FLXCTR_NR_OF_EXTRA_BYTES(2)];
     struct {                  /* Last fixation time */
 	ErtsMonotonicTime monotonic;
 	ErtsMonotonicTime offset;
@@ -298,6 +333,7 @@ typedef struct db_table_common {
 #define DB_BUSY           (1 << 12)
 
 #define DB_CATREE_FORCE_SPLIT (1 << 31)  /* erts_debug */
+#define DB_CATREE_DEBUG_RANDOM_SPLIT_JOIN (1 << 30)  /* erts_debug */
 
 #define IS_HASH_TABLE(Status) (!!((Status) & \
 				  (DB_BAG | DB_SET | DB_DUPLICATE_BAG)))
@@ -507,6 +543,17 @@ ERTS_GLB_INLINE Eterm erts_db_make_match_prog_ref(Process *p, Binary *mp, Eterm 
 ERTS_GLB_INLINE Binary *erts_db_get_match_prog_binary(Eterm term);
 ERTS_GLB_INLINE Binary *erts_db_get_match_prog_binary_unchecked(Eterm term);
 
+/* @brief Ensure off-heap header is word aligned, make a temporary copy if not.
+ *        Needed when inspecting ETS off-heap lists that may contain unaligned
+ *        ProcBins if table is 'compressed'.
+ */
+struct erts_tmp_aligned_offheap
+{
+    ProcBin proc_bin;
+};
+ERTS_GLB_INLINE void erts_align_offheap(union erl_off_heap_ptr*,
+                                        struct erts_tmp_aligned_offheap* tmp);
+
 #if ERTS_GLB_INLINE_INCL_FUNC_DEF
 
 /*
@@ -537,6 +584,25 @@ erts_db_get_match_prog_binary(Eterm term)
     if (ERTS_MAGIC_BIN_DESTRUCTOR(bp) != erts_db_match_prog_destructor)
 	return NULL;
     return bp;
+}
+
+ERTS_GLB_INLINE void
+erts_align_offheap(union erl_off_heap_ptr* ohp,
+                   struct erts_tmp_aligned_offheap* tmp)
+{
+    if ((UWord)ohp->voidp % sizeof(UWord) != 0) {
+        /*
+         * ETS store word unaligned ProcBins in its compressed format.
+         * Make a temporary aligned copy.
+         *
+         * Warning, must pass (void*)-variable to memcpy. Otherwise it will
+         * cause Bus error on Sparc due to false compile time assumptions
+         * about word aligned memory (type cast is not enough).
+         */
+        sys_memcpy(tmp, ohp->voidp, sizeof(*tmp));
+        ASSERT(tmp->proc_bin.thing_word == HEADER_PROC_BIN);
+        ohp->pb = &tmp->proc_bin;
+    }
 }
 
 #endif

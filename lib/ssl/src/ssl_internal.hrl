@@ -28,14 +28,12 @@
 -define(VSN, "8.2.6").
 -define(SECRET_PRINTOUT, "***").
 
--type reason()            :: term().
--type reply()             :: term().
--type msg()               :: term().
--type from()              :: term().
--type host()		  :: inet:ip_address() | inet:hostname().
--type session_id()        :: 0 | binary().
+-type reason()            :: any().
+-type reply()             :: any().
+-type msg()               :: any().
+-type from()              :: any().
 -type certdb_ref()        :: reference().
--type db_handle()         :: term().
+-type db_handle()         :: any().
 -type der_cert()          :: binary().
 -type issuer()            :: tuple().
 -type serialnumber()      :: integer().
@@ -74,12 +72,13 @@
 
 %% sslv3 is considered insecure due to lack of padding check (Poodle attack)
 %% Keep as interop with legacy software but do not support as default
+%% tlsv1.0 and tlsv1.1 is now also considered legacy
 %% tlsv1.3 is under development (experimental).
 -define(ALL_AVAILABLE_VERSIONS, ['tlsv1.3', 'tlsv1.2', 'tlsv1.1', tlsv1, sslv3]).
 -define(ALL_AVAILABLE_DATAGRAM_VERSIONS, ['dtlsv1.2', dtlsv1]).
 %% Defines the default versions when not specified by an ssl option.
--define(ALL_SUPPORTED_VERSIONS, ['tlsv1.2', 'tlsv1.1', tlsv1]).
--define(MIN_SUPPORTED_VERSIONS, ['tlsv1.1', tlsv1]).
+-define(ALL_SUPPORTED_VERSIONS, ['tlsv1.2']).
+-define(MIN_SUPPORTED_VERSIONS, ['tlsv1.1']).
 
 %% Versions allowed in TLSCiphertext.version (TLS 1.2 and prior) and
 %% TLSCiphertext.legacy_record_version (TLS 1.3).
@@ -88,7 +87,7 @@
 %% Thus, the allowed range is limited to 0x0300 - 0x0303.
 -define(ALL_TLS_RECORD_VERSIONS, ['tlsv1.2', 'tlsv1.1', tlsv1, sslv3]).
 
--define(ALL_DATAGRAM_SUPPORTED_VERSIONS, ['dtlsv1.2', dtlsv1]).
+-define(ALL_DATAGRAM_SUPPORTED_VERSIONS, ['dtlsv1.2']).
 -define(MIN_DATAGRAM_SUPPORTED_VERSIONS, [dtlsv1]).
 
 %% TLS 1.3 - Section 4.1.3
@@ -110,25 +109,26 @@
 -define('24H_in_sec', 86400).
 
 -record(ssl_options, {
-	  protocol    :: tls | dtls,
-	  versions    :: [ssl_record:ssl_version()], %% ssl_record:atom_version() in API
-	  verify      :: verify_none | verify_peer,
+	  protocol    :: tls | dtls | 'undefined',
+	  versions    :: [ssl_record:ssl_version()] | 'undefined', %% ssl_record:atom_version() in API
+	  verify      :: verify_none | verify_peer | 'undefined',
 	  verify_fun,  %%:: fun(CertVerifyErrors::term()) -> boolean(),
-	  partial_chain       :: fun(),
-	  fail_if_no_peer_cert ::  boolean(),
-	  verify_client_once   ::  boolean(),
+	  partial_chain       :: fun() | 'undefined',
+	  fail_if_no_peer_cert ::  boolean() | 'undefined',
+	  verify_client_once   ::  boolean() | 'undefined',
 	  %% fun(Extensions, State, Verify, AccError) ->  {Extensions, State, AccError}
 	  validate_extensions_fun, 
-	  depth                :: integer(),
-	  certfile             :: binary(),
+	  depth                :: integer() | 'undefined',
+	  certfile             :: binary() | 'undefined',
 	  cert                 :: public_key:der_encoded() | secret_printout() | 'undefined',
-	  keyfile              :: binary(),
-	  key	               :: {'RSAPrivateKey' | 'DSAPrivateKey' | 'ECPrivateKey' | 'PrivateKeyInfo', 
-                                   public_key:der_encoded()} | key_map() | secret_printout() | 'undefined',
+	  keyfile              :: binary() | 'undefined',
+	  key	               :: {'RSAPrivateKey' | 'DSAPrivateKey' | 'ECPrivateKey' | 'PrivateKeyInfo' | 'undefined',
+                                   public_key:der_encoded()} | map()  %%map() -> ssl:key() how to handle dialyzer?
+                                | secret_printout() | 'undefined',
 	  password	       :: string() | secret_printout() | 'undefined',
 	  cacerts              :: [public_key:der_encoded()] | secret_printout() | 'undefined',
-	  cacertfile           :: binary(),
-	  dh                   :: public_key:der_encoded() | secret_printout(),
+	  cacertfile           :: binary() | 'undefined',
+	  dh                   :: public_key:der_encoded() | secret_printout() | 'undefined',
 	  dhfile               :: binary() | secret_printout() | 'undefined',
 	  user_lookup_fun,  % server option, fun to lookup the user
 	  psk_identity         :: binary() | secret_printout() | 'undefined',
@@ -137,26 +137,26 @@
 	  %% Local policy for the server if it want's to reuse the session
 	  %% or not. Defaluts to allways returning true.
 	  %% fun(SessionId, PeerCert, Compression, CipherSuite) -> boolean()
-	  reuse_session,  
+	  reuse_session        :: fun() | binary() | undefined, %% Server side is a fun()
 	  %% If false sessions will never be reused, if true they
 	  %% will be reused if possible.
-	  reuse_sessions       :: boolean(),
+	  reuse_sessions       :: boolean() | save | 'undefined',  %% Only client side can use value save
 	  renegotiate_at,
 	  secure_renegotiate,
 	  client_renegotiation,
 	  %% undefined if not hibernating, or number of ms of
 	  %% inactivity after which ssl_connection will go into
 	  %% hibernation
-	  hibernate_after      :: timeout(),          
+	  hibernate_after      :: timeout() | 'undefined',
 	  %% This option should only be set to true by inet_tls_dist
 	  erl_dist = false     :: boolean(),
-          alpn_advertised_protocols = undefined :: [binary()] | undefined ,
+          alpn_advertised_protocols = undefined :: [binary()] | undefined,
           alpn_preferred_protocols = undefined  :: [binary()] | undefined,
 	  next_protocols_advertised = undefined :: [binary()] | undefined,
 	  next_protocol_selector = undefined,  %% fun([binary()]) -> binary())
 	  log_level = notice :: atom(),
 	  server_name_indication = undefined,
-	  sni_hosts  :: [{inet:hostname(), [tuple()]}],
+	  sni_hosts  :: [{inet:hostname(), [tuple()]}] | 'undefined',
 	  sni_fun :: function() | undefined,
 	  %% Should the server prefer its own cipher order over the one provided by
 	  %% the client?
@@ -166,16 +166,18 @@
 	  %%mitigation entirely?
 	  beast_mitigation = one_n_minus_one :: one_n_minus_one | zero_n | disabled,
 	  fallback = false           :: boolean(),
-	  crl_check                  :: boolean() | peer | best_effort, 
+	  crl_check                  :: boolean() | peer | best_effort | 'undefined',
 	  crl_cache,
 	  signature_algs,
 	  signature_algs_cert,
 	  eccs,
 	  supported_groups,  %% RFC 8422, RFC 8446
-	  honor_ecc_order            :: boolean(),
-          max_handshake_size         :: integer(),
+	  honor_ecc_order            :: boolean() | 'undefined',
+          max_handshake_size         :: integer() | 'undefined',
           handshake,
           customize_hostname_check
+    %%                 ,
+      %%    save_session               :: boolean()            
          }).
 
 -record(socket_options,
@@ -196,20 +198,11 @@
 		 connection_cb
 		}).
 
--type key_map()              :: #{algorithm := rsa | dss | ecdsa,
-                                  %% engine and key_id ought to 
-                                  %% be :=, but putting it in
-                                  %% the spec gives dialyzer warning
-                                  %% of correct code!
-                                  engine => crypto:engine_ref(),
-                                  key_id => crypto:key_id(),
-                                  password => crypto:password()
-                                 }.
 -type state_name()           :: hello | abbreviated | certify | cipher | connection.
--type gen_fsm_state_return() :: {next_state, state_name(), term()} |
-				{next_state, state_name(), term(), timeout()} |
-				{stop, term(), term()}.
--type ssl_options()          :: #ssl_options{}.
+-type gen_fsm_state_return() :: {next_state, state_name(), any()} |
+				{next_state, state_name(), any(), timeout()} |
+				{stop, any(), any()}.
+-type ssl_options()          :: map().
 
 -endif. % -ifdef(ssl_internal).
 

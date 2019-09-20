@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -132,8 +132,8 @@ f_recv(SslSocket, Length, Timeout) ->
 f_setopts_pre_nodeup(_SslSocket) ->
     ok.
 
-f_setopts_post_nodeup(_SslSocket) ->
-    ok.
+f_setopts_post_nodeup(SslSocket) ->
+    ssl:setopts(SslSocket, [nodelay()]).
 
 f_getll(DistCtrl) ->
     {ok, DistCtrl}.
@@ -199,7 +199,7 @@ listen(Name) ->
 gen_listen(Driver, Name) ->
     case inet_tcp_dist:gen_listen(Driver, Name) of
         {ok, {Socket, Address, Creation}} ->
-            inet:setopts(Socket, [{packet, 4}]),
+            inet:setopts(Socket, [{packet, 4}, {nodelay, true}]),
             {ok, {Socket, Address#net_address{protocol=tls}, Creation}};
         Other ->
             Other
@@ -481,22 +481,25 @@ allowed_nodes(PeerCert, Allowed, PeerIP, Node, Host) ->
             allowed_nodes(PeerCert, Allowed, PeerIP)
     end.
 
-
-
 setup(Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     gen_setup(inet_tcp, Node, Type, MyNode, LongOrShortNames, SetupTime).
 
 gen_setup(Driver, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     Kernel = self(),
     monitor_pid(
-      spawn_opt(
-        fun() ->
-                do_setup(
-                  Driver, Kernel, Node, Type,
-                  MyNode, LongOrShortNames, SetupTime)
-        end,
-        [link, {priority, max}])).
+      spawn_opt(setup_fun(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime),
+                [link, {priority, max}])).
 
+-spec setup_fun(_,_,_,_,_,_,_) -> fun(() -> no_return()).
+setup_fun(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
+    fun() ->
+            do_setup(
+              Driver, Kernel, Node, Type,
+              MyNode, LongOrShortNames, SetupTime)
+    end.
+
+
+-spec do_setup(_,_,_,_,_,_,_) -> no_return().
 do_setup(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     {Name, Address} = split_node(Driver, Node, LongOrShortNames),
     ErlEpmd = net_kernel:epmd_module(),
@@ -521,13 +524,15 @@ do_setup(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
                trace({getaddr_failed, Driver, Address, Other}))
     end.
 
+-spec do_setup_connect(_,_,_,_,_,_,_,_,_,_) -> no_return().
+
 do_setup_connect(Driver, Kernel, Node, Address, Ip, TcpPort, Version, Type, MyNode, Timer) ->
     Opts =  trace(connect_options(get_ssl_options(client))),
     dist_util:reset_timer(Timer),
     case ssl:connect(
         Address, TcpPort,
         [binary, {active, false}, {packet, 4},
-            Driver:family(), nodelay()] ++ Opts,
+            Driver:family(), {nodelay, true}] ++ Opts,
         net_kernel:connecttime()) of
     {ok, #sslsocket{pid = [_, DistCtrl| _]} = SslSocket} ->
             _ = monitor_pid(DistCtrl),
@@ -565,7 +570,7 @@ gen_close(Driver, Socket) ->
 %% Determine if EPMD module supports address resolving. Default
 %% is to use inet_tcp:getaddr/2.
 %% ------------------------------------------------------------
-get_address_resolver(EpmdModule, Driver) ->
+get_address_resolver(EpmdModule, _Driver) ->
     case erlang:function_exported(EpmdModule, address_please, 3) of
         true -> {EpmdModule, address_please};
         _    -> {erl_epmd, address_please}

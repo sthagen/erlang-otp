@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1997-2018. All Rights Reserved.
+ * Copyright Ericsson AB 1997-2019. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -574,7 +574,7 @@ static int my_strncasecmp(const char *s1, const char *s2, size_t n)
                                     driver_select(port, e, mode | (on?ERL_DRV_USE:0), on)
 
 #define sock_select(d, flags, onoff) do { \
-        ASSERT(!(d)->is_ignored); \
+        ASSERT(!INET_IGNORED(d));         \
         (d)->event_mask = (onoff) ? \
                  ((d)->event_mask | (flags)) : \
                  ((d)->event_mask & ~(flags)); \
@@ -898,6 +898,15 @@ static size_t my_strnlen(const char *s, size_t maxlen)
 #define INET_CMSG_RECVTCLASS     (1 << 1) /* am_recvtclass, am_tclass */
 #define INET_CMSG_RECVTTL        (1 << 2) /* am_recvttl, am_ttl */
 
+/* Inet flags */
+#define INET_FLG_BUFFER_SET      (1 << 0) /* am_buffer has been set by user */
+#define INET_FLG_IS_IGNORED      (1 << 1) /* If a fd is ignored by the inet_drv.
+                                             This flag should be set to true when
+                                             the fd is used outside of inet_drv. */
+#define INET_FLG_IS_IGNORED_RD   (1 << 2)
+#define INET_FLG_IS_IGNORED_WR   (1 << 3)
+#define INET_FLG_IS_IGNORED_PASS (1 << 4)
+
 /*
 ** End of interface constants.
 **--------------------------------------------------------------------------*/
@@ -943,10 +952,11 @@ static size_t my_strnlen(const char *s, size_t maxlen)
 #define INET_IFNAMSIZ          16
 
 /* INET Ignore states */
-#define INET_IGNORE_NONE    0
-#define INET_IGNORE_READ    (1 << 0)
-#define INET_IGNORE_WRITE   (1 << 1)
-#define INET_IGNORE_PASSIVE (1 << 2)
+#define INET_IGNORE_CLEAR(desc) ((desc)->flags & ~(INET_IGNORE_READ|INET_IGNORE_WRITE|INET_IGNORE_PASSIVE))
+#define INET_IGNORED(desc)   ((desc)->flags & INET_FLG_IS_IGNORED)
+#define INET_IGNORE_READ    (INET_FLG_IS_IGNORED|INET_FLG_IS_IGNORED_RD)
+#define INET_IGNORE_WRITE   (INET_FLG_IS_IGNORED|INET_FLG_IS_IGNORED_WR)
+#define INET_IGNORE_PASSIVE (INET_FLG_IS_IGNORED|INET_FLG_IS_IGNORED_PASS)
 
 /* Max length of Erlang Term Buffer (for outputting structured terms):  */
 #ifdef  HAVE_SCTP
@@ -1067,6 +1077,7 @@ typedef struct {
     long forced_events;           /* Mask of events that are forcefully signalled 
 				   on windows see winsock_event_select 
 				   for details */
+    int err;                      /* Keeps error code for closed socket */
     int send_would_block;       /* Last send attempt failed with "WOULDBLOCK" */
 #endif
     ErlDrvPort  port;           /* the port identifier */
@@ -1128,9 +1139,7 @@ typedef struct {
     double send_avg;            /* average packet size sent */
 
     subs_list empty_out_q_subs; /* Empty out queue subscribers */
-    int is_ignored;             /* if a fd is ignored by the inet_drv.
-				   This flag should be set to true when
-				   the fd is used outside of inet_drv. */
+    int flags;
 #ifdef HAVE_SETNS
     char *netns;                /* Socket network namespace name
 				   as full file path */
@@ -3371,6 +3380,71 @@ static int udp_parse_ancillary_data(ErlDrvTermData *spec, int i,
     i = LOAD_NIL(spec, i);
     return LOAD_LIST(spec, i, n+1);
 }
+
+static int compile_ancillary_data(struct msghdr *mhdr,
+                                  char *ptr, ErlDrvSizeT anc_len) {
+    struct cmsghdr *cmsg;
+    size_t controllen = 0;
+    cmsg = CMSG_FIRSTHDR(mhdr);
+    for (;;) {
+        if (anc_len == 0) {
+            /* End of options to compile */
+            mhdr->msg_controllen = controllen;
+            return 0;
+        }
+        if (cmsg == NULL) {
+            /* End of destination before end of options */
+            return 1;
+        }
+
+#define COMPILE_ANCILLARY_DATA_ITEM(Level, Opt, Type, Get, Size)        \
+        do {                                                            \
+            if (anc_len < (Size)) return 1;                             \
+            sys_memset(cmsg, '\0', CMSG_SPACE(sizeof(Type)));           \
+            cmsg->cmsg_level = Level;                                   \
+            cmsg->cmsg_type = Opt;                                      \
+            cmsg->cmsg_len = CMSG_LEN(sizeof(Type));                    \
+            *((Type *) CMSG_DATA(cmsg)) = Get(ptr);                     \
+            controllen += CMSG_SPACE(sizeof(Type));                     \
+            cmsg = CMSG_NXTHDR(mhdr, cmsg);                             \
+            ptr += 4;                                                   \
+            anc_len -= 4;                                               \
+        } while (0)
+#define SIZEOF_ANCILLARY_DATA (2 * CMSG_SPACE(sizeof(int)))
+        /* (IP_TOS | IPV6_TCLASS) + IP_TTL */
+
+        switch (anc_len--, *ptr++) {
+        case INET_OPT_TOS: {
+#if defined(IPPROTO_IP) && defined(IP_TOS)
+            COMPILE_ANCILLARY_DATA_ITEM(IPPROTO_IP, IP_TOS, int, get_int32, 4);
+#else
+            return 1; /* Socket option not implemented */
+#endif
+            break;
+        }
+        case INET_OPT_TTL: {
+#if defined(IPPROTO_IP) && defined(IP_TTL)
+            COMPILE_ANCILLARY_DATA_ITEM(IPPROTO_IP, IP_TTL, int, get_int32, 4);
+#else
+            return 1; /* Socket option not implemented */
+#endif
+            break;
+        }
+        case INET_OPT_TCLASS: {
+#if defined(IPPROTO_IPV6) && defined(IPV6_TCLASS)
+            COMPILE_ANCILLARY_DATA_ITEM(IPPROTO_IPV6, IPV6_TCLASS, int, get_int32, 4);
+#else
+            return 1; /* Socket option not implemented */
+#endif
+            break;
+        }
+        default:
+            /* Unknow socket option */
+            return 1;
+        }
+#undef COMPILE_ANCILLARY_DATA_ITEM
+    }
+}
 #endif /* ifndef __WIN32__ */
 
 /* 
@@ -4551,7 +4625,7 @@ static void desc_close(inet_descriptor* desc)
 	 * We should close the fd here, but the other driver might still
 	 * be selecting on it.
 	 */
-	if (!desc->is_ignored)
+	if (!INET_IGNORED(desc))
 	    driver_select(desc->port,(ErlDrvEvent)(long)desc->event, 
 			  ERL_DRV_USE, 0);
 	else
@@ -6312,6 +6386,7 @@ static int inet_set_opts(inet_descriptor* desc, char* ptr, int len)
 		    (long)desc->port, desc->s, ival));
 	    if (ival < INET_MIN_BUFFER) ival = INET_MIN_BUFFER;
 	    desc->bufsz = ival;
+            desc->flags |= INET_FLG_BUFFER_SET;
 	    continue;
 
 	case INET_LOPT_ACTIVE:
@@ -6507,6 +6582,16 @@ static int inet_set_opts(inet_descriptor* desc, char* ptr, int len)
 	case INET_OPT_RCVBUF:    type = SO_RCVBUF; 
 	    DEBUGF(("inet_set_opts(%ld): s=%d, SO_RCVBUF=%d\r\n",
 		    (long)desc->port, desc->s, ival));
+            if (!(desc->flags & INET_FLG_BUFFER_SET)) {
+                /* make sure we have desc->bufsz >= SO_RCVBUF */
+                if (ival > (1 << 16) && desc->stype == SOCK_DGRAM && !IS_SCTP(desc))
+                    /* For UDP we don't want to automatically
+                       set the buffer size to be larger than
+                       the theoretical max MTU */
+                    desc->bufsz = 1 << 16;
+                else if (ival > desc->bufsz)
+                    desc->bufsz = ival;
+            }
 	    break;
 	case INET_OPT_LINGER:    type = SO_LINGER; 
 	    if (len < 4)
@@ -6752,23 +6837,17 @@ static int inet_set_opts(inet_descriptor* desc, char* ptr, int len)
 	}
 	DEBUGF(("inet_set_opts(%ld): s=%d returned %d\r\n",
 		(long)desc->port, desc->s, res));
-	if (type == SO_RCVBUF) {
-	    /* make sure we have desc->bufsz >= SO_RCVBUF */
-            if (ival > (1 << 16) && desc->stype == SOCK_DGRAM && !IS_SCTP(desc))
-                /* For UDP we don't want to automatically
-                   set the buffer size to be larger than
-                   the theoretical max MTU */
-                desc->bufsz = 1 << 16;
-	    else if (ival > desc->bufsz)
-		desc->bufsz = ival;
-	}
     }
 
     if ( ((desc->stype == SOCK_STREAM) && IS_CONNECTED(desc)) ||
 	((desc->stype == SOCK_DGRAM) && IS_OPEN(desc))) {
 
-	if (desc->active != old_active)
+	if (desc->active != old_active) {
+            /* Need to cancel the read_packet timer if we go from active to passive. */
+            if (desc->active == INET_PASSIVE && desc->stype == SOCK_DGRAM)
+                driver_cancel_timer(desc->port);
 	    sock_select(desc, (FD_READ|FD_CLOSE), (desc->active>0));
+        }
 
 	/* XXX: UDP sockets could also trigger immediate read here NIY */
 	if ((desc->stype==SOCK_STREAM) && desc->active) {
@@ -6910,6 +6989,7 @@ static int sctp_set_opts(inet_descriptor* desc, char* ptr, int len)
 
 	    if (desc->bufsz < INET_MIN_BUFFER)
 		desc->bufsz = INET_MIN_BUFFER;
+            desc->flags |= INET_FLG_BUFFER_SET;
 	    res = 0;	  /* This does not affect the kernel buffer size */
 	    continue;
 
@@ -7031,6 +7111,7 @@ static int sctp_set_opts(inet_descriptor* desc, char* ptr, int len)
 	       smaller than the kernel one: */
 	    if (desc->bufsz <= arg.ival)
 		desc->bufsz  = arg.ival;
+            desc->flags |= INET_FLG_BUFFER_SET;
 	    break;
 	}
 	case INET_OPT_SNDBUF:
@@ -7041,10 +7122,6 @@ static int sctp_set_opts(inet_descriptor* desc, char* ptr, int len)
 	    arg_ptr = (char*) (&arg.ival);
 	    arg_sz  = sizeof  ( arg.ival);
 
-	    /* Adjust the size of the user-level recv buffer, so it's not
-	       smaller than the kernel one: */
-	    if (desc->bufsz <= arg.ival)
-		desc->bufsz  = arg.ival;
 	    break;
 	}
 	case INET_OPT_REUSEADDR:
@@ -9052,6 +9129,7 @@ static ErlDrvData inet_start(ErlDrvPort port, int size, int protocol)
     desc->event_mask = 0;
 #ifdef __WIN32__
     desc->forced_events = 0;
+    desc->err = 0;
     desc->send_would_block = 0;
 #endif
     desc->port = port;
@@ -9101,7 +9179,7 @@ static ErlDrvData inet_start(ErlDrvPort port, int size, int protocol)
 
     sys_memzero((char *)&desc->remote,sizeof(desc->remote));
 
-    desc->is_ignored = 0;
+    desc->flags = 0;
 
 #ifdef HAVE_SETNS
     desc->netns = NULL;
@@ -9503,19 +9581,19 @@ static ErlDrvSSizeT inet_ctl(inet_descriptor* desc, int cmd, char* buf,
       if (desc->stype != SOCK_STREAM)
 	  return ctl_error(EINVAL, rbuf, rsize);
 
-      if (*buf == 1 && !desc->is_ignored) {
+      if (*buf == 1 && !INET_IGNORED(desc)) {
 	  sock_select(desc, (FD_READ|FD_WRITE|FD_CLOSE|ERL_DRV_USE_NO_CALLBACK), 0);
 	  if (desc->active)
-	    desc->is_ignored = INET_IGNORE_READ;
+	    desc->flags |= INET_IGNORE_READ;
 	  else
-	    desc->is_ignored = INET_IGNORE_PASSIVE;
-      } else if (*buf == 0 && desc->is_ignored) {
+	    desc->flags |= INET_IGNORE_PASSIVE;
+      } else if (*buf == 0 && INET_IGNORED(desc)) {
 	  int flags = FD_CLOSE;
-	  if (desc->is_ignored & INET_IGNORE_READ)
+	  if (desc->flags & INET_IGNORE_READ)
 	    flags |= FD_READ;
-	  if (desc->is_ignored & INET_IGNORE_WRITE)
+	  if (desc->flags & INET_IGNORE_WRITE)
 	    flags |= FD_WRITE;
-	  desc->is_ignored = INET_IGNORE_NONE;
+	  desc->flags = INET_IGNORE_CLEAR(desc);
 	  if (flags != FD_CLOSE)
 	    sock_select(desc, flags, 1);
       } else
@@ -9835,10 +9913,8 @@ static tcp_descriptor* tcp_inet_copy(tcp_descriptor* desc,SOCKET s,
     copy_desc->send_timeout  = desc->send_timeout;
     copy_desc->send_timeout_close = desc->send_timeout_close;
 
-    if (desc->tcp_add_flags & TCP_ADDF_SHOW_ECONNRESET)
-	copy_desc->tcp_add_flags |= TCP_ADDF_SHOW_ECONNRESET;
-    else
-	copy_desc->tcp_add_flags &= ~TCP_ADDF_SHOW_ECONNRESET;
+    copy_desc->tcp_add_flags = desc->tcp_add_flags
+        & (TCP_ADDF_SHOW_ECONNRESET | TCP_ADDF_LINGER_ZERO);
     
     /* The new port will be linked and connected to the original caller */
     port = driver_create_port(port, owner, "tcp_inet", (ErlDrvData) copy_desc);
@@ -9955,6 +10031,7 @@ static ErlDrvSSizeT tcp_inet_ctl(ErlDrvData e, unsigned int cmd,
 {
     tcp_descriptor* desc = (tcp_descriptor*)e;
 
+    cmd -= ERTS_INET_DRV_CONTROL_MAGIC_NUMBER;
     switch(cmd) {
     case INET_REQ_OPEN: { /* open socket and return internal index */
 	int domain;
@@ -10230,17 +10307,17 @@ static ErlDrvSSizeT tcp_inet_ctl(ErlDrvData e, unsigned int cmd,
 	if (enq_async(INETP(desc), tbuf, TCP_REQ_RECV) < 0)
 	    return ctl_error(EALREADY, rbuf, rsize);
 
-	if (INETP(desc)->is_ignored || tcp_recv(desc, n) == 0) {
+	if (INET_IGNORED(INETP(desc)) || tcp_recv(desc, n) == 0) {
 	    if (timeout == 0)
 		async_error_am(INETP(desc), am_timeout);
 	    else {
 		if (timeout != INET_INFINITY)
                     add_multi_timer(desc, INETP(desc)->port, 0,
                                     timeout, &tcp_inet_recv_timeout);
-		if (!INETP(desc)->is_ignored)
+		if (!INET_IGNORED(INETP(desc)))
 		    sock_select(INETP(desc),(FD_READ|FD_CLOSE),1);
 		else
-		  INETP(desc)->is_ignored |= INET_IGNORE_READ;
+		  INETP(desc)->flags |= INET_IGNORE_READ;
 	    }
 	}
 	return ctl_reply(INET_REP_OK, tbuf, 2, rbuf, rsize);
@@ -10902,7 +10979,7 @@ static int winsock_event_select(inet_descriptor *desc, int flags, int on)
 {
     int save_event_mask = desc->event_mask;
     
-    desc->forced_events = 0;
+    desc->forced_events &= FD_CLOSE;
     if (on) 
 	desc->event_mask |= flags;
     else
@@ -10954,7 +11031,7 @@ static int winsock_event_select(inet_descriptor *desc, int flags, int on)
 		TIMEVAL tmo = {0,0};
 		FD_SET fds;
 		int ret;
-		
+
 		FD_ZERO(&fds);
 		FD_SET(desc->s,&fds);
 		do_force = (select(desc->s+1,0,&fds,0,&tmo) > 0);
@@ -10971,7 +11048,7 @@ static int winsock_event_select(inet_descriptor *desc, int flags, int on)
 	    FD_SET fds;
 	    int ret;
 	    unsigned long arg;
-	  
+
 	    FD_ZERO(&fds);
 	    FD_SET(desc->s,&fds);
 	    ret = select(desc->s+1,&fds,0,0,&tmo);
@@ -11010,12 +11087,15 @@ static void tcp_inet_event(ErlDrvData e, ErlDrvEvent event)
 	goto error;
     }
 
-    DEBUGF((" => event=%02X, mask=%02X\r\n",
-	    netEv.lNetworkEvents, desc->inet.event_mask));
+    DEBUGF((" => event=%02X, mask=%02X, forced=%02X\r\n",
+	    netEv.lNetworkEvents, desc->inet.event_mask,
+            desc->inet.forced_events));
 
     /* Add the forced events. */
-
     netEv.lNetworkEvents |= desc->inet.forced_events;
+
+    if (desc->inet.forced_events & FD_CLOSE)
+        netEv.iErrorCode[FD_CLOSE_BIT] = desc->inet.err;
 
     /*
      * Calling WSAEventSelect() with a mask of 0 doesn't always turn off
@@ -11036,16 +11116,29 @@ static void tcp_inet_event(ErlDrvData e, ErlDrvEvent event)
 	    goto error;
 	}
 	if (netEv.lNetworkEvents & FD_CLOSE) {
-	    /*
+
+            /* We may not get any more FD_CLOSE events so we
+               keep this event and always signal it from
+               this moment on. */
+            if ((desc->inet.forced_events & FD_CLOSE) == 0) {
+                desc->inet.forced_events |= FD_CLOSE;
+                desc->inet.err = netEv.iErrorCode[FD_CLOSE_BIT];
+            }
+
+            /*
 	     * We must loop to read out the remaining packets (if any).
 	     */
 	    for (;;) {
-		DEBUGF(("Retrying read due to closed port\r\n"));
-		/* XXX The buffer will be thrown away on error (empty que).
-		   Possible SMP FIXME. */
-		if (!desc->inet.active && (desc->inet.opt) == NULL) {
-		    goto error;
-		}
+
+                /* if passive and no subscribers, break loop */
+                if (!desc->inet.active && desc->inet.opt == NULL) {
+                    /* do not trigger close event when socket is
+                       transitioned to passive */
+                    netEv.lNetworkEvents &= ~FD_CLOSE;
+                    break;
+                }
+
+		DEBUGF(("Retrying read due to FD_CLOSE\r\n"));
 		if (tcp_inet_input(desc, event) < 0) {
 		    goto error;
 		}
@@ -11107,7 +11200,7 @@ static int tcp_inet_input(tcp_descriptor* desc, HANDLE event)
 #ifdef DEBUG
     long port = (long) desc->inet.port;  /* Used after driver_exit() */
 #endif
-    ASSERT(!INETP(desc)->is_ignored);
+    ASSERT(!INET_IGNORED(INETP(desc)));
     DEBUGF(("tcp_inet_input(%ld) {s=%d\r\n", port, desc->inet.s));
     /* XXX fprintf(stderr,"tcp_inet_input(%ld) {s=%d}\r\n",(long) desc->inet.port, desc->inet.s); */
     if (desc->inet.state == INET_STATE_ACCEPTING) {
@@ -11374,7 +11467,7 @@ static int tcp_shutdown_error(tcp_descriptor* desc, int err)
 static void tcp_inet_delay_send(ErlDrvData data, ErlDrvTermData dummy)
 {
     tcp_descriptor *desc = (tcp_descriptor*)data;
-    (void)tcp_inet_output(desc, INETP(desc)->s);
+    (void)tcp_inet_output(desc, (HANDLE) INETP(desc)->s);
 }
 
 /*
@@ -11442,8 +11535,8 @@ static int tcp_sendv(tcp_descriptor* desc, ErlIOVec* ev)
 	DEBUGF(("tcp_sendv(%ld): s=%d, about to send "LLU","LLU" bytes\r\n",
 		(long)desc->inet.port, desc->inet.s, (llu_t)h_len, (llu_t)len));
 
-	if (INETP(desc)->is_ignored) {
-	    INETP(desc)->is_ignored |= INET_IGNORE_WRITE;
+	if (INET_IGNORED(INETP(desc))) {
+	    INETP(desc)->flags |= INET_IGNORE_WRITE;
 	    n = 0;
 	} else if (desc->tcp_add_flags & TCP_ADDF_DELAY_SEND) {
             driver_enqv(ix, ev, 0);
@@ -11478,7 +11571,7 @@ static int tcp_sendv(tcp_descriptor* desc, ErlIOVec* ev)
 	DEBUGF(("tcp_sendv(%ld): s=%d, Send failed, queuing\r\n", 
 		(long)desc->inet.port, desc->inet.s));
 	driver_enqv(ix, ev, n); 
-	if (!INETP(desc)->is_ignored)
+	if (!INET_IGNORED(INETP(desc)))
 	    sock_select(INETP(desc),(FD_WRITE|FD_CLOSE), 1);
     }
     return 0;
@@ -11547,8 +11640,8 @@ static int tcp_send(tcp_descriptor* desc, char* ptr, ErlDrvSizeT len)
 
 	DEBUGF(("tcp_send(%ld): s=%d, about to send "LLU","LLU" bytes\r\n",
 		(long)desc->inet.port, desc->inet.s, (llu_t)h_len, (llu_t)len));
-	if (INETP(desc)->is_ignored) {
-	    INETP(desc)->is_ignored |= INET_IGNORE_WRITE;
+	if (INET_IGNORED(INETP(desc))) {
+	    INETP(desc)->flags |= INET_IGNORE_WRITE;
 	    n = 0;
 	} else if (desc->tcp_add_flags & TCP_ADDF_DELAY_SEND) {
 	    sock_send(desc->inet.s, buf, 0, 0);
@@ -11581,7 +11674,7 @@ static int tcp_send(tcp_descriptor* desc, char* ptr, ErlDrvSizeT len)
 	    n -= h_len;
 	    driver_enq(ix, ptr+n, len-n);
 	}
-	if (!INETP(desc)->is_ignored)
+	if (!INET_IGNORED(INETP(desc)))
 	    sock_select(INETP(desc),(FD_WRITE|FD_CLOSE), 1);
     }
     return 0;
@@ -11862,7 +11955,7 @@ static int tcp_inet_output(tcp_descriptor* desc, HANDLE event)
     int ret = 0;
     ErlDrvPort ix = desc->inet.port;
 
-    ASSERT(!INETP(desc)->is_ignored);
+    ASSERT(!INET_IGNORED(INETP(desc)));
     DEBUGF(("tcp_inet_output(%ld) {s=%d\r\n", 
 	    (long)desc->inet.port, desc->inet.s));
     if (desc->inet.state == INET_STATE_CONNECTING) {
@@ -12184,6 +12277,7 @@ static ErlDrvSSizeT packet_inet_ctl(ErlDrvData e, unsigned int cmd, char* buf,
     int type = SOCK_DGRAM;
     int af = AF_INET;
 
+    cmd -= ERTS_INET_DRV_CONTROL_MAGIC_NUMBER;
     switch(cmd) {
     case INET_REQ_OPEN:   /* open socket and return internal index */
 	DEBUGF(("packet_inet_ctl(%ld): OPEN\r\n", (long)desc->port)); 
@@ -12536,9 +12630,12 @@ static void packet_inet_timeout(ErlDrvData e)
 {
     udp_descriptor  * udesc = (udp_descriptor*) e;
     inet_descriptor * desc  = INETP(udesc);
-    if (!(desc->active))
+    if (!(desc->active)) {
 	sock_select(desc, FD_READ, 0);
-    async_error_am (desc, am_timeout);
+        async_error_am (desc, am_timeout);
+    } else {
+        (void)packet_inet_input(udesc, (HANDLE) desc->s);
+    }
 }
 
 
@@ -12581,11 +12678,8 @@ static void packet_inet_command(ErlDrvData e, char* buf, ErlDrvSizeT len)
 	    char ancd[CMSG_SPACE(sizeof(*sri))];
 	} cmsg;
 	
-	if (len < SCTP_GET_SENDPARAMS_LEN) {
-	    inet_reply_error(desc, EINVAL);
-	    return;
-	}
-	
+	if (len < SCTP_GET_SENDPARAMS_LEN) goto return_einval;
+
 	/* The ancillary data */
 	sri = (struct sctp_sndrcvinfo *) (CMSG_DATA(&cmsg.hdr));
 	/* Get the "sndrcvinfo" from the buffer, advancing the "ptr": */
@@ -12618,28 +12712,82 @@ static void packet_inet_command(ErlDrvData e, char* buf, ErlDrvSizeT len)
 	goto check_result_code;
     }
 #endif
-    /* UDP socket. Even if it is connected, there is an address prefix
-       here -- ignored for connected sockets: */
-    sz = len;
-    qtr = ptr;
-    xerror = inet_set_faddress(desc->sfamily, &other, &qtr, &sz);
-    if (xerror != NULL) {
-        inet_reply_error_am(desc, driver_mk_atom(xerror));
-	return;
-    }
-    len -= (qtr - ptr);
-    ptr = qtr;
-    /* Now "ptr" is the user data ptr, "len" is data length: */
-    inet_output_count(desc, len);
-    
-    if (desc->state & INET_F_ACTIVE) { /* connected (ignore address) */
-	code = sock_send(desc->s, ptr, len, 0);
-    }
-    else {
-	code = sock_sendto(desc->s, ptr, len, 0, &other.sa, sz);
+    {
+        ErlDrvSizeT anc_len;
+        
+        /* UDP socket. Even if it is connected, there is an address prefix
+           here -- ignored for connected sockets: */
+        sz = len;
+        qtr = ptr;
+        xerror = inet_set_faddress(desc->sfamily, &other, &qtr, &sz);
+        if (xerror != NULL) {
+            inet_reply_error_am(desc, driver_mk_atom(xerror));
+            return;
+        }
+        len -= (qtr - ptr);
+        ptr = qtr;
+
+        /* Here comes ancillary data */
+        if (len < 4) goto return_einval;
+        anc_len = get_int32(ptr);
+        len -= 4; ptr += 4;
+        if (len < anc_len) goto return_einval;
+
+        if (anc_len == 0) {
+            /* Empty ancillary data */
+            /* Now "ptr" is the user data ptr, "len" is data length: */
+            inet_output_count(desc, len);
+            if (desc->state & INET_F_ACTIVE) {
+                /* connected (ignore address) */
+                code = sock_send(desc->s, ptr, len, 0);
+            }
+            else {
+                code = sock_sendto(desc->s, ptr, len, 0, &other.sa, sz);
+            }
+        }
+        else {
+#ifdef __WIN32__
+            goto return_einval; /* Can not send ancillary data on Windows */
+#else
+            struct iovec iov[1];
+            struct msghdr mhdr;
+            union { /* For ancillary data         */
+                struct cmsghdr hdr;
+                char ancd[SIZEOF_ANCILLARY_DATA];
+            } cmsg;
+            sys_memset(&iov, '\0', sizeof(iov));
+            sys_memset(&mhdr, '\0', sizeof(mhdr));
+            sys_memset(&cmsg, '\0', sizeof(cmsg));
+            if (desc->state & INET_F_ACTIVE) {
+                /* connected (ignore address) */
+                mhdr.msg_name = NULL;
+                mhdr.msg_namelen = 0;
+            }
+            else {
+                mhdr.msg_name = &other;
+                mhdr.msg_namelen = sz;
+            }
+            mhdr.msg_control = cmsg.ancd;
+            mhdr.msg_controllen = sizeof(cmsg.ancd);
+            if (compile_ancillary_data(&mhdr, ptr, anc_len) != 0) {
+                goto return_einval;
+            }
+            ASSERT(mhdr.msg_controllen != 0);
+            len -= anc_len;
+            ptr += anc_len;
+            /* Now "ptr" is the user data ptr, "len" is data length: */
+            iov[0].iov_len = len;
+            iov[0].iov_base = ptr;
+            mhdr.msg_iov = iov;
+            mhdr.msg_iovlen = 1;
+            mhdr.msg_flags = 0;
+            inet_output_count(desc, len);
+            code = sock_sendmsg(desc->s, &mhdr, 0);
+#endif
+        }
     }
 
-#ifdef HAVE_SCTP    
+#ifdef HAVE_SCTP
  check_result_code:
     /* "code" analysis is the same for both SCTP and UDP cases above: */
 #endif
@@ -12649,8 +12797,15 @@ static void packet_inet_command(ErlDrvData e, char* buf, ErlDrvSizeT len)
     }
     else
 	inet_reply_ok(desc);
+    return;
+    
+ return_einval:
+    inet_reply_error(desc, EINVAL);
+    return;
 }
-#endif
+
+#endif /* HAVE_UDP */
+
 
 #ifdef __WIN32__
 static void packet_inet_event(ErlDrvData e, ErlDrvEvent event)
@@ -12894,6 +13049,15 @@ static int packet_inet_input(udp_descriptor* udesc, HANDLE event)
 	sock_select(desc, FD_READ, 1);
     }
 #endif
+
+    /* We set a timer on the port to trigger now.
+       This emulates a "yield" operation as that is
+       what we want to do here. We do *NOT* do a deselect
+       as that is expensive, instead we check if the
+       socket it still active when the timeout triggers
+       and if it is not, then we just ignore the timeout */
+    driver_set_timer(desc->port, 0);
+
     return count;
 }
 
@@ -12960,38 +13124,40 @@ make_noninheritable_handle(SOCKET s)
 static void fire_multi_timers(tcp_descriptor *desc, ErlDrvPort port,
 			      ErlDrvData data)
 {
-    ErlDrvTime next_timeout;
-    MultiTimerData *curr = desc->mtd;
-    if (!curr) {
-	ASSERT(0);
-	return;
+    ErlDrvTime next_timeout = 0;
+    if (!desc->mtd) {
+        ASSERT(0);
+        return;
     }
 #ifdef DEBUG
     {
 	ErlDrvTime chk = erl_drv_monotonic_time(ERL_DRV_MSEC);
-	ASSERT(chk >= curr->when);
+	ASSERT(chk >= desc->mtd->when);
     }
 #endif
     do {
-	MultiTimerData *save = curr;
+	MultiTimerData save = *desc->mtd;
 
-	(*(save->timeout_function))(data,save->caller);
+        /* We first remove the timer so that the timeout_functions has
+           can call clean_multi_timers without breaking anything */
+        if (desc->mtd_cache == NULL) {
+            desc->mtd_cache = desc->mtd;
+        } else {
+            FREE(desc->mtd);
+        }
 
-        curr = curr->next;
+        desc->mtd = save.next;
+        if (desc->mtd != NULL)
+            desc->mtd->prev = NULL;
 
-        if (desc->mtd_cache == NULL)
-            desc->mtd_cache = save;
-        else
-            FREE(save);
+	(*(save.timeout_function))(data,save.caller);
 
-	if (curr == NULL) {
-            desc->mtd = NULL;
+        if (desc->mtd == NULL)
 	    return;
-	}
-	curr->prev = NULL;
-	next_timeout = curr->when - erl_drv_monotonic_time(ERL_DRV_MSEC);
+
+	next_timeout = desc->mtd->when - erl_drv_monotonic_time(ERL_DRV_MSEC);
     } while (next_timeout <= 0);
-    desc->mtd = curr;
+
     driver_set_timer(port, (unsigned long) next_timeout);
 }
 

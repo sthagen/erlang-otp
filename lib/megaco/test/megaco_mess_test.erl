@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1999-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2019. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -281,6 +281,8 @@
 
 -define(VERSION, 1).
 
+-define(USER_MOD, megaco_mess_user_test).
+
 -define(TEST_VERBOSITY, debug).
 -define(MGC_VERBOSITY,  debug).
 -define(MG_VERBOSITY,   debug).
@@ -303,26 +305,48 @@
 -define(MG_NOTIF_RAR(Pid), megaco_test_mg:notify_request_and_reply(Pid)).
 
 -define(SEND(Expr), 
-	?VERIFY(ok, megaco_mess_user_test:apply_proxy(fun() -> Expr end))).
+	?VERIFY(ok, ?USER_MOD:apply_proxy(fun() -> Expr end))).
 
 -define(USER(Expected, Reply),
-	megaco_mess_user_test:reply(?MODULE,
-				    ?LINE,
-				    fun(Actual) ->
-				       case ?VERIFY(Expected, Actual) of
-					   Expected   -> {ok, Reply};
-					   UnExpected -> {error, {reply_verify,
-								  ?MODULE,
-								  ?LINE,
-								  UnExpected}}
-				       end
-				    end)).
-	
-%% t()     -> megaco_test_lib:t(?MODULE).
-%% t(Case) -> megaco_test_lib:t({?MODULE, Case}).
+	?USER_MOD:reply(?MODULE,
+                        ?LINE,
+                        fun(Actual) ->
+                                case ?VERIFY(Expected, Actual) of
+                                    Expected   -> {ok, Reply};
+                                    UnExpected -> {error, {reply_verify,
+                                                           ?MODULE,
+                                                           ?LINE,
+                                                           UnExpected}}
+                                end
+                        end)).
+
+%% Some generator (utility) macros
+-define(GM_START(),              megaco_start).
+-define(GM_STOP(),               megaco_stop).
+-define(GM_START_USER(M, RI, C), {megaco_start_user, M, RI, C}).
+-define(GM_START_USER(M, RI),    ?GM_START_USER(M, RI, [])).
+-define(GM_STOP_USER(),          megaco_stop_user).
+-define(GMSI(I),                 {megaco_system_info, I}).
+-define(GMSI_USERS(),            ?GMSI(users)).
+-define(GMSI_CONNS(),            ?GMSI(connections)).
+-define(GMCAST(Reqs, Opts),      {megaco_cast, Reqs, Opts}).
+-define(GMCAST(Reqs),            ?GMCAST(Reqs, [])).
+-define(GMCB(CB, VF),            {megaco_callback, CB, VF}).
+-define(GMCB_CONNECT(VF),        ?GMCB(handle_connect, VF)).
+-define(GMCB_TRANS_REP(VF),      ?GMCB(handle_trans_reply, VF)).
+-define(GMT(T),                  {megaco_trace, T}).
+-define(GMT_ENABLE(),            ?GMT(enable)).
+-define(GMT_DISABLE(),           ?GMT(disable)).
+-define(GD(D),                   {debug, D}).
+-define(GD_ENABLE(),             ?GD(true)).
+-define(GD_DISABLE(),            ?GD(false)).
+-define(GS(T),                   {sleep, T}).
+
+-define(GSND(T, D),              {send, T, D}).
+-define(GERCV(T, VF, TO),        {expect_receive, T, {VF, TO}}).
 
 
-min(M) -> timer:minutes(M).
+min(M) -> ?MINS(M).
 
 %% Test server callbacks
 init_per_testcase(otp_7189 = Case, Config) ->
@@ -396,8 +420,19 @@ groups() ->
 
 init_per_suite(Config) ->
     io:format("~w:init_per_suite -> entry with"
-	      "~n   Config: ~p"
-	      "~n", [?MODULE, Config]),
+	      "~n   Config:     ~p"
+              "~n   OS Type:    ~p"
+              "~n   OS Version: ~s"
+	      "~n", 
+              [?MODULE, 
+               Config, 
+               os:type(), 
+               case os:version() of
+                   {Major, Minor, Release} ->
+                       ?F("~w.~w.~w", [Major, Minor, Release]);
+                   Str when is_list(Str) ->
+                       Str
+               end]),
     Config.
 
 end_per_suite(_Config) ->
@@ -491,12 +526,12 @@ request_and_reply_plain(suite) ->
 request_and_reply_plain(Config) when is_list(Config) ->
     ?ACQUIRE_NODES(1, Config),
     d("request_and_reply_plain -> start proxy",[]),
-    megaco_mess_user_test:start_proxy(),
+    ?USER_MOD:start_proxy(),
 
     PrelMid = preliminary_mid,
     MgMid   = ipv4_mid(4711),
     MgcMid  = ipv4_mid(),
-    UserMod = megaco_mess_user_test,
+    UserMod = ?USER_MOD,
     d("request_and_reply_plain -> start megaco app",[]),
     ?VERIFY(ok, application:start(megaco)),
     UserConfig = [{user_mod, UserMod}, {send_mod, UserMod},
@@ -564,6 +599,7 @@ request_and_reply_plain(Config) when is_list(Config) ->
     ok.
 
 
+    
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% OTP-4760
@@ -597,6 +633,7 @@ request_and_no_reply(Config) when is_list(Config) ->
     ET = [{text,tcp}, {text,udp}, {binary,tcp}, {binary,udp}],
     {ok, Mgc} = 
 	?MGC_START(MgcNode, {deviceName, "ctrl"}, ET, [], ?MGC_VERBOSITY),
+    ?SLEEP(?SECONDS(1)),
 
     i("[MG] start"),    
     Mg1Mid = {deviceName, "mg1"},
@@ -621,9 +658,13 @@ request_and_no_reply(Config) when is_list(Config) ->
 		{pending_timer,      PendingTmr},
 		{reply_timer,        ReplyTmr}],
     {ok, Mg1} = ?MG_START(Mg1Node, Mg1Mid, text, tcp, MgConfig, ?MG_VERBOSITY),
+    ?SLEEP(?SECONDS(1)),
     {ok, Mg2} = ?MG_START(Mg2Node, Mg2Mid, text, udp, MgConfig, ?MG_VERBOSITY),
+    ?SLEEP(?SECONDS(1)),
     {ok, Mg3} = ?MG_START(Mg3Node, Mg3Mid, binary, tcp, MgConfig, ?MG_VERBOSITY),
+    ?SLEEP(?SECONDS(1)),
     {ok, Mg4} = ?MG_START(Mg4Node, Mg4Mid, binary, udp, MgConfig, ?MG_VERBOSITY),
+    ?SLEEP(?SECONDS(1)),
 
     d("MG1 user info: ~p", [?MG_USER_INFO(Mg1, all)]),
     d("MG1 conn info: ~p", [?MG_CONN_INFO(Mg1, all)]),
@@ -639,55 +680,68 @@ request_and_no_reply(Config) when is_list(Config) ->
     d("service change result: ~p", [ServChRes1]),
     d("MG1 user info: ~p", [?MG_USER_INFO(Mg1, all)]),
     d("MG1 conn info: ~p", [?MG_CONN_INFO(Mg1, all)]),
+    ?SLEEP(?SECONDS(1)),
 
     i("[MG2] connect to the MGC (service change)"),    
     ServChRes2 = ?MG_SERV_CHANGE(Mg2),
     d("service change result: ~p", [ServChRes2]),
     d("MG2 user info: ~p", [?MG_USER_INFO(Mg2, all)]),
     d("MG2 conn info: ~p", [?MG_CONN_INFO(Mg2, all)]),
+    ?SLEEP(?SECONDS(1)),
 
     i("[MG3] connect to the MGC (service change)"),    
     ServChRes3 = ?MG_SERV_CHANGE(Mg3),
     d("service change result: ~p", [ServChRes3]),
     d("MG3 user info: ~p", [?MG_USER_INFO(Mg3, all)]),
     d("MG3 conn info: ~p", [?MG_CONN_INFO(Mg3, all)]),
+    ?SLEEP(?SECONDS(1)),
 
     i("[MG4] connect to the MGC (service change)"),    
     ServChRes4 = ?MG_SERV_CHANGE(Mg4),
     d("service change result: ~p", [ServChRes4]),
     d("MG4 user info: ~p", [?MG_USER_INFO(Mg4, all)]),
     d("MG4 conn info: ~p", [?MG_CONN_INFO(Mg4, all)]),
+    ?SLEEP(?SECONDS(1)),
 
     d("tell the MGC to ignore requests"),
     ?MGC_REQ_PEND(Mgc, infinity),
+    ?SLEEP(?SECONDS(1)),
 
     d("[MG1] send the notify"),
     ?MG_NOTIF_REQ(Mg1),
+    ?SLEEP(?SECONDS(1)),
 
     d("[MG2] send the notify"),
     ?MG_NOTIF_REQ(Mg2),
+    ?SLEEP(?SECONDS(1)),
 
     d("[MG3] send the notify"),
     ?MG_NOTIF_REQ(Mg3),
+    ?SLEEP(?SECONDS(1)),
 
     d("[MG4] send the notify"),
     ?MG_NOTIF_REQ(Mg4),
+    ?SLEEP(?SECONDS(1)),
 
     d("[MG1] await notify reply"),
     {ok, {_Vsn1, {error, timeout}}} = ?MG_AWAIT_NOTIF_REP(Mg1),
     d("[MG1] received expected reply"),
+    ?SLEEP(?SECONDS(1)),
 
     d("[MG2] await notify reply"),
     {ok, {_Vsn2, {error, timeout}}} = ?MG_AWAIT_NOTIF_REP(Mg2),
     d("[MG2] received expected reply"),
+    ?SLEEP(?SECONDS(1)),
 
     d("[MG3] await notify reply"),
     {ok, {_Vsn3, {error, timeout}}} = ?MG_AWAIT_NOTIF_REP(Mg3),
     d("[MG3] received expected reply"),
+    ?SLEEP(?SECONDS(1)),
 
     d("[MG4] await notify reply"),
     {ok, {_Vsn4, {error, timeout}}} = ?MG_AWAIT_NOTIF_REP(Mg4),
     d("[MG4] received expected reply"),
+    ?SLEEP(?SECONDS(1)),
 
     d("MG1 user info: ~p", [?MG_USER_INFO(Mg1, all)]),
     d("MG1 conn info: ~p", [?MG_CONN_INFO(Mg1, all)]),
@@ -736,8 +790,15 @@ request_and_reply_pending_ack_no_pending(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -790,6 +851,7 @@ request_and_reply_pending_ack_no_pending(Config) when is_list(Config) ->
 -endif.
 
 rarpanp_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
           {port,             2944},
@@ -801,10 +863,6 @@ rarpanp_mgc_event_sequence(text, tcp) ->
     ScrVerify     = ?rarpanp_mgc_verify_service_change_req_fun(Mid),
     NrVerify      = ?rarpanp_mgc_verify_notify_req_fun(),
     DiscoVerify   = ?rarpanp_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify = fun rarpanp_mgc_verify_handle_connect/1,
-%%     ScrVerify     = rarpanp_mgc_verify_service_change_req_fun(Mid),
-%%     NrVerify      = rarpanp_mgc_verify_notify_request_fun(),
-%%     DiscoVerify   = fun rarpanp_mgc_verify_handle_disconnect/1,
     EvSeq = [
              {debug, true},
              {megaco_trace, disable},
@@ -814,6 +872,10 @@ rarpanp_mgc_event_sequence(text, tcp) ->
              {megaco_update_user_info, sent_pending_limit, 100},
              start_transport,
              listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
              {megaco_callback, handle_connect,       ConnectVerify},
              {megaco_conn_info, all},
              {megaco_callback, handle_trans_request, ScrVerify},
@@ -1327,8 +1389,15 @@ request_and_reply_pending_ack_one_pending(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -1399,6 +1468,7 @@ rarpaop_mgc_event_sequence(binary, tcp) ->
     rarpaop_mgc_event_sequence(Port, TranspMod, EncMod, EncConf).
 
 rarpaop_mgc_event_sequence(Port, TranspMod, EncMod, EncConf) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
           {port,             Port},
@@ -1411,11 +1481,6 @@ rarpaop_mgc_event_sequence(Port, TranspMod, EncMod, EncConf) ->
     NrVerify      = ?rarpaop_mgc_verify_notify_req_fun(),
     AckVerify     = ?rarpaop_mgc_verify_reply_ack_fun(),
     DiscoVerify   = ?rarpaop_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify = fun rarpaop_mgc_verify_handle_connect/1,
-%%     ScrVerify     = rarpaop_mgc_verify_service_change_req_fun(Mid),
-%%     NrVerify      = rarpaop_mgc_verify_notify_request_fun(),
-%%     AckVerify     = rarpaop_mgc_verify_reply_ack_fun(),
-%%     DiscoVerify   = fun rarpaop_mgc_verify_handle_disconnect/1,
     EvSeq = [
              {debug, true},
              {megaco_trace, disable},
@@ -1425,6 +1490,10 @@ rarpaop_mgc_event_sequence(Port, TranspMod, EncMod, EncConf) ->
              {megaco_update_user_info, sent_pending_limit, 100},
              start_transport,
              listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
              {megaco_callback, handle_connect,       ConnectVerify},
              {megaco_conn_info, all},
              {megaco_callback, handle_trans_request, ScrVerify},
@@ -1697,9 +1766,6 @@ rarpaop_mg_event_sequence(Port, EncMod, EncConf) ->
     ScrVerifyFun  = ?rarpaop_mg_verify_service_change_rep_msg_fun(),
     PendVerifyFun = ?rarpaop_mg_verify_pending_msg_fun(TransId),
     NrVerifyFun   = ?rarpaop_mg_verify_notify_rep_msg_fun(TransId, TermId),
-%%     ScrVerifyFun  = rarpaop_mg_verify_service_change_rep_msg_fun(),
-%%     PendVerifyFun = rarpaop_mg_verify_pending_msg_fun(TransId),
-%%     NrVerifyFun   = rarpaop_mg_verify_notify_rep_msg_fun(TransId, TermId),
     EvSeq = [{debug,  true},
              {decode, DecodeFun},
              {encode, EncodeFun},
@@ -2015,8 +2081,15 @@ single_trans_req_and_reply(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_megaco_generator:start_link("MG", MgNode),
@@ -2069,6 +2142,7 @@ single_trans_req_and_reply(Config) when is_list(Config) ->
 -endif.
 
 strar_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
 	  {port,             2944},
@@ -2076,18 +2150,10 @@ strar_mgc_event_sequence(text, tcp) ->
 	  {encoding_config,  []},
 	  {transport_module, megaco_tcp}
 	 ],
-    %% Tid = #megaco_term_id{id = ["00000000","00000000","01101101"]},
-%%     ReqTmr = #megaco_incr_timer{wait_for    = 500,
-%% 				factor      = 1,
-%% 				max_retries = 1},
     ConnectVerify          = ?strar_mgc_verify_handle_connect_fun(), 
     ServiceChangeReqVerify = ?strar_mgc_verify_service_change_req_fun(Mid),
     NotifyReqVerify        = ?strar_mgc_verify_notify_req_fun(),
     DiscoVerify            = ?strar_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify          = fun strar_mgc_verify_handle_connect/1,
-%%     ServiceChangeReqVerify = strar_mgc_verify_service_change_req_fun(Mid),
-%%     NotifyReqVerify        = strar_mgc_verify_notify_request_fun(),
-%%     DiscoVerify            = fun strar_mgc_verify_handle_disconnect/1,
     EvSeq = [
 	     {debug, true},
 	     {megaco_trace, disable},
@@ -2095,6 +2161,10 @@ strar_mgc_event_sequence(text, tcp) ->
 	     {megaco_start_user, Mid, RI, []},
 	     start_transport,
 	     listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
 	     {megaco_callback, handle_connect,       ConnectVerify},
 	     {megaco_callback, handle_trans_request, ServiceChangeReqVerify},
 	     {megaco_callback, handle_trans_request, NotifyReqVerify},
@@ -2341,9 +2411,6 @@ strar_mg_event_sequence(text, tcp) ->
     ConnectVerify            = ?strar_mg_verify_handle_connect_fun(), 
     ServiceChangeReplyVerify = ?strar_mg_verify_service_change_reply_fun(), 
     NotifyReplyVerify        = ?strar_mg_verify_notify_reply_fun(), 
-%%     ConnectVerify            = strar_mg_verify_handle_connect_fun(), 
-%%     ServiceChangeReplyVerify = strar_mg_verify_service_change_reply_fun(), 
-%%     NotifyReplyVerify        = fun strar_mg_verify_notify_reply/1, 
     EvSeq = [
 	     {debug, true},
 	     megaco_start,
@@ -2530,8 +2597,15 @@ single_trans_req_and_reply_sendopts(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_megaco_generator:start_link("MG", MgNode),
@@ -2584,6 +2658,7 @@ single_trans_req_and_reply_sendopts(Config) when is_list(Config) ->
 -endif.
 
 straro_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
 	  {port,             2944},
@@ -2595,10 +2670,6 @@ straro_mgc_event_sequence(text, tcp) ->
     ServiceChangeReqVerify = ?straro_mgc_verify_service_change_req_fun(Mid),
     NotifyReqVerify        = ?straro_mgc_verify_notify_req_fun(),
     TransAckVerify         = ?straro_mgc_verify_handle_trans_ack_fun(), 
-%%     ConnectVerify          = fun straro_mgc_verify_handle_connect/1,
-%%     ServiceChangeReqVerify = straro_mgc_verify_service_change_req_fun(Mid),
-%%     NotifyReqVerify        = straro_mgc_verify_notify_request_fun(),
-%%     TransAckVerify         = straro_mgc_verify_handle_trans_ack_fun(), 
     EvSeq = [
 	     {debug, true},
 	     {megaco_trace, disable},
@@ -2606,6 +2677,10 @@ straro_mgc_event_sequence(text, tcp) ->
 	     {megaco_start_user, Mid, RI, []},
 	     start_transport,
 	     listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
 	     {megaco_callback, handle_connect,       ConnectVerify},
 	     {megaco_callback, handle_trans_request, ServiceChangeReqVerify},
 	     {megaco_callback, handle_trans_request, NotifyReqVerify},
@@ -3077,8 +3152,15 @@ request_and_reply_and_ack(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -3136,6 +3218,7 @@ request_and_reply_and_ack(Config) when is_list(Config) ->
 -endif.
 
 raraa_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
           {port,             2944},
@@ -3148,11 +3231,6 @@ raraa_mgc_event_sequence(text, tcp) ->
     NrVerify      = ?raraa_mgc_verify_notify_req_fun(),
     AckVerify     = ?raraa_mgc_verify_handle_trans_ack_fun(),
     DiscoVerify   = ?raraa_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify = fun raraa_mgc_verify_handle_connect/1,
-%%     ScrVerify     = raraa_mgc_verify_service_change_req_fun(Mid),
-%%     NrVerify      = raraa_mgc_verify_notify_request_fun(),
-%%     AckVerify     = raraa_mgc_verify_trans_ack_fun(),
-%%     DiscoVerify   = fun raraa_mgc_verify_handle_disconnect/1,
     EvSeq = [
              {debug, true},
              {megaco_trace, disable},
@@ -3162,6 +3240,10 @@ raraa_mgc_event_sequence(text, tcp) ->
              {megaco_update_user_info, sent_pending_limit, 100},
              start_transport,
              listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
              {megaco_callback, handle_connect,           ConnectVerify},
              {megaco_conn_info, all},
              {megaco_callback, handle_trans_request,     ScrVerify},
@@ -3419,9 +3501,6 @@ raraa_mg_event_sequence(text, tcp) ->
     ScrVerifyFun = ?raraa_mg_verify_service_change_rep_msg_fun(),
     NrVerifyFun  = ?raraa_mg_verify_notify_rep_msg_fun(TermId, 
 						       TransId, ReqId, CtxId),
-%%     ScrVerifyFun = raraa_mg_verify_service_change_rep_msg_fun(),
-%%     NrVerifyFun = raraa_mg_verify_notify_rep_msg_fun(TermId, 
-%% 						     TransId, ReqId, CtxId),
     EvSeq = [{debug,  true},
              {decode, DecodeFun},
              {encode, EncodeFun},
@@ -3694,8 +3773,15 @@ request_and_reply_and_no_ack(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -3753,6 +3839,7 @@ request_and_reply_and_no_ack(Config) when is_list(Config) ->
 -endif.
 
 rarana_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
           {port,             2944},
@@ -3765,11 +3852,6 @@ rarana_mgc_event_sequence(text, tcp) ->
     NrVerify      = ?rarana_mgc_verify_notify_req_fun(),
     AckVerify     = ?rarana_mgc_verify_handle_trans_ack_fun(),
     DiscoVerify   = ?rarana_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify = fun rarana_mgc_verify_handle_connect/1,
-%%     ScrVerify     = rarana_mgc_verify_service_change_req_fun(Mid),
-%%     NrVerify      = rarana_mgc_verify_notify_request_fun(),
-%%     AckVerify     = rarana_mgc_verify_trans_ack_fun(),
-%%     DiscoVerify   = fun rarana_mgc_verify_handle_disconnect/1,
     EvSeq = [
              {debug, true},
              {megaco_trace, disable},
@@ -3780,6 +3862,10 @@ rarana_mgc_event_sequence(text, tcp) ->
              {megaco_update_user_info, reply_timer,        9000},
              start_transport,
              listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
              {megaco_callback, handle_connect,           ConnectVerify},
              {megaco_conn_info, all},
              {megaco_callback, handle_trans_request,     ScrVerify},
@@ -4030,9 +4116,6 @@ rarana_mg_event_sequence(text, tcp) ->
     ScrVerifyFun = ?rarana_mg_verify_service_change_rep_msg_fun(),
     NrVerifyFun  = ?rarana_mg_verify_notify_rep_msg_fun(TermId, 
 							TransId, ReqId, CtxId),
-%%     ScrVerifyFun = rarana_mg_verify_service_change_rep_msg_fun(),
-%%     NrVerifyFun  = rarana_mg_verify_notify_rep_msg_fun(TermId, 
-%% 			 			          TransId, ReqId, CtxId),
     EvSeq = [{debug,  true},
              {decode, DecodeFun},
              {encode, EncodeFun},
@@ -4297,8 +4380,15 @@ request_and_reply_and_late_ack(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -4356,6 +4446,7 @@ request_and_reply_and_late_ack(Config) when is_list(Config) ->
 -endif.
 
 rarala_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
           {port,             2944},
@@ -4373,11 +4464,6 @@ rarala_mgc_event_sequence(text, tcp) ->
     NrVerify      = ?rarala_mgc_verify_notify_req_fun(),
     AckVerify     = ?rarala_mgc_verify_handle_trans_ack_fun(),
     DiscoVerify   = ?rarala_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify = fun rarala_mgc_verify_handle_connect/1,
-%%     ScrVerify     = rarala_mgc_verify_service_change_req_fun(Mid),
-%%     NrVerify      = rarala_mgc_verify_notify_request_fun(),
-%%     AckVerify     = rarala_mgc_verify_trans_ack_fun(),
-%%     DiscoVerify   = fun rarala_mgc_verify_handle_disconnect/1,
     EvSeq = [
              {debug, true},
              {megaco_trace, disable},
@@ -4388,6 +4474,10 @@ rarala_mgc_event_sequence(text, tcp) ->
              {megaco_update_user_info, reply_timer,        RepTmr},
              start_transport,
              listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
              {megaco_callback, handle_connect,           ConnectVerify},
              {megaco_conn_info, all},
              {megaco_callback, handle_trans_request,     ScrVerify},
@@ -4645,9 +4735,6 @@ rarala_mg_event_sequence(text, tcp) ->
     ScrVerifyFun = ?rarala_mg_verify_service_change_rep_msg_fun(),
     NrVerifyFun  = ?rarala_mg_verify_notify_rep_msg_fun(TermId, 
 							TransId, ReqId, CtxId),
-%%     ScrVerifyFun = rarala_mg_verify_service_change_rep_msg_fun(),
-%%     NrVerifyFun  = rarala_mg_verify_notify_rep_msg_fun(TermId, 
-%% 						       TransId, ReqId, CtxId),
     EvSeq = [{debug,  true},
              {decode, DecodeFun},
              {encode, EncodeFun},
@@ -4931,8 +5018,15 @@ trans_req_and_reply_and_req(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -4985,6 +5079,7 @@ trans_req_and_reply_and_req(Config) when is_list(Config) ->
 -endif.
 
 trarar_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
 	  {port,             2944},
@@ -4992,10 +5087,6 @@ trarar_mgc_event_sequence(text, tcp) ->
 	  {encoding_config,  []},
 	  {transport_module, megaco_tcp}
 	 ],
-%%     Tid = #megaco_term_id{id = ["00000000","00000000","01101101"]},
-%%     ReqTmr = #megaco_incr_timer{wait_for    = 500,
-%% 				factor      = 1,
-%% 				max_retries = 1},
     ConnectVerify          = ?trarar_mgc_verify_handle_connect_fun(), 
     ServiceChangeReqVerify = ?trarar_mgc_verify_service_change_req_fun(Mid),
     NotifyReqVerify1       = ?trarar_mgc_verify_notify_req_fun(1),
@@ -5003,13 +5094,6 @@ trarar_mgc_event_sequence(text, tcp) ->
     NotifyReqVerify3       = ?trarar_mgc_verify_notify_req_fun(3),
     NotifyReqVerify4       = ?trarar_mgc_verify_notify_req_fun(4),
     DiscoVerify            = ?trarar_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify          = fun trarar_mgc_verify_handle_connect/1,
-%%     ServiceChangeReqVerify = trarar_mgc_verify_service_change_req_fun(Mid),
-%%     NotifyReqVerify1       = trarar_mgc_verify_notify_request_fun(1),
-%%     NotifyReqVerify2       = trarar_mgc_verify_notify_request_fun(2),
-%%     NotifyReqVerify3       = trarar_mgc_verify_notify_request_fun(3),
-%%     NotifyReqVerify4       = trarar_mgc_verify_notify_request_fun(4),
-%%     DiscoVerify            = fun trarar_mgc_verify_handle_disconnect/1,
     EvSeq = [
 	     {debug, true},
 	     {megaco_trace, disable},
@@ -5018,6 +5102,10 @@ trarar_mgc_event_sequence(text, tcp) ->
              {megaco_update_user_info, reply_timer, 2000},
 	     start_transport,
 	     listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
 	     {megaco_callback, handle_connect,       ConnectVerify},
 	     {megaco_callback, handle_trans_request, ServiceChangeReqVerify},
 	     {megaco_callback, handle_trans_request, NotifyReqVerify1},
@@ -5280,15 +5368,6 @@ trarar_mg_event_sequence(text, tcp) ->
 	?trarar_mg_verify_notify_rep_msg_fun(TermId, 2, 3, 3),
     NrVerifyFun4 = 
 	?trarar_mg_verify_notify_rep_msg_fun(TermId, 2, 4, 4),
-%%     ScrVerifyFun = trarar_mg_verify_service_change_rep_msg_fun(),
-%%     NrVerifyFun1 = 
-%% 	trarar_mg_verify_notify_rep_msg_fun(TermId, 2, 1, 1),
-%%     NrVerifyFun2 = 
-%% 	trarar_mg_verify_notify_rep_msg_fun(TermId, 2, 2, 2),
-%%     NrVerifyFun3 = 
-%% 	trarar_mg_verify_notify_rep_msg_fun(TermId, 2, 3, 3),
-%%     NrVerifyFun4 = 
-%% 	trarar_mg_verify_notify_rep_msg_fun(TermId, 2, 4, 4),
     EvSeq = [{debug,  true},
              {decode, DecodeFun},
              {encode, EncodeFun},
@@ -5595,8 +5674,15 @@ pending_ack_plain(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -5658,6 +5744,7 @@ pending_ack_plain(Config) when is_list(Config) ->
 -endif.
 
 pap_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
           {port,             2944},
@@ -5671,12 +5758,6 @@ pap_mgc_event_sequence(text, tcp) ->
     NrVerify2     = ?pap_mgc_verify_notify_req_long_fun(),
     AckVerify     = ?pap_mgc_verify_handle_trans_ack_fun(),
     DiscoVerify   = ?pap_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify = fun pap_mgc_verify_handle_connect/1,
-%%     ScrVerify     = pap_mgc_verify_service_change_req_fun(Mid),
-%%     NrVerify1     = pap_mgc_verify_notify_request_fun(),
-%%     NrVerify2     = pap_mgc_verify_notify_request_long_fun(),
-%%     AckVerify     = pap_mgc_verify_trans_ack_fun(),
-%%     DiscoVerify   = fun pap_mgc_verify_handle_disconnect/1,
     EvSeq = [
              {debug, true},
              {megaco_trace, disable},
@@ -5686,6 +5767,10 @@ pap_mgc_event_sequence(text, tcp) ->
              {megaco_update_user_info, sent_pending_limit, 100},
              start_transport,
              listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
              {megaco_callback, handle_connect,            ConnectVerify},
              {megaco_conn_info, all},
              {megaco_callback, handle_trans_request,      ScrVerify},
@@ -5965,11 +6050,6 @@ pap_mg_event_sequence(text, tcp) ->
 	?pap_mg_verify_pending_msg_fun(TransId),
     NrVerifyFun = 
 	?pap_mg_verify_notify_rep_msg_fun(TermId, TransId, ReqId, CtxId),
-%%     ScrVerifyFun = pap_mg_verify_service_change_rep_msg_fun(),
-%%     PendingVerifyFun = 
-%% 	pap_mg_verify_pending_msg_fun(TransId),
-%%     NrVerifyFun = 
-%% 	pap_mg_verify_notify_rep_msg_fun(TermId, TransId, ReqId, CtxId),
     EvSeq = [{debug,  true},
              {decode, DecodeFun},
              {encode, EncodeFun},
@@ -6287,8 +6367,15 @@ request_and_pending_and_late_reply(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_tcp_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_megaco_generator:start_link("MG", MgNode),
@@ -6346,6 +6433,7 @@ request_and_pending_and_late_reply(Config) when is_list(Config) ->
 -endif.
 
 rapalr_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     DecodeFun = ?rapalr_mgc_decode_msg_fun(megaco_pretty_text_encoder, []),
     EncodeFun = ?rapalr_mgc_encode_msg_fun(megaco_pretty_text_encoder, []),
     Mid       = {deviceName,"mgc"},
@@ -6362,14 +6450,14 @@ rapalr_mgc_event_sequence(text, tcp) ->
     NrVerifyFun  = 
 	?rapalr_mgc_verify_notify_req_msg_fun(TermId, TransId, ReqId, CtxId),
     AckVerifyFun = ?rapalr_mgc_verify_trans_ack_msg_fun(TransId),
-%%     ScrVerifyFun     = rapalr_mgc_verify_service_change_req_msg_fun(),
-%%     NrVerifyFun  = 
-%% 	rapalr_mgc_verify_notify_req_msg_fun(TermId, TransId, ReqId, CtxId),
-%%     AckVerifyFun = rapalr_mgc_verify_trans_ack_msg_fun(TransId),
     EvSeq = [{debug,  false},
              {decode, DecodeFun},
              {encode, EncodeFun},
              {listen, 2944},
+
+             %% ANNOUNCE READY
+             {trigger, "announce ready", fun() -> CTRL ! announce_mgc end}, 
+
 	     {expect_accept, any},
              {expect_receive, "service-change-request", {ScrVerifyFun, 5000}},
              {send, "service-change-reply", ServiceChangeRep},
@@ -6848,12 +6936,12 @@ dist(Config) when is_list(Config) ->
     ?SKIP("Needs a re-write..."),
     [_Local, Dist] = ?ACQUIRE_NODES(2, Config),
     d("dist -> start proxy",[]),
-    megaco_mess_user_test:start_proxy(),
+    ?USER_MOD:start_proxy(),
 
     PrelMid = preliminary_mid,
     MgMid   = ipv4_mid(4711),
     MgcMid  = ipv4_mid(),
-    UserMod = megaco_mess_user_test,
+    UserMod = ?USER_MOD,
     d("dist -> start megaco app",[]),
     ?VERIFY(ok, application:start(megaco)),
     UserConfig = [{user_mod, UserMod}, {send_mod, UserMod},
@@ -6959,7 +7047,7 @@ dist(Config) when is_list(Config) ->
     ?RECEIVE([]),
 
     d("dist -> stop proxy",[]),
-    megaco_mess_user_test:stop_proxy(),
+    ?USER_MOD:stop_proxy(),
 
     d("dist -> done", []),
     ok.
@@ -7122,6 +7210,13 @@ otp_4836(Config) when is_list(Config) ->
     d("start the MGC simulation"),
     {ok, MgcId} = megaco_test_tcp_generator:exec(Mgc, MgcEvSeq),
 
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
+
     i("[MG] start"),    
     MgMid = {deviceName, "mg"},
     ReqTmr = #megaco_incr_timer{wait_for    = 3000,
@@ -7186,6 +7281,7 @@ otp_4836(Config) when is_list(Config) ->
 -endif.
 
 otp_4836_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     DecodeFun = ?otp_4836_mgc_decode_msg_fun(megaco_pretty_text_encoder, []),
     EncodeFun = ?otp_4836_mgc_encode_msg_fun(megaco_pretty_text_encoder, []),
     Mid = {deviceName,"ctrl"},
@@ -7199,6 +7295,10 @@ otp_4836_mgc_event_sequence(text, tcp) ->
 		{decode, DecodeFun},
 		{encode, EncodeFun},
 		{listen, 2944},
+
+                %% ANNOUNCE READY
+                {trigger, "announce ready", fun() -> CTRL ! announce_mgc end}, 
+
 		{expect_accept, any},
 		{expect_receive, "service-change-request", {ServiceChangeVerifyFun, 10000}}, 
 		{send, "service-change-reply", ServiceChangeReply}, 
@@ -7367,8 +7467,15 @@ otp_5805(Config) when is_list(Config) ->
     {ok, MgcId} = 
 	megaco_test_megaco_generator:exec(Mgc, MgcEvSeq, timer:minutes(1)),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("start the MG simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -7426,9 +7533,6 @@ otp_5805_mg_event_sequence(text, tcp) ->
 	?otp_5805_mg_verify_service_change_rep_msg_fun(),
     EDVerify = 
 	?otp_5805_mg_verify_error_descriptor_msg_fun(),
-%%     ServiceChangeReplyVerifyFun = 
-%% 	otp_5805_mg_verify_service_change_rep_msg_fun(),
-%%     EDVerify = otp_5805_mg_verify_error_descriptor_msg_fun(),
     MgEvSeq = [{debug,  true},
 	       {decode, DecodeFun},
 	       {encode, EncodeFun},
@@ -7634,6 +7738,7 @@ Transaction = 2 {
 -endif.
 
 otp_5805_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
           {port,             2944},
@@ -7646,11 +7751,6 @@ otp_5805_mgc_event_sequence(text, tcp) ->
     SyntaxErrorVerify1     = ?otp_5805_mgc_verify_handle_syntax_error_fun(), 
     SyntaxErrorVerify2     = ?otp_5805_mgc_verify_handle_syntax_error_fun(),
     DiscoVerify            = ?otp_5805_mgc_verify_handle_disconnect_fun(), 
-%%     ConnectVerify          = fun otp_5805_mgc_verify_handle_connect/1,
-%%     ServiceChangeReqVerify = otp_5805_mgc_verify_service_change_req_fun(Mid),
-%%     SyntaxErrorVerify1     = fun otp_5805_mgc_verify_handle_syntax_error/1,
-%%     SyntaxErrorVerify2     = fun otp_5805_mgc_verify_handle_syntax_error/1,
-%%     DiscoVerify            = fun otp_5805_mgc_verify_handle_disconnect/1,
     EvSeq = [
              {debug, true},
 	     {megaco_trace, disable},
@@ -7659,6 +7759,10 @@ otp_5805_mgc_event_sequence(text, tcp) ->
              {megaco_start_user, Mid, RI, []},
              start_transport,
              listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
              {megaco_callback, handle_connect, ConnectVerify},
 	     {megaco_conn_info, all},
              {megaco_callback, handle_trans_request_sc, ServiceChangeReqVerify},
@@ -7831,6 +7935,13 @@ otp_5881(Config) when is_list(Config) ->
     d("start the MGC simulation"),
     {ok, MgcId} = megaco_test_tcp_generator:exec(Mgc, MgcEvSeq),
 
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
+
     i("[MG] start"),    
     MgMid = {deviceName, "mg"},
     ReqTmr = #megaco_incr_timer{wait_for    = 3000,
@@ -7912,6 +8023,7 @@ otp_5881_verify_trans_id(Mg, Expected) ->
 -endif.
 
 otp_5881_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     DecodeFun = ?otp_5881_mgc_decode_msg_fun(megaco_pretty_text_encoder, []),
     EncodeFun = ?otp_5881_mgc_encode_msg_fun(megaco_pretty_text_encoder, []),
     Mid = {deviceName,"ctrl"},
@@ -7921,12 +8033,14 @@ otp_5881_mgc_event_sequence(text, tcp) ->
     %% Pending = otp_5881_pending_msg(Mid,2),
     ServiceChangeVerifyFun = ?otp_5881_mgc_verify_service_change_req_msg_fun(),
     NotifyReqVerifyFun     = ?otp_5881_mgc_verify_notify_req_msg_fun(),
-%%     ServiceChangeVerifyFun = otp_5881_verify_service_change_req_msg_fun(),
-%%     NotifyReqVerifyFun     = otp_5881_verify_notify_request_fun(),
     MgcEvSeq = [{debug,  true},
 		{decode, DecodeFun},
 		{encode, EncodeFun},
 		{listen, 2944},
+
+                %% ANNOUNCE READY
+                {trigger, "announce ready", fun() -> CTRL ! announce_mgc end}, 
+
 		{expect_accept, any},
 		{expect_receive, "service-change-request", {ServiceChangeVerifyFun, 10000}}, 
 		{send, "service-change-reply", ServiceChangeReply}, 
@@ -8074,6 +8188,13 @@ otp_5887(Config) when is_list(Config) ->
     d("start the MGC simulation"),
     {ok, MgcId} = megaco_test_tcp_generator:exec(Mgc, MgcEvSeq),
 
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
+
     i("[MG] start"),    
     MgMid = {deviceName, "mg"},
     ReqTmr = #megaco_incr_timer{wait_for    = 3000,
@@ -8185,6 +8306,7 @@ otp_5887_verify_trans_id(F, Expected) ->
 -endif.
 
 otp_5887_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     DecodeFun = ?otp_5887_mgc_decode_msg_fun(megaco_pretty_text_encoder, []),
     EncodeFun = ?otp_5887_mgc_encode_msg_fun(megaco_pretty_text_encoder, []),
     Mid = {deviceName,"ctrl"},
@@ -8193,12 +8315,14 @@ otp_5887_mgc_event_sequence(text, tcp) ->
     NotifyReply = otp_5887_notify_reply_msg(Mid, 2, 0, TermId),
     ServiceChangeVerifyFun = ?otp_5887_mgc_verify_service_change_req_msg_fun(),
     NotifyReqVerifyFun     = ?otp_5887_mgc_verify_notify_req_msg_fun(),
-%%     ServiceChangeVerifyFun = otp_5887_verify_service_change_req_msg_fun(),
-%%     NotifyReqVerifyFun     = otp_5887_verify_notify_request_fun(),
     MgcEvSeq = [{debug,  true},
 		{decode, DecodeFun},
 		{encode, EncodeFun},
 		{listen, 2944},
+
+                %% ANNOUNCE READY
+                {trigger, "announce ready", fun() -> CTRL ! announce_mgc end}, 
+
 		{expect_accept, any},
 		{expect_receive, "service-change-request", {ServiceChangeVerifyFun, 10000}}, 
 		{send, "service-change-reply", ServiceChangeReply}, 
@@ -8344,7 +8468,7 @@ otp_6253(Config) when is_list(Config) ->
     MgMid   = ipv4_mid(4711),
 
     ?VERIFY(ok, application:start(megaco)),
-    ?VERIFY(ok,	megaco:start_user(MgMid, [{send_mod, megaco_mess_user_test},
+    ?VERIFY(ok,	megaco:start_user(MgMid, [{send_mod, ?USER_MOD},
 	                                  {request_timer, infinity},
 	                                  {reply_timer, infinity}])),
 
@@ -8406,6 +8530,13 @@ otp_6275(Config) when is_list(Config) ->
 
     d("start the MGC simulation"),
     {ok, MgcId} = megaco_test_tcp_generator:exec(Mgc, MgcEvSeq),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_megaco_generator:start_link("MG", MgNode),
@@ -8469,9 +8600,6 @@ otp_6275_mg_event_sequence2(Mid, RI) ->
     ConnectVerify    = ?otp_6275_mg_verify_handle_connect_fun(),
     NotifyReqVerify  = ?otp_6275_mg_verify_notify_req_fun(),
     TransReplyVerify = ?otp_6275_mg_verify_handle_trans_rep_fun(), 
-%%     ConnectVerify    = otp_6275_mg_verify_handle_connect_fun(),
-%%     NotifyReqVerify  = otp_6275_mg_verify_notify_request_fun(),
-%%     TransReplyVerify = otp_6275_mg_verify_trans_reply_fun(), 
     EvSeq = [
              {debug, true},
              megaco_start,
@@ -8643,6 +8771,7 @@ otp_6275_mg_service_change_request_ar(_Mid, Cid) ->
 -endif.
 
 otp_6275_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     DecodeFun = ?otp_6275_mgc_decode_msg_fun(megaco_pretty_text_encoder, []),
     EncodeFun = ?otp_6275_mgc_encode_msg_fun(megaco_pretty_text_encoder, []),
     Mid = {deviceName,"ctrl"},
@@ -8650,14 +8779,15 @@ otp_6275_mgc_event_sequence(text, tcp) ->
     NotifyReq = otp_6275_mgc_notify_request_msg(Mid, 2, 1, TermId, 1),
     SCRVerifyFun         = ?otp_6275_mgc_verify_service_change_req_msg_fun(),
     NotifyReplyVerifyFun = ?otp_6275_mgc_verify_notify_rep_msg_fun(),
-%%     SCRVerifyFun         = otp_6275_mgc_verify_service_change_req_fun(),
-%%     NotifyReplyVerifyFun = otp_6275_mgc_verify_notify_reply_fun(),
     MgcEvSeq = 
 	[{debug,  true},
 	 {decode, DecodeFun},
 	 {encode, EncodeFun},
 	 {listen, 2944},
 	 
+         %% ANNOUNCE READY
+         {trigger, "announce ready", fun() -> CTRL ! announce_mgc end}, 
+
 	 {expect_accept, any},
 	 {expect_receive, "service-change-request", {SCRVerifyFun, 5000}}, 
 	 {sleep, 1000}, %% Do _not_ send SC reply
@@ -8900,8 +9030,15 @@ otp_6276(Config) when is_list(Config) ->
     d("[MGC] start the tcp-simulation"),
     {ok, MgcId} = megaco_test_tcp_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_megaco_generator:start_link("MG", MgNode),
@@ -9094,6 +9231,7 @@ otp_6276_mgc_event_sequence(text, tcp, Ctrl) ->
     otp_6276_mgc_event_sequence2(Mid, EM, EC, Ctrl).
 
 otp_6276_mgc_event_sequence2(Mid, EM, EC, Ctrl) ->
+    CTRL = self(),
     DecodeFun = otp_6276_mgc_decode_msg_fun(EM, EC),
     EncodeFun = otp_6276_mgc_encode_msg_fun(EM, EC),
     AnnounceMe = otp_6276_mgc_announce_fun(Ctrl),
@@ -9113,6 +9251,10 @@ otp_6276_mgc_event_sequence2(Mid, EM, EC, Ctrl) ->
 	 {decode, DecodeFun},
 	 {encode, EncodeFun},
 	 {listen, 2944},
+
+         %% ANNOUNCE READY
+         {trigger, fun() -> CTRL ! announce_mgc end}, 
+
 	 {expect_accept, any},
 	 {expect_receive, "service-change-req", 
 	  {ServiceChangeReqVerify, 10000}}, 
@@ -10997,12 +11139,12 @@ otp_6865_request_and_reply_plain_extra1(Config) when is_list(Config) ->
     ok = megaco_tc_controller:insert(extra_transport_info, ExtraInfo),
 
     d("start proxy",[]),
-    megaco_mess_user_test:start_proxy(),
+    ?USER_MOD:start_proxy(),
 
     PrelMid = preliminary_mid,
     MgMid   = ipv4_mid(4711),
     MgcMid  = ipv4_mid(),
-    UserMod = megaco_mess_user_test,
+    UserMod = ?USER_MOD,
     d("start megaco app",[]),
     ?VERIFY(ok, application:start(megaco)),
     UserConfig = [{user_mod, UserMod}, {send_mod, UserMod},
@@ -11115,8 +11257,12 @@ otp_6865_request_and_reply_plain_extra2(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -11180,13 +11326,14 @@ otp_6865_request_and_reply_plain_extra2(Config) when is_list(Config) ->
 -endif.
 
 otp6865e2_mgc_event_sequence(ExtraInfo, text, tcp) ->
-    Mid = {deviceName,"ctrl"},
-    RI = [
-	  {port,             2944},
-	  {encoding_module,  megaco_pretty_text_encoder},
-	  {encoding_config,  []},
-	  {transport_module, megaco_tcp}
-	 ],
+    Mid  = {deviceName, "ctrl"},
+    CTRL = self(),
+    RI   = [
+            {port,             2944},
+            {encoding_module,  megaco_pretty_text_encoder},
+            {encoding_config,  []},
+            {transport_module, megaco_tcp}
+           ],
     ConnectVerify          = 
 	?otp6865e2_mgc_verify_handle_connect_fun(ExtraInfo), 
     ServiceChangeReqVerify = 
@@ -11208,6 +11355,10 @@ otp6865e2_mgc_event_sequence(ExtraInfo, text, tcp) ->
 	     {megaco_start_user, Mid, RI, []},
 	     start_transport,
 	     listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
 	     {megaco_callback, handle_connect,       ConnectVerify},
 	     {megaco_callback, handle_trans_request, ServiceChangeReqVerify},
 	     {megaco_callback, handle_trans_request, NotifyReqVerify1},
@@ -11980,8 +12131,15 @@ otp_7189(Config) when is_list(Config) ->
     d("[MGC] start the simulation"),
     {ok, MgcId} = megaco_test_megaco_generator:exec(Mgc, MgcEvSeq),
 
-    i("wait some time before starting the MG simulator"),
-    sleep(1000),
+    %% i("wait some time before starting the MG simulator"),
+    %% sleep(1000),
+
+    i("await MGC ready announcement"),
+    receive
+        announce_mgc ->
+            i("received MGC ready announcement"),
+            ok
+    end,
 
     d("[MG] start the simulator (generator)"),
     {ok, Mg} = megaco_test_tcp_generator:start_link("MG", MgNode),
@@ -12034,6 +12192,7 @@ otp_7189(Config) when is_list(Config) ->
 -endif.
 
 otp_7189_mgc_event_sequence(text, tcp) ->
+    CTRL = self(),
     Mid = {deviceName,"ctrl"},
     RI = [
           {port,             2944},
@@ -12087,6 +12246,10 @@ otp_7189_mgc_event_sequence(text, tcp) ->
 	     {megaco_user_info, all},
              start_transport,
              listen,
+
+             %% ANNOUNCE READY
+             {trigger, fun() -> CTRL ! announce_mgc end}, 
+
              {megaco_callback, handle_connect, ConnectVerify},
 	     {megaco_conn_info, all},
              {megaco_callback, handle_trans_request, ScrVerify},
@@ -12268,15 +12431,15 @@ otp_7189_mg_event_sequence(text, tcp) ->
 	?otp_7189_mg_verify_service_change_rep_msg_fun(),
     NotifyReqVerify = ?otp_7189_mg_verify_notify_req_msg_fun(TermId, TransId, ReqId, CtxId),
     EvSeq = [
-	     {debug,  true},
+	     ?GD_ENABLE(),
 	     {decode, DecodeFun},
 	     {encode, EncodeFun},
 	     {connect, 2944},
-	     {send, "service-change-request", ServiceChangeReq}, 
-	     {expect_receive, "service-change-reply", {ServiceChangeReplyVerifyFun, 2000}}, 
-	     {expect_receive, "notify request", {NotifyReqVerify, 2000}},
-	     {sleep, 100},
-	     {send, "pending", Pending}, 
+	     ?GSND("service-change-request", ServiceChangeReq), 
+	     ?GERCV("service-change-reply", ServiceChangeReplyVerifyFun, ?SECS(5)), 
+	     ?GERCV("notify request",       NotifyReqVerify,             ?SECS(5)),
+	     ?GS(100),
+	     ?GSND("pending", Pending), 
 	     {expect_closed, timer:seconds(120)},
 	     disconnect
 	    ],
@@ -12514,7 +12677,7 @@ otp_7259(Config) when is_list(Config) ->
     megaco_test_generic_transport:incomming_message(Pid, NotifyReply),
 
     d("[MG] await the generator reply"),
-    await_completion([MgId], 5000),
+    await_completion([MgId], 7000),
 
     %% Tell Mg to stop
     i("[MG] stop generator"),
@@ -12814,13 +12977,13 @@ otp_7713(Config) when is_list(Config) ->
     i("starting"),
 
     d("start proxy",[]),
-    megaco_mess_user_test:start_proxy(),
+    ?USER_MOD:start_proxy(),
 
     Extra = otp7713_extra, 
     PrelMid = preliminary_mid,
     MgMid   = ipv4_mid(4711),
     MgcMid  = ipv4_mid(),
-    UserMod = megaco_mess_user_test,
+    UserMod = ?USER_MOD,
     d("start megaco app",[]),
     ?VERIFY(ok, application:start(megaco)),
     UserConfig = [{user_mod, UserMod}, {send_mod, UserMod},
@@ -12936,10 +13099,11 @@ otp_8183_request1(Config) when is_list(Config) ->
     i("wait some before issuing the notify reply (twice)"),
     sleep(500),
 
-    i("send the notify reply, twice times"),
+    i("send the notify reply - twice"),
     NotifyReply = 
 	otp_8183_r1_mgc_notify_reply_msg(MgcMid, TransId2, Cid2, TermId2),
     megaco_test_generic_transport:incomming_message(Pid, NotifyReply),
+    sleep(100), %% This is to "make sure" the events come in the "right" order
     megaco_test_generic_transport:incomming_message(Pid, NotifyReply),
 
     d("await the generator reply"),
@@ -13063,8 +13227,8 @@ otp_8183_r1_mgc_reply_msg(Mid, TransId, CR, Cid) ->
 	{?MODULE, otp_8183_r1_mg_verify_handle_connect, []}).
 -define(otp_8183_r1_mg_verify_service_change_rep_fun(),
 	{?MODULE, otp_8183_r1_mg_verify_service_change_rep, []}).
--define(otp_8183_r1_mg_verify_notify_rep_fun(Nr
-	{?MODULE, otp_8183_r1_mg_verify_notify_rep, [Nr).
+-define(otp_8183_r1_mg_verify_notify_rep_fun(Nr),
+	{?MODULE, otp_8183_r1_mg_verify_notify_rep, [Nr]}).
 -else.
 -define(otp_8183_r1_mg_verify_handle_connect_fun(),
 	otp_8183_r1_mg_verify_handle_connect_fun()).
@@ -13210,13 +13374,33 @@ otp_8183_r1_mg_verify_notify_rep_fun(Nr) ->
     end.
 -endif.
 
-otp_8183_r1_mg_verify_notify_rep(Nr, 
+otp_8183_r1_mg_verify_notify_rep(
+  Nr, 
   {handle_trans_reply, _CH, ?VERSION, {ok, Nr, [AR]}, _}) ->
     io:format("otp_8183_r1_mg_verify_notify_rep -> ok"
 	      "~n   Nr: ~p"
 	      "~n   AR: ~p"
 	      "~n", [Nr, AR]),
     {ok, AR, ok};
+otp_8183_r1_mg_verify_notify_rep(
+  ExpNr, 
+  {handle_trans_reply, _CH, ?VERSION, {ok, ActNr, [AR]}, _}) ->
+    io:format("otp_8183_r1_mg_verify_notify_rep -> error"
+	      "~n   Expected Nr: ~p"
+	      "~n   Actual Nr:   ~p"
+	      "~n   AR:          ~p"
+	      "~n", [ExpNr, ActNr, AR]),
+    Error = {unexpected_nr, ExpNr, ActNr},
+    {error, Error, ok};
+otp_8183_r1_mg_verify_notify_rep(
+  Nr, 
+  {handle_trans_reply, _CH, ?VERSION, Res, _}) ->
+    io:format("otp_8183_r1_mg_verify_notify_rep -> error"
+	      "~n   Nr:  ~p"
+	      "~n   Res: ~p"
+	      "~n", [Nr, Res]),
+    Error = {unexpected_result, Nr, Res},
+    {error, Error, ok};
 otp_8183_r1_mg_verify_notify_rep(Nr, Else) ->
     io:format("otp_8183_r1_mg_verify_notify_rep -> unknown"
 	      "~n   Nr:   ~p"
@@ -13711,38 +13895,36 @@ i(F) ->
     i(F, []).
 
 i(F, A) ->
-    print(info, get(verbosity), now(), get(tc), "INF", F, A).
+    print(info, "INF", F, A).
 
 
 d(F) ->
     d(F, []).
 
 d(F, A) ->
-    print(debug, get(verbosity), now(), get(tc), "DBG", F, A).
+    print(debug, "DBG", F, A).
+
+
+print(Severity, PRE, FMT, ARGS) ->
+    print(Severity, get(verbosity), erlang:timestamp(), get(tc), PRE, FMT, ARGS).
+
+print(Severity, Verbosity, Ts, Tc, P, F, A) ->
+    print(printable(Severity,Verbosity), Ts, Tc, P, F, A).
+
+print(true, TS, TC, P, F, A) ->
+    S = ?F("*** [~s] ~s ~p ~s:~w ***"
+           "~n   " ++ F ++ "~n", 
+           [megaco:format_timestamp(TS), P, self(), get(sname), TC | A]),
+    io:format("~s", [S]),
+    io:format(user, "~s", [S]);
+print(_, _, _, _, _, _) ->
+    ok.
 
 
 printable(_, debug)   -> true;
 printable(info, info) -> true;
 printable(_,_)        -> false.
 
-print(Severity, Verbosity, Ts, Tc, P, F, A) ->
-    print(printable(Severity,Verbosity), Ts, Tc, P, F, A).
-
-print(true, Ts, Tc, P, F, A) ->
-    io:format("*** [~s] ~s ~p ~s:~w ***"
-	      "~n   " ++ F ++ "~n", 
-	      [format_timestamp(Ts), P, self(), get(sname), Tc | A]);
-print(_, _, _, _, _, _) ->
-    ok.
-
-format_timestamp({_N1, _N2, N3} = Now) ->
-    {Date, Time}   = calendar:now_to_datetime(Now),
-    {YYYY,MM,DD}   = Date,
-    {Hour,Min,Sec} = Time,
-    FormatDate = 
-        io_lib:format("~.4w:~.2.0w:~.2.0w ~.2.0w:~.2.0w:~.2.0w 4~w",
-                      [YYYY,MM,DD,Hour,Min,Sec,round(N3/1000)]),  
-    lists:flatten(FormatDate).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -13752,13 +13934,6 @@ to(To, Start) ->
 
 %% Time in milli seconds
 mtime() ->
-    {A,B,C} = erlang:now(),
+    {A,B,C} = erlang:timestamp(),
     A*1000000000+B*1000+(C div 1000).
-
-%% random_init() ->
-%%     {A,B,C} = now(),
-%%     random:seed(A,B,C).
-
-%% random() ->
-%%     10 * random:uniform(50).
 

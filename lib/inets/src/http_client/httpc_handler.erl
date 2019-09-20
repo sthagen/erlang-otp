@@ -809,7 +809,7 @@ connect_and_send_first_request(Address, Request, #state{options = Options0} = St
     SocketType  = socket_type(Request),
     ConnTimeout = (Request#request.settings)#http_options.connect_timeout,
     Options = handle_unix_socket_options(Request, Options0),
-    case connect(SocketType, Address, Options, ConnTimeout) of
+    case connect(SocketType, format_address(Address), Options, ConnTimeout) of
         {ok, Socket} ->
             ClientClose =
 		httpc_request:is_client_closing(
@@ -1738,4 +1738,8 @@ update_session(ProfileName, #session{id = SessionId} = Session, Pos, Value) ->
                      {stacktrace, Stacktrace}]}}
     end.
 
-
+format_address({[$[|T], Port}) ->
+    {ok, Address} = inet:parse_address(string:strip(T, right, $])),
+    {Address, Port};
+format_address(HostPort) ->
+    HostPort.

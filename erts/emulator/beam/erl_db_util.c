@@ -2491,7 +2491,7 @@ restart:
 	case matchProcessDump: {
 	    erts_dsprintf_buf_t *dsbufp = erts_create_tmp_dsbuf(0);
             ASSERT(c_p == self);
-	    print_process_info(ERTS_PRINT_DSBUF, (void *) dsbufp, c_p);
+	    print_process_info(ERTS_PRINT_DSBUF, (void *) dsbufp, c_p, ERTS_PROC_LOCK_MAIN);
 	    *esp++ = new_binary(build_proc, (byte *)dsbufp->str,
 				dsbufp->str_len);
 	    erts_destroy_tmp_dsbuf(dsbufp);
@@ -2612,7 +2612,10 @@ restart:
 	    break;
         case matchCaller:
             ASSERT(c_p == self);
-	    if (!(c_p->cp) || !(cp = find_function_from_pc(c_p->cp))) {
+            t = c_p->stop[0];
+            if (is_not_CP(t)) {
+                *esp++ = am_undefined;
+            } else if (!(cp = find_function_from_pc(cp_val(t)))) {
  		*esp++ = am_undefined;
  	    } else {
 		ehp = HAllocX(build_proc, 4, HEAP_XTRA);
@@ -3285,22 +3288,15 @@ Eterm db_copy_element_from_ets(DbTableCommon* tb, Process* p,
 void db_cleanup_offheap_comp(DbTerm* obj)
 {
     union erl_off_heap_ptr u;
-    ProcBin tmp;
+    struct erts_tmp_aligned_offheap tmp;
 
     for (u.hdr = obj->first_oh; u.hdr; u.hdr = u.hdr->next) {
-	if ((UWord)u.voidp % sizeof(Uint) != 0) { /* unaligned ptr */
-	    sys_memcpy(&tmp, u.voidp, sizeof(tmp));
-	    /* Warning, must pass (void*)-variable to memcpy. Otherwise it will
-	       cause Bus error on Sparc due to false compile time assumptions
-	       about word aligned memory (type cast is not enough) */
-	    u.pb = &tmp;
-	}
+        erts_align_offheap(&u, &tmp);
 	switch (thing_subtag(u.hdr->thing_word)) {
 	case REFC_BINARY_SUBTAG:
             erts_bin_release(u.pb->val);
 	    break;
 	case FUN_SUBTAG:
-	    ASSERT(u.pb != &tmp);
 	    if (erts_refc_dectest(&u.fun->fe->refc, 0) == 0) {
 		erts_erase_fun_entry(u.fun->fe);
 	    }
@@ -3311,8 +3307,7 @@ void db_cleanup_offheap_comp(DbTerm* obj)
 	    break;
 	default:
 	    ASSERT(is_external_header(u.hdr->thing_word));
-	    ASSERT(u.pb != &tmp);
-	    erts_deref_node_entry(u.ext->node);
+	    erts_deref_node_entry(u.ext->node, make_boxed(u.ep));
 	    break;
 	}
     }
@@ -5226,7 +5221,7 @@ static Eterm match_spec_test(Process *p, Eterm against, Eterm spec, int trace)
     Eterm l;
     Uint32 ret_flags;
     Uint sz;
-    BeamInstr *save_cp;
+    Eterm save_cp;
 
     if (trace && !(is_list(against) || against == NIL)) {
 	return THE_NON_VALUE;
@@ -5270,13 +5265,13 @@ static Eterm match_spec_test(Process *p, Eterm against, Eterm spec, int trace)
 		++n;
 		l = CDR(list_val(l));
 	    }
-	    save_cp = p->cp;
-	    p->cp = NULL;
+	    save_cp = p->stop[0];
+	    p->stop[0] = NIL;
 	    res = erts_match_set_run_trace(p, p,
                       mps, arr, n,
 		      ERTS_PAM_COPY_RESULT|ERTS_PAM_IGNORE_TRACE_SILENT,
 		      &ret_flags);
-	    p->cp = save_cp;
+	    p->stop[0] = save_cp;
 	} else {
 	    n = 0;
 	    arr = NULL;

@@ -24,6 +24,7 @@
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
 	 init_per_group/2,end_per_group/2,
 	 init_per_testcase/2,end_per_testcase/2,
+         verify_highest_opcode/1, expand_and_squeeze/1,
 	 size_shadow/1,int_float/1,otp_5269/1,null_fields/1,wiger/1,
 	 bin_tail/1,save_restore/1,
 	 partitioned_bs_match/1,function_clause/1,
@@ -43,7 +44,8 @@
          beam_bsm/1,guard/1,is_ascii/1,non_opt_eq/1,
          expression_before_match/1,erl_689/1,restore_on_call/1,
          restore_after_catch/1,matches_on_parameter/1,big_positions/1,
-         matching_meets_apply/1,bs_start_match2_defs/1]).
+         matching_meets_apply/1,bs_start_match2_defs/1,
+         exceptions_after_match_failure/1]).
 
 -export([coverage_id/1,coverage_external_ignore/2]).
 
@@ -60,8 +62,9 @@ all() ->
 
 groups() -> 
     [{p,[],
-      [size_shadow,int_float,otp_5269,null_fields,wiger,
-       bin_tail,save_restore,
+      [verify_highest_opcode,
+       size_shadow,int_float,otp_5269,null_fields,wiger,
+       bin_tail,save_restore,expand_and_squeeze,
        partitioned_bs_match,function_clause,unit,
        shared_sub_bins,bin_and_float,dec_subidentifiers,
        skip_optional_tag,decode_integer,wfbm,degenerated_match,bs_sum,
@@ -78,7 +81,8 @@ groups() ->
        beam_bsm,guard,is_ascii,non_opt_eq,
        expression_before_match,erl_689,restore_on_call,
        matches_on_parameter,big_positions,
-       matching_meets_apply,bs_start_match2_defs]}].
+       matching_meets_apply,bs_start_match2_defs,
+       exceptions_after_match_failure]}].
 
 
 init_per_suite(Config) ->
@@ -100,6 +104,20 @@ init_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
 
 end_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
     ok.
+
+verify_highest_opcode(_Config) ->
+    case ?MODULE of
+        bs_match_r21_SUITE ->
+            {ok,Beam} = file:read_file(code:which(?MODULE)),
+            case test_lib:highest_opcode(Beam) of
+                Highest when Highest =< 163 ->
+                    ok;
+                TooHigh ->
+                    ct:fail({too_high_opcode_for_21,TooHigh})
+            end;
+        _ ->
+            ok
+    end.
 
 size_shadow(Config) when is_list(Config) ->
     %% Originally OTP-5270.
@@ -1875,15 +1893,37 @@ expression_before_match_1(R) ->
 
 %% Make sure that context positions are updated on calls.
 restore_on_call(Config) when is_list(Config) ->
-    ok = restore_on_call_1(<<0, 1, 2>>).
-
-restore_on_call_1(<<0, Rest/binary>>) ->
-    <<2>> = restore_on_call_2(Rest),
-    <<2>> = restore_on_call_2(Rest), %% {badmatch, <<>>} on missing restore.
+    ok = restore_on_call_plain(<<0, 1, 2>>),
+    <<"x">> = restore_on_call_match(<<0, "x">>),
     ok.
 
-restore_on_call_2(<<1, Rest/binary>>) -> Rest;
-restore_on_call_2(Other) -> Other.
+restore_on_call_plain(<<0, Rest/binary>>) ->
+    <<2>> = restore_on_call_plain_1(Rest),
+    %% {badmatch, <<>>} on missing restore.
+    <<2>> = restore_on_call_plain_1(Rest),
+    ok.
+
+restore_on_call_plain_1(<<1, Rest/binary>>) -> Rest;
+restore_on_call_plain_1(Other) -> Other.
+
+%% Calls a function that moves the match context passed to it, and then matches
+%% on its result to confuse the reposition algorithm's success/fail logic.
+restore_on_call_match(<<0, Bin/binary>>) ->
+    case skip_until_zero(Bin) of
+        {skipped, Rest} ->
+            Rest;
+        not_found ->
+            %% The match context did not get repositioned before the
+            %% bs_get_tail instruction here.
+            Bin
+    end.
+
+skip_until_zero(<<0,Rest/binary>>) ->
+    {skipped, Rest};
+skip_until_zero(<<_C,Rest/binary>>) ->
+    skip_until_zero(Rest);
+skip_until_zero(_) ->
+    not_found.
 
 %% 'catch' must invalidate positions.
 restore_after_catch(Config) when is_list(Config) ->
@@ -1967,5 +2007,175 @@ do_matching_meets_apply(_Bin, {Handler, State}) ->
     %% Another case of the above.
     Handler:abs(State).
 
+%% Exception handling was broken on the failure path of bs_start_match as
+%% beam_ssa_bsm accidentally cloned and renamed the ?BADARG_BLOCK.
+exceptions_after_match_failure(_Config) ->
+    {'EXIT', {badarith, _}} = (catch do_exceptions_after_match_failure(atom)),
+    ok = do_exceptions_after_match_failure(<<0, 1, "gurka">>),
+    ok = do_exceptions_after_match_failure(2.0).
+
+do_exceptions_after_match_failure(<<_A, _B, "gurka">>) ->
+    ok;
+do_exceptions_after_match_failure(Other) ->
+    Other / 2.0,
+    ok.
 
 id(I) -> I.
+
+expand_and_squeeze(Config) when is_list(Config) ->
+    %% UTF8 literals are expanded and then squeezed into integer16
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,16}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<$á/utf8,_/binary>>"),
+	?Q("<<$é/utf8,_/binary>>")
+    ]),
+
+    %% Sized integers are expanded and then squeezed into integer16
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,16}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<0:32,_/binary>>"),
+	?Q("<<\"bbbb\",_/binary>>")
+    ]),
+
+    %% Groups of 8 bits are squeezed into integer16
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,16}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<\"aaaa\",_/binary>>"),
+	?Q("<<\"bbbb\",_/binary>>")
+    ]),
+
+    %% Groups of 8 bits with empty binary are also squeezed
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,16}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<\"aaaa\",_/binary>>"),
+	?Q("<<\"bbbb\",_/binary>>"),
+	?Q("<<>>")
+    ]),
+
+    %% Groups of 8 bits with float lookup are not squeezed
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,8}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<\"aaaa\",_/binary>>"),
+	?Q("<<\"bbbb\",_/binary>>"),
+	?Q("<<_/float>>")
+    ]),
+
+    %% Groups of diverse bits go with minimum possible
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,8}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<\"aa\",_/binary>>"),
+	?Q("<<\"bb\",_/binary>>"),
+	?Q("<<\"c\",_/binary>>")
+    ]),
+
+    %% Groups of diverse bits go with minimum possible but are recursive...
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,8}|_],_}
+	| RestDiverse
+    ] = binary_match_to_asm([
+	?Q("<<\"aaa\",_/binary>>"),
+	?Q("<<\"abb\",_/binary>>"),
+	?Q("<<\"c\",_/binary>>")
+    ]),
+
+    %% so we still perform a 16 bits lookup for the remaining
+    true = lists:any(fun({test,bs_get_integer2,_,_,[_,{integer,16}|_],_}) -> true;
+			(_) -> false end, RestDiverse),
+
+    %% Large match is kept as is if there is a sized match later
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,64}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<255,255,255,255,255,255,255,255>>"),
+	?Q("<<_:64>>")
+    ]),
+
+    %% Large match is kept as is with large matches before and after
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,32}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<A:32,_:A>>"),
+	?Q("<<0:32>>"),
+	?Q("<<_:32>>")
+    ]),
+
+    %% Large match is kept as is with large matches before and after
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,32}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<A:32,_:A>>"),
+	?Q("<<0,0,0,0>>"),
+	?Q("<<_:32>>")
+    ]),
+
+    %% Large match is kept as is with smaller but still large matches before and after
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,32}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<A:32, _:A>>"),
+	?Q("<<0:64>>"),
+	?Q("<<_:32>>")
+    ]),
+
+    %% There is no squeezing for groups with more than 16 matches
+    [
+	{test,bs_get_integer2,_,_,[_,{integer,8}|_],_}
+	| _
+    ] = binary_match_to_asm([
+	?Q("<<\"aa\", _/binary>>"),
+	?Q("<<\"bb\", _/binary>>"),
+	?Q("<<\"cc\", _/binary>>"),
+	?Q("<<\"dd\", _/binary>>"),
+	?Q("<<\"ee\", _/binary>>"),
+	?Q("<<\"ff\", _/binary>>"),
+	?Q("<<\"gg\", _/binary>>"),
+	?Q("<<\"hh\", _/binary>>"),
+	?Q("<<\"ii\", _/binary>>"),
+	?Q("<<\"jj\", _/binary>>"),
+	?Q("<<\"kk\", _/binary>>"),
+	?Q("<<\"ll\", _/binary>>"),
+	?Q("<<\"mm\", _/binary>>"),
+	?Q("<<\"nn\", _/binary>>"),
+	?Q("<<\"oo\", _/binary>>"),
+	?Q("<<\"pp\", _/binary>>")
+    ]),
+
+    ok.
+
+binary_match_to_asm(Matches) ->
+    Clauses = [
+	begin
+	    Ann = element(2, Match),
+	    {clause,Ann,[Match],[],[{integer,Ann,Return}]}
+	end || {Match,Return} <- lists:zip(Matches, lists:seq(1, length(Matches)))
+    ],
+
+    Module = [
+	{attribute,1,module,match_to_asm},
+	{attribute,2,export,[{example,1}]},
+	{function,3,example,1,Clauses}
+    ],
+
+    {ok,match_to_asm,{match_to_asm,_Exports,_Attrs,Funs,_},_} =
+	compile:forms(Module, [return, to_asm]),
+
+    [{function,example,1,2,AllInstructions}|_] = Funs,
+    [{label,_},{line,_},{func_info,_,_,_},{label,_},{'%',_},
+     {test,bs_start_match3,_,_,_,_},{bs_get_position,_,_,_}|Instructions] = AllInstructions,
+    Instructions.

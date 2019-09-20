@@ -31,6 +31,479 @@
   </header>
   <p>This document describes the changes made to the Kernel application.</p>
 
+<section><title>Kernel 6.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    The type specification for <c>gen_sctp:connect/4,5</c>
+	    has been corrected.</p>
+          <p>
+	    Own Id: OTP-15344 Aux Id: ERL-947 </p>
+        </item>
+        <item>
+          <p>
+	    Extra <c>-mode</c> flags given to <c>erl</c> are ignored
+	    with a warning.</p>
+          <p>
+	    Own Id: OTP-15852</p>
+        </item>
+        <item>
+          <p>
+	    Fix type spec for <c>seq_trace:set_token/2</c>.</p>
+          <p>
+	    Own Id: OTP-15858 Aux Id: ERL-700 </p>
+        </item>
+        <item>
+          <p>
+	    <c>logger:compare_levels/2</c> would fail with a
+	    <c>badarg</c> exception if given the values <c>all</c> or
+	    <c>none</c> as any of the parameters. This is now
+	    corrected.</p>
+          <p>
+	    Own Id: OTP-15942 Aux Id: PR-2301 </p>
+        </item>
+        <item>
+          <p>
+	    Fix bug where the log file in <c>logger_std_h</c> would
+	    not be closed when the inode of the file changed. This
+	    would in turn cause a file descriptor leak when tools
+	    like logrotate are used.</p>
+          <p>
+	    Own Id: OTP-15997 Aux Id: PR-2331 </p>
+        </item>
+        <item>
+          <p>
+	    Fix a race condition in the debugging function
+	    <c>net_kernel:nodes_info/0</c>.</p>
+          <p>
+	    Own Id: OTP-16022</p>
+        </item>
+        <item>
+          <p>
+	    Fix race condition when closing a file opened in
+	    <c>compressed</c> or <c>delayed_write</c> mode.</p>
+          <p>
+	    Own Id: OTP-16023</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The possibility to send ancillary data, in particular the
+	    TOS field, has been added to <c>gen_udp:send/4,5</c>.</p>
+          <p>
+	    Own Id: OTP-15747 Aux Id: ERIERL-294 </p>
+        </item>
+        <item>
+          <p>
+	    If the log file was given with relative path, the
+	    standard logger handler (<c>logger_std_h</c>) would store
+	    the file name with relative path. If the current
+	    directory of the node was later changed, a new file would
+	    be created relative the new current directory,
+	    potentially failing with an <c>enoent</c> if the new
+	    directory did not exist. This is now corrected and
+	    <c>logger_std_h</c> always stores the log file name as an
+	    absolute path, calculated from the current directory at
+	    the time of the handler startup.</p>
+          <p>
+	    Own Id: OTP-15850</p>
+        </item>
+        <item>
+          <p>
+	    Support local sockets with inet:i/0.</p>
+          <p>
+	    Own Id: OTP-15935 Aux Id: PR-2299 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 6.4.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p><c>user</c>/<c>user_drv</c> could respond to io
+	    requests before they had been processed, which could
+	    cause data to be dropped if the emulator was halted soon
+	    after a call to <c>io:format/2</c>, such as in an
+	    escript.</p>
+          <p>
+	    Own Id: OTP-15805</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 6.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix so that when multiple <c>-sname</c> or <c>-name</c>
+	    are given to <c>erl</c> the first one is chosen. Before
+	    this fix distribution was not started at all when
+	    multiple name options were given.</p>
+          <p>
+	    Own Id: OTP-15786 Aux Id: ERL-918 </p>
+        </item>
+        <item>
+          <p>
+	    Fix <c>inet_res</c> configuration pointing to
+	    non-existing files to work again. This was broken in
+	    KERNEL-6.3 (OTP-21.3).</p>
+          <p>
+	    Own Id: OTP-15806</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    A simple socket API is provided through the socket
+	    module. This is a low level API that does *not* replace
+	    gen_[tcp|udp|sctp]. It is intended to *eventually*
+	    replace the inet driver, but not the high level
+	    gen-modules (gen_tcp, gen_udp and gen_sctp). It also
+	    provides a basic API that facilitates the implementation
+	    of other protocols, that is TCP, UDP and SCTP. </p>
+          <p>
+	    Known issues are; No support for the Windows OS
+	    (currently).</p>
+          <p>
+	    Own Id: OTP-14831</p>
+        </item>
+        <item>
+          <p>
+	    Improved the documentation for the linger option.</p>
+          <p>
+	    Own Id: OTP-15491 Aux Id: PR-2019 </p>
+        </item>
+        <item>
+	    <p> Global no longer tries more than once when connecting
+	    to other nodes. </p>
+          <p>
+	    Own Id: OTP-15607 Aux Id: ERIERL-280 </p>
+        </item>
+        <item>
+          <p>
+	    The dist messages EXIT, EXIT2 and MONITOR_DOWN have been
+	    updated with new versions that send the reason term as
+	    part of the payload of the message instead of as part of
+	    the control message.</p>
+          <p>
+	    The old versions are still present and can be used when
+	    communicating with nodes that don't support the new
+	    versions.</p>
+          <p>
+	    Own Id: OTP-15611</p>
+        </item>
+        <item>
+          <p>
+	    Kernel configuration parameter <c>start_distribution =
+	    boolean()</c> is added. If set to <c>false</c>, the
+	    system is started with all distribution functionality
+	    disabled. Defaults to <c>true</c>.</p>
+          <p>
+	    Own Id: OTP-15668 Aux Id: PR-2088 </p>
+        </item>
+        <item>
+          <p>
+	    In OTP-21.3, a warning was introduced for duplicated
+	    applications/keys in configuration. This warning would be
+	    displayed both when the configuration was given as a file
+	    on system start, and during runtime via
+	    <c>application:set_env/1,2</c>.</p>
+          <p>
+	    The warning is now changed to a <c>badarg</c> exception
+	    in <c>application:set_env/1,2</c>. If the faulty
+	    configuration is given in a configuration file on system
+	    start, the startup will fail.</p>
+          <p>
+	    *** POTENTIAL INCOMPATIBILITY ***</p>
+          <p>
+	    Own Id: OTP-15692 Aux Id: PR-2170 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 6.3.1.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix bug where the log file in <c>logger_std_h</c> would
+	    not be closed when the inode of the file changed. This
+	    would in turn cause a file descriptor leak when tools
+	    like logrotate are used.</p>
+          <p>
+	    Own Id: OTP-15997 Aux Id: PR-2331 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 6.3.1.2</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The possibility to send ancillary data, in particular the
+	    TOS field, has been added to <c>gen_udp:send/4,5</c>.</p>
+          <p>
+	    Own Id: OTP-15747 Aux Id: ERIERL-294 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 6.3.1.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix type spec for <c>seq_trace:set_token/2</c>.</p>
+          <p>
+	    Own Id: OTP-15858 Aux Id: ERL-700 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 6.3.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed a performance regression when reading files
+	    opened with the <c>compressed</c> flag.</p>
+          <p>
+	    Own Id: OTP-15706 Aux Id: ERIERL-336 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 6.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    If for example the <c>/etc/hosts</c> did not come into
+	    existence until after the kernel application had started,
+	    its content was never read. This bug has now been
+	    corrected.</p>
+          <p>
+	    Own Id: OTP-14702 Aux Id: PR-2066 </p>
+        </item>
+        <item>
+          <p>
+	    Fix bug where doing <c>seq_trace:reset_trace()</c> while
+	    another process was doing a garbage collection could
+	    cause the run-time system to segfault.</p>
+          <p>
+	    Own Id: OTP-15490</p>
+        </item>
+        <item>
+          <p>
+	    Fix <c>erl_epmd:port_please</c> spec to include
+	    <c>atom()</c> and <c>string()</c>.</p>
+          <p>
+	    Own Id: OTP-15557 Aux Id: PR-2117 </p>
+        </item>
+        <item>
+          <p>
+	    The Logger handler logger_std_h now keeps track of the
+	    inode of its log file in order to re-open the file if the
+	    inode changes. This may happen, for instance, if the log
+	    file is opened and saved by an editor.</p>
+          <p>
+	    Own Id: OTP-15578 Aux Id: ERL-850 </p>
+        </item>
+        <item>
+          <p>
+	    When user specific file modes are given to the logger
+	    handler <c>logger_std_h</c>, they were earlier accepted
+	    without any control. This is now changes, so Logger will
+	    adjust the file modes as follows:</p>
+          <p>
+	    - If <c>raw</c> is not found in the list, it is
+	    added.<br/> - If none of <c>write</c>, <c>append</c> or
+	    <c>exclusive</c> are found in the list, <c>append</c> is
+	    added.<br/> - If none of <c>delayed_write</c> or
+	    <c>{delayed_write,Size,Delay}</c> are found in the list,
+	    <c>delayed_write</c> is added.</p>
+          <p>
+	    Own Id: OTP-15602</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The standard logger handler, <c>logger_std_h</c>, now has
+	    a new internal feature for log rotation. The rotation
+	    scheme is as follows:</p>
+          <p>
+	    The log file to which the handler currently writes always
+	    has the same name, i.e. the name which is configured for
+	    the handler. The archived files have the same name, but
+	    with extension ".N", where N is an integer. The newest
+	    archive has extension ".0", and the oldest archive has
+	    the highest number. </p>
+          <p>
+	    The size at which the log file is rotated, and the number
+	    of archive files that are kept, is specified with the
+	    handler specific configuration parameters
+	    <c>max_no_bytes</c> and <c>max_no_files</c> respectively. </p>
+          <p>
+	    Archives can be compressed, in which case they get a
+	    ".gz" file extension after the integer. Compression is
+	    specified with the handler specific configuration
+	    parameter <c>compress_on_rotate</c>.</p>
+          <p>
+	    Own Id: OTP-15479</p>
+        </item>
+        <item>
+          <p>
+	    The new functions <c>logger:i/0</c> and <c>logger:i/1</c>
+	    are added. These provide the same information as
+	    <c>logger:get_config/0</c> and other
+	    <c>logger:get_*_config</c> functions, but the information
+	    is more logically sorted and more readable.</p>
+          <p>
+	    Own Id: OTP-15600</p>
+        </item>
+        <item>
+          <p>
+	    Logger is now protected against overload due to massive
+	    amounts of log events from the emulator or from remote
+	    nodes.</p>
+          <p>
+	    Own Id: OTP-15601</p>
+        </item>
+        <item>
+          <p>
+	    Logger now uses os:system_time/1 instead of
+	    erlang:system_time/1 to generate log event timestamps.</p>
+          <p>
+	    Own Id: OTP-15625</p>
+        </item>
+        <item>
+          <p>
+	    Add functions <c>application:set_env/1,2</c> and
+	    <c>application:set_env/2</c>. These take a list of
+	    application configuration parameters, and the behaviour
+	    is equivalent to calling <c>application:set_env/4</c>
+	    individually for each application/key combination, except
+	    it is more efficient.</p>
+          <p>
+	    <c>set_env/1,2</c> warns about duplicated applications or
+	    keys. The warning is also emitted during boot, if
+	    applications or keys are duplicated within one
+	    configuration file, e.g. sys.config.</p>
+          <p>
+	    Own Id: OTP-15642 Aux Id: PR-2164 </p>
+        </item>
+        <item>
+          <p>
+	    Handler specific configuration parameters for the
+	    standard handler <c>logger_std_h</c> are changed to be
+	    more intuitive and more similar to the disk_log handler.</p>
+          <p>
+	    Earlier there was only one parameter, <c>type</c>, which
+	    could have the values <c>standard_io</c>,
+	    <c>standard_error</c>, <c>{file,FileName}</c> or
+	    <c>{file,FileName,Modes}</c>.</p>
+          <p>
+	    This is now changed, so the following parameters are
+	    allowed:</p>
+          <p>
+	    <c>type = standard_io | standard_error | file</c><br/>
+	    <c>file = file:filename()</c><br/> <c>modes =
+	    [file:mode()]</c></p>
+          <p>
+	    All parameters are optional. <c>type</c> defaults to
+	    <c>standard_io</c>, unless a file name is given, in which
+	    case it defaults to <c>file</c>. If <c>type</c> is set to
+	    <c>file</c>, the file name defaults to the same as the
+	    handler id.</p>
+          <p>
+	    The potential incompatibility is that
+	    <c>logger:get_config/0</c> and
+	    <c>logger:get_handler_config/1</c> now returns the new
+	    parameters, even if the configuration was set with the
+	    old variant, e.g. <c>#{type=>{file,FileName}}</c>.</p>
+          <p>
+	    *** POTENTIAL INCOMPATIBILITY ***</p>
+          <p>
+	    Own Id: OTP-15662</p>
+        </item>
+        <item>
+          <p>
+	    The new configuration parameter <c>file_check</c> is
+	    added to the Logger handler <c>logger_std_h</c>. This
+	    parameter specifies how long (in milliseconds) the
+	    handler may wait before checking if the log file still
+	    exists and the inode is the same as when it was opened.</p>
+          <p>
+	    The default value is 0, which means that this check is
+	    done prior to each write operation. Setting a higher
+	    number may improve performance, but adds the risk of
+	    loosing log events.</p>
+          <p>
+	    Own Id: OTP-15663</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 6.2.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Setting the <c>recbuf</c> size of an inet socket the
+	    <c>buffer</c> is also automatically increased. Fix a bug
+	    where the auto adjustment of inet buffer size would be
+	    triggered even if an explicit inet buffer size had
+	    already been set.</p>
+          <p>
+	    Own Id: OTP-15651 Aux Id: ERIERL-304 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Kernel 6.2</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -5716,4 +6189,3 @@
     </section>
   </section>
 </chapter>
-

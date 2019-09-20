@@ -46,6 +46,7 @@
 	]).
 
 -include("dialyzer.hrl").
+-include("../../compiler/src/core_parse.hrl").
 
 %%-define(DEBUG, true).
 
@@ -450,8 +451,9 @@ get_spec_info([{Contract, Ln, [{Id, TypeSpec}]}|Left],
     error ->
       SpecData = {TypeSpec, Xtra},
       NewActiveMap =
-	dialyzer_contracts:store_tmp_contract(MFA, {File, Ln}, SpecData,
-					      ActiveMap, RecordsMap),
+	dialyzer_contracts:store_tmp_contract(ModName, MFA, {File, Ln},
+                                              SpecData, ActiveMap,
+                                              RecordsMap),
       {NewSpecMap, NewCallbackMap} =
 	case Contract of
 	  spec     -> {NewActiveMap, CallbackMap};
@@ -599,24 +601,32 @@ collect_attribute([], _Tag, _File) ->
 -spec is_suppressed_fun(mfa(), codeserver()) -> boolean().
 
 is_suppressed_fun(MFA, CodeServer) ->
-  lookup_fun_property(MFA, nowarn_function, CodeServer).
+  lookup_fun_property(MFA, nowarn_function, CodeServer, false).
 
 -spec is_suppressed_tag(mfa() | module(), dial_warn_tag(), codeserver()) ->
                            boolean().
 
 is_suppressed_tag(MorMFA, Tag, Codeserver) ->
-  not lookup_fun_property(MorMFA, Tag, Codeserver).
+  not lookup_fun_property(MorMFA, Tag, Codeserver, true).
 
-lookup_fun_property({M, _F, _A}=MFA, Property, CodeServer) ->
-  MFAPropList = dialyzer_codeserver:lookup_meta_info(MFA, CodeServer),
-  case proplists:get_value(Property, MFAPropList, no) of
-    mod -> false; % suppressed in function
-    func -> true; % requested in function
-    no -> lookup_fun_property(M, Property, CodeServer)
+lookup_fun_property({M, _F, _A}=MFA, Property, CodeServer, NoInfoReturn) ->
+  case dialyzer_codeserver:lookup_meta_info(MFA, CodeServer) of
+    error ->
+      lookup_fun_property(M, Property, CodeServer, NoInfoReturn);
+    {ok, MFAPropList} ->
+      case proplists:get_value(Property, MFAPropList, no) of
+        mod -> false; % suppressed in function
+        func -> true; % requested in function
+        no -> lookup_fun_property(M, Property, CodeServer, NoInfoReturn)
+      end
   end;
-lookup_fun_property(M, Property, CodeServer) when is_atom(M) ->
-  MPropList = dialyzer_codeserver:lookup_meta_info(M, CodeServer),
-  proplists:is_defined(Property, MPropList).
+lookup_fun_property(M, Property, CodeServer, NoInfoReturn) when is_atom(M) ->
+  case dialyzer_codeserver:lookup_meta_info(M, CodeServer) of
+    error ->
+      NoInfoReturn;
+    {ok, MPropList} ->
+      proplists:is_defined(Property, MPropList)
+  end.
 
 %% ============================================================================
 %%
@@ -742,9 +752,13 @@ pp_hook(Node, Ctxt, Cont) ->
     map ->
       pp_map(Node, Ctxt, Cont);
     literal ->
-      case is_map(cerl:concrete(Node)) of
-	true -> pp_map(Node, Ctxt, Cont);
-	false -> Cont(Node, Ctxt)
+      case cerl:concrete(Node) of
+        Map when is_map(Map) ->
+          pp_map(Node, Ctxt, Cont);
+        Bitstr when is_bitstring(Bitstr) ->
+          pp_binary(Node, Ctxt, Cont);
+        _ ->
+          Cont(Node, Ctxt)
       end;
     _ ->
       Cont(Node, Ctxt)
@@ -752,7 +766,7 @@ pp_hook(Node, Ctxt, Cont) ->
 
 pp_binary(Node, Ctxt, Cont) ->
   prettypr:beside(prettypr:text("<<"),
-		  prettypr:beside(pp_segments(cerl:binary_segments(Node),
+		  prettypr:beside(pp_segments(cerl_binary_segments(Node),
 					      Ctxt, Cont),
 				  prettypr:text(">>"))).
 
@@ -771,10 +785,29 @@ pp_segment(Node, Ctxt, Cont) ->
   Unit = cerl:bitstr_unit(Node),
   Type = cerl:bitstr_type(Node),
   Flags = cerl:bitstr_flags(Node),
-  prettypr:beside(Cont(Val, Ctxt),
-		  prettypr:beside(pp_size(Size, Ctxt, Cont),
-				  prettypr:beside(pp_opts(Type, Flags),
-						  pp_unit(Unit, Ctxt, Cont)))).
+  RestPP =
+    case {concrete(Unit), concrete(Type), concrete(Flags)} of
+      {1, integer, [unsigned, big]} -> % Simplify common cases.
+        case concrete(Size) of
+          8 -> prettypr:text("");
+          _ -> pp_size(Size, Ctxt, Cont)
+        end;
+      {8, binary, [unsigned, big]} ->
+        SizePP = pp_size(Size, Ctxt, Cont),
+        prettypr:beside(SizePP,
+                        prettypr:beside(prettypr:text("/"), pp_atom(Type)));
+      _What ->
+        SizePP = pp_size(Size, Ctxt, Cont),
+        UnitPP = pp_unit(Unit, Ctxt, Cont),
+        OptsPP = pp_opts(Type, Flags),
+        prettypr:beside(SizePP, prettypr:beside(OptsPP, UnitPP))
+    end,
+  prettypr:beside(Cont(Val, Ctxt), RestPP).
+
+concrete(Cerl) ->
+  try cerl:concrete(Cerl)
+  catch _:_ -> anything_unexpected
+  end.
 
 pp_size(Size, Ctxt, Cont) ->
   case cerl:is_c_atom(Size) of
@@ -849,6 +882,31 @@ seq([H | T], Separator, Ctxt, Fun) ->
   end;
 seq([], _, _, _) ->
   [prettypr:empty()].
+
+cerl_binary_segments(#c_literal{val = B}) when is_bitstring(B) ->
+  segs_from_bitstring(B);
+cerl_binary_segments(CBinary) ->
+  cerl:binary_segments(CBinary).
+
+%% Copied from core_pp. The function cerl:binary_segments/2 should/could
+%% be extended to handle literals, but then the cerl module cannot be
+%% HiPE-compiled as of Erlang/OTP 22.0 (due to <<I:N>>).
+segs_from_bitstring(<<H,T/bitstring>>) ->
+    [#c_bitstr{val=#c_literal{val=H},
+	       size=#c_literal{val=8},
+	       unit=#c_literal{val=1},
+	       type=#c_literal{val=integer},
+	       flags=#c_literal{val=[unsigned,big]}}|segs_from_bitstring(T)];
+segs_from_bitstring(<<>>) ->
+    [];
+segs_from_bitstring(Bitstring) ->
+    N = bit_size(Bitstring),
+    <<I:N>> = Bitstring,
+    [#c_bitstr{val=#c_literal{val=I},
+	      size=#c_literal{val=N},
+	      unit=#c_literal{val=1},
+	      type=#c_literal{val=integer},
+	      flags=#c_literal{val=[unsigned,big]}}].
 
 %%------------------------------------------------------------------------------
 

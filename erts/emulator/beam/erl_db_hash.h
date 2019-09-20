@@ -63,9 +63,10 @@ typedef struct db_table_hash_fine_locks {
 typedef struct db_table_hash {
     DbTableCommon common;
 
-    /* SMP: szm and nactive are write-protected by is_resizing or table write lock */
+    /* szm, nactive, shrink_limit are write-protected by is_resizing or table write lock */
     erts_atomic_t szm;     /* current size mask. */
     erts_atomic_t nactive; /* Number of "active" slots */
+    erts_atomic_t shrink_limit; /* Shrink table when fewer objects than this */
 
     erts_atomic_t segtab;  /* The segment table (struct segment**) */
     struct segment* first_segtab[1];
@@ -110,6 +111,9 @@ typedef struct {
 
 void db_calc_stats_hash(DbTableHash* tb, DbHashStats*);
 Eterm erts_ets_hash_sizeof_ext_segtab(void);
+void
+erts_db_foreach_thr_prgr_offheap_hash(void (*func)(ErlOffHeap *, void *),
+                                      void *arg);
 
 #ifdef ERTS_ENABLE_LOCK_COUNT
 void erts_lcnt_enable_db_hash_lock_count(DbTableHash *tb, int enable);

@@ -160,7 +160,7 @@
                     {'sync_transaction', Retries::non_neg_integer()}.
 -type table() :: atom().
 -type storage_type() :: 'ram_copies' | 'disc_copies' | 'disc_only_copies'.
--type index_attr() :: atom() | non_neg_integer().
+-type index_attr() :: atom() | non_neg_integer() | {atom()}.
 -type write_locks() :: 'write' | 'sticky_write'.
 -type read_locks() :: 'read'.
 -type lock_kind() :: write_locks() | read_locks().
@@ -838,18 +838,20 @@ read(Tid, Ts, Tab, Key, LockKind)
 	tid ->
 	    Store = Ts#tidstore.store,
 	    Oid = {Tab, Key},
-	    Objs =
-		case LockKind of
-		    read ->
-			mnesia_locker:rlock(Tid, Store, Oid);
-		    write ->
-			mnesia_locker:rwlock(Tid, Store, Oid);
-		    sticky_write ->
-			mnesia_locker:sticky_rwlock(Tid, Store, Oid);
-		    _ ->
-			abort({bad_type, Tab, LockKind})
-		end,
-	    add_written(?ets_lookup(Store, Oid), Tab, Objs);
+	    ObjsFun =
+                fun() ->
+                        case LockKind of
+                            read ->
+                                mnesia_locker:rlock(Tid, Store, Oid);
+                            write ->
+                                mnesia_locker:rwlock(Tid, Store, Oid);
+                            sticky_write ->
+                                mnesia_locker:sticky_rwlock(Tid, Store, Oid);
+                            _ ->
+                                abort({bad_type, Tab, LockKind})
+                        end
+                end,
+	    add_written(?ets_lookup(Store, Oid), Tab, ObjsFun, LockKind);
 	_Protocol ->
 	    dirty_read(Tab, Key)
     end;
@@ -1202,14 +1204,20 @@ add_previous(_Tid, Ts, _Type, Tab) ->
 %% This routine fixes up the return value from read/1 so that
 %% it is correct with respect to what this particular transaction
 %% has already written, deleted .... etc
+%% The actual read from the table is not done if not needed due to local
+%% transaction context, and if so, no extra read lock is needed either.
 
-add_written([], _Tab, Objs) ->
-    Objs;  % standard normal fast case
-add_written(Written, Tab, Objs) ->
+add_written([], _Tab, ObjsFun, _LockKind) ->
+    ObjsFun();  % standard normal fast case
+add_written(Written, Tab, ObjsFun, LockKind) ->
     case val({Tab, setorbag}) of
 	bag ->
-	    add_written_to_bag(Written, Objs, []);
+	    add_written_to_bag(Written, ObjsFun(), []);
+        _ when LockKind == read;
+               LockKind == write ->
+	    add_written_to_set(Written);
 	_   ->
+            _ = ObjsFun(),  % Fall back to request new lock and read from source
 	    add_written_to_set(Written)
     end.
 
@@ -1269,6 +1277,14 @@ match_object(Tid, Ts, Tab, Pat, LockKind)
 match_object(_Tid, _Ts, Tab, Pat, _LockKind) ->
     abort({bad_type, Tab, Pat}).
 
+add_written_index(Store, Pos, Tab, Key, Objs) when is_integer(Pos) ->
+    Pat = setelement(Pos, val({Tab, wild_pattern}), Key),
+    add_written_match(Store, Pat, Tab, Objs);
+add_written_index(Store, Pos, Tab, Key, Objs) when is_tuple(Pos) ->
+    IxF = mnesia_index:index_vals_f(val({Tab, storage_type}), Tab, Pos),
+    Ops = find_ops(Store, Tab, '_'),
+    add_ix_match(Ops, Objs, IxF, Key, val({Tab, setorbag})).
+
 add_written_match(S, Pat, Tab, Objs) ->
     Ops = find_ops(S, Tab, Pat),
     FixedRes = add_match(Ops, Objs, val({Tab, setorbag})),
@@ -1294,6 +1310,46 @@ add_match([{_Oid, Val, write}|R], Objs, bag) ->
     add_match(R, [Val | lists:delete(Val, Objs)], bag);
 add_match([{Oid, Val, write}|R], Objs, set) ->
     add_match(R, [Val | deloid(Oid,Objs)],set).
+
+add_ix_match([], Objs, _IxF, _Key, _Type) ->
+    Objs;
+add_ix_match(Written, Objs, IxF, Key, ordered_set) ->
+    %% Must use keysort which is stable
+    add_ordered_match(lists:keysort(1, ix_filter_ops(IxF, Key, Written)), Objs, []);
+add_ix_match([{Oid, _, delete}|R], Objs, IxF, Key, Type) ->
+    add_ix_match(R, deloid(Oid, Objs), IxF, Key, Type);
+add_ix_match([{_Oid, Val, delete_object}|R], Objs, IxF, Key, Type) ->
+    case ix_match(Val, IxF, Key) of
+        true ->
+            add_ix_match(R, lists:delete(Val, Objs), IxF, Key, Type);
+        false ->
+            add_ix_match(R, Objs, IxF, Key, Type)
+    end;
+add_ix_match([{_Oid, Val, write}|R], Objs, IxF, Key, bag) ->
+    case ix_match(Val, IxF, Key) of
+        true ->
+            add_ix_match(R, [Val | lists:delete(Val, Objs)], IxF, Key, bag);
+        false ->
+            add_ix_match(R, Objs, IxF, Key, bag)
+    end;
+add_ix_match([{Oid, Val, write}|R], Objs, IxF, Key, set) ->
+    case ix_match(Val, IxF, Key) of
+        true ->
+            add_ix_match(R, [Val | deloid(Oid,Objs)],IxF,Key,set);
+        false ->
+            add_ix_match(R, Objs, IxF, Key, set)
+    end.
+
+ix_match(Val, IxF, Key) ->
+    lists:member(Key, IxF(Val)).
+
+ix_filter_ops(IxF, Key, Ops) ->
+    lists:filter(
+      fun({_Oid, Obj, write}) ->
+              ix_match(Obj, IxF, Key);
+         (_) ->
+              true
+      end, Ops).
 
 %% For ordered_set only !!
 add_ordered_match(Written = [{{_, Key}, _, _}|_], [Obj|Objs], Acc)
@@ -1633,6 +1689,16 @@ index_match_object(Tid, Ts, Tab, Pat, Attr, LockKind)
 	    dirty_index_match_object(Tab, Pat, Attr); % Should be optimized?
 	tid ->
 	    case mnesia_schema:attr_tab_to_pos(Tab, Attr) of
+                {_} ->
+                    case LockKind of
+                        read ->
+			    Store = Ts#tidstore.store,
+			    mnesia_locker:rlock_table(Tid, Store, Tab),
+			    Objs = dirty_match_object(Tab, Pat),
+			    add_written_match(Store, Pat, Tab, Objs);
+                        _ ->
+                            abort({bad_type, Tab, LockKind})
+                    end;
 		Pos when Pos =< tuple_size(Pat) ->
 		    case LockKind of
 			read ->
@@ -1680,8 +1746,8 @@ index_read(Tid, Ts, Tab, Key, Attr, LockKind)
 			false ->
 			    Store = Ts#tidstore.store,
 			    Objs = mnesia_index:read(Tid, Store, Tab, Key, Pos),
-			    Pat = setelement(Pos, val({Tab, wild_pattern}), Key),
-			    add_written_match(Store, Pat, Tab, Objs);
+                            add_written_index(
+                              Ts#tidstore.store, Pos, Tab, Key, Objs);
 			true ->
 			    abort({bad_type, Tab, Attr, Key})
 		    end;
@@ -1817,7 +1883,7 @@ remote_dirty_match_object(Tab, Pat) ->
 	false ->
 	    mnesia_lib:db_match_object(Tab, Pat);
 	true ->
-	    PosList = val({Tab, index}),
+            PosList = regular_indexes(Tab),
 	    remote_dirty_match_object(Tab, Pat, PosList)
     end.
 
@@ -1849,7 +1915,7 @@ remote_dirty_select(Tab, Spec) ->
 		false ->
 		    mnesia_lib:db_select(Tab, Spec);
 		true  ->
-		    PosList = val({Tab, index}),
+		    PosList = regular_indexes(Tab),
 		    remote_dirty_select(Tab, Spec, PosList)
 	    end;
 	_ ->
@@ -1916,6 +1982,8 @@ dirty_index_match_object(Pat, _Attr) ->
 dirty_index_match_object(Tab, Pat, Attr)
   when is_atom(Tab), Tab /= schema, is_tuple(Pat), tuple_size(Pat) > 2 ->
     case mnesia_schema:attr_tab_to_pos(Tab, Attr) of
+        {_} ->
+            dirty_match_object(Tab, Pat);
 	Pos when Pos =< tuple_size(Pat) ->
 	    case has_var(element(2, Pat)) of
 		false ->
@@ -2663,7 +2731,7 @@ create_table(Arg) ->
 create_table(Name, Arg) when is_list(Arg) ->
     mnesia_schema:create_table([{name, Name}| Arg]);
 create_table(Name, Arg) ->
-    {aborted, badarg, Name, Arg}.
+    {aborted, {badarg, Name, Arg}}.
 
 -spec delete_table(Tab::table()) -> t_result('ok').
 delete_table(Tab) ->
@@ -3246,3 +3314,7 @@ put_activity_id(Activity) ->
     mnesia_tm:put_activity_id(Activity).
 put_activity_id(Activity,Fun) ->
     mnesia_tm:put_activity_id(Activity,Fun).
+
+regular_indexes(Tab) ->
+    PosList = val({Tab, index}),
+    [P || P <- PosList, is_integer(P)].

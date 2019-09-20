@@ -96,7 +96,7 @@ tls_msg(?'TLS_v1.3'= Version) ->
            encrypted_extensions(),
            certificate_1_3(),
            %%certificate_request_1_3,
-           %%certificate_verify()
+           certificate_verify_1_3(),
            finished(),
            key_update()
           ]);
@@ -119,11 +119,11 @@ tls_msg(Version) ->
 %%
 client_hello(?'TLS_v1.3' = Version) ->
     #client_hello{session_id = session_id(),
-		  client_version = ?'TLS_v1.2',
-		  cipher_suites = cipher_suites(Version),
-		  compression_methods = compressions(Version),
-		  random = client_random(Version),
-		  extensions = client_hello_extensions(Version)    
+                  client_version = ?'TLS_v1.2',
+                  cipher_suites = cipher_suites(Version),
+                  compression_methods = compressions(Version),
+                  random = client_random(Version),
+                  extensions = client_hello_extensions(Version)
                  };
 client_hello(Version) ->
     #client_hello{session_id = session_id(),
@@ -132,6 +132,14 @@ client_hello(Version) ->
 		  compression_methods = compressions(Version),
 		  random = client_random(Version),
 		  extensions = client_hello_extensions(Version)    
+                 };
+client_hello(?'SSL_v3' = Version) ->
+    #client_hello{session_id = session_id(),
+		  client_version = Version,
+                  cipher_suites = cipher_suites(Version),
+		  compression_methods = compressions(Version),
+		  random = client_random(Version),
+		  extensions = ssl_handshake:empty_extensions(Version, client_hello)
                  }.
 
 server_hello(?'TLS_v1.3' = Version) ->
@@ -141,6 +149,14 @@ server_hello(?'TLS_v1.3' = Version) ->
                   cipher_suite = cipher_suite(Version),
 		  compression_method = compression(Version),
 		  extensions = server_hello_extensions(Version)    
+                 };
+server_hello(?'SSL_v3' = Version) ->
+    #server_hello{server_version = Version,
+		  session_id = session_id(),
+                  random = server_random(Version),
+                  cipher_suite = cipher_suite(Version),
+		  compression_method = compression(Version),
+		  extensions = ssl_handshake:empty_extensions(Version, server_hello)
                  };
 server_hello(Version) ->
     #server_hello{server_version = Version,
@@ -160,7 +176,14 @@ certificate_1_3() ->
      ?LET(Certs, certificate_chain(),
           #certificate_1_3{
              certificate_request_context = certificate_request_context(),
-             entries = certificate_entries(Certs, [])  
+             certificate_list = certificate_entries(Certs, [])
+            }).
+
+certificate_verify_1_3() ->
+     ?LET(Certs, certificate_chain(),
+          #certificate_verify_1_3{
+             algorithm = sig_scheme(),
+             signature = signature()
             }).
 
 finished() ->
@@ -284,7 +307,7 @@ pre_shared_keyextension() ->
 %% |                                                  |             |
 %% | signature_algorithms_cert (RFC 8446)             |      CH, CR |
 %% +--------------------------------------------------+-------------+
-extensions(?'TLS_v1.3' = Version, client_hello) ->
+extensions(?'TLS_v1.3' = Version, MsgType = client_hello) ->
      ?LET({
            ServerName,
            %% MaxFragmentLength,
@@ -299,8 +322,8 @@ extensions(?'TLS_v1.3' = Version, client_hello) ->
            %% ServerCertificateType,
            %% Padding,
            KeyShare,
-           %% PreSharedKey,
-           %% PSKKeyExchangeModes,
+           PreSharedKey,
+           PSKKeyExchangeModes,
            %% EarlyData,
            %% Cookie,
            SupportedVersions,
@@ -321,12 +344,12 @@ extensions(?'TLS_v1.3' = Version, client_hello) ->
            %% oneof([client_cert_type(), undefined]),
            %% oneof([server_cert_type(), undefined]),
            %% oneof([padding(), undefined]),
-           oneof([key_share(client_hello), undefined]),
-           %% oneof([pre_shared_key(), undefined]),
-           %% oneof([psk_key_exchange_modes(), undefined]),
+           oneof([key_share(MsgType), undefined]),
+           oneof([pre_shared_key(MsgType), undefined]),
+           oneof([psk_key_exchange_modes(), undefined]),
            %% oneof([early_data(), undefined]),
            %% oneof([cookie(), undefined]),
-           oneof([client_hello_versions(Version), undefined]),
+           oneof([client_hello_versions(Version)]),
            %% oneof([cert_authorities(), undefined]),
            %% oneof([post_handshake_auth(), undefined]),
            oneof([signature_algs_cert(), undefined])
@@ -350,8 +373,8 @@ extensions(?'TLS_v1.3' = Version, client_hello) ->
                         %% server_cert_type => ServerCertificateType,
                         %% padding => Padding,
                         key_share => KeyShare,
-                        %% pre_shared_key => PreSharedKey,
-                        %% psk_key_exhange_modes => PSKKeyExchangeModes,
+                        pre_shared_key => PreSharedKey,
+                        psk_key_exchange_modes => PSKKeyExchangeModes,
                         %% early_data => EarlyData,
                         %% cookie => Cookie,
                         client_hello_versions => SupportedVersions,
@@ -394,16 +417,16 @@ extensions(Version, client_hello) ->
                        srp => SRP
                        %% renegotiation_info => RenegotiationInfo
                       }));
-extensions(?'TLS_v1.3' = Version, server_hello) ->
+extensions(?'TLS_v1.3' = Version, MsgType = server_hello) ->
     ?LET({
           KeyShare,
-          %% PreSharedKeys,
+          PreSharedKey,
           SupportedVersions
          },
          {
-          oneof([key_share(server_hello), undefined]),
-          %% oneof([pre_shared_keys(),  undefined]),
-          oneof([server_hello_selected_version(), undefined])
+          oneof([key_share(MsgType), undefined]),
+          oneof([pre_shared_key(MsgType),  undefined]),
+          oneof([server_hello_selected_version()])
          },
          maps:filter(fun(_, undefined) ->
                              false;
@@ -412,7 +435,7 @@ extensions(?'TLS_v1.3' = Version, server_hello) ->
                      end,
                      #{
                        key_share => KeyShare,
-                       %% pre_shared_keys => PreSharedKeys,
+                       pre_shared_key => PreSharedKey,
                        server_hello_selected_version => SupportedVersions
                       }));
 extensions(Version, server_hello) ->
@@ -511,10 +534,48 @@ sig_scheme_list() ->
             ecdsa_sha1]
           ]).
 
+sig_scheme() ->
+    oneof([rsa_pkcs1_sha256,
+            rsa_pkcs1_sha384,
+            rsa_pkcs1_sha512,
+            ecdsa_secp256r1_sha256,
+            ecdsa_secp384r1_sha384,
+            ecdsa_secp521r1_sha512,
+            rsa_pss_rsae_sha256,
+            rsa_pss_rsae_sha384,
+            rsa_pss_rsae_sha512,
+            rsa_pss_pss_sha256,
+            rsa_pss_pss_sha384,
+            rsa_pss_pss_sha512,
+            rsa_pkcs1_sha1,
+            ecdsa_sha1]).
+
+signature() ->
+    <<44,119,215,137,54,84,156,26,121,212,64,173,189,226,
+      191,46,76,89,204,2,78,79,163,228,90,21,89,179,4,198,
+      109,14,52,26,230,22,56,8,170,129,86,0,7,132,245,81,
+      181,131,62,70,79,167,112,85,14,171,175,162,110,29,
+      212,198,45,188,83,176,251,197,224,104,95,74,89,59,
+      26,60,63,79,238,196,137,65,23,199,127,145,176,184,
+      216,3,48,116,172,106,97,83,227,172,246,137,91,79,
+      173,119,169,60,67,1,177,117,9,93,38,86,232,253,73,
+      140,17,147,130,110,136,245,73,10,91,70,105,53,225,
+      158,107,60,190,30,14,26,92,147,221,60,117,104,53,70,
+      142,204,7,131,11,183,192,120,246,243,68,99,147,183,
+      49,149,48,188,8,218,17,150,220,121,2,99,194,140,35,
+      13,249,201,37,216,68,45,87,58,18,10,106,11,132,241,
+      71,170,225,216,197,212,29,107,36,80,189,184,202,56,
+      86,213,45,70,34,74,71,48,137,79,212,194,172,151,57,
+      57,30,126,24,157,198,101,220,84,162,89,105,185,245,
+      76,105,212,176,25,6,148,49,194,106,253,241,212,200,
+      37,154,227,53,49,216,72,82,163>>.
+
 client_hello_versions(?'TLS_v1.3') ->
     ?LET(SupportedVersions,
          oneof([[{3,4}],
-                [{3,3},{3,4}],
+                %% This list breaks the property but can be used for negative tests
+                %% [{3,3},{3,4}],
+                [{3,4},{3,3}],
                 [{3,4},{3,3},{3,2},{3,1},{3,0}]
                ]),
         #client_hello_versions{versions = SupportedVersions});
@@ -543,7 +604,10 @@ choose_certificate_chain(#{server_config := ServerConf,
     oneof([certificate_chain(ServerConf), certificate_chain(ClientConf)]).
 
 certificate_request_context() ->
-    <<>>.
+    oneof([<<>>,
+           <<1>>,
+           <<"foobar">>
+          ]).
 certificate_entries([], Acc) ->
     lists:reverse(Acc);
 certificate_entries([Cert | Rest], Acc) ->
@@ -734,10 +798,13 @@ key_share_entry_list(N, Pool, Acc) ->
           key_exchange = P},
     key_share_entry_list(N - 1, Pool -- [G], [KeyShareEntry|Acc]).
 
+%% TODO: fix curve generation
 generate_public_key(Group)
   when Group =:= secp256r1 orelse
        Group =:= secp384r1 orelse
-       Group =:= secp521r1 ->
+       Group =:= secp521r1 orelse
+       Group =:= x448 orelse
+       Group =:= x25519 ->
     #'ECPrivateKey'{publicKey = PublicKey} =
         public_key:generate_key({namedCurve, secp256r1}),
     PublicKey;
@@ -759,3 +826,58 @@ group_list(N, Pool, Acc) ->
     R = rand:uniform(length(Pool)),
     G = lists:nth(R, Pool),
     group_list(N - 1, Pool -- [G], [G|Acc]).
+
+
+ke_modes() ->
+    oneof([[psk_ke],[psk_dhe_ke],[psk_ke,psk_dhe_ke]]).
+
+psk_key_exchange_modes() ->
+    ?LET(KEModes, ke_modes(),
+         #psk_key_exchange_modes{
+            ke_modes = KEModes}).
+
+pre_shared_key(client_hello) ->
+    ?LET(OfferedPsks, offered_psks(),
+         #pre_shared_key_client_hello{
+            offered_psks = OfferedPsks});
+pre_shared_key(server_hello) ->
+    ?LET(SelectedIdentity, selected_identity(),
+         #pre_shared_key_server_hello{
+           selected_identity = SelectedIdentity}).
+
+selected_identity() ->
+    rand:uniform(32).
+
+offered_psks() ->
+    ?LET(Size, choose(1,5),
+         #offered_psks{
+            identities = psk_identities(Size),
+            binders = psk_binders(Size)}).
+
+psk_identities(Size) ->
+    psk_identities(Size, []).
+%%
+psk_identities(0, Acc) ->
+    Acc;
+psk_identities(N, Acc) ->
+    psk_identities(N - 1, [psk_identity()|Acc]).
+
+psk_identity() ->
+    Len = rand:uniform(32),
+    Identity = crypto:strong_rand_bytes(Len),
+    Age = crypto:strong_rand_bytes(4),
+    #psk_identity{
+      identity = Identity,
+      obfuscated_ticket_age = Age}.
+
+psk_binders(Size) ->
+    psk_binders(Size, []).
+%%
+psk_binders(0, Acc) ->
+    Acc;
+psk_binders(N, Acc) ->
+    psk_binders(N - 1, [psk_binder()|Acc]).
+
+psk_binder() ->
+    Len = rand:uniform(224) + 31,
+    crypto:strong_rand_bytes(Len).

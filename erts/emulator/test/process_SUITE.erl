@@ -44,6 +44,7 @@
          process_info_garbage_collection/1,
          process_info_smoke_all/1,
          process_info_status_handled_signal/1,
+         process_info_reductions/1,
 	 bump_reductions/1, low_prio/1, binary_owner/1, yield/1, yield2/1,
 	 otp_4725/1, bad_register/1, garbage_collect/1, otp_6237/1,
 	 process_info_messages/1, process_flag_badarg/1, process_flag_heap_size/1,
@@ -84,6 +85,7 @@ all() ->
      process_info_garbage_collection,
      process_info_smoke_all,
      process_info_status_handled_signal,
+     process_info_reductions,
      bump_reductions, low_prio, yield, yield2, otp_4725,
      bad_register, garbage_collect, process_info_messages,
      process_flag_badarg, process_flag_heap_size,
@@ -133,6 +135,15 @@ init_per_group(_GroupName, Config) ->
 end_per_group(_GroupName, Config) ->
     Config.
 
+init_per_testcase(Func, Config)
+  when Func =:= processes_default_tab;
+       Func =:= processes_this_tab ->
+    case erlang:system_info(debug_compiled) of
+        true ->
+            {skip, "Don't run in debug"};
+        false ->
+            [{testcase, Func} | Config]
+    end;
 init_per_testcase(Func, Config) when is_atom(Func), is_list(Config) ->
     [{testcase, Func}|Config].
 
@@ -1083,6 +1094,90 @@ process_info_status_handled_signal(Config) when is_list(Config) ->
     exit(P, kill),
     false = erlang:is_process_alive(P),
     ok.
+
+%% OTP-15709
+%% Provoke a bug where process_info(reductions) returned wrong result
+%% because REDS_IN (def_arg_reg[5]) is read when the process in not running.
+%%
+%% And a bug where process_info(reductions) on a process which was releasing its
+%% main lock during execution could result in negative reduction diffs.
+process_info_reductions(Config) when is_list(Config) ->
+    {S1, S2} = case erlang:system_info(schedulers) of
+                   1 -> {1,1};
+                   _ -> {1,2}
+               end,
+    io:format("Run on schedulers ~p and ~p\n", [S1,S2]),
+    Boss = self(),
+    Doer = spawn_opt(fun () ->
+                             pi_reductions_tester(true, 10, fun pi_reductions_spinnloop/0, S2),
+                             pi_reductions_tester(true, 10, fun pi_reductions_recvloop/0, S2),
+                             pi_reductions_tester(false, 100, fun pi_reductions_main_unlocker/0, S2),
+                             Boss ! {self(), done}
+                     end,
+                     [link, {scheduler, S1}]),
+
+    {Doer, done} = receive M -> M end,
+    ok.
+
+pi_reductions_tester(ForceSignal, MaxCalls, Fun, S2) ->
+    Pid = spawn_opt(Fun, [link, {scheduler,S2}]),
+    Extra = case ForceSignal of
+                true ->
+                    %% Add another item that force sending the request
+                    %% as a signal, like 'current_function'.
+                    [current_function];
+                false ->
+                    []
+            end,
+    LoopFun = fun Me(Calls, Prev, Acc0) ->
+                      PI = process_info(Pid, [reductions | Extra]),
+                      [{reductions,Reds} | _] = PI,
+                      Diff = Reds - Prev,
+                      %% Verify we get sane non-negative reduction diffs
+                      {Diff, true} = {Diff, (Diff >= 0)},
+                      {Diff, true} = {Diff, (Diff =< 1000*1000)},
+                      Acc1 = [Diff | Acc0],
+                      case Calls >= MaxCalls of
+                          true -> Acc1;
+                          false -> Me(Calls+1, Reds, Acc1)
+                      end
+              end,
+    DiffList = LoopFun(0, 0, []),
+    unlink(Pid),
+    exit(Pid,kill),
+    io:format("Reduction diffs: ~p\n", [lists:reverse(DiffList)]),
+    ok.
+
+pi_reductions_spinnloop() ->
+    %% 6 args to make use of def_arg_reg[5] which is also used as REDS_IN
+    pi_reductions_spinnloop(999*1000, atom, "hej", self(), make_ref(), 3.14).
+
+pi_reductions_spinnloop(N,A,B,C,D,E) when N > 0 ->
+    pi_reductions_spinnloop(N-1,B,C,D,E,A);
+pi_reductions_spinnloop(0,_,_,_,_,_) ->
+    %% Stop to limit max number of reductions consumed
+    pi_reductions_recvloop().
+
+pi_reductions_recvloop() ->
+    receive
+        "a free lunch" -> false
+    end.
+
+pi_reductions_main_unlocker() ->
+    Other = spawn_link(fun() -> receive die -> ok end end),
+    pi_reductions_main_unlocker_loop(Other).
+
+pi_reductions_main_unlocker_loop(Other) ->
+    %% Assumption: register(OtherPid, Name) will unlock main lock of calling
+    %% process during execution.
+    register(pi_reductions_main_unlocker, Other),
+    unregister(pi_reductions_main_unlocker),
+
+    %% Yield in order to increase probability of process_info sometimes probing
+    %% this process when it's not RUNNING.
+    erlang:yield(),
+    pi_reductions_main_unlocker_loop(Other).
+
 
 %% Tests erlang:bump_reductions/1.
 bump_reductions(Config) when is_list(Config) ->
@@ -2104,6 +2199,13 @@ spawn_opt_max_heap_size(_Config) ->
 
     error_logger:add_report_handler(?MODULE, self()),
 
+    %% flush any prior messages in error_logger
+    Pid = spawn(fun() -> ok = nok end),
+    receive
+        {error, _, {emulator, _, [Pid|_]}} ->
+            flush()
+    end,
+
     %% Test that numerical limit works
     max_heap_size_test(1024, 1024, true, true),
 
@@ -2205,6 +2307,13 @@ receive_unexpected() ->
         M ->
             ct:fail({unexpected_message, M})
     after 10 ->
+            ok
+    end.
+
+flush() ->
+    receive
+        _M -> flush()
+    after 0 ->
             ok
     end.
 
@@ -2491,14 +2600,20 @@ garb_other_running(Config) when is_list(Config) ->
 
 no_priority_inversion(Config) when is_list(Config) ->
     Prio = process_flag(priority, max),
-    HTLs = lists:map(fun (_) ->
+    Master = self(),
+    Executing = make_ref(),
+    HTLs = lists:map(fun (Sched) ->
 			     spawn_opt(fun () ->
+                                               Master ! {self(), Executing},
 					       tok_loop()
 				       end,
-				       [{priority, high}, monitor, link])
+				       [{priority, high},
+                                        {scheduler, Sched},
+                                        monitor,
+                                        link])
 		     end,
-		     lists:seq(1, 2*erlang:system_info(schedulers))),
-    receive after 500 -> ok end,
+		     lists:seq(1, erlang:system_info(schedulers_online))),
+    lists:foreach(fun ({P, _}) -> receive {P,Executing} -> ok end end, HTLs),
     LTL = spawn_opt(fun () ->
 			    tok_loop()
 		    end,
@@ -2520,14 +2635,19 @@ no_priority_inversion(Config) when is_list(Config) ->
 
 no_priority_inversion2(Config) when is_list(Config) ->
     Prio = process_flag(priority, max),
-    MTLs = lists:map(fun (_) ->
+    Master = self(),
+    Executing = make_ref(),
+    MTLs = lists:map(fun (Sched) ->
 			     spawn_opt(fun () ->
+                                               Master ! {self(), Executing},
 					       tok_loop()
 				       end,
-				       [{priority, max}, monitor, link])
+				       [{priority, max},
+                                        {scheduler, Sched},
+                                        monitor, link])
 		     end,
-		     lists:seq(1, 2*erlang:system_info(schedulers))),
-    receive after 2000 -> ok end,
+		     lists:seq(1, erlang:system_info(schedulers_online))),
+    lists:foreach(fun ({P, _}) -> receive {P,Executing} -> ok end end, MTLs),
     {PL, ML} = spawn_opt(fun () ->
 			       tok_loop()
 		       end,

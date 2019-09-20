@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2002-2015. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,14 +18,10 @@
 %% The Initial Developer of the Original Code is Ericsson AB.
 %% %CopyrightEnd%
 %%
+
 %%----------------------------------------------------------------------
-%% Purpose: Define common macros for testing
+%% Purpose: Define common macros for (the snmp) testing
 %%----------------------------------------------------------------------
-
-%% - (some of the) Macros stolen from the test server -
-
-%% -define(line,put(test_server_loc,{?MODULE,?LINE}),).
-
 
 %% - Misc macros -
 
@@ -45,12 +41,18 @@
 
 
 %% - Test case macros - 
+-define(TC_TRY(C, TC),         snmp_test_lib:tc_try(C, TC)).
+-define(TC_TRY(C, TCCond, TC), snmp_test_lib:tc_try(C, TCCond, TC)).
 -define(OS_BASED_SKIP(Skippable),
         snmp_test_lib:os_based_skip(Skippable)).
 -define(NON_PC_TC_MAYBE_SKIP(Config, Condition),
         snmp_test_lib:non_pc_tc_maybe_skip(Config, Condition, ?MODULE, ?LINE)).
--define(SKIP(Reason),   snmp_test_lib:skip(Reason, ?MODULE, ?LINE)).
--define(FAIL(Reason),   snmp_test_lib:fail(Reason, ?MODULE, ?LINE)).
+-define(SKIP(Reason),        snmp_test_lib:skip(Reason, ?MODULE, ?LINE)).
+-define(FAIL(Reason),        snmp_test_lib:fail(Reason, ?MODULE, ?LINE)).
+-define(IS_IPV6_HOST(),      snmp_test_lib:is_ipv6_host()).
+-define(IS_IPV6_HOST(H),     snmp_test_lib:is_ipv6_host(H)).
+-define(HAS_SUPPORT_IPV6(),  snmp_test_lib:has_support_ipv6()).
+-define(HAS_SUPPORT_IPV6(H), snmp_test_lib:has_support_ipv6(H)).
 
 
 %% - Time macros -
@@ -88,6 +90,7 @@
 -define(LNODES(),           snmp_test_lib:local_nodes()).
 -define(NODES(H),           snmp_test_lib:nodes_on(H)).
 -define(START_NODE(N,A),    snmp_test_lib:start_node(N,A)).
+-define(STOP_NODE(N),       snmp_test_lib:stop_node(N)).
 
 
 %% - Application and Crypto utility macros - 
@@ -127,24 +130,33 @@
 -endif.
 
 -ifdef(snmp_debug).
--define(DBG(F,A),?PRINT("DBG",F,A)).
+-define(DBG(F,A), ?PRINT("DBG", F, A)).
 -else.
--define(DBG(F,A),ok).
+-define(DBG(F,A), ok).
 -endif.
 
 -ifdef(snmp_log).
--define(LOG(F,A),?PRINT("LOG",F,A)).
+-define(LOG(F,A), ?PRINT("LOG", F, A)).
 -else.
--define(LOG(F,A),ok).
+-define(LOG(F,A), ok).
 -endif.
 
 -ifdef(snmp_error).
--define(ERR(F,A),?PRINT("ERR",F,A)).
+-define(ERR(F,A), ?PRINT("ERR", F, A)).
 -else.
--define(ERR(F,A),ok).
+-define(ERR(F,A), ok).
 -endif.
 
--define(INF(F,A),?PRINT("INF",F,A)).
+-define(INF(F,A), ?PRINT("INF", F, A)).
 
 -define(PRINT(P,F,A),
-	snmp_test_lib:print(P,?MODULE,?LINE,F,A)).
+	snmp_test_lib:print(P, ?MODULE, ?LINE, F, A)).
+
+-define(PRINT1(F, A),  snmp_test_lib:print1(F, A)).
+-define(PRINT1(F),     ?PRINT1(F, [])).
+-define(EPRINT1(F, A), ?PRINT1("<ERROR> " ++ F, A)).
+
+-define(PRINT2(F, A),  snmp_test_lib:print2(F, A)).
+-define(PRINT2(F),     ?PRINT2(F, [])).
+-define(EPRINT2(F, A), ?PRINT2("<ERROR> " ++ F, A)).
+

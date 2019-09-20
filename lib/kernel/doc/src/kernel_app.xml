@@ -369,6 +369,14 @@ MaxT = TickTime + TickTime / 4</code>
           performed. This option ensures that <c>global</c> is
           synchronized.</p>
       </item>
+      <tag><c>start_distribution = true | false</c></tag>
+      <item>
+        <p>Starts all distribution services, such as <c>rpc</c>,
+          <c>global</c>, and <c>net_kernel</c> if the parameter is
+          <c>true</c>. This parameter is to be set to <c>false</c>
+          for systems who want to disable all distribution functionality.</p>
+        <p>Defaults to <c>true</c>.</p>
+      </item>
       <tag><c>start_dist_ac = true | false</c></tag>
       <item>
         <p>Starts the <c>dist_ac</c> server if the parameter is
@@ -510,11 +518,13 @@ MaxT = TickTime + TickTime / 4</code>
       parameters for Logger are not set.</p>
     <taglist>
       <tag><c>error_logger</c></tag>
-      <item>Replaced by setting the type of the default
-      <seealso marker="logger_std_h#type"><c>logger_std_h</c></seealso>
-      to the same value. Example:
+      <item>Replaced by setting the <seealso
+      marker="logger_std_h#type"><c>type</c></seealso>, and possibly
+      <seealso marker="logger_std_h#file"><c>file</c></seealso> and
+      <seealso marker="logger_std_h#modes"><c>modes</c></seealso>
+      parameters of the default <c>logger_std_h</c> handler. Example:
       <code type="none">
-erl -kernel logger '[{handler,default,logger_std_h,#{config=>#{type=>{file,"/tmp/erlang.log"}}}}]'
+erl -kernel logger '[{handler,default,logger_std_h,#{config=>#{file=>"/tmp/erlang.log"}}}]'
       </code>
       </item>
       <tag><c>error_logger_format_depth</c></tag>

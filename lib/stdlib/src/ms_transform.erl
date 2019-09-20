@@ -556,8 +556,8 @@ tg({call, Line, {remote,_,{atom,_,erlang},{atom, Line2, FunName}},ParaList},
 			       FunName,length(ParaList)}}) 
     end;
 tg({call, Line, {remote,_,{atom,_,ModuleName},
-		 {atom, _, FunName}},_ParaList},B) ->
-    throw({error,Line,{?ERR_GENREMOTECALL+B#tgd.eb,ModuleName,FunName}});
+		 {atom, _, FunName}},ParaList},B) ->
+    throw({error,Line,{?ERR_GENREMOTECALL+B#tgd.eb,ModuleName,FunName,length(ParaList)}});
 tg({cons,Line, H, T},B) -> 
     {cons, Line, tg(H,B), tg(T,B)};
 tg({nil, Line},_B) ->
@@ -1100,6 +1100,8 @@ normalise({bin,_,Fs}) ->
     B;
 normalise({cons,_,Head,Tail}) ->
     [normalise(Head)|normalise(Tail)];
+normalise({op,_,'++',A,B}) ->
+    normalise(A) ++ normalise(B);
 normalise({tuple,_,Args}) ->
     list_to_tuple(normalise_list(Args));
 normalise({map,_,Pairs0}) ->

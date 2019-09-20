@@ -166,7 +166,7 @@ BIF_RETTYPE code_make_stub_module_3(BIF_ALIST_3)
 	BIF_ERROR(BIF_P, BADARG);
 
     if (!erts_try_seize_code_write_permission(BIF_P)) {
-	ERTS_BIF_YIELD3(bif_export[BIF_code_make_stub_module_3],
+	ERTS_BIF_YIELD3(&bif_trap_export[BIF_code_make_stub_module_3],
 			BIF_P, BIF_ARG_1, BIF_ARG_2, BIF_ARG_3);
     }
 
@@ -301,7 +301,7 @@ finish_loading_1(BIF_ALIST_1)
     int do_commit = 0;
 
     if (!erts_try_seize_code_write_permission(BIF_P)) {
-	ERTS_BIF_YIELD1(bif_export[BIF_finish_loading_1], BIF_P, BIF_ARG_1);
+	ERTS_BIF_YIELD1(&bif_trap_export[BIF_finish_loading_1], BIF_P, BIF_ARG_1);
     }
 
     /*
@@ -659,7 +659,7 @@ BIF_RETTYPE delete_module_1(BIF_ALIST_1)
     }
 
     if (!erts_try_seize_code_write_permission(BIF_P)) {
-	ERTS_BIF_YIELD1(bif_export[BIF_delete_module_1], BIF_P, BIF_ARG_1);
+	ERTS_BIF_YIELD1(&bif_trap_export[BIF_delete_module_1], BIF_P, BIF_ARG_1);
     }
 
     {
@@ -785,7 +785,7 @@ BIF_RETTYPE finish_after_on_load_2(BIF_ALIST_2)
     }
 
     if (!erts_try_seize_code_write_permission(BIF_P)) {
-	ERTS_BIF_YIELD2(bif_export[BIF_finish_after_on_load_2],
+	ERTS_BIF_YIELD2(&bif_trap_export[BIF_finish_after_on_load_2],
 			BIF_P, BIF_ARG_1, BIF_ARG_2);
     }
 
@@ -835,21 +835,25 @@ BIF_RETTYPE finish_after_on_load_2(BIF_ALIST_2)
 	 */
 	num_exps = export_list_size(code_ix);
 	for (i = 0; i < num_exps; i++) {
-	    Export *ep = export_list(i,code_ix);
-	    if (ep == NULL || ep->info.mfa.module != BIF_ARG_1) {
-		continue;
-	    }
-	    if (ep->beam[1] != 0) {
-		ep->addressv[code_ix] = (void *) ep->beam[1];
-		ep->beam[1] = 0;
-	    } else {
-		if (ep->addressv[code_ix] == ep->beam &&
-		    BeamIsOpCode(ep->beam[0], op_apply_bif)) {
-		    continue;
-		}
-                ep->addressv[code_ix] = ep->beam;
-                ep->beam[0] = BeamOpCodeAddr(op_call_error_handler);
-	    }
+            Export *ep = export_list(i, code_ix);
+
+            if (ep == NULL || ep->info.mfa.module != BIF_ARG_1) {
+                continue;
+            }
+
+            DBG_CHECK_EXPORT(ep, code_ix);
+
+            if (ep->trampoline.not_loaded.deferred != 0) {
+                    ep->addressv[code_ix] = (void*)ep->trampoline.not_loaded.deferred;
+                    ep->trampoline.not_loaded.deferred = 0;
+            } else {
+                if (ep->bif_number != -1) {
+                    continue;
+                }
+
+                ep->addressv[code_ix] = ep->trampoline.raw;
+                ep->trampoline.op = BeamOpCodeAddr(op_call_error_handler);
+            }
 	}
 	modp->curr.code_hdr->on_load_function_ptr = NULL;
 
@@ -872,10 +876,11 @@ BIF_RETTYPE finish_after_on_load_2(BIF_ALIST_2)
 	    if (ep == NULL || ep->info.mfa.module != BIF_ARG_1) {
 		continue;
 	    }
-	    if (BeamIsOpCode(ep->beam[0], op_apply_bif)) {
+	    if (ep->bif_number != -1) {
 		continue;
 	    }
-	    ep->beam[1] = 0;
+
+            ep->trampoline.not_loaded.deferred = 0;
 	}
     }
     erts_release_code_write_permission();
@@ -1125,16 +1130,15 @@ check_process_code(Process* rp, Module* modp, int *redsp, int fcalls)
     mod_size = modp->old.code_length;
 
     /*
-     * Check if current instruction or continuation pointer points into module.
+     * Check if the instruction pointer points into module.
      */
-    if (ErtsInArea(rp->i, mod_start, mod_size)
-	|| ErtsInArea(rp->cp, mod_start, mod_size)) {
+    if (ErtsInArea(rp->i, mod_start, mod_size)) {
 	return am_true;
     }
- 
+
     *redsp += 1;
 
-    if (erts_check_nif_export_in_area(rp, mod_start, mod_size))
+    if (erts_check_nfunc_in_area(rp, mod_start, mod_size))
 	return am_true;
 
     *redsp += (STACK_START(rp) - rp->stop) / 32;
@@ -1673,7 +1677,7 @@ BIF_RETTYPE erts_internal_purge_module_2(BIF_ALIST_2)
 	    BIF_ERROR(BIF_P, BADARG);
 
 	if (!erts_try_seize_code_write_permission(BIF_P)) {
-	    ERTS_BIF_YIELD2(bif_export[BIF_erts_internal_purge_module_2],
+	    ERTS_BIF_YIELD2(&bif_trap_export[BIF_erts_internal_purge_module_2],
 			    BIF_P, BIF_ARG_1, BIF_ARG_2);
 	}
 
@@ -1799,6 +1803,78 @@ erts_queue_release_literals(Process* c_p, ErtsLiteralArea* literals)
     }
 }
 
+struct debug_la_oh {
+    void (*func)(ErlOffHeap *, void *);
+    void *arg;
+};
+
+static void debug_later_cleanup_literal_area_off_heap(void *vfap,
+                                                      ErtsThrPrgrVal val,
+                                                      void *vlrlap)
+{
+    struct debug_la_oh *fap = vfap;
+    ErtsLaterReleasLiteralArea *lrlap = vlrlap;
+    ErtsLiteralArea *lap = lrlap->la;
+    if (!erts_debug_have_accessed_literal_area(lap)) {
+        ErlOffHeap oh;
+        ERTS_INIT_OFF_HEAP(&oh);
+        oh.first = lap->off_heap;
+        (*fap->func)(&oh, fap->arg);
+        erts_debug_save_accessed_literal_area(lap);
+    }
+}
+
+static void debug_later_complete_literal_area_switch_off_heap(void *vfap,
+                                                              ErtsThrPrgrVal val,
+                                                              void *vlap)
+{
+    struct debug_la_oh *fap = vfap;
+    ErtsLiteralArea *lap = vlap;
+    if (lap && !erts_debug_have_accessed_literal_area(lap)) {
+        ErlOffHeap oh;
+        ERTS_INIT_OFF_HEAP(&oh);
+        oh.first = lap->off_heap;
+        (*fap->func)(&oh, fap->arg);
+        erts_debug_save_accessed_literal_area(lap);
+    }
+}
+
+
+void
+erts_debug_foreach_release_literal_area_off_heap(void (*func)(ErlOffHeap *, void *), void *arg)
+{
+    ErtsLiteralArea *lap;
+    ErlOffHeap oh;
+    ErtsLiteralAreaRef *ref;
+    struct debug_la_oh fa;
+    erts_mtx_lock(&release_literal_areas.mtx);
+    for (ref = release_literal_areas.first; ref; ref = ref->next) {
+        lap = ref->literal_area;
+        if (!erts_debug_have_accessed_literal_area(lap)) {
+            ERTS_INIT_OFF_HEAP(&oh);
+            oh.first = lap->off_heap;
+            (*func)(&oh, arg);
+            erts_debug_save_accessed_literal_area(lap);
+        }
+    }
+    erts_mtx_unlock(&release_literal_areas.mtx);
+    lap = ERTS_COPY_LITERAL_AREA();
+    if (lap && !erts_debug_have_accessed_literal_area(lap)) {
+        ERTS_INIT_OFF_HEAP(&oh);
+        oh.first = lap->off_heap;
+        (*func)(&oh, arg);
+        erts_debug_save_accessed_literal_area(lap);
+    }
+    fa.func = func;
+    fa.arg = arg;
+    erts_debug_later_op_foreach(later_release_literal_area,
+                                debug_later_cleanup_literal_area_off_heap,
+                                (void *) &fa);
+    erts_debug_later_op_foreach(complete_literal_area_switch,
+                                debug_later_complete_literal_area_switch_off_heap,
+                                (void *) &fa);
+}
+
 /*
  * Move code from current to old and null all export entries for the module
  */
@@ -1813,25 +1889,28 @@ delete_code(Module* modp)
     for (i = 0; i < num_exps; i++) {
 	Export *ep = export_list(i, code_ix);
         if (ep != NULL && (ep->info.mfa.module == module)) {
-	    if (ep->addressv[code_ix] == ep->beam) {
-		if (BeamIsOpCode(ep->beam[0], op_apply_bif)) {
-		    continue;
-		}
-		else if (BeamIsOpCode(ep->beam[0], op_i_generic_breakpoint)) {
+	    if (ep->addressv[code_ix] == ep->trampoline.raw) {
+                if (BeamIsOpCode(ep->trampoline.op, op_i_generic_breakpoint)) {
 		    ERTS_LC_ASSERT(erts_thr_progress_is_blocking());
 		    ASSERT(modp->curr.num_traced_exports > 0);
 		    DBG_TRACE_MFA_P(&ep->info.mfa,
 				  "export trace cleared, code_ix=%d", code_ix);
-		    erts_clear_export_break(modp, &ep->info);
+		    erts_clear_export_break(modp, ep);
 		}
 		else {
-                    ASSERT(BeamIsOpCode(ep->beam[0], op_call_error_handler) ||
+                    ASSERT(BeamIsOpCode(ep->trampoline.op, op_call_error_handler) ||
                            !erts_initialized);
                 }
             }
-	    ep->addressv[code_ix] = ep->beam;
-	    ep->beam[0] = BeamOpCodeAddr(op_call_error_handler);
-	    ep->beam[1] = 0;
+
+            if (ep->bif_number != -1 && ep->is_bif_traced) {
+                /* Code unloading kills both global and local call tracing. */
+                ep->is_bif_traced = 0;
+            }
+
+	    ep->addressv[code_ix] = ep->trampoline.raw;
+	    ep->trampoline.op = BeamOpCodeAddr(op_call_error_handler);
+	    ep->trampoline.not_loaded.deferred = 0;
 	    DBG_TRACE_MFA_P(&ep->info.mfa,
 			    "export invalidation, code_ix=%d", code_ix);
 	}

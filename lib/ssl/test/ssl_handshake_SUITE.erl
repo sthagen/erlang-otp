@@ -26,6 +26,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include("ssl_alert.hrl").
+-include("ssl_handshake.hrl").
 -include("ssl_internal.hrl").
 -include("tls_handshake.hrl").
 -include_lib("public_key/include/public_key.hrl").
@@ -42,7 +43,8 @@ all() -> [decode_hello_handshake,
 	  decode_empty_server_sni_correctly,
 	  select_proper_tls_1_2_rsa_default_hashsign,
 	  ignore_hassign_extension_pre_tls_1_2,
-	  unorded_chain, signature_algorithms].
+	  unorded_chain, signature_algorithms,
+	  encode_decode_srp].
 
 %%--------------------------------------------------------------------
 init_per_suite(Config) ->
@@ -104,7 +106,7 @@ decode_hello_handshake(_Config) ->
 	
     Version = {3, 0},
     {Records, _Buffer} = tls_handshake:get_tls_handshake(Version, HelloPacket, <<>>, 
-							 #ssl_options{}),
+							 ssl:options_to_map(#ssl_options{})),
 
     {Hello, _Data} = hd(Records),
     Extensions = Hello#server_hello.extensions,
@@ -124,13 +126,13 @@ decode_supported_elliptic_curves_hello_extension_correctly(_Config) ->
     Len = ListLen + 2,
     Extension = <<?UINT16(?ELLIPTIC_CURVES_EXT), ?UINT16(Len), ?UINT16(ListLen), EllipticCurveList/binary>>,
     % after decoding we should see only valid curves
-    Extensions = ssl_handshake:decode_hello_extensions(Extension, {3,2}, client),
+    Extensions = ssl_handshake:decode_hello_extensions(Extension, {3,2}, {3,2}, client),
     #{elliptic_curves := #elliptic_curves{elliptic_curve_list = [?sect233k1, ?sect193r2]}} = Extensions. 
 
 decode_unknown_hello_extension_correctly(_Config) ->
     FourByteUnknown = <<16#CA,16#FE, ?UINT16(4), 3, 0, 1, 2>>,
     Renegotiation = <<?UINT16(?RENEGOTIATION_EXT), ?UINT16(1), 0>>,
-    Extensions = ssl_handshake:decode_hello_extensions(<<FourByteUnknown/binary, Renegotiation/binary>>, {3,2}, client),
+    Extensions = ssl_handshake:decode_hello_extensions(<<FourByteUnknown/binary, Renegotiation/binary>>, {3,2}, {3,2}, client),
     #{renegotiation_info := #renegotiation_info{renegotiated_connection = <<0>>}} = Extensions.
 
 
@@ -145,12 +147,12 @@ encode_single_hello_sni_extension_correctly(_Config) ->
 decode_single_hello_sni_extension_correctly(_Config) ->
     SNI = <<16#00, 16#00, 16#00, 16#0d, 16#00, 16#0b, 16#00, 16#00, 16#08,
 	    $t,    $e,    $s,    $t,    $.,    $c,    $o,    $m>>,
-    Decoded = ssl_handshake:decode_hello_extensions(SNI, {3,3}, client),
+    Decoded = ssl_handshake:decode_hello_extensions(SNI, {3,3}, {3,3}, client),
     #{sni := #sni{hostname = "test.com"}} = Decoded.
 
 decode_empty_server_sni_correctly(_Config) ->
     SNI = <<?UINT16(?SNI_EXT),?UINT16(0)>>,
-    Decoded = ssl_handshake:decode_hello_extensions(SNI, {3,3}, server),
+    Decoded = ssl_handshake:decode_hello_extensions(SNI, {3,3}, {3,3}, server),
     #{sni := #sni{hostname = ""}} = Decoded.
 
 
@@ -190,6 +192,30 @@ unorded_chain(Config) when is_list(Config) ->
     {ok, _, OrderedChain} = 
         ssl_certificate:certificate_chain(PeerCert, ets:new(foo, []), ExtractedCerts, UnordedChain).
 
+encode_decode_srp(_Config) ->
+    Exts = #{srp => #srp{username = <<"foo">>},
+             sni => #sni{hostname = "bar"},
+             renegotiation_info => undefined,
+             signature_algs => undefined,
+             alpn => undefined,
+             next_protocol_negotiation => undefined,
+             ec_point_formats => undefined,
+             elliptic_curves => undefined
+            },
+    EncodedExts0 = <<0,20,          % Length
+                    0,12,          % SRP extension
+                    0,4,           % Length
+                    3,             % srp_I length
+                    102,111,111, % username = "foo"
+                    0,0,           % SNI extension
+                    0,8,           % Length
+                    0,6,           % ServerNameLength
+                    0,             % NameType (host_name)
+                    0,3,           % HostNameLength
+                    98,97,114>>,     % hostname = "bar"
+    EncodedExts0 = <<?UINT16(_),EncodedExts/binary>> =
+        ssl_handshake:encode_hello_extensions(Exts, {3,3}),
+    Exts = ssl_handshake:decode_hello_extensions(EncodedExts, {3,3}, {3,3}, client).
 
 signature_algorithms(Config) ->
     Opts = proplists:get_value(server_opts, Config),

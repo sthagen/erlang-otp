@@ -161,14 +161,13 @@ md5_1(Beam) ->
 %% Cover some code that handles internal errors.
 
 silly_coverage(Config) when is_list(Config) ->
-    %% sys_core_fold, sys_core_alias, sys_core_bsm, sys_core_setel, v3_kernel
+    %% sys_core_fold, sys_core_alias, sys_core_bsm, v3_kernel
     BadCoreErlang = {c_module,[],
 		     name,[],[],
 		     [{{c_var,[],{foo,2}},seriously_bad_body}]},
     expect_error(fun() -> sys_core_fold:module(BadCoreErlang, []) end),
     expect_error(fun() -> sys_core_alias:module(BadCoreErlang, []) end),
     expect_error(fun() -> sys_core_bsm:module(BadCoreErlang, []) end),
-    expect_error(fun() -> sys_core_dsetel:module(BadCoreErlang, []) end),
     expect_error(fun() -> v3_kernel:module(BadCoreErlang, []) end),
 
     %% beam_kernel_to_ssa
@@ -182,19 +181,26 @@ silly_coverage(Config) when is_list(Config) ->
     expect_error(fun() -> beam_kernel_to_ssa:module(BadKernel, []) end),
 
     %% beam_ssa_lint
+    %% beam_ssa_bool
     %% beam_ssa_recv
     %% beam_ssa_share
     %% beam_ssa_pre_codegen
-    %% beam_ssa_opt
     %% beam_ssa_codegen
     BadSSA = {b_module,#{},a,b,c,
               [{b_function,#{func_info=>{mod,foo,0}},args,bad_blocks,0}]},
     expect_error(fun() -> beam_ssa_lint:module(BadSSA, []) end),
+    expect_error(fun() -> beam_ssa_bool:module(BadSSA, []) end),
     expect_error(fun() -> beam_ssa_recv:module(BadSSA, []) end),
     expect_error(fun() -> beam_ssa_share:module(BadSSA, []) end),
     expect_error(fun() -> beam_ssa_pre_codegen:module(BadSSA, []) end),
-    expect_error(fun() -> beam_ssa_opt:module(BadSSA, []) end),
     expect_error(fun() -> beam_ssa_codegen:module(BadSSA, []) end),
+
+    %% beam_ssa_opt
+    BadSSABlocks = #{0 => {b_blk,#{},[bad_code],{b_ret,#{},arg}}},
+    BadSSAOpt = {b_module,#{},a,[],c,
+                 [{b_function,#{func_info=>{mod,foo,0}},[],
+                   BadSSABlocks,0}]},
+    expect_error(fun() -> beam_ssa_opt:module(BadSSAOpt, []) end),
 
     %% beam_ssa_lint, beam_ssa_pp
     {error,[{_,Errors}]} = beam_ssa_lint:module(bad_ssa_lint_input(), []),
@@ -222,19 +228,6 @@ silly_coverage(Config) when is_list(Config) ->
 		     {func_info,{atom,?MODULE},{atom,foo},0},
 		     {label,2}|non_proper_list]}],99},
     expect_error(fun() -> beam_block:module(BlockInput, []) end),
-
-    %% beam_bs
-    BsInput = BlockInput,
-    expect_error(fun() -> beam_bs:module(BsInput, []) end),
-
-    %% beam_except
-    ExceptInput = {?MODULE,[{foo,0}],[],
-		   [{function,foo,0,2,
-		     [{label,1},
-		      {line,loc},
-		      {func_info,{atom,?MODULE},{atom,foo},0},
-		      {label,2}|non_proper_list]}],99},
-    expect_error(fun() -> beam_except:module(ExceptInput, []) end),
 
     %% beam_jump
     JumpInput = BlockInput,
@@ -283,12 +276,32 @@ silly_coverage(Config) when is_list(Config) ->
 
 bad_ssa_lint_input() ->
     {b_module,#{},t,
-     [{foobar,1},{module_info,0},{module_info,1}],
+     [{a,1},{b,1},{c,1},{module_info,0},{module_info,1}],
      [],
      [{b_function,
-       #{func_info => {t,foobar,1},location => {"t.erl",4}},
+       #{func_info => {t,a,1},location => {"t.erl",4}},
        [{b_var,0}],
        #{0 => {b_blk,#{},[],{b_ret,#{},{b_var,'@undefined_var'}}}},
+       3},
+      {b_function,
+       #{func_info => {t,b,1},location => {"t.erl",5}},
+       [{b_var,0}],
+       #{0 =>
+             {b_blk,#{},
+              [{b_set,#{},{b_var,'@first_var'},first_op,[]},
+               {b_set,#{},{b_var,'@second_var'},second_op,[]},
+               {b_set,#{},{b_var,'@ret'},succeeded,[{b_var,'@first_var'}]}],
+              {b_ret,#{},{b_var,'@ret'}}}},
+       3},
+      {b_function,
+       #{func_info => {t,c,1},location => {"t.erl",6}},
+       [{b_var,0}],
+       #{0 =>
+             {b_blk,#{},
+              [{b_set,#{},{b_var,'@first_var'},first_op,[]},
+               {b_set,#{},{b_var,'@ret'},succeeded,[{b_var,'@first_var'}]},
+               {b_set,#{},{b_var,'@second_var'},second_op,[]}],
+              {b_ret,#{},{b_var,'@ret'}}}},
        3},
       {b_function,
        #{func_info => {t,module_info,0}},

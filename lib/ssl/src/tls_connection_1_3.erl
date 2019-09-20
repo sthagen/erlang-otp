@@ -109,92 +109,136 @@
 
 %% gen_statem helper functions
 -export([start/4,
-         negotiated/4
+         negotiated/4,
+         wait_cert/4,
+         wait_cv/4,
+         wait_finished/4,
+         wait_sh/4,
+         wait_ee/4,
+         wait_cert_cr/4
         ]).
 
-start(internal,
-      #client_hello{} = Hello,
-      #state{connection_states = _ConnectionStates0,
-	     ssl_options = #ssl_options{ciphers = _ServerCiphers,
-                                        signature_algs = _ServerSignAlgs,
-                                        signature_algs_cert = _SignatureSchemes, %% TODO: Check??
-                                        supported_groups = _ServerGroups0,
-                                        versions = _Versions} = SslOpts,
-             session = #session{own_certificate = Cert}} = State0,
-      _Module) ->
 
-    Env = #{cert => Cert},
-    case tls_handshake_1_3:handle_client_hello(Hello, SslOpts, Env) of
+start(internal, #change_cipher_spec{}, State, _Module) ->
+    tls_connection:next_event(?FUNCTION_NAME, no_record, State);
+start(internal, #client_hello{} = Hello, State0, _Module) ->
+    case tls_handshake_1_3:do_start(Hello, State0) of
         #alert{} = Alert ->
             ssl_connection:handle_own_alert(Alert, {3,4}, start, State0);
-        M ->
-            %% update connection_states with cipher
-            State = update_state(State0, M),
-            {next_state, negotiated, State, [{next_event, internal, M}]}
+        {State, start} ->
+            {next_state, start, State, []};
+        {State, negotiated} ->
+            {next_state, negotiated, State, [{next_event, internal, start_handshake}]}
+    end;
+start(internal, #server_hello{} = ServerHello, State0, _Module) ->
+    case tls_handshake_1_3:do_start(ServerHello, State0) of
+        #alert{} = Alert ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, start, State0);
+        {State, NextState} ->
+            {next_state, NextState, State, []}
+    end;
+start(Type, Msg, State, Connection) ->
+    ssl_connection:handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
 
+
+negotiated(internal, #change_cipher_spec{}, State, _Module) ->
+    tls_connection:next_event(?FUNCTION_NAME, no_record, State);
+negotiated(internal, Message, State0, _Module) ->
+    case tls_handshake_1_3:do_negotiated(Message, State0) of
+        #alert{} = Alert ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, negotiated, State0);
+        {State, NextState} ->
+            {next_state, NextState, State, []}
     end.
 
-%% TODO: move these functions
-update_state(#state{connection_states = ConnectionStates0,
-                    session = Session} = State,
-             #{client_random := ClientRandom,
-               cipher := Cipher,
-               key_share := KeyShare,
-               session_id := SessionId}) ->
-    #{security_parameters := SecParamsR0} = PendingRead =
-        maps:get(pending_read, ConnectionStates0),
-    #{security_parameters := SecParamsW0} = PendingWrite =
-        maps:get(pending_write, ConnectionStates0),
-    SecParamsR = ssl_cipher:security_parameters_1_3(SecParamsR0, ClientRandom, Cipher),
-    SecParamsW = ssl_cipher:security_parameters_1_3(SecParamsW0, ClientRandom, Cipher),
-    ConnectionStates =
-        ConnectionStates0#{pending_read => PendingRead#{security_parameters => SecParamsR},
-                           pending_write => PendingWrite#{security_parameters => SecParamsW}},
-    State#state{connection_states = ConnectionStates,
-                key_share = KeyShare,
-                session = Session#session{session_id = SessionId}}.
+
+wait_cert(internal, #change_cipher_spec{}, State, _Module) ->
+    tls_connection:next_event(?FUNCTION_NAME, no_record, State);
+wait_cert(internal,
+          #certificate_1_3{} = Certificate, State0, _Module) ->
+    case tls_handshake_1_3:do_wait_cert(Certificate, State0) of
+        {#alert{} = Alert, State} ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, wait_cert, State);
+        {State, NextState} ->
+            tls_connection:next_event(NextState, no_record, State)
+    end;
+wait_cert(Type, Msg, State, Connection) ->
+    ssl_connection:handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
 
 
-negotiated(internal,
-           Map,
-           #state{connection_states = ConnectionStates0,
-                  session = #session{session_id = SessionId},
-                  ssl_options = #ssl_options{} = SslOpts,
-                  key_share = KeyShare,
-                  tls_handshake_history = HHistory0,
-                  static_env = #static_env{socket = Socket,
-                                           transport_cb = Transport}}, _Module) ->
+wait_cv(internal, #change_cipher_spec{}, State, _Module) ->
+    tls_connection:next_event(?FUNCTION_NAME, no_record, State);
+wait_cv(internal,
+          #certificate_verify_1_3{} = CertificateVerify, State0, _Module) ->
+    case tls_handshake_1_3:do_wait_cv(CertificateVerify, State0) of
+        {#alert{} = Alert, State} ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, wait_cv, State);
+        {State, NextState} ->
+            tls_connection:next_event(NextState, no_record, State)
+    end;
+wait_cv(Type, Msg, State, Connection) ->
+    ssl_connection:handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
 
-    %% Create server_hello
-    %% Extensions: supported_versions, key_share, (pre_shared_key)
-    ServerHello = tls_handshake_1_3:server_hello(SessionId, KeyShare,
-                                                 ConnectionStates0, Map),
 
-    %% Update handshake_history (done in encode!)
-    %% Encode handshake
-    {BinMsg, _ConnectionStates, _HHistory} =
-        tls_connection:encode_handshake(ServerHello, {3,4}, ConnectionStates0, HHistory0),
-    %% Send server_hello
-    tls_connection:send(Transport, Socket, BinMsg),
-    Report = #{direction => outbound,
-               protocol => 'tls_record',
-               message => BinMsg},
-    Msg = #{direction => outbound,
-            protocol => 'handshake',
-            message => ServerHello},
-    ssl_logger:debug(SslOpts#ssl_options.log_level, Msg, #{domain => [otp,ssl,handshake]}),
-    ssl_logger:debug(SslOpts#ssl_options.log_level, Report, #{domain => [otp,ssl,tls_record]}),
-    ok.
+wait_finished(internal, #change_cipher_spec{}, State, _Module) ->
+    tls_connection:next_event(?FUNCTION_NAME, no_record, State);
+wait_finished(internal,
+             #finished{} = Finished, State0, Module) ->
+    case tls_handshake_1_3:do_wait_finished(Finished, State0) of
+        #alert{} = Alert ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, finished, State0);
+        State1 ->
+            {Record, State} = ssl_connection:prepare_connection(State1, Module),
+            tls_connection:next_event(connection, Record, State)
+    end;
+wait_finished(Type, Msg, State, Connection) ->
+    ssl_connection:handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
 
-    %% K_send = handshake ???
-    %% (Send EncryptedExtensions)
-    %% ([Send CertificateRequest])
-    %% [Send Certificate + CertificateVerify]
-    %% Send Finished
-    %% K_send = application ???
 
-    %% Will be called implicitly
-    %% {Record, State} = Connection:next_record(State2#state{session = Session}),
-    %% Connection:next_event(wait_flight2, Record, State, Actions),
-    %% OR
-    %% Connection:next_event(WAIT_EOED, Record, State, Actions)
+wait_sh(internal, #change_cipher_spec{}, State, _Module) ->
+    tls_connection:next_event(?FUNCTION_NAME, no_record, State);
+wait_sh(internal, #server_hello{} = Hello, State0, _Module) ->
+    case tls_handshake_1_3:do_wait_sh(Hello, State0) of
+        #alert{} = Alert ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, wait_sh, State0);
+        {State1, start, ServerHello} ->
+            %% hello_retry_request: go to start
+            {next_state, start, State1, [{next_event, internal, ServerHello}]};
+        {State1, wait_ee} ->
+            tls_connection:next_event(wait_ee, no_record, State1)
+    end;
+wait_sh(Type, Msg, State, Connection) ->
+    ssl_connection:handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
+
+
+wait_ee(internal, #change_cipher_spec{}, State, _Module) ->
+    tls_connection:next_event(?FUNCTION_NAME, no_record, State);
+wait_ee(internal, #encrypted_extensions{} = EE, State0, _Module) ->
+    case tls_handshake_1_3:do_wait_ee(EE, State0) of
+        #alert{} = Alert ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, wait_ee, State0);
+        {State1, NextState} ->
+            tls_connection:next_event(NextState, no_record, State1)
+    end;
+wait_ee(Type, Msg, State, Connection) ->
+    ssl_connection:handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
+
+
+wait_cert_cr(internal, #change_cipher_spec{}, State, _Module) ->
+    tls_connection:next_event(?FUNCTION_NAME, no_record, State);
+wait_cert_cr(internal, #certificate_1_3{} = Certificate, State0, _Module) ->
+    case tls_handshake_1_3:do_wait_cert_cr(Certificate, State0) of
+        {#alert{} = Alert, State} ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, wait_cert_cr, State);
+        {State1, NextState} ->
+            tls_connection:next_event(NextState, no_record, State1)
+    end;
+wait_cert_cr(internal, #certificate_request_1_3{} = CertificateRequest, State0, _Module) ->
+    case tls_handshake_1_3:do_wait_cert_cr(CertificateRequest, State0) of
+        #alert{} = Alert ->
+            ssl_connection:handle_own_alert(Alert, {3,4}, wait_cert_cr, State0);
+        {State1, NextState} ->
+            tls_connection:next_event(NextState, no_record, State1)
+    end;
+wait_cert_cr(Type, Msg, State, Connection) ->
+    ssl_connection:handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).

@@ -338,7 +338,8 @@ endif
 else
 # Cross compiling
 
-all: cross_check_erl depend emulator libs start_scripts check_dev_rt_dep
+all: cross_check_erl depend build_erl_interface \
+     emulator libs start_scripts check_dev_rt_dep
 
 endif
 
@@ -376,11 +377,17 @@ endif
 # With all bootstraps we mean all bootstrapping that is done when
 # the system is delivered in open source, the primary
 # bootstrap is not included, it requires a pre built emulator...
-all_bootstraps: emulator \
+all_bootstraps: build_erl_interface emulator \
      bootstrap_setup \
      secondary_bootstrap_build secondary_bootstrap_copy \
      tertiary_bootstrap_build tertiary_bootstrap_copy
 
+.PHONY: build_erl_interface
+
+build_erl_interface:
+	$(make_verbose)cd lib/erl_interface && \
+	  ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
+		$(MAKE) $(TYPE)
 #
 # Use these targets when you want to use the erl and erlc
 # binaries in your PATH instead of those created from the
@@ -434,7 +441,7 @@ endif
 	  PATH=$(BOOT_PREFIX)"$${PATH}" \
 	  ERL_TOP=$(ERL_TOP) $(MAKE) TESTROOT="$(RELEASE_ROOT)" DOCGEN=$(BOOTSTRAP_ROOT)/bootstrap/lib/erl_docgen $@
 ifneq  ($(OTP_SMALL_BUILD),true)
-	echo "OTP doc built" > $(ERL_TOP)/make/otp_doc_built
+	test -f $(ERL_TOP)/make/otp_doc_built || echo "OTP doc built" > $(ERL_TOP)/make/otp_doc_built
 endif
 
 xmllint: docs
@@ -450,7 +457,9 @@ else
 	$(MAKE) -C system/doc $@
 endif
 
-mod2app: 
+mod2app: $(ERL_TOP)/make/$(TARGET)/mod2app.xml
+
+$(ERL_TOP)/make/$(TARGET)/mod2app.xml: erts/doc/src/Makefile lib/*/doc/src/Makefile 
 	PATH=$(BOOT_PREFIX)"$${PATH}" escript $(BOOTSTRAP_ROOT)/bootstrap/lib/erl_docgen/priv/bin/xref_mod_app.escript -topdir $(ERL_TOP) -outfile $(ERL_TOP)/make/$(TARGET)/mod2app.xml
 
 # ----------------------------------------------------------------------
@@ -483,37 +492,20 @@ libs:
 ifeq ($(OTP_SMALL_BUILD),true)
 	$(make_verbose)cd lib && \
 	  ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
-		$(MAKE) opt
+		$(MAKE) $(TYPE)
 else
 	$(make_verbose)cd lib && \
 	  ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
-		$(MAKE) opt BUILD_ALL=true
-	$(V_at)echo "OTP built" > $(ERL_TOP)/make/otp_built
+		$(MAKE) $(TYPE) BUILD_ALL=true
+	$(V_at)test -f $(ERL_TOP)/make/otp_built || echo "OTP built" > $(ERL_TOP)/make/otp_built
 endif
-kernel:
-	$(make_verbose)cd lib/kernel && \
-	  ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
-		$(MAKE) opt BUILD_ALL=true
 
-stdlib:
-	$(make_verbose)cd lib/stdlib && \
-	  ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
-		$(MAKE) opt BUILD_ALL=true
+APPS=$(patsubst $(ERL_TOP)/lib/%/doc,%,$(wildcard $(ERL_TOP)/lib/*/doc))
 
-compiler:
-	$(make_verbose)cd lib/compiler && \
+$(APPS):
+	$(make_verbose)cd lib/$@ && \
 	  ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
-		$(MAKE) opt BUILD_ALL=true
-
-hipe:
-	$(make_verbose)cd lib/hipe && \
-	  ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
-		$(MAKE) opt BUILD_ALL=true
-
-syntax_tools:
-	$(make_verbose)cd lib/syntax_tools && \
-	ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
-	    $(MAKE) opt BUILD_ALL=true
+		$(MAKE) $(TYPE) BUILD_ALL=true
 
 preloaded:
 	$(make_verbose)cd erts/preloaded/src && \
@@ -767,7 +759,7 @@ tertiary_bootstrap_copy:
 		true; \
 	done
 #	copy erl_interface includes
-	$(V_at)for x in lib/erl_interface/include/*; do \
+	$(V_at)for x in lib/erl_interface/include/*.h; do \
 		BN=`basename $$x`; \
 		TF=$(BOOTSTRAP_ROOT)/bootstrap/lib/erl_interface/include/$$BN; \
 		test -f  $$TF && \
@@ -1156,3 +1148,11 @@ bootstrap_clean:
 		|| $(MAKE) BOOTSTRAP_ROOT=$(BOOTSTRAP_ROOT) bootstrap_root_clean
 
 # ----------------------------------------------------------------------
+
+.PHONY: test dialyzer
+
+test: all release release_tests
+	$(ERL_TOP)/make/test_target_script.sh $(ERL_TOP)
+
+dialyzer: all
+	$(ERL_TOP)/scripts/run-dialyzer

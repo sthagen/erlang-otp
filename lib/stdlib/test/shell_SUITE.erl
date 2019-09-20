@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -2591,7 +2591,7 @@ otp_7184(Config) when is_list(Config) ->
 otp_7232(Config) when is_list(Config) ->
     Info = <<"qlc:info(qlc:sort(qlc:q([X || X <- [55296,56296]]), "
              "{order, fun(A,B)-> A>B end})).">>,
-    "qlc:sort([55296,56296],\n"
+    "qlc:sort([55296, 56296],\n"
     "         [{order,\n"
     "           fun(A, B) ->\n"
     "                  A > B\n"
@@ -2752,7 +2752,7 @@ otp_10302(Config) when is_list(Config) ->
            h().">>,
 
     "ok.\n\"\x{400}\"\nA = \"\x{400}\".\nok.\n"
-    "1: io:setopts([{encoding,utf8}])\n-> ok.\n"
+    "1: io:setopts([{encoding, utf8}])\n-> ok.\n"
     "2: A = [1024] = \"\x{400}\"\n-> \"\x{400}\"\n"
     "3: b()\n-> ok.\nok.\n" = t({Node,Test4}),
 
@@ -3141,25 +3141,16 @@ io_request({get_geometry,columns}, S) ->
     {ok,80,S};
 io_request({get_geometry,rows}, S) ->
     {ok,24,S};
-io_request({put_chars,Chars}, S) ->
-    {ok,ok,S#state{reply = [S#state.reply | Chars]}};
 io_request({put_chars,latin1,Chars}, S) ->
     {ok,ok,S#state{reply = [S#state.reply | Chars]}};
 io_request({put_chars,unicode,Chars0}, S) ->
     Chars = unicode:characters_to_list(Chars0),
     {ok,ok,S#state{reply = [S#state.reply | Chars]}};
-io_request({put_chars,Mod,Func,Args}, S) ->
-    case catch apply(Mod, Func, Args) of
-        Chars when is_list(Chars) -> 
-            io_request({put_chars,Chars}, S)
-    end;
 io_request({put_chars,Enc,Mod,Func,Args}, S) ->
     case catch apply(Mod, Func, Args) of
         Chars when is_list(Chars) -> 
             io_request({put_chars,Enc,Chars}, S)
     end;
-io_request({get_until,_Prompt,Mod,Func,ExtraArgs}, S) ->
-    get_until(Mod, Func, ExtraArgs, S, latin1);
 io_request({get_until,Enc,_Prompt,Mod,Func,ExtraArgs}, S) ->
     get_until(Mod, Func, ExtraArgs, S, Enc).
 

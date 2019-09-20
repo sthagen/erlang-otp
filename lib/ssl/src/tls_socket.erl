@@ -32,6 +32,7 @@
 	 emulated_socket_options/2, get_emulated_opts/1, 
 	 set_emulated_opts/2, get_all_opts/1, handle_call/3, handle_cast/2,
 	 handle_info/2, code_change/3]).
+-export([update_active_n/2]).
 
 -record(state, {
 	  emulated_opts,
@@ -45,18 +46,20 @@
 send(Transport, Socket, Data) ->
     Transport:send(Socket, Data).
 
-listen(Transport, Port, #config{transport_info = {Transport, _, _, _}, 
+listen(Transport, Port, #config{transport_info = {Transport, _, _, _, _}, 
 				inet_user = Options, 
 				ssl = SslOpts, emulated = EmOpts} = Config) ->
     case Transport:listen(Port, Options ++ internal_inet_values()) of
 	{ok, ListenSocket} ->
 	    {ok, Tracker} = inherit_tracker(ListenSocket, EmOpts, SslOpts),
-	    {ok, #sslsocket{pid = {ListenSocket, Config#config{emulated = Tracker}}}};
+        Socket = #sslsocket{pid = {ListenSocket, Config#config{emulated = Tracker}}},
+        check_active_n(EmOpts, Socket),
+	    {ok, Socket};
 	Err = {error, _} ->
 	    Err
     end.
 
-accept(ListenSocket, #config{transport_info = {Transport,_,_,_} = CbInfo,
+accept(ListenSocket, #config{transport_info = {Transport,_,_,_,_} = CbInfo,
 			     connection_cb = ConnectionCb,
 			     ssl = SslOpts,
 			     emulated = Tracker}, Timeout) -> 
@@ -77,7 +80,7 @@ accept(ListenSocket, #config{transport_info = {Transport,_,_,_} = CbInfo,
 	    {error, Reason}
     end.
 
-upgrade(Socket, #config{transport_info = {Transport,_,_,_}= CbInfo,
+upgrade(Socket, #config{transport_info = {Transport,_,_,_,_}= CbInfo,
 			ssl = SslOptions,
 			emulated = EmOpts, connection_cb = ConnectionCb}, Timeout) ->
     ok = setopts(Transport, Socket, tls_socket:internal_inet_values()),
@@ -95,7 +98,7 @@ connect(Address, Port,
 	#config{transport_info = CbInfo, inet_user = UserOpts, ssl = SslOpts,
 		emulated = EmOpts, inet_ssl = SocketOpts, connection_cb = ConnetionCb},
 	Timeout) ->
-    {Transport, _, _, _} = CbInfo,
+    {Transport, _, _, _, _} = CbInfo,
     try Transport:connect(Address, Port,  SocketOpts, Timeout) of
 	{ok, Socket} ->
 	    ssl_connection:connect(ConnetionCb, Address, Port, Socket, 
@@ -117,20 +120,47 @@ socket(Pids, Transport, Socket, ConnectionCb, Tracker) ->
     #sslsocket{pid = Pids, 
 	       %% "The name "fd" is keept for backwards compatibility
 	       fd = {Transport, Socket, ConnectionCb, Tracker}}.
-setopts(gen_tcp, #sslsocket{pid = {ListenSocket, #config{emulated = Tracker}}}, Options) ->
+setopts(gen_tcp, Socket = #sslsocket{pid = {ListenSocket, #config{emulated = Tracker}}}, Options) ->
     {SockOpts, EmulatedOpts} = split_options(Options),
     ok = set_emulated_opts(Tracker, EmulatedOpts),
+    check_active_n(EmulatedOpts, Socket),
     inet:setopts(ListenSocket, SockOpts);
-setopts(_, #sslsocket{pid = {ListenSocket, #config{transport_info = {Transport,_,_,_},
+setopts(_, Socket = #sslsocket{pid = {ListenSocket, #config{transport_info = {Transport,_,_,_,_},
 						  emulated = Tracker}}}, Options) ->
     {SockOpts, EmulatedOpts} = split_options(Options),
     ok = set_emulated_opts(Tracker, EmulatedOpts),
+    check_active_n(EmulatedOpts, Socket),
     Transport:setopts(ListenSocket, SockOpts);
 %%% Following clauses will not be called for emulated options, they are  handled in the connection process
 setopts(gen_tcp, Socket, Options) ->
     inet:setopts(Socket, Options);
 setopts(Transport, Socket, Options) ->
     Transport:setopts(Socket, Options).
+
+check_active_n(EmulatedOpts, Socket = #sslsocket{pid = {_, #config{emulated = Tracker}}}) ->
+    %% We check the resulting options to send an ssl_passive message if necessary.
+    case proplists:lookup(active, EmulatedOpts) of
+        %% The provided value is out of bound.
+        {_, N} when is_integer(N), N < -32768 ->
+            throw(einval);
+        {_, N} when is_integer(N), N > 32767 ->
+            throw(einval);
+        {_, N} when is_integer(N) ->
+            case get_emulated_opts(Tracker, [active]) of
+                [{_, false}] ->
+                    self() ! {ssl_passive, Socket},
+                    ok;
+                %% The result of the addition is out of bound.
+                [{_, A}] when is_integer(A), A < -32768 ->
+                    throw(einval);
+                [{_, A}] when is_integer(A), A > 32767 ->
+                    throw(einval);
+                _ ->
+                    ok
+            end;
+        _ ->
+            ok
+    end.
 
 getopts(gen_tcp,  #sslsocket{pid = {ListenSocket, #config{emulated = Tracker}}}, Options) ->
     {SockOptNames, EmulatedOptNames} = split_options(Options),
@@ -180,9 +210,9 @@ internal_inet_values() ->
 default_inet_values() ->
     [{packet_size, 0}, {packet,0}, {header, 0}, {active, true}, {mode, list}].
 
-inherit_tracker(ListenSocket, EmOpts, #ssl_options{erl_dist = false} = SslOpts) ->
+inherit_tracker(ListenSocket, EmOpts, #{erl_dist := false} = SslOpts) ->
     ssl_listen_tracker_sup:start_child([ListenSocket, EmOpts, SslOpts]);
-inherit_tracker(ListenSocket, EmOpts, #ssl_options{erl_dist = true} = SslOpts) ->
+inherit_tracker(ListenSocket, EmOpts, #{erl_dist := true} = SslOpts) ->
     ssl_listen_tracker_sup:start_child_dist([ListenSocket, EmOpts, SslOpts]).
 
 get_emulated_opts(TrackerPid) -> 
@@ -209,7 +239,7 @@ start_link(Port, SockOpts, SslOpts) ->
 init([Port, Opts, SslOpts]) ->
     process_flag(trap_exit, true),
     true = link(Port),
-    {ok, #state{emulated_opts = Opts, port = Port, ssl_opts = SslOpts}}.
+    {ok, #state{emulated_opts = do_set_emulated_opts(Opts, []), port = Port, ssl_opts = SslOpts}}.
 
 %%--------------------------------------------------------------------
 -spec handle_call(msg(), from(), #state{}) -> {reply, reply(), #state{}}. 
@@ -304,8 +334,23 @@ split_options([Name | Opts], Emu, SocketOptNames, EmuOptNames) ->
 
 do_set_emulated_opts([], Opts) ->
     Opts;
+do_set_emulated_opts([{active, N0} | Rest], Opts) when is_integer(N0) ->
+    N = update_active_n(N0, proplists:get_value(active, Opts, false)),
+    do_set_emulated_opts(Rest, [{active, N} | proplists:delete(active, Opts)]);
 do_set_emulated_opts([{Name,_} = Opt | Rest], Opts) ->
     do_set_emulated_opts(Rest, [Opt | proplists:delete(Name, Opts)]).
+
+update_active_n(New, Current) ->
+    if
+        is_integer(Current), New + Current =< 0 ->
+            false;
+        is_integer(Current) ->
+            New + Current;
+        New =< 0 ->
+            false;
+        true ->
+            New
+    end.
 
 get_socket_opts(_, [], _) ->
     [];
@@ -365,6 +410,9 @@ validate_inet_option(packet_size, Value)
 validate_inet_option(header, Value)
   when not is_integer(Value) ->
     throw({error, {options, {header,Value}}});
+validate_inet_option(active, Value)
+  when Value >= -32768, Value =< 32767 ->
+    ok;
 validate_inet_option(active, Value)
   when Value =/= true, Value =/= false, Value =/= once ->
     throw({error, {options, {active,Value}}});

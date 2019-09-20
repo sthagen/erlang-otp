@@ -63,9 +63,12 @@
 
 #include "erl_driver.h"
 #include "sys_uds.h"
-#include "hash.h"
 #include "erl_term.h"
 #include "erl_child_setup.h"
+
+#undef ERTS_GLB_INLINE_INCL_FUNC_DEF
+#define ERTS_GLB_INLINE_INCL_FUNC_DEF 1
+#include "hash.h"
 
 #define SET_CLOEXEC(fd) fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC)
 
@@ -74,6 +77,10 @@
 #else
 #define SHELL "/bin/sh"
 #endif /* __ANDROID__ */
+
+#if !defined(MSG_DONTWAIT) && defined(MSG_NONBLOCK)
+#define MSG_DONTWAIT MSG_NONBLOCK
+#endif
 
 //#define HARD_DEBUG
 #ifdef HARD_DEBUG

@@ -31,6 +31,7 @@ SUITE_MODULES = \
 	snmp_agent_mibs_test \
 	snmp_agent_nfilter_test \
 	snmp_agent_test \
+	snmp_agent_test_get \
 	snmp_agent_conf_test \
 	snmp_agent_test_lib \
 	snmp_manager_config_test \
@@ -41,6 +42,8 @@ SUITE_MODULES = \
 	snmp_manager_test
 
 TEST_UTIL_MODULES = \
+	snmp_test_global_sys_monitor \
+	snmp_test_sys_monitor \
 	snmp_test_lib \
 	snmp_test_manager \
 	snmp_test_mgr \

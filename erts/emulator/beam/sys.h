@@ -63,6 +63,14 @@
 #  endif
 #endif
 
+#ifndef ERTS_NOINLINE
+#  if ERTS_AT_LEAST_GCC_VSN__(3,1,1)
+#    define ERTS_NOINLINE __attribute__((__noinline__))
+#  else
+#    define ERTS_NOINLINE
+#  endif
+#endif
+
 #if defined(DEBUG) || defined(ERTS_ENABLE_LOCK_CHECK)
 #  undef ERTS_CAN_INLINE
 #  define ERTS_CAN_INLINE 0
@@ -82,6 +90,12 @@
 #  define ERTS_GLB_INLINE_INCL_FUNC_DEF 1
 #else
 #  define ERTS_GLB_INLINE_INCL_FUNC_DEF 0
+#endif
+
+#ifdef __GNUC__
+#  define ERTS_NOINLINE __attribute__((__noinline__))
+#else
+#  define ERTS_NOINLINE
 #endif
 
 #if defined(VALGRIND) && !defined(NO_FPE_SIGNALS)
@@ -109,6 +123,23 @@
 #ifndef UNIX
 #  define UNIX 1
 #endif
+#endif
+
+/*
+ * Test for clang's convenient __has_builtin feature checking macro.
+ */
+#ifndef __has_builtin
+  #define __has_builtin(x) 0
+#endif
+
+/*
+ * Define HAVE_OVERFLOW_CHECK_BUILTINS if the overflow checking arithmetic
+ * builtins are available.
+ */
+#if ERTS_AT_LEAST_GCC_VSN__(5, 1, 0)
+#  define HAVE_OVERFLOW_CHECK_BUILTINS 1
+#elif __has_builtin(__builtin_mul_overflow)
+#  define HAVE_OVERFLOW_CHECK_BUILTINS 1
 #endif
 
 #include "erl_misc_utils.h"
@@ -147,7 +178,8 @@ typedef ERTS_SYS_FD_TYPE ErtsSysFdType;
 #  define ERTS_UNLIKELY(BOOL) (BOOL)
 #endif
 
-#if ERTS_AT_LEAST_GCC_VSN__(2, 96, 0)
+/* AIX doesn't like this and claims section conflicts */
+#if ERTS_AT_LEAST_GCC_VSN__(2, 96, 0) && !defined(_AIX)
 #if (defined(__APPLE__) && defined(__MACH__)) || defined(__DARWIN__)
 #  define ERTS_WRITE_UNLIKELY(X) X __attribute__ ((section ("__DATA,ERTS_LOW_WRITE") ))
 #else
@@ -641,7 +673,16 @@ typedef struct preload {
  */
 typedef Eterm ErtsTracer;
 
-#include "erl_osenv.h"
+
+/*
+ * This structure contains the rb tree for the erlang osenv copy
+ * see erl_osenv.h for more details.
+ */
+typedef struct __erts_osenv_t {
+    struct __env_rbtnode_t *tree;
+    int variable_count;
+    int content_size;
+} erts_osenv_t;
 
 /*
  * This structure contains options to all built in drivers.
@@ -1290,5 +1331,14 @@ erts_raw_env_next_char(byte *p, int encoding)
 }
 
 #endif /* #if ERTS_GLB_INLINE_INCL_FUNC_DEF */
+
+/*
+ * Magic numbers for our driver port_control callbacks.
+ * Kept them below 1<<27 to not inflict extra bignum garbage on 32-bit.
+ */
+#define ERTS_TTYSL_DRV_CONTROL_MAGIC_NUMBER  0x018b0900U
+#define ERTS_INET_DRV_CONTROL_MAGIC_NUMBER   0x03f1a300U
+#define ERTS_SPAWN_DRV_CONTROL_MAGIC_NUMBER  0x04c76a00U
+#define ERTS_FORKER_DRV_CONTROL_MAGIC_NUMBER 0x050a7800U
 
 #endif

@@ -27,6 +27,548 @@
   </header>
   <p>This document describes the changes made to the SSL application.</p>
 
+<section><title>SSL 9.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Handling of zero size fragments in TLS could cause an
+	    infinite loop. This has now been corrected.</p>
+          <p>
+	    Own Id: OTP-15328 Aux Id: ERIERL-379 </p>
+        </item>
+        <item>
+          <p>
+	    DTLS record check needs to consider that a resent hello
+	    message can have a different version than the negotiated.</p>
+          <p>
+	    Own Id: OTP-15807 Aux Id: ERL-920 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Basic support for TLS 1.3 Client for experimental use.
+	    For more information see the Standards Compliance chapter
+	    of the User's Guide.</p>
+          <p>
+	    Own Id: OTP-15431</p>
+        </item>
+        <item>
+          <p>
+	    Correct solution for retaining tcp flow control OTP-15802
+	    (ERL-934) as to not break ssl:recv as reported in
+	    (ERL-938)</p>
+          <p>
+	    Own Id: OTP-15823 Aux Id: ERL-934, ERL-938 </p>
+        </item>
+        <item>
+          <p>
+	    Enhance dialyzer specs to reflect implementation better
+	    and avoid dialyzer warnings for the user that wants to
+	    use TLS with unix domain sockets.</p>
+          <p>
+	    Own Id: OTP-15851 Aux Id: PR-2235 </p>
+        </item>
+        <item>
+          <p>
+	    Add support for ECDSA signature algorithms in TLS 1.3.</p>
+          <p>
+	    Own Id: OTP-15854</p>
+        </item>
+        <item>
+          <p>
+	    Correct error handling of TLS downgrade, possible return
+	    values form ssl:close/2 when downgrading is {ok, Port} or
+	    {error, Reason}, it could happen that only ok was
+	    returned instead of {error, closed} when downgrade failed
+	    due to that the peer closed the TCP connection.</p>
+          <p>
+	    Own Id: OTP-16027</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.3.5</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Enhance error handling for erroneous alerts from the
+	    peer.</p>
+          <p>
+	    Own Id: OTP-15943</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.3.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix handling of certificate decoding problems in TLS 1.3
+	    similarly as in TLS 1.2.</p>
+          <p>
+	    Own Id: OTP-15900</p>
+        </item>
+        <item>
+          <p>
+	    Hibernation now works as expected in all cases, was
+	    accidently broken by optimization efforts.</p>
+          <p>
+	    Own Id: OTP-15910</p>
+        </item>
+        <item>
+          <p>
+	    Fix interoperability problems with openssl when the TLS
+	    1.3 server is configured wirh the option
+	    signature_algs_cert.</p>
+          <p>
+	    Own Id: OTP-15913</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.3.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Correct handshake handling, might cause strange symptoms
+	    such as ASN.1 certificate decoding issues.</p>
+          <p>
+	    Own Id: OTP-15879 Aux Id: ERL-968 </p>
+        </item>
+        <item>
+          <p>
+	    Fix handling of the signature_algorithms_cert extension
+	    in the ClientHello handshake message.</p>
+          <p>
+	    Own Id: OTP-15887 Aux Id: ERL-973 </p>
+        </item>
+        <item>
+          <p>
+	    Handle new ClientHello extensions when handshake is
+	    paused by the {handshake, hello} ssl option.</p>
+          <p>
+	    Own Id: OTP-15888 Aux Id: ERL-975 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.3.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Returned "alert error string" is now same as logged alert
+	    string</p>
+          <p>
+	    Own Id: OTP-15844</p>
+        </item>
+        <item>
+          <p>
+	    Fix returned extension map fields to follow the
+	    documentation.</p>
+          <p>
+	    Own Id: OTP-15862 Aux Id: ERL-951 </p>
+        </item>
+        <item>
+          <p>
+	    Avoid DTLS crash due to missing gen_server return value
+	    in DTLS packet demux process.</p>
+          <p>
+	    Own Id: OTP-15864 Aux Id: ERL-962 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.3.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Missing check of size of user_data_buffer made internal
+	    socket behave as an active socket instead of active N.
+	    This could cause memory problems.</p>
+          <p>
+	    Own Id: OTP-15825 Aux Id: ERL-934, OTP-15823 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    The distribution handshake with TLS distribution
+	    (<c>inet_tls_dist</c>) does now utilize the socket option
+	    <c>{nodelay, true}</c>, which decreases the distribution
+	    setup time significantly.</p>
+          <p>
+	    Own Id: OTP-14792</p>
+        </item>
+        <item>
+          <p>
+	    Correct shutdown reason to avoid an incorrect crash
+	    report</p>
+          <p>
+	    Own Id: OTP-15710 Aux Id: ERL-893 </p>
+        </item>
+        <item>
+          <p>
+	    Enhance documentation and type specifications.</p>
+          <p>
+	    Own Id: OTP-15746 Aux Id: ERIERL-333 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    TLS-1.0, TLS-1.1 and DTLS-1.0 are now considered legacy
+	    and not supported by default</p>
+          <p>
+	    *** POTENTIAL INCOMPATIBILITY ***</p>
+          <p>
+	    Own Id: OTP-14865</p>
+        </item>
+        <item>
+          <p>
+	    Use new logger API in ssl. Introduce log levels and
+	    verbose debug logging for SSL.</p>
+          <p>
+	    Own Id: OTP-15055</p>
+        </item>
+        <item>
+          <p>
+	    Add new API function str_to_suite/1, cipher_suites/3
+	    (list cipher suites as rfc or OpenSSL name strings) and
+	    suite_to_openssl_str/1</p>
+          <p>
+	    Own Id: OTP-15483 Aux Id: ERL-924 </p>
+        </item>
+        <item>
+          <p>
+	    Basic support for TLS 1.3 Server for experimental use.
+	    The client is not yet functional, for more information
+	    see the Standards Compliance chapter of the User's Guide.</p>
+          <p>
+	    Own Id: OTP-15591</p>
+        </item>
+        <item>
+          <p>
+	    Add support for PSK CCM ciphers from RFC 6655</p>
+          <p>
+	    Own Id: OTP-15626</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2.3.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Handling of zero size fragments in TLS could cause an
+	    infinite loop. This has now been corrected.</p>
+          <p>
+	    Own Id: OTP-15328 Aux Id: ERIERL-379 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2.3.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Hibernation now works as expected in all cases, was
+	    accidently broken by optimization efforts.</p>
+          <p>
+	    Own Id: OTP-15910</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2.3.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Correct handshake handling, might cause strange symptoms
+	    such as ASN.1 certificate decoding issues.</p>
+          <p>
+	    Own Id: OTP-15879 Aux Id: ERL-968 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2.3.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Returned "alert error string" is now same as logged alert
+	    string</p>
+          <p>
+	    Own Id: OTP-15844</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2.3.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Correct solution for retaining tcp flow control OTP-15802
+	    (ERL-934) as to not break ssl:recv as reported in
+	    (ERL-938)</p>
+          <p>
+	    Own Id: OTP-15823 Aux Id: ERL-934, ERL-938 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Missing check of size of user_data_buffer made internal
+	    socket behave as an active socket instead of active N.
+	    This could cause memory problems.</p>
+          <p>
+	    Own Id: OTP-15802 Aux Id: ERL-934 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Back port of bug fix ERL-893 from OTP-22 and document
+	    enhancements that will solve dialyzer warnings for users
+	    of the ssl application.</p>
+          <p>
+	    This change also affects public_key, eldap (and inet
+	    doc).</p>
+          <p>
+	    Own Id: OTP-15785 Aux Id: ERL-929, ERL-893, PR-2215 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    With the default BEAST Mitigation strategy for TLS 1.0 an
+	    empty TLS fragment could be sent after a one-byte
+	    fragment. This glitch has been fixed.</p>
+          <p>
+	    Own Id: OTP-15054 Aux Id: ERIERL-346 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    The timeout for a passive receive was sometimes not
+	    cancelled and later caused a server crash. This bug has
+	    now been corrected.</p>
+          <p>
+	    Own Id: OTP-14701 Aux Id: ERL-883, ERL-884 </p>
+        </item>
+        <item>
+          <p>
+	    Add tag for passive message (active N) in cb_info to
+	    retain transport transparency.</p>
+          <p>
+	    Own Id: OTP-15679 Aux Id: ERL-861 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix bug that an incorrect return value for gen_statem
+	    could be created when alert was a result of handling
+	    renegotiation info extension</p>
+          <p>
+	    Own Id: OTP-15502</p>
+        </item>
+        <item>
+          <p>
+	    Correct check for 3des_ede_cbc, could cause ssl to claim
+	    to support 3des_ede_cbc when cryptolib does not.</p>
+          <p>
+	    Own Id: OTP-15539</p>
+        </item>
+        <item>
+          <p>
+	    Improved DTLS error handling, avoids unexpected
+	    connection failure in rare cases.</p>
+          <p>
+	    Own Id: OTP-15561</p>
+        </item>
+        <item>
+          <p>
+	    Corrected active once emulation bug that could cause the
+	    ssl_closed meassage to not be sent. Bug introduced by
+	    OTP-15449</p>
+          <p>
+	    Own Id: OTP-15666 Aux Id: ERIERL-316, </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Add client option {reuse_session, SessionID::binary()}
+	    that can be used together with new option value
+	    {reuse_sessions, save}. This makes it possible to reuse a
+	    session from a specific connection establishment.</p>
+          <p>
+	    Own Id: OTP-15369</p>
+        </item>
+        <item>
+          <p>
+	    The Reason part of of the error return from the functions
+	    connect and handshake has a better and documented format.
+	    This will sometimes differ from previous returned
+	    reasons, however those where only documented as term()
+	    and should for that reason not be relied on.</p>
+          <p>
+	    *** POTENTIAL INCOMPATIBILITY ***</p>
+          <p>
+	    Own Id: OTP-15423</p>
+        </item>
+        <item>
+          <p>
+	    Refactor of state handling to improve TLS application
+	    data throughput and reduce CPU overhead</p>
+          <p>
+	    Own Id: OTP-15445</p>
+        </item>
+        <item>
+          <p>
+	    The SSL code has been optimized in many small ways to
+	    reduce CPU load for encryption/decryption, especially for
+	    Erlang's distribution protocol over TLS.</p>
+          <p>
+	    Own Id: OTP-15529</p>
+        </item>
+        <item>
+          <p>
+	    Add support for active N</p>
+          <p>
+	    Own Id: OTP-15665 Aux Id: ERL-811, PR-2072 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 9.1.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix encoding of the SRP extension length field in ssl.
+	    The old encoding of the SRP extension length could cause
+	    interoperability problems with third party SSL
+	    implementations when SRP was used.</p>
+          <p>
+	    Own Id: OTP-15477 Aux Id: ERL-790 </p>
+        </item>
+        <item>
+          <p>
+	    Guarantee active once data delivery, handling TCP stream
+	    properly.</p>
+          <p>
+	    Own Id: OTP-15504 Aux Id: ERL-371 </p>
+        </item>
+        <item>
+          <p>
+	    Correct gen_statem returns for some error cases</p>
+          <p>
+	    Own Id: OTP-15505</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>SSL 9.1.1</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>

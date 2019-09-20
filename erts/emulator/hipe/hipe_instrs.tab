@@ -86,15 +86,14 @@ hipe_trap.post() {
     switch( c_p->def_arg_reg[3] ) {
     case HIPE_MODE_SWITCH_RES_RETURN:
         ASSERT(is_value(reg[0]));
-        SET_I(c_p->cp);
-        c_p->cp = 0;
+        $RETURN();
         Goto(*I);
     case HIPE_MODE_SWITCH_RES_CALL_EXPORTED:
         c_p->i = c_p->hipe.u.callee_exp->addressv[erts_active_code_ix()];
         /*fall through*/
     case HIPE_MODE_SWITCH_RES_CALL_BEAM:
         SET_I(c_p->i);
-        Dispatch();
+        $DISPATCH();
     case HIPE_MODE_SWITCH_RES_CALL_CLOSURE:
         /* This can be used to call any function value, but currently
            it's only used to call closures referring to unloaded
@@ -105,13 +104,11 @@ hipe_trap.post() {
             next = call_fun(c_p, c_p->arity - 1, reg, THE_NON_VALUE);
             HEAVY_SWAPIN;
             if (next != NULL) {
-                SET_I(next);
-                Dispatchfun();
+                $DISPATCH_FUN(next);
             }
             goto find_func_info;
         }
     case HIPE_MODE_SWITCH_RES_THROW:
-        c_p->cp = NULL;
         I = handle_error(c_p, I, reg, NULL);
         goto post_error_handling;
     default:

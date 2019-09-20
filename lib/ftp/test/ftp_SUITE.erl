@@ -96,6 +96,7 @@ ftp_tests()->
      recv_chunk, 
      recv_chunk_twice,
      recv_chunk_three_times,
+     recv_chunk_delay,
      type, 
      quote, 
      error_elogin,
@@ -669,9 +670,9 @@ recv_chunk(Config0) ->
     Contents = list_to_binary( lists:duplicate(1000, lists:seq(0,255)) ),
     Config = set_state([reset, {mkfile,File,Contents}], Config0),
     Pid = proplists:get_value(ftp, Config),
-    {{error, "ftp:recv_chunk_start/2 not called"},_} = recv_chunk(Pid, <<>>),
+    {error, "ftp:recv_chunk_start/2 not called"} = do_recv_chunk(Pid),
     ok = ftp:recv_chunk_start(Pid, id2ftp(File,Config)),
-    {ok, ReceivedContents, _Ncunks} = recv_chunk(Pid, <<>>),
+    {ok, ReceivedContents} = do_recv_chunk(Pid),
     find_diff(ReceivedContents, Contents).
 
 recv_chunk_twice() ->
@@ -683,11 +684,11 @@ recv_chunk_twice(Config0) ->
     Contents2 = crypto:strong_rand_bytes(1200),
     Config = set_state([reset, {mkfile,File1,Contents1}, {mkfile,File2,Contents2}], Config0),
     Pid = proplists:get_value(ftp, Config),
-    {{error, "ftp:recv_chunk_start/2 not called"},_} = recv_chunk(Pid, <<>>),
+    {error, "ftp:recv_chunk_start/2 not called"} = do_recv_chunk(Pid),
     ok = ftp:recv_chunk_start(Pid, id2ftp(File1,Config)),
-    {ok, ReceivedContents1, _Ncunks1} = recv_chunk(Pid, <<>>),
+    {ok, ReceivedContents1} = do_recv_chunk(Pid),
     ok = ftp:recv_chunk_start(Pid, id2ftp(File2,Config)),
-    {ok, ReceivedContents2, _Ncunks2} = recv_chunk(Pid, <<>>),
+    {ok, ReceivedContents2} = do_recv_chunk(Pid),
     find_diff(ReceivedContents1, Contents1),
     find_diff(ReceivedContents2, Contents2).
 
@@ -704,46 +705,56 @@ recv_chunk_three_times(Config0) ->
 
     Config = set_state([reset, {mkfile,File1,Contents1}, {mkfile,File2,Contents2}, {mkfile,File3,Contents3}], Config0),
     Pid = proplists:get_value(ftp, Config),
-    {{error, "ftp:recv_chunk_start/2 not called"},_} = recv_chunk(Pid, <<>>),
-
-    ok = ftp:recv_chunk_start(Pid, id2ftp(File1,Config)),
-    {ok, ReceivedContents1, Nchunks1} = recv_chunk(Pid, <<>>),
-
-    ok = ftp:recv_chunk_start(Pid, id2ftp(File2,Config)),
-    {ok, ReceivedContents2, _Nchunks2} = recv_chunk(Pid, <<>>),
+    {error, "ftp:recv_chunk_start/2 not called"} = do_recv_chunk(Pid),
 
     ok = ftp:recv_chunk_start(Pid, id2ftp(File3,Config)),
-    {ok, ReceivedContents3, _Nchunks3} = recv_chunk(Pid, <<>>, 10000, 0, Nchunks1),
+    {ok, ReceivedContents3} = do_recv_chunk(Pid),
+    
+    ok = ftp:recv_chunk_start(Pid, id2ftp(File1,Config)),
+    {ok, ReceivedContents1} = do_recv_chunk(Pid),
+
+    ok = ftp:recv_chunk_start(Pid, id2ftp(File2,Config)),
+    {ok, ReceivedContents2} = do_recv_chunk(Pid),
 
     find_diff(ReceivedContents1, Contents1),
     find_diff(ReceivedContents2, Contents2),
     find_diff(ReceivedContents3, Contents3).
 
 
-
+do_recv_chunk(Pid) -> 
+    recv_chunk(Pid, <<>>).
 recv_chunk(Pid, Acc) -> 
-    recv_chunk(Pid, Acc, 0, 0, undefined).
-
-
-
-%% ExpectNchunks :: integer() | undefined
-recv_chunk(Pid, Acc, DelayMilliSec, N, ExpectNchunks) when N+1 < ExpectNchunks ->
-    %% for all I in integer(), I < undefined
-    recv_chunk1(Pid, Acc, DelayMilliSec, N, ExpectNchunks);
-
-recv_chunk(Pid, Acc, DelayMilliSec, N, ExpectNchunks) ->
-    %% N >= ExpectNchunks-1
-    timer:sleep(DelayMilliSec),
-    recv_chunk1(Pid, Acc, DelayMilliSec, N, ExpectNchunks).
-
-
-recv_chunk1(Pid, Acc, DelayMilliSec, N, ExpectNchunks) ->
-    ct:log("Call ftp:recv_chunk",[]),
     case ftp:recv_chunk(Pid) of
-	ok -> {ok, Acc, N};
-	{ok, Bin} -> recv_chunk(Pid, <<Acc/binary, Bin/binary>>, DelayMilliSec, N+1, ExpectNchunks);
-	Error -> {Error, N}
+	ok -> 
+            {ok, Acc};
+	{ok, Bin} -> 
+            recv_chunk(Pid, <<Acc/binary, Bin/binary>>);
+	Error -> 
+            Error
     end.
+
+recv_chunk_delay(Config0) when is_list(Config0) ->
+    File1 = "big_file1.txt",
+    Contents = list_to_binary(lists:duplicate(1000, lists:seq(0,255))),
+    Config = set_state([reset, {mkfile,File1,Contents}], Config0),
+    Pid = proplists:get_value(ftp, Config),
+    ok = ftp:recv_chunk_start(Pid, id2ftp(File1,Config)),
+    {ok, ReceivedContents} = delay_recv_chunk(Pid),
+    find_diff(ReceivedContents, Contents).
+
+delay_recv_chunk(Pid) -> 
+     delay_recv_chunk(Pid, <<>>).
+delay_recv_chunk(Pid, Acc) -> 
+    ct:pal("Recived size ~p", [byte_size(Acc)]),
+    case ftp:recv_chunk(Pid) of
+ 	ok -> 
+             {ok, Acc};
+ 	{ok, Bin} -> 
+            ct:sleep(100),
+            delay_recv_chunk(Pid, <<Acc/binary, Bin/binary>>);
+	Error -> 
+            Error
+     end.
 
 %%-------------------------------------------------------------------------
 type() -> 

@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2017-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2017-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,16 +43,20 @@
     throughput_1048576/1]).
 
 %% Debug
--export([payload/1]).
+-export([payload/1, roundtrip_runner/3, setup_runner/3, throughput_runner/4]).
 
 %%%-------------------------------------------------------------------
 
 suite() -> [{ct_hooks, [{ts_install_cth, [{nodenames, 2}]}]}].
 
-all() -> [{group, ssl}, {group, plain}].
+all() ->
+    [{group, ssl},
+     {group, crypto},
+     {group, plain}].
 
 groups() ->
     [{ssl, all_groups()},
+     {crypto, all_groups()},
      {plain, all_groups()},
      %%
      {setup, [{repeat, 1}], [setup]},
@@ -164,6 +168,11 @@ end_per_suite(Config) ->
 
 init_per_group(ssl, Config) ->
     [{ssl_dist, true}, {ssl_dist_prefix, "SSL"}|Config];
+init_per_group(crypto, Config) ->
+    [{ssl_dist, false}, {ssl_dist_prefix, "Crypto"},
+     {ssl_dist_args,
+      "-proto_dist inet_crypto"}
+     |Config];
 init_per_group(plain, Config) ->
     [{ssl_dist, false}, {ssl_dist_prefix, "Plain"}|Config];
 init_per_group(_GroupName, Config) ->
@@ -374,29 +383,46 @@ sched_utilization(A, B, Prefix, HA, HB, SSL) ->
     [A] = ssl_apply(HB, erlang, nodes, []),
     msacc:print(ClientMsacc),
     msacc:print(ServerMsacc),
-    ct:pal("Got ~p msgs",[length(Msgs)]),
-    report(Prefix++" Sched Utilization Client",
-           10000 * msacc:stats(system_runtime,ClientMsacc) /
-               msacc:stats(system_realtime,ClientMsacc), "util 0.01 %"),
-    report(Prefix++" Sched Utilization Server",
-           10000 * msacc:stats(system_runtime,ServerMsacc) /
-               msacc:stats(system_realtime,ServerMsacc), "util 0.01 %"),
-    ok.
+    ct:pal("Got ~p busy_dist_port msgs",[length(Msgs)]),
+    ct:log("Stats of B from A: ~p",
+           [ssl_apply(HA, net_kernel, node_info, [B])]),
+    ct:log("Stats of A from B: ~p",
+           [ssl_apply(HB, net_kernel, node_info, [A])]),
+    SchedUtilClient =
+        round(10000 * msacc:stats(system_runtime,ClientMsacc) /
+                  msacc:stats(system_realtime,ClientMsacc)),
+    SchedUtilServer =
+        round(10000 * msacc:stats(system_runtime,ServerMsacc) /
+                  msacc:stats(system_realtime,ServerMsacc)),
+    Verdict =
+        case Msgs of
+            [] ->
+                "";
+            _ ->
+                " ???"
+        end,
+    {comment, ClientComment} =
+        report(Prefix ++ " Sched Utilization Client" ++ Verdict,
+               SchedUtilClient, "/100 %" ++ Verdict),
+    {comment, ServerComment} =
+        report(Prefix++" Sched Utilization Server" ++ Verdict,
+               SchedUtilServer, "/100 %" ++ Verdict),
+    {comment, "Client " ++ ClientComment ++ ", Server " ++ ServerComment}.
 
 %% Runs on node A and spawns a server on node B
 %% We want to avoid getting busy_dist_port as it hides the true SU usage
 %% of the receiver and sender.
 sched_util_runner(A, B, true) ->
-    sched_util_runner(A, B, 50);
+    sched_util_runner(A, B, 250);
 sched_util_runner(A, B, false) ->
     sched_util_runner(A, B, 250);
 sched_util_runner(A, B, Senders) ->
     Payload = payload(5),
     [A] = rpc:call(B, erlang, nodes, []),
-    ServerPid =
-        erlang:spawn(
-          B,
-          fun () -> throughput_server() end),
+    ServerPids =
+        [erlang:spawn_link(
+           B, fun () -> throughput_server() end)
+         || _ <- lists:seq(1, Senders)],
     ServerMsacc =
         erlang:spawn(
           B,
@@ -404,24 +430,28 @@ sched_util_runner(A, B, Senders) ->
                   receive
                       {start,Pid} ->
                           msacc:start(10000),
-                          Pid ! {ServerPid,msacc:stats()}
+                          receive
+                              {done,Pid} ->
+                                  Pid ! {self(),msacc:stats()}
+                          end
                   end
           end),
-    spawn_link(
-      fun() ->
-              %% We spawn 250 senders which should mean that we
-              %% have a load of 250 msgs/msec
-              [spawn_link(
-                 fun() ->
-                         throughput_client(ServerPid,Payload)
-                 end) || _ <- lists:seq(1, Senders)]
-      end),
-
     erlang:system_monitor(self(),[busy_dist_port]),
+    %% We spawn 250 senders which should mean that we
+    %% have a load of 250 msgs/msec
+    [spawn_link(
+       fun() ->
+               throughput_client(Pid, Payload)
+       end) || Pid <- ServerPids],
+    %%
+    receive after 1000 -> ok end,
     ServerMsacc ! {start,self()},
     msacc:start(10000),
     ClientMsaccStats = msacc:stats(),
-    ServerMsaccStats = receive {ServerPid,Stats} -> Stats end,
+    receive after 1000 -> ok end,
+    ServerMsacc ! {done,self()},
+    ServerMsaccStats = receive {ServerMsacc,Stats} -> Stats end,
+    %%
     {ClientMsaccStats,ServerMsaccStats, flush()}.
 
 flush() ->
@@ -504,37 +534,46 @@ throughput(A, B, Prefix, HA, HB, Packets, Size) ->
     [] = ssl_apply(HA, erlang, nodes, []),
     [] = ssl_apply(HB, erlang, nodes, []),
     #{time := Time,
-      dist_stats := DistStats,
+      client_dist_stats := ClientDistStats,
       client_msacc_stats := ClientMsaccStats,
       client_prof := ClientProf,
       server_msacc_stats := ServerMsaccStats,
-      server_prof := ServerProf} =
+      server_prof := ServerProf,
+      server_gc_before := Server_GC_Before,
+      server_gc_after := Server_GC_After} =
         ssl_apply(HA, fun () -> throughput_runner(A, B, Packets, Size) end),
     [B] = ssl_apply(HA, erlang, nodes, []),
     [A] = ssl_apply(HB, erlang, nodes, []),
     ClientMsaccStats =:= undefined orelse
         msacc:print(ClientMsaccStats),
-    io:format("DistStats: ~p~n", [DistStats]),
+    io:format("ClientDistStats: ~p~n", [ClientDistStats]),
     Overhead =
         50 % Distribution protocol headers (empirical) (TLS+=54)
         + byte_size(erlang:term_to_binary([0|<<>>])), % Benchmark overhead
     Bytes = Packets * (Size + Overhead),
     io:format("~w bytes, ~.4g s~n", [Bytes,Time/1000000]),
+    SizeString = integer_to_list(Size),
     ClientMsaccStats =:= undefined orelse
-        io:format(
-          "Sender core usage ratio: ~.4g ns/byte~n",
-          [msacc:stats(system_runtime, ClientMsaccStats)*1000/Bytes]),
+        report(
+          Prefix ++ " Sender_RelativeCoreLoad_" ++ SizeString,
+          round(msacc:stats(system_runtime, ClientMsaccStats)
+                * 1000000 / Bytes),
+          "ps/byte"),
     ServerMsaccStats =:= undefined orelse
         begin
-            io:format(
-              "Receiver core usage ratio: ~.4g ns/byte~n",
-              [msacc:stats(system_runtime, ServerMsaccStats)*1000/Bytes]),
+            report(
+              Prefix ++ " Receiver_RelativeCoreLoad_" ++ SizeString,
+              round(msacc:stats(system_runtime, ServerMsaccStats)
+                    * 1000000 / Bytes),
+              "ps/byte"),
             msacc:print(ServerMsaccStats)
         end,
     io:format("******* ClientProf:~n", []), prof_print(ClientProf),
     io:format("******* ServerProf:~n", []), prof_print(ServerProf),
+    io:format("******* Server GC Before:~n~p~n", [Server_GC_Before]),
+    io:format("******* Server GC After:~n~p~n", [Server_GC_After]),
     Speed = round((Bytes * 1000000) / (1024 * Time)),
-    report(Prefix++" Throughput_"++integer_to_list(Size), Speed, "kB/s").
+    report(Prefix ++ " Throughput_" ++ SizeString, Speed, "kB/s").
 
 %% Runs on node A and spawns a server on node B
 throughput_runner(A, B, Rounds, Size) ->
@@ -542,11 +581,12 @@ throughput_runner(A, B, Rounds, Size) ->
     [A] = rpc:call(B, erlang, nodes, []),
     ClientPid = self(),
     ServerPid =
-        erlang:spawn(
+        erlang:spawn_opt(
           B,
-          fun () -> throughput_server(ClientPid, Rounds) end),
+          fun () -> throughput_server(ClientPid, Rounds) end,
+          [{message_queue_data, off_heap}]),
     ServerMon = erlang:monitor(process, ServerPid),
-    msacc:available() andalso
+    msacc_available() andalso
         begin
             msacc:stop(),
             msacc:reset(),
@@ -554,11 +594,11 @@ throughput_runner(A, B, Rounds, Size) ->
             ok
         end,
     prof_start(),
-    {Time,ServerMsaccStats,ServerProf} =
+    #{time := Time} = Result =
         throughput_client(ServerPid, ServerMon, Payload, Rounds),
     prof_stop(),
-    ClientMsaccStats =
-        case msacc:available() of
+    MsaccStats =
+        case msacc_available() of
             true ->
                 MStats = msacc:stats(),
                 msacc:stop(),
@@ -566,15 +606,13 @@ throughput_runner(A, B, Rounds, Size) ->
             false ->
                 undefined
         end,
-    ClientProf = prof_end(),
+    Prof = prof_end(),
     [{_Node,Socket}] = dig_dist_node_sockets(),
     DistStats = inet:getstat(Socket),
-    #{time => microseconds(Time),
-      dist_stats => DistStats,
-      client_msacc_stats => ClientMsaccStats,
-      client_prof => ClientProf,
-      server_msacc_stats => ServerMsaccStats,
-      server_prof => ServerProf}.
+    Result#{time := microseconds(Time),
+            client_dist_stats => DistStats,
+            client_msacc_stats => MsaccStats,
+            client_prof => Prof}.
 
 dig_dist_node_sockets() ->
     [case DistCtrl of
@@ -597,7 +635,10 @@ dig_dist_node_sockets() ->
 
 
 throughput_server(Pid, N) ->
-    msacc:available() andalso
+    GC_Before = get_server_gc_info(),
+    %% dbg:tracer(port, dbg:trace_port(file, "throughput_server_gc.log")),
+    %% dbg:p(TLSDistReceiver, garbage_collection),
+    msacc_available() andalso
         begin
             msacc:stop(),
             msacc:reset(),
@@ -605,12 +646,12 @@ throughput_server(Pid, N) ->
             ok
         end,
     prof_start(),
-    throughput_server_loop(Pid, N).
+    throughput_server_loop(Pid, GC_Before, N).
 
-throughput_server_loop(_Pid, 0) ->
+throughput_server_loop(_Pid, GC_Before, 0) ->
     prof_stop(),
     MsaccStats =
-        case msacc:available() of
+        case msacc_available() of
             true ->
                 msacc:stop(),
                 MStats = msacc:stats(),
@@ -620,11 +661,31 @@ throughput_server_loop(_Pid, 0) ->
                 undefined
         end,
     Prof = prof_end(),
-    exit({ok,MsaccStats,Prof});
-throughput_server_loop(Pid, N) ->
+    %% dbg:flush_trace_port(),
+    exit(#{server_msacc_stats => MsaccStats,
+           server_prof => Prof,
+           server_gc_before => GC_Before,
+           server_gc_after => get_server_gc_info()});
+throughput_server_loop(Pid, GC_Before, N) ->
     receive
-        {Pid, N, _} ->
-            throughput_server_loop(Pid, N-1)
+        Msg ->
+            case Msg of
+                {Pid, N, _} ->
+                    throughput_server_loop(Pid, GC_Before, N - 1);
+                Other ->
+                    erlang:error({self(),?FUNCTION_NAME,Other})
+            end
+    end.
+
+get_server_gc_info() ->
+    case whereis(ssl_connection_sup_dist) of
+        undefined ->
+            undefined;
+        SupPid ->
+            [{_Id,TLSDistReceiver,_Type,_Modules}|_] =
+                supervisor:which_children(SupPid),
+            erlang:process_info(
+              TLSDistReceiver, [garbage_collection,garbage_collection_info])
     end.
 
 throughput_client(Pid, Mon, Payload, N) ->
@@ -632,8 +693,8 @@ throughput_client(Pid, Mon, Payload, N) ->
 
 throughput_client_loop(_Pid, Mon, _Payload, 0, StartTime) ->
     receive
-        {'DOWN', Mon, _, _, {ok,MsaccStats,Prof}} ->
-            {elapsed_time(StartTime),MsaccStats,Prof};
+        {'DOWN', Mon, _, _, #{} = Result} ->
+            Result#{time => elapsed_time(StartTime)};
         {'DOWN', Mon, _, _, Other} ->
             exit(Other)
     end;
@@ -651,6 +712,7 @@ prof_start() ->
     ok.
 -elif(?prof =:= eprof).
 prof_start() ->
+    catch eprof:stop(),
     {ok,_} = eprof:start(),
     profiling = eprof:start_profiling(processes()),
     ok.
@@ -752,7 +814,7 @@ get_node_args(Tag, Config) ->
         true ->
             proplists:get_value(Tag, Config);
         false ->
-            ""
+            proplists:get_value(ssl_dist_args, Config, "")
     end.
 
 
@@ -807,3 +869,6 @@ report(Name, Value, Unit) ->
 term_to_string(Term) ->
     unicode:characters_to_list(
       io_lib:write(Term, [{encoding, unicode}])).
+
+msacc_available() ->
+    msacc:available().

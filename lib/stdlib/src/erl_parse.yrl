@@ -604,6 +604,8 @@ Erlang code.
 
 -export_type([abstract_clause/0, abstract_expr/0, abstract_form/0,
               abstract_type/0, form_info/0, error_info/0]).
+%% The following types are exported because they are used by syntax_tools
+-export_type([af_binelement/1, af_generator/0, af_remote_function/0]).
 
 %% Start of Abstract Format
 
@@ -841,7 +843,7 @@ Erlang code.
 -type af_record_field(T) :: {'record_field', anno(), af_field_name(), T}.
 
 -type af_map_pattern() ::
-        {'map', anno(), [af_assoc_exact(abstract_expr)]}.
+        {'map', anno(), [af_assoc_exact(abstract_expr())]}.
 
 -type abstract_type() :: af_annotated_type()
                        | af_atom()
@@ -872,7 +874,7 @@ Erlang code.
 -type af_fun_type() :: {'type', anno(), 'fun', []}
                      | {'type', anno(), 'fun', [{'type', anno(), 'any'} |
                                                 abstract_type()]}
-                     | {'type', anno(), 'fun', af_function_type()}.
+                     | af_function_type().
 
 -type af_integer_range_type() ::
         {'type', anno(), 'range', [af_singleton_integer_type()]}.
@@ -924,10 +926,11 @@ Erlang code.
 -type af_function_constraint() :: [af_constraint()].
 
 -type af_constraint() :: {'type', anno(), 'constraint',
-                          af_lit_atom('is_subtype'),
-                          [af_type_variable() | abstract_type()]}. % [V, T]
+                          [af_lit_atom('is_subtype') |
+                           [af_type_variable() | abstract_type()]]}. % [IsSubtype, [V, T]]
 
 -type af_singleton_integer_type() :: af_integer()
+                                   | af_character()
                                    | af_unary_op(af_singleton_integer_type())
                                    | af_binary_op(af_singleton_integer_type()).
 

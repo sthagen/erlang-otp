@@ -342,7 +342,7 @@ static void show_term(const char *termbuf, int *index, FILE *stream)
     int i, len;
     char *s;
 
-    ei_get_type_internal(termbuf,index,&type,&len);
+    ei_get_type(termbuf,index,&type,&len);
   
     switch (type) {
     case ERL_VERSION_MAGIC:
@@ -455,6 +455,12 @@ static void show_term(const char *termbuf, int *index, FILE *stream)
 	fprintf(stream,"#Bin<%ld>",num);
 	break;
     
+    case ERL_BIT_BINARY_EXT: {
+        size_t bits;
+        ei_decode_bitstring(termbuf, index, NULL, NULL, &bits);
+        fprintf(stream, "#Bits<%lu>", (unsigned long)bits);
+        break;
+    }
     case ERL_LARGE_BIG_EXT:
 	/* doesn't actually decode - just skip over it */
 	/* FIXME if GMP, what to do here?? */

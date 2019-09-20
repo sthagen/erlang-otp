@@ -150,8 +150,7 @@ init_per_group(G, Config0) ->
                             stop_docker(ID),
                             {fail, "Can't contact docker sshd"}
                     catch
-                        Class:Exc ->
-                            ST = erlang:get_stacktrace(),
+                        Class:Exc:ST ->
                             ct:log("common_algs: ~p:~p~n~p",[Class,Exc,ST]),
                             stop_docker(ID),
                             {fail, "Failed during setup"}
@@ -160,8 +159,7 @@ init_per_group(G, Config0) ->
                 cant_start_docker ->
                     {skip, "Can't start docker"};
 
-                C:E ->
-                    ST = erlang:get_stacktrace(),
+                C:E:ST ->
                     ct:log("No ~p~n~p:~p~n~p",[G,C,E,ST]),
                     {skip, "Can't start docker"}
             end;
@@ -1026,8 +1024,7 @@ receive_hello(S) ->
         Result ->
             Result
     catch
-        Class:Error ->
-            ST = erlang:get_stacktrace(),
+        Class:Error:ST ->
             {error, {Class,Error,ST}}
     end.
         
@@ -1104,8 +1101,7 @@ sftp_tests_erl_server(Config, ServerIP, ServerPort, ServerRootDir, UserDir) ->
         call_sftp_in_docker(Config, ServerIP, ServerPort, Cmnds, UserDir),
         check_local_directory(ServerRootDir)
     catch
-        Class:Error ->
-            ST = erlang:get_stacktrace(),
+        Class:Error:ST ->
             {error, {Class,Error,ST}}
     end.
 
@@ -1126,7 +1122,24 @@ prepare_local_directory(ServerRootDir) ->
      "chmod 222 unreadable_file",
      "exit"].
 
+
 check_local_directory(ServerRootDir) ->
+    TimesToTry = 3,  % sleep 0.5, 1, 2 and then 4 secs (7.5s in total)
+    check_local_directory(ServerRootDir, 500, TimesToTry-1).
+
+check_local_directory(ServerRootDir, SleepTime, N) ->
+    case do_check_local_directory(ServerRootDir) of
+        {error,_Error} when N>0 ->
+            %% Could be that the erlang side is faster and the docker's operations
+            %% are not yet finalized.
+            %% Sleep for a while and retry a few times:
+            timer:sleep(SleepTime),
+            check_local_directory(ServerRootDir, 2*SleepTime, N-1);
+        Other ->
+            Other
+    end.
+
+do_check_local_directory(ServerRootDir) ->
     case lists:sort(ok(file:list_dir(ServerRootDir)) -- [".",".."]) of
         ["ex_tst1","mydir","tst2"] ->
             {ok,Expect} = file:read_file(filename:join(ServerRootDir,"ex_tst1")),
@@ -1160,6 +1173,7 @@ check_local_directory(ServerRootDir) ->
             ct:log("Directory ~s~n~p",[ServerRootDir,Other]),
             {error,{bad_dir_contents,"/"}}
     end.
+
 
 call_sftp_in_docker(Config, ServerIP, ServerPort, Cmnds, UserDir) ->
     {DockerIP,DockerPort} = ip_port(Config),
@@ -1329,8 +1343,7 @@ one_test_erl_client(SFTP, Id, C) when SFTP==sftp ; SFTP==sftp_async ->
         catch ssh_sftp:stop_channel(Ch),
         R
     catch
-        Class:Error ->
-            ST = erlang:get_stacktrace(),
+        Class:Error:ST ->
             {error, {SFTP,Id,Class,Error,ST}}
     end.
 

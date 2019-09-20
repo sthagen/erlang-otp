@@ -81,7 +81,11 @@ typedef Uint  dsize_t;	 /* Vector size type */
  * a Uint64 argument. Therefore, we must test the size of the argument
  * to ensure that the cast does not discard the high-order 32 bits.
  */
-#define _IS_SSMALL32(x) (((Uint32) ((((x)) >> (SMALL_BITS-1)) + 1)) < 2)
+#if defined(ARCH_32)
+#  define _IS_SSMALL32(x) (((Uint32) ((((x)) >> (SMALL_BITS-1)) + 1)) < 2)
+#else
+#  define _IS_SSMALL32(x) (1)
+#endif
 #define _IS_SSMALL64(x) (((Uint64) ((((x)) >> (SMALL_BITS-1)) + 1)) < 2)
 #define IS_SSMALL(x) (sizeof(x) == sizeof(Uint32) ? _IS_SSMALL32(x) : _IS_SSMALL64(x))
 
@@ -119,10 +123,10 @@ typedef Uint  dsize_t;	 /* Vector size type */
 
 #endif
 
-int big_decimal_estimate(Wterm);
-Eterm erts_big_to_list(Eterm, Eterm**);
-char *erts_big_to_string(Wterm x, char *buf, Uint buf_sz);
-Uint erts_big_to_binary_bytes(Eterm x, char *buf, Uint buf_sz);
+int big_integer_estimate(Wterm, Uint base);
+Eterm erts_big_to_list(Eterm, int base, Eterm**);
+char *erts_big_to_string(Wterm x, int base, char *buf, Uint buf_sz);
+Uint erts_big_to_binary_bytes(Eterm x, int base, char *buf, Uint buf_sz);
 
 Eterm small_times(Sint, Sint, Eterm*);
 
@@ -164,6 +168,8 @@ Eterm erts_uint64_array_to_big(Uint **, int, int, Uint64 *);
 int term_to_Uint64(Eterm, Uint64*);
 int term_to_Sint64(Eterm, Sint64*);
 #endif
+int term_to_Uint32(Eterm, Uint32*);
+
 
 Uint32 big_to_uint32(Eterm b);
 int term_equals_2pow32(Eterm);

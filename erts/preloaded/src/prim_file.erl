@@ -34,6 +34,7 @@
 -export([read_link/1, read_link_all/1,
          read_link_info/1, read_link_info/2,
          read_file_info/1, read_file_info/2,
+         read_handle_info/1, read_handle_info/2,
          write_file_info/2, write_file_info/3]).
 
 -export([list_dir/1, list_dir_all/1]).
@@ -46,7 +47,7 @@
 -define(MIN_READLINE_SIZE, 256).
 -define(LARGEFILESIZE, (1 bsl 63)).
 
--export([copy/3]).
+-export([copy/3, start/0]).
 
 -include("file_int.hrl").
 
@@ -85,14 +86,21 @@ is_translatable(_) ->
 
 %% This is a janitor process used to close files whose controlling process has
 %% died. The emulator will be torn down if this is killed.
-delayed_close_loop() ->
+start() ->
+    helper_loop().
+
+helper_loop() ->
     receive
         {close, FRef} when is_reference(FRef) -> delayed_close_nif(FRef);
         _ -> ok
     end,
-    delayed_close_loop().
+    helper_loop().
 
-%%
+on_load() ->
+    %% This is spawned as a system process to prevent init:restart/0 from
+    %% killing it.
+    Pid = erts_internal:spawn_system_process(?MODULE, start, []),
+    ok = erlang:load_nif(atom_to_list(?MODULE), Pid).
 
 %% Returns {error, Reason} | {ok, BytesCopied}
 copy(#file_descriptor{module = ?MODULE} = Source,
@@ -102,14 +110,6 @@ copy(#file_descriptor{module = ?MODULE} = Source,
        is_atom(Length) ->
     %% XXX Should be moved down to the driver for optimization.
     file:copy_opened(Source, Dest, Length).
-
-on_load() ->
-    Pid = spawn(fun() ->
-                    process_flag(trap_exit, true),
-                    delayed_close_loop()
-                end),
-    true = register(erts_prim_file, Pid),
-    ok = erlang:load_nif(atom_to_list(?MODULE), Pid).
 
 open(Name, Modes) ->
     %% The try/catch pattern seen here is used throughout the file to adhere to
@@ -498,6 +498,8 @@ get_handle_nif(_FileRef) ->
     erlang:nif_error(undef).
 delayed_close_nif(_FileRef) ->
     erlang:nif_error(undef).
+read_handle_info_nif(_FileRef) ->
+    erlang:nif_error(undef).
 
 %%
 %% Quality-of-life helpers
@@ -573,12 +575,13 @@ list_dir_convert([RawName | Rest], SkipInvalid, Result) ->
         {error, ignore} ->
             list_dir_convert(Rest, SkipInvalid, Result);
         {error, warning} ->
-            %% this is equal to calling error_logger:warning_msg/2 which
-            %% we don't want to do from code_server during system boot
+            %% This is equal to calling logger:warning/3 which
+            %% we don't want to do from code_server during system boot.
+            %% We don't want to call logger:timestamp() either.
             logger ! {log,warning,"Non-unicode filename ~p ignored\n", [RawName],
                       #{pid=>self(),
                         gl=>group_leader(),
-                        time=>erlang:system_time(microsecond),
+                        time=>os:system_time(microsecond),
                         error_logger=>#{tag=>warning_msg}}},
             list_dir_convert(Rest, SkipInvalid, Result);
         {error, _} ->
@@ -598,19 +601,36 @@ read_link_info(Name, Opts) ->
 read_info_1(Name, FollowLinks, TimeType) ->
     try
         case read_info_nif(encode_path(Name), FollowLinks) of
-            {error, Reason} ->
-                {error, Reason};
-            FileInfo ->
-                CTime = from_posix_seconds(FileInfo#file_info.ctime, TimeType),
-                MTime = from_posix_seconds(FileInfo#file_info.mtime, TimeType),
-                ATime = from_posix_seconds(FileInfo#file_info.atime, TimeType),
-                {ok, FileInfo#file_info{ ctime = CTime,
-                                         mtime = MTime,
-                                         atime = ATime }}
+            {error, Reason} -> {error, Reason};
+            FileInfo -> {ok, adjust_times(FileInfo, TimeType)}
         end
     catch
         error:_ -> {error, badarg}
     end.
+
+read_handle_info(Fd) ->
+  read_handle_info_1(Fd, local).
+read_handle_info(Fd, Opts) ->
+  read_handle_info_1(Fd, proplist_get_value(time, Opts, local)).
+
+read_handle_info_1(Fd, TimeType) ->
+    try
+        #{ handle := FRef } = get_fd_data(Fd),
+        case read_handle_info_nif(FRef) of
+            {error, Reason} -> {error, Reason};
+            FileInfo -> {ok, adjust_times(FileInfo, TimeType)}
+        end
+    catch
+        error:_ -> {error, badarg}
+    end.
+
+adjust_times(FileInfo, TimeType) ->
+    CTime = from_posix_seconds(FileInfo#file_info.ctime, TimeType),
+    MTime = from_posix_seconds(FileInfo#file_info.mtime, TimeType),
+    ATime = from_posix_seconds(FileInfo#file_info.atime, TimeType),
+    FileInfo#file_info{ ctime = CTime,
+                        mtime = MTime,
+                        atime = ATime }.
 
 write_file_info(Filename, Info) ->
     write_file_info_1(Filename, Info, local).

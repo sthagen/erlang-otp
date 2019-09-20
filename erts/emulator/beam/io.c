@@ -3243,7 +3243,10 @@ static void deliver_read_message(Port* prt, erts_aint32_t state, Eterm to,
 	need += 3;
     }
     if ((state & ERTS_PORT_SFLG_BINARY_IO) && buf != NULL) {
-	need += PROC_BIN_SIZE;
+        if (len <= ERL_ONHEAP_BIN_LIMIT)
+            need += heap_bin_size(len);
+        else
+            need += PROC_BIN_SIZE;
     } else {
 	need += 2*len;
     }
@@ -3261,11 +3264,21 @@ static void deliver_read_message(Port* prt, erts_aint32_t state, Eterm to,
     if ((state & ERTS_PORT_SFLG_BINARY_IO) == 0) {
 	listp = buf_to_intlist(&hp, buf, len, listp);
     } else if (buf != NULL) {
-	Binary* bptr = erts_bin_nrml_alloc(len);
-	sys_memcpy(bptr->orig_bytes, buf, len);
+        if (len <= ERL_ONHEAP_BIN_LIMIT) {
+            ErlHeapBin *hbin = (ErlHeapBin *) hp;
+            hbin->thing_word = header_heap_bin(len);
+            hbin->size = (Uint) len;
+            sys_memcpy(hbin->data, buf, len);
+            listp = make_binary(hp);
+            hp += heap_bin_size(len);
+        }
+        else {
+            Binary* bptr = erts_bin_nrml_alloc(len);
+            sys_memcpy(bptr->orig_bytes, buf, len);
 
-        listp = erts_build_proc_bin(ohp, hp, bptr);
-	hp += PROC_BIN_SIZE;
+            listp = erts_build_proc_bin(ohp, hp, bptr);
+            hp += PROC_BIN_SIZE;
+        }
     }
 
     /* Prepend the header */
@@ -3388,7 +3401,14 @@ deliver_vec_message(Port* prt,			/* Port */
 
     need = 3 + 3;		/* Heap space for two tuples */
     if (state & ERTS_PORT_SFLG_BINARY_IO) {
-	need += (2+PROC_BIN_SIZE)*vsize - 2 + hlen*2;
+        Sint i;
+        for (i = 0; i < vsize; i++) {
+            if (iov[i].iov_len <= ERL_ONHEAP_BIN_LIMIT)
+                need += heap_bin_size(iov[i].iov_len);
+            else
+                need += PROC_BIN_SIZE;
+        }
+	need += (vsize - 1)*2 + hlen*2;
     } else {
 	need += (hlen+csize)*2;
     }
@@ -3408,36 +3428,52 @@ deliver_vec_message(Port* prt,			/* Port */
     } else {
 	binv += vsize;
 	while (vsize--) {
-	    ErlDrvBinary* b;
-	    ProcBin* pb = (ProcBin*) hp;
-	    byte* base;
+            Eterm bin;
+            Uint bin_size;
+            iov--;
+            binv--;
+            bin_size = (Uint) iov->iov_len;
+            
+            if (bin_size <= ERL_ONHEAP_BIN_LIMIT) {
+                ErlHeapBin *hbin = (ErlHeapBin *) hp;
+                hbin->thing_word = header_heap_bin(bin_size);
+                hbin->size = bin_size;
+                sys_memcpy(hbin->data, iov->iov_base, bin_size);
+                bin = make_binary(hp);
+                hp += heap_bin_size(bin_size);
+            }
+            else {
+                ErlDrvBinary* b;
+                ProcBin* pb = (ProcBin*) hp;
+                byte* base;
 
-	    iov--;
-	    binv--;
-	    if ((b = *binv) == NULL) {
-		b = driver_alloc_binary(iov->iov_len);
-		sys_memcpy(b->orig_bytes, iov->iov_base, iov->iov_len);
-		base = (byte*) b->orig_bytes;
-	    } else {
-		/* Must increment reference count, caller calls free */
-		driver_binary_inc_refc(b);
-		base = iov->iov_base;
-	    }
-	    pb->thing_word = HEADER_PROC_BIN;
-	    pb->size = iov->iov_len;
-	    pb->next = ohp->first;
-	    ohp->first = (struct erl_off_heap_header*)pb;
-	    pb->val = ErlDrvBinary2Binary(b);
-	    pb->bytes = base;
-	    pb->flags = 0;
-	    hp += PROC_BIN_SIZE;
+                if ((b = *binv) == NULL) {
+                    b = driver_alloc_binary(bin_size);
+                    sys_memcpy(b->orig_bytes, iov->iov_base, bin_size);
+                    base = (byte*) b->orig_bytes;
+                } else {
+                    /* Must increment reference count, caller calls free */
+                    driver_binary_inc_refc(b);
+                    base = iov->iov_base;
+                }
+                pb->thing_word = HEADER_PROC_BIN;
+                pb->size = bin_size;
+                pb->next = ohp->first;
+                ohp->first = (struct erl_off_heap_header*)pb;
+                pb->val = ErlDrvBinary2Binary(b);
+                pb->bytes = base;
+                pb->flags = 0;
+                hp += PROC_BIN_SIZE;
 	    
-	    OH_OVERHEAD(ohp, iov->iov_len / sizeof(Eterm));
+                OH_OVERHEAD(ohp, bin_size / sizeof(Eterm));
+
+                bin = make_binary(pb);
+            }
 
 	    if (listp == NIL) {  /* compatible with deliver_bin_message */
-		listp = make_binary(pb);
+		listp = bin;
 	    } else {
-		listp = CONS(hp, make_binary(pb), listp);
+		listp = CONS(hp, bin, listp);
 		hp += 2;
 	    }
 	}
@@ -3644,20 +3680,22 @@ typedef struct {
     Eterm reason;
 } ErtsPortExitContext;
 
-static void link_port_exit(ErtsLink *lnk, void *vpectxt)
+static int link_port_exit(ErtsLink *lnk, void *vpectxt, Sint reds)
 {
     ErtsPortExitContext *pectxt = vpectxt;
     erts_proc_sig_send_link_exit(NULL, pectxt->port_id,
                                  lnk, pectxt->reason, NIL);
+    return 1;
 }
 
-static void monitor_port_exit(ErtsMonitor *mon, void *vpectxt)
+static int monitor_port_exit(ErtsMonitor *mon, void *vpectxt, Sint reds)
 {
     ErtsPortExitContext *pectxt = vpectxt;
     if (erts_monitor_is_target(mon))
         erts_proc_sig_send_monitor_down(mon, pectxt->reason);
     else
         erts_proc_sig_send_demonitor(mon);
+    return 1;
 }
 
 /* 'from' is sending 'this_port' an exit signal, (this_port must be internal).
@@ -4073,7 +4111,7 @@ done:
  * to the caller.
  */
 int
-erl_drv_port_control(Eterm port_num, char cmd, char* buff, ErlDrvSizeT size)
+erl_drv_port_control(Eterm port_num, unsigned int cmd, char* buff, ErlDrvSizeT size)
 {
     ErtsProc2PortSigData *sigdp = erts_port_task_alloc_p2p_sig_data();
 
@@ -4448,6 +4486,7 @@ erts_port_call(Process* c_p,
     char input_buf[256];
     char *bufp;
     byte *endp;
+    Uint uintsz;
     ErlDrvSizeT size;
     int try_call;
     erts_aint32_t sched_flags;
@@ -4460,7 +4499,9 @@ erts_port_call(Process* c_p,
 
     try_call = !(sched_flags & ERTS_PTS_FLGS_FORCE_SCHEDULE_OP);
 
-    size = erts_encode_ext_size(data);
+    if (erts_encode_ext_size(data, &uintsz) != ERTS_EXT_SZ_OK)
+        return ERTS_PORT_OP_BADARG;
+    size = (ErlDrvSizeT) uintsz;
 
     if (!try_call)
 	bufp = erts_alloc(ERTS_ALC_T_DRV_CALL_DATA, size);
@@ -4836,7 +4877,7 @@ typedef struct {
     void *arg;
 } prt_one_lnk_data;
 
-static void prt_one_monitor(ErtsMonitor *mon, void *vprtd)
+static int prt_one_monitor(ErtsMonitor *mon, void *vprtd, Sint reds)
 {
     ErtsMonitorData *mdp = erts_monitor_to_data(mon);
     prt_one_lnk_data *prtd = (prt_one_lnk_data *) vprtd;
@@ -4844,12 +4885,14 @@ static void prt_one_monitor(ErtsMonitor *mon, void *vprtd)
         erts_print(prtd->to, prtd->arg, "(%p,%T)", mon->other.ptr, mdp->ref);
     else
         erts_print(prtd->to, prtd->arg, "(%T,%T)", mon->other.item, mdp->ref);
+    return 1;
 }
 
-static void prt_one_lnk(ErtsLink *lnk, void *vprtd)
+static int prt_one_lnk(ErtsLink *lnk, void *vprtd, Sint reds)
 {
     prt_one_lnk_data *prtd = (prt_one_lnk_data *) vprtd;
     erts_print(prtd->to, prtd->arg, "%T", lnk->other.item);
+    return 1;
 }
 
 static void dump_port_state(fmtfn_t to, void *arg, erts_aint32_t state)
@@ -5100,7 +5143,7 @@ erts_port_resume_procs(Port *prt)
 
 	    erts_snprintf(port_str, sizeof(DTRACE_CHARBUF_NAME(port_str)), "%T", prt->common.id);
 	    while (plp2 != NULL) {
-		erts_snprintf(pid_str, sizeof(DTRACE_CHARBUF_NAME(pid_str)), "%T", plp2->pid);
+		erts_snprintf(pid_str, sizeof(DTRACE_CHARBUF_NAME(pid_str)), "%T", plp2->u.pid);
 		DTRACE2(process_port_unblocked, pid_str, port_str);
 	    }
 	}
@@ -5291,44 +5334,31 @@ erts_get_port_names(Eterm id, ErlDrvPort drv_port)
 	pnp->driver_name = NULL;
     }
     else {
-	int do_realloc = 1;
-	int len = -1;
-	size_t pnp_len = sizeof(ErtsPortNames);
-#ifndef DEBUG
-	pnp_len += 100; /* In most cases 100 characters will be enough... */
-	ASSERT(prt->common.id == id);
-#endif
-	pnp = erts_alloc(ERTS_ALC_T_PORT_NAMES, pnp_len);
-	do {
-	    int nlen;
-	    char *name, *driver_name;
-	    if (len > 0) {
-		erts_free(ERTS_ALC_T_PORT_NAMES, pnp);
-		pnp_len = sizeof(ErtsPortNames) + len;
-		pnp = erts_alloc(ERTS_ALC_T_PORT_NAMES, pnp_len);
-	    }
-	    name = prt->name;
-	    len = nlen = name ? sys_strlen(name) + 1 : 0;
-	    driver_name = (prt->drv_ptr ? prt->drv_ptr->name : NULL);
-	    len += driver_name ? sys_strlen(driver_name) + 1 : 0;
-	    if (len <= pnp_len - sizeof(ErtsPortNames)) {
-		if (!name)
-		    pnp->name = NULL;
-		else {
-		    pnp->name = ((char *) pnp) + sizeof(ErtsPortNames);
-		    sys_strcpy(pnp->name, name);
-		}
-		if (!driver_name)
-		    pnp->driver_name = NULL;
-		else {
-		    pnp->driver_name = (((char *) pnp)
-					+ sizeof(ErtsPortNames)
-					+ nlen);
-		    sys_strcpy(pnp->driver_name, driver_name);
-		}
-		do_realloc = 0;
-	    }
-	} while (do_realloc);
+	int len;
+        int nlen;
+        char *driver_name;
+
+        len = nlen = prt->name ? sys_strlen(prt->name) + 1 : 0;
+        driver_name = (prt->drv_ptr ? prt->drv_ptr->name : NULL);
+        len += driver_name ? sys_strlen(driver_name) + 1 : 0;
+
+        pnp = erts_alloc(ERTS_ALC_T_PORT_NAMES,
+                         sizeof(ErtsPortNames) + len);
+
+        if (!prt->name)
+            pnp->name = NULL;
+        else {
+            pnp->name = ((char *) pnp) + sizeof(ErtsPortNames);
+            sys_strcpy(pnp->name, prt->name);
+        }
+        if (!driver_name)
+            pnp->driver_name = NULL;
+        else {
+            pnp->driver_name = (((char *) pnp)
+                                + sizeof(ErtsPortNames)
+                                + nlen);
+            sys_strcpy(pnp->driver_name, driver_name);
+        }
     }
     return pnp;
 }
@@ -6177,6 +6207,7 @@ int driver_output_binary(ErlDrvPort ix, char* hbuf, ErlDrvSizeT hlen,
 				dep,
                                 conn_id,
 				(byte*) hbuf, hlen,
+                                ErlDrvBinary2Binary(bin),
 				(byte*) (bin->orig_bytes+offs), len);
     }
     else
@@ -6222,12 +6253,14 @@ int driver_output2(ErlDrvPort ix, char* hbuf, ErlDrvSizeT hlen,
 				    dep,
                                     conn_id,
 				    NULL, 0,
+                                    NULL,
 				    (byte*) hbuf, hlen);
 	else
 	    return erts_net_message(prt,
 				    dep,
                                     conn_id,
 				    (byte*) hbuf, hlen,
+                                    NULL,
 				    (byte*) buf, len);
     }
     else if (state & ERTS_PORT_SFLG_LINEBUF_IO)

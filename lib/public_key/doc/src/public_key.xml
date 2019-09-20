@@ -286,7 +286,9 @@
     entries as ASN.1 DER encoded entities.</fsummary>
   <desc> 
     <p>Decodes PEM binary data and returns entries as ASN.1 DER encoded entities.</p>
-    <p>Example <c>{ok, PemBin} = file:read_file("cert.pem").</c></p>
+    <p>Example <c>{ok, PemBin} = file:read_file("cert.pem").
+    PemEntries = public_key:pem_decode(PemBin).    
+    </c></p>
   </desc> 
   </func> 
     
@@ -423,7 +425,7 @@
        <p>Available options:</p>
 
        <taglist>
-	<tag>{verify_fun, fun()}</tag>
+	<tag>{verify_fun, {fun(), InitialUserState::term()}</tag>
 	<item>
 	  <p>The fun must be defined as:</p>
 
@@ -644,7 +646,7 @@ fun(#'DistributionPoint'{}, #'CertificateList'{},
       <v>conf_opt() = {cert, der_encoded()} | {key, PrivateKey} |{cacerts, [der_encoded()]}</v>
       <d>
 	This is a subset of the type
-	<seealso marker="ssl:ssl#type-ssloption"> ssl:ssl_option()</seealso>.
+	<seealso marker="ssl:ssl#type-tls_option"> ssl:tls_option()</seealso>.
 	<c>PrivateKey</c> is what
 	<seealso marker="#generate_key-1">generate_key/1</seealso>
 	returns.
@@ -813,7 +815,8 @@ fun(#'DistributionPoint'{}, #'CertificateList'{},
       <p>The <c>{OtherRefId,term()}</c> is defined by the user and is passed to the <c>match_fun</c>, if defined.
       If the term in <c>OtherRefId</c> is a binary, it will be converted to a string.
       </p>
-      <p>The <c>ip</c> Reference ID takes an <seealso marker="inet:inet#type-ip_address">inet:ip_address()</seealso>
+      <p>The <c>ip</c> Reference ID takes an
+      <seealso marker="kernel:inet#type-ip_address">inet:ip_address()</seealso>
       or an ip address in string format (E.g "10.0.1.1" or "1234::5678:9012") as second element.
       </p>
       <p>The options are:</p>

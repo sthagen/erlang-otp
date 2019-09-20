@@ -1,8 +1,8 @@
 %%
 %% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2017. All Rights Reserved.
-%% 
+%%
+%% Copyright Ericsson AB 2017-2019. All Rights Reserved.
+%%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
@@ -14,7 +14,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%% 
+%%
 %% %CopyrightEnd%
 %%
 -module(gen_tcp_dist).
@@ -30,12 +30,11 @@
 %% VM.
 %%
 %% This code is a rewrite of the lib/kernel/src/inet_tcp_dist.erl
-%% distribution impementation for TCP used by default. That
-%% implementation use distribution ports instead of distribution
+%% distribution implementation for TCP used by default. The default
+%% implementation uses distribution ports instead of distribution
 %% processes and is more efficient compared to this implementation.
-%% This since this implementation more or less gets the
-%% distribution processes in between the VM and the ports without
-%% any gain specific gain.
+%% This example more or less gets the distribution processes
+%% in between the VM and the ports without any specific gain.
 %%
 
 -export([listen/1, accept/1, accept_connection/5,
@@ -53,10 +52,10 @@
 
 -import(error_logger,[error_msg/2]).
 
--include("net_address.hrl").
+-include_lib("kernel/include/net_address.hrl").
 
--include("dist.hrl").
--include("dist_util.hrl").
+-include_lib("kernel/include/dist.hrl").
+-include_lib("kernel/include/dist_util.hrl").
 
 %% ------------------------------------------------------------
 %%  Select this protocol based on node name
@@ -679,7 +678,14 @@ dist_cntrlr_setup_loop(Socket, TickHandler, Sup) ->
             %% From now on we execute on normal priority
             process_flag(priority, normal),
             erlang:dist_ctrl_get_data_notification(DHandle),
-            dist_cntrlr_output_loop(DHandle, Socket)
+            case init:get_argument(gen_tcp_dist_output_loop) of
+                error ->
+                    dist_cntrlr_output_loop(DHandle, Socket);
+                {ok, [[ModStr, FuncStr]]} -> % For testing...
+                    apply(list_to_atom(ModStr),
+                          list_to_atom(FuncStr),
+                          [DHandle, Socket])
+            end
     end.
 
 %% We use active 10 for good throughput while still

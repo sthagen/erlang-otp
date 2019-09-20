@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -239,19 +239,29 @@ make_dir(Name) ->
 del_dir(Name) ->
     check_and_call(del_dir, [file_name(Name)]).
 
--spec read_file_info(Filename) -> {ok, FileInfo} | {error, Reason} when
-      Filename :: name_all(),
+-spec read_file_info(File) -> {ok, FileInfo} | {error, Reason} when
+      File :: name_all() | io_device(),
       FileInfo :: file_info(),
       Reason :: posix() | badarg.
+
+read_file_info(IoDevice)
+  when is_pid(IoDevice); is_record(IoDevice, file_descriptor) ->
+    read_file_info(IoDevice, []);
 
 read_file_info(Name) ->
     check_and_call(read_file_info, [file_name(Name)]).
 
--spec read_file_info(Filename, Opts) -> {ok, FileInfo} | {error, Reason} when
-      Filename :: name_all(),
+-spec read_file_info(File, Opts) -> {ok, FileInfo} | {error, Reason} when
+      File :: name_all() | io_device(),
       Opts :: [file_info_option()],
       FileInfo :: file_info(),
       Reason :: posix() | badarg.
+
+read_file_info(IoDevice, Opts) when is_pid(IoDevice), is_list(Opts) ->
+    file_request(IoDevice, {read_handle_info, Opts});
+
+read_file_info(#file_descriptor{module = Module} = Handle, Opts) when is_list(Opts) ->
+    Module:read_handle_info(Handle, Opts);
 
 read_file_info(Name, Opts) when is_list(Opts) ->
     Args = [file_name(Name), Opts],
@@ -460,7 +470,7 @@ raw_write_file_info(Name, #file_info{} = Info) ->
 -spec open(File, Modes) -> {ok, IoDevice} | {error, Reason} when
       File :: Filename | iodata(),
       Filename :: name_all(),
-      Modes :: [mode() | ram],
+      Modes :: [mode() | ram | directory],
       IoDevice :: io_device(),
       Reason :: posix() | badarg | system_limit.
 
@@ -545,7 +555,7 @@ allocate(#file_descriptor{module = Module} = Handle, Offset, Length) ->
               | {no_translation, unicode, latin1}.
 
 read(File, Sz) when (is_pid(File) orelse is_atom(File)), is_integer(Sz), Sz >= 0 ->
-    case io:request(File, {get_chars, '', Sz}) of
+    case io:request(File, {get_chars, latin1, '', Sz}) of
 	Data when is_list(Data); is_binary(Data) ->
 	    {ok, Data};
 	Other ->
@@ -566,7 +576,7 @@ read(_, _) ->
               | {no_translation, unicode, latin1}.
 
 read_line(File) when (is_pid(File) orelse is_atom(File)) ->
-    case io:request(File, {get_line, ''}) of
+    case io:request(File, {get_line, latin1, ''}) of
 	Data when is_list(Data); is_binary(Data) ->
 	    {ok, Data};
 	Other ->
@@ -1143,7 +1153,7 @@ path_script(Path, File, Bs) ->
              {ok, IoDevice, FullName} | {error, Reason} when
       Path :: [Dir :: name_all()],
       Filename :: name_all(),
-      Modes :: [mode()],
+      Modes :: [mode() | directory],
       IoDevice :: io_device(),
       FullName :: filename_all(),
       Reason :: posix() | badarg | system_limit.

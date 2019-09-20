@@ -24,7 +24,7 @@
          create_binaries/0,create_sub_binaries/1,
          dump_persistent_terms/0,
          create_persistent_terms/0]).
--compile(r18).
+-compile(r20).
 -include_lib("common_test/include/ct.hrl").
 
 n1_proc(N2,Creator) ->
@@ -48,7 +48,7 @@ n1_proc(Creator,_N2,Pid2,Port2,_L) ->
     Ref = make_ref(),
     Pid = self(),
     Bin = list_to_binary(lists:seq(1, 255)),
-    <<_:2,SubBin:17/binary,_/bits>> = Bin,
+    <<_:2,SubBin:65/binary,_/bits>> = Bin,
 
     register(named_port,Port),
 
@@ -102,7 +102,7 @@ remote_proc(P1,Creator) ->
 	  end).
 
 create_binaries() ->
-    Sizes = lists:seq(60, 70) ++ lists:seq(120, 140),
+    Sizes = lists:seq(100, 120) ++ lists:seq(200, 240),
     [begin
          <<H:16/unit:8>> = erlang:md5(<<Size:32>>),
          Data = ((H bsl (8*150)) div (H+7919)),
@@ -113,7 +113,7 @@ create_sub_binaries(Bins) ->
     [create_sub_binary(Bin, Start, LenSub) ||
         Bin <- Bins,
         Start <- [0,1,2,3,4,5,10,22],
-        LenSub <- [0,1,2,3,4,6,9]].
+        LenSub <- [0,1,2,3,4,6,9,65]].
 
 create_sub_binary(Bin, Start, LenSub) ->
     Len = byte_size(Bin) - LenSub - Start,
@@ -204,4 +204,4 @@ dump_persistent_terms() ->
 create_persistent_terms() ->
     persistent_term:put({?MODULE,first}, {pid,42.0}),
     persistent_term:put({?MODULE,second}, [1,2,3]),
-    persistent_term:get().
+    {persistent_term:get({?MODULE,first}),persistent_term:get({?MODULE,second})}.

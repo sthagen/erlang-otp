@@ -33,7 +33,178 @@
     <file>notes.xml</file>
   </header>
   
-  <section><title>Inets 7.0.3</title>
+  <section><title>Inets 7.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    httpd - Accept singel LF as line terminator</p>
+          <p>
+	    Own Id: OTP-15893 Aux Id: PR-2206 </p>
+        </item>
+        <item>
+          <p>
+	    mod_esi will now always propagate the actual HTTP status
+	    code that it answered with, to later mod-modules, and not
+	    in some cases hardcode 200.</p>
+          <p>
+	    Own Id: OTP-16049 Aux Id: ERIERL-395 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.9</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix a regression in http client that causes a crash when
+	    request URI has no scheme.</p>
+          <p>
+	    Own Id: OTP-15930 Aux Id: ERL-969 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.8</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    All incorrect (that is, all) uses of "can not" has been
+	    corrected to "cannot" in source code comments,
+	    documentation, examples, and so on.</p>
+          <p>
+	    Own Id: OTP-14282 Aux Id: PR-1891 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+  <section><title>Inets 7.0.7.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    mod_esi will now always propagate the actual HTTP status
+	    code that it anwsered with, to later mod-modules, and not
+	    in some cases hardcode 200.</p>
+          <p>
+	    Own Id: OTP-16049 Aux Id: ERIERL-395 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.7</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix the internal handling of the option
+	    erl_script_timeout in httpd. If explicit
+	    erl_script_timeout value was supplied in seconds it was
+	    not correctly converted to millisecond units for internal
+	    usage.</p>
+          <p>
+	    This change fixes the handling of erl_script_timeout in
+	    all possible configuration scenarios.</p>
+          <p>
+	    Own Id: OTP-15769 Aux Id: ERIERL-345 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.6</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix the internal handling of the option
+	    erl_script_timeout in httpd. When httpd was started with
+	    explicit erl_script_timeout, the value of the option was
+	    converted to milliseconds before storage. Subsequent
+	    calls to httpd:info/1 returned the input value multiplied
+	    by 1000.</p>
+          <p>
+	    This change fixes the handing of erl_script_timeout by
+	    storing the timeout in seconds and converting to
+	    milliseconds before usage.</p>
+          <p>
+	    Own Id: OTP-15669 Aux Id: ERIERL-321 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Enhance documentation</p>
+          <p>
+	    Own Id: OTP-15508 Aux Id: ERL-816 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fixed bug that causes a crash in http client when using
+	    hostnames (e.g. localhost) with the the option
+	    ipv6_host_with_brackets set to true.</p>
+          <p>
+	    This change also fixes a regression: httpc:request fails
+	    with connection error (nxdomain) if option
+	    ipv6_host_with_brackets set to true and host component of
+	    the URI is an IPv6 address.</p>
+          <p>
+	    Own Id: OTP-15554 Aux Id: ERIERL-289 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Make sure ipv6 addresses with brackets in URIs are
+	    converted correctly before passing to lower level
+	    functions like gen_tcp and ssl functions. Could cause
+	    connection to fail.</p>
+          <p>
+	    Own Id: OTP-15544 Aux Id: ERIERL-289 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.3</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
       <list>
@@ -3215,5 +3386,3 @@
   -->
 
 </chapter>
-
-

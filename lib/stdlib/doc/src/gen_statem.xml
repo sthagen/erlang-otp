@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>2016</year><year>2018</year>
+      <year>2016</year><year>2019</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -33,43 +33,73 @@
   <description>
     <p>
       <c>gen_statem</c> provides a generic state machine behaviour
-      and replaces its predecessor
+      that for new code replaces its predecessor
       <seealso marker="gen_fsm"><c>gen_fsm</c></seealso>
-      since Erlang/OTP 20.0.
-    </p>
-    <p>
-      This reference manual describes types generated from the types
-      in the <c>gen_statem</c> source code, so they are correct.
-      However, the generated descriptions also reflect the type hiearchy,
-      which makes them kind of hard to read.
-    </p>
-    <p>
-      To get an overview of the concepts and operation of <c>gen_statem</c>,
-      do read the
-      <seealso marker="doc/design_principles:statem">
-	<c>gen_statem</c>&nbsp;Behaviour
-      </seealso>
-      in
-      <seealso marker="doc/design_principles:users_guide">
-	OTP Design Principles
-      </seealso>
-      which frequently links back to this reference manual to avoid
-      containing detailed facts that may rot by age.
+      since Erlang/OTP 20.0. The <c>gen_fsm</c> behaviour remains
+      in OTP "as is".
     </p>
     <note>
       <p>
-        This behavior appeared in Erlang/OTP 19.0.
-	In OTP 19.1 a backwards incompatible change of
-	the return tuple from
-	<seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
-	was made and the mandatory callback function
-	<seealso marker="#Module:callback_mode/0">
-	  <c>Module:callback_mode/0</c>
+	If you are new to <c>gen_statem</c> and want an overview
+	of concepts and operation the section
+	<seealso marker="doc/design_principles:statem">
+	  <c>gen_statem</c>&nbsp;Behaviour
 	</seealso>
-	was introduced.  In OTP 20.0 the
-        <seealso marker="#type-generic_timeout"><c>generic timeouts</c></seealso>
-	were added.
+	located in the User's Guide
+	<seealso marker="doc/design_principles:users_guide">
+	  OTP Design Principles
+	</seealso>
+	is recommended to read before this reference manual,
+	possibly after the Description section you are reading here.
       </p>
+    </note>
+    <p>
+      This reference manual contains type descriptions generated from
+      types in the <c>gen_statem</c> source code, so they are correct.
+      However, the generated descriptions also reflect the type hierarchy,
+      which sometimes makes it hard to get a good overview.
+      If so, see the section
+      <seealso marker="doc/design_principles:statem">
+	<c>gen_statem</c>&nbsp;Behaviour
+      </seealso>
+      in the
+      <seealso marker="doc/design_principles:users_guide">
+	OTP Design Principles
+      </seealso>
+      User's Guide.
+    </p>
+    <note>
+      <list type="bulleted">
+	<item>This behavior appeared in Erlang/OTP 19.0.</item>
+	<item>
+	  In OTP 19.1 a backwards incompatible change of
+	  the return tuple from
+	  <seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
+	  was made and the mandatory callback function
+	  <seealso marker="#Module:callback_mode/0">
+	    <c>Module:callback_mode/0</c>
+	  </seealso>
+	  was introduced.
+	</item>
+	<item>
+	   In OTP 20.0
+           <seealso marker="#type-generic_timeout">
+	     generic time-outs
+	   </seealso>
+	   were added.
+	</item>
+	<item>
+	  In OTP 22.1 time-out content
+          <seealso marker="#type-timeout_update_action">
+	    <c>update</c>
+	  </seealso>
+	  and explicit time-out
+          <seealso marker="#type-timeout_cancel_action">
+	    <c>cancel</c>
+	  </seealso>
+	  were added.
+	</item>
+      </list>
     </note>
     <p>
       <c>gen_statem</c> has got the same features that
@@ -320,12 +350,13 @@ erlang:'!'            -----> Module:StateName/3
     </p>
     <p>
       There is also a server start option
-      <seealso marker="#type-hibernate_after_opt">
+      <seealso marker="#type-enter_loop_opt">
 	<c>{hibernate_after, Timeout}</c>
       </seealso>
       for
-      <seealso marker="#start/3"><c>start/3,4</c></seealso> or
-      <seealso marker="#start_link/3"><c>start_link/3,4</c></seealso>
+      <seealso marker="#start/3"><c>start/3,4</c></seealso>,
+      <seealso marker="#start_link/3"><c>start_link/3,4</c></seealso> or
+      <seealso marker="#enter_loop/4"><c>enter_loop/4,5,6</c></seealso>,
       that may be used to automatically hibernate the server.
     </p>
   </description>
@@ -514,36 +545,6 @@ handle_event(_, _, State, Data) ->
       </desc>
     </datatype>
     <datatype>
-      <name name="debug_opt"/>
-      <desc>
-	<p>
-	  Debug option that can be used when starting
-	  a <c>gen_statem</c> server through,
-	  <seealso marker="#enter_loop/4"><c>enter_loop/4-6</c></seealso>.
-	</p>
-	<p>
-	  For every entry in <c><anno>Dbgs</anno></c>,
-	  the corresponding function in
-	  <seealso marker="sys"><c>sys</c></seealso> is called.
-	</p>
-      </desc>
-    </datatype>
-    <datatype>
-      <name name="hibernate_after_opt"/>
-      <desc>
-	<p>
-          hibernate_after option that can be used when starting
-	  a <c>gen_statem</c> server through,
-	  <seealso marker="#enter_loop/4"><c>enter_loop/4-6</c></seealso>.
-	</p>
-    <p>If option<seealso marker="#type-hibernate_after_opt"><c>{hibernate_after,HibernateAfterTimeout}</c></seealso> is present, the <c>gen_statem</c>
-        process awaits any message for <c>HibernateAfterTimeout</c> milliseconds and
-        if no message is received, the process goes into hibernation automatically
-        (by calling <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>).
-    </p>
-      </desc>
-    </datatype>
-    <datatype>
       <name name="start_opt"/>
       <desc>
 	<p>
@@ -560,6 +561,37 @@ handle_event(_, _, State, Data) ->
 	  Return value from the start functions, for example,
 	  <seealso marker="#start_link/3"><c>start_link/3</c></seealso>.
 	</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="enter_loop_opt"/>
+      <desc>
+	<p>
+	  Options that can be used when starting
+	  a <c>gen_statem</c> server through,
+	  <seealso marker="#enter_loop/4"><c>enter_loop/4-6</c></seealso>.
+	</p>
+	<taglist>
+	  <tag><c>hibernate_after</c></tag>
+	  <item>
+	    <p>
+	      <c>HibernateAfterTimeout</c>
+	      specifies that the <c>gen_statem</c> process awaits
+	      any message for <c>HibernateAfterTimeout</c> milliseconds and
+              if no message is received, the process goes into hibernation
+	      automatically (by calling
+	      <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>).
+	    </p>
+	  </item>
+	  <tag><c>debug</c></tag>
+	  <item>
+	    <p>
+	      For every entry in <c><anno>Dbgs</anno></c>,
+	      the corresponding function in
+	      <seealso marker="sys"><c>sys</c></seealso> is called.
+	    </p>
+	  </item>
+	</taglist>
       </desc>
     </datatype>
     <datatype>
@@ -651,7 +683,7 @@ handle_event(_, _, State, Data) ->
       <name name="timeout_event_type"/>
       <desc>
 	<p>
-	  There are 3 types of timeout events that the state machine
+	  There are 3 types of time-out events that the state machine
 	  can generate for itself with the corresponding
 	  <seealso marker="#type-timeout_action">timeout_action()</seealso>s.
 	</p>
@@ -718,7 +750,9 @@ handle_event(_, _, State, Data) ->
 	  the <c>gen_statem</c> engine will, at every <em>state change</em>,
 	  call the
 	  <seealso marker="#state callback">state callback</seealso>
-	  with arguments <c>(enter, OldState, Data)</c>.
+	  with arguments <c>(enter, OldState, Data)</c> or
+	  <c>(enter, OldState, State, Data)</c>, depending on the
+	  <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>.
 	  This may look like an event but is really a call
 	  performed after the previous
 	  <seealso marker="#state callback"><em>state callback</em></seealso>
@@ -755,7 +789,7 @@ handle_event(_, _, State, Data) ->
 	  right before entering the initial state even though this
 	  actually is not a <em>state change</em>.
 	  In this case <c>OldState =:= State</c>,
-	  which can not happen for a subsequent state change,
+	  which cannot happen for a subsequent state change,
 	  but will happen when repeating the <em>state enter call</em>.
 	</p>
       </desc>
@@ -774,44 +808,53 @@ handle_event(_, _, State, Data) ->
 	</p>
 	<list type="ordered">
 	  <item>
+	    <p>
+	      All returned
+              <seealso marker="#type-action">actions</seealso>
+	      are processed in order of appearance.
+	      In this step all replies generated by any
+	      <seealso marker="#type-reply_action"><c>reply_action()</c></seealso>
+	      are sent.  Other actions set <c>transition_option()</c>s
+	      that come into play in subsequent steps.
+            </p>
+	  </item>
+	  <item>
             <p>
 	      If
 	      <seealso marker="#type-state_enter">
 		<em>state enter calls</em>
 	      </seealso>
-	      are used, and either:
-	      the state changes, it is the initial state,
-	      or one of the callback results
+	      are used, and either
+	      it is the initial state or one of the callback results
 	      <seealso marker="#type-state_callback_result">
-		<c>repeat_state</c>
+		<c>repeat_state_and_data</c>
 	      </seealso>
 	      or
 	      <seealso marker="#type-state_callback_result">
 		<c>repeat_state_and_data</c>
 	      </seealso>
-	      is used; the <c>gen_statem</c> calls
+	      is used the <c>gen_statem</c> engine calls
+	      the current state callback with arguments
+	      <seealso marker="#type-state_enter"><c>(enter, State, Data)</c></seealso>
+	      or
+	      <seealso marker="#type-state_enter"><c>(enter, State, State, Data)</c></seealso>
+	      (depending on <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>)
+	      and when it returns starts again from the top of this sequence.
+	    </p>
+            <p>
+	      If
+	      <seealso marker="#type-state_enter">
+		<em>state enter calls</em>
+	      </seealso>
+	      are used, and the state changes
+	      the <c>gen_statem</c> engine calls
 	      the new state callback with arguments
-	      <seealso marker="#type-state_enter"><c>(enter, OldState, Data)</c></seealso>.
+	      <seealso marker="#type-state_enter"><c>(enter, OldState, Data)</c></seealso>
+	      or
+	      <seealso marker="#type-state_enter"><c>(enter, OldState, State, Data)</c></seealso>
+	      (depending on <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>)
+	      and when it returns starts again from the top of this sequence.
 	    </p>
-	    <p>
-	      Any 
-	      <seealso marker="#type-enter_action">actions</seealso>
-	      returned from this call are handled as if they were
-	      appended to the actions
-	      returned by the state callback that caused the state entry.
-	    </p>
-	    <p>
-	      Should this <em>state enter call</em> return any of
-	      the mentioned <c>repeat_*</c> callback results
-	      it is repeated again, with the updated <c>Data</c>.
-            </p>
-	  </item>
-	  <item>
-	    <p>
-	      All
-              <seealso marker="#type-action">actions</seealso>
-	      are processed in order of appearance.
-            </p>
 	  </item>
 	  <item>
             <p>
@@ -861,7 +904,9 @@ handle_event(_, _, State, Data) ->
 	      A <em>state change</em> cancels a
               <seealso marker="#type-state_timeout"><c>state_timeout()</c></seealso>
 	      and any new transition option of this type
-	      belongs to the new state.
+	      belongs to the new state, that is; a
+              <seealso marker="#type-state_timeout"><c>state_timeout()</c></seealso>
+	      applies to the state the state machine enters.
 	    </p>
 	  </item>
 	  <item>
@@ -870,7 +915,7 @@ handle_event(_, _, State, Data) ->
 	      <seealso marker="#state callback"><em>state callback</em></seealso>
 	      for the possibly new state
 	      is called with the oldest enqueued event,
-	      and we start again from the top of this list.
+	      and we start again from the top of this sequence.
 	    </p>
 	  </item>
 	  <item>
@@ -1174,7 +1219,7 @@ handle_event(_, _, State, Data) ->
 	  <seealso marker="#enter_loop/5"><c>enter_loop/5,6</c></seealso>.
 	</p>
 	<p>
-	  These timeout actions sets timeout
+	  These time-out actions sets time-out
 	  <seealso marker="#type-transition_option">transition options</seealso>.
 	</p>
 	<taglist>
@@ -1224,6 +1269,36 @@ handle_event(_, _, State, Data) ->
 	    </p>
 	  </item>
 	</taglist>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="timeout_cancel_action" since="OTP 22.1"/>
+      <desc>
+	<p>
+	  This is a shorter and clearer form of
+	  <seealso marker="#type-timeout_action">
+	    timeout_action()
+	  </seealso>
+	  with <c>Time = infinity</c> which cancels a time-out.
+	</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="timeout_update_action" since="OTP 22.1"/>
+      <desc>
+	<p>
+	  Updates a time-out with a new <c>EventContent</c>.
+	  See
+	  <seealso marker="#type-timeout_action">
+	    timeout_action()
+	  </seealso>
+	  for how to start a time-out.
+	</p>
+	<p>
+	  If no time-out of the same type is active instead
+	  insert the time-out event just like when starting
+	  a time-out with relative <c>Time = 0</c>.
+	</p>
       </desc>
     </datatype>
     <datatype>
@@ -1701,7 +1776,11 @@ handle_event(_, _, State, Data) ->
         <list type="bulleted">
           <item>
 	    <p>
-	      If option <c>{timeout,Time}</c> is present in
+	      If option
+	      <seealso marker="#type-start_opt">
+		<c>{timeout,Time}</c>
+	      </seealso>
+	      is present in
 	      <c><anno>Opts</anno></c>, the <c>gen_statem</c>
 	      is allowed to spend <c>Time</c> milliseconds initializing
 	      or it terminates and the start function returns
@@ -1709,23 +1788,33 @@ handle_event(_, _, State, Data) ->
             </p>
           </item>
           <item>
-            <p>If option<seealso marker="#type-hibernate_after_opt"><c>{hibernate_after,HibernateAfterTimeout}</c></seealso> is present, the <c>gen_statem</c>
-              process awaits any message for <c>HibernateAfterTimeout</c> milliseconds and
-              if no message is received, the process goes into hibernation automatically
-              (by calling <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>).
+            <p>If option
+	    <seealso marker="#type-enter_loop_opt">
+	      <c>{hibernate_after,HibernateAfterTimeout}</c>
+	    </seealso>
+	    is present, the <c>gen_statem</c>
+            process awaits any message for <c>HibernateAfterTimeout</c> milliseconds and
+            if no message is received, the process goes into hibernation automatically
+            (by calling <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>).
             </p>
           </item>
           <item>
             <p>
               If option
-              <seealso marker="#type-debug_opt"><c>{debug,Dbgs}</c></seealso>
+              <seealso marker="#type-enter_loop_opt">
+		<c>{debug,Dbgs}</c>
+	      </seealso>
               is present in <c><anno>Opts</anno></c>, debugging through
               <seealso marker="sys"><c>sys</c></seealso> is activated.
             </p>
           </item>
           <item>
             <p>
-              If option <c>{spawn_opt,SpawnOpts}</c> is present in
+              If option
+              <seealso marker="#type-start_opt">
+		<c>{spawn_opt,SpawnOpts}</c>
+	      </seealso>
+	      is present in
               <c><anno>Opts</anno></c>, <c>SpawnOpts</c> is passed
               as option list to
 	      <seealso marker="erts:erlang#spawn_opt/2"><c>erlang:spawn_opt/2</c></seealso>,

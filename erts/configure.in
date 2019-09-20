@@ -2,7 +2,7 @@ dnl Process this file with autoconf to produce a configure script. -*-m4-*-
 
 dnl %CopyrightBegin%
 dnl
-dnl Copyright Ericsson AB 1997-2018. All Rights Reserved.
+dnl Copyright Ericsson AB 1997-2019. All Rights Reserved.
 dnl
 dnl Licensed under the Apache License, Version 2.0 (the "License");
 dnl you may not use this file except in compliance with the License.
@@ -447,6 +447,12 @@ dnl ---------------------------------------------------------------------
 dnl NOTE: CPPFLAGS will be included in CFLAGS at the end
 case $host_os in
     linux*) CPPFLAGS="$CPPFLAGS -D_GNU_SOURCE";; 
+    aix*|os400*)
+        # * _ALL_SOURCE: Required to get the winsize structure for TIOCSWINSZ.
+        # * _LINUX_SOURCE_COMPAT: Not required, but makes some libc functions
+        # behave closer to glibc assumptions.
+        CPPFLAGS="$CPPFLAGS -D_ALL_SOURCE -D_LINUX_SOURCE_COMPAT"
+        ;;
     win32)
 	# The ethread library requires _WIN32_WINNT of at least 0x0403.
 	# -D_WIN32_WINNT=* from CPPFLAGS is saved in ETHR_DEFS.
@@ -590,6 +596,22 @@ AC_SUBST(WERRORFLAGS)
 ## Check if we can do profile guided optimization of beam_emu
 LM_CHECK_ENABLE_CFLAG([-fprofile-generate -Werror],[PROFILE_GENERATE])
 LM_CHECK_ENABLE_CFLAG([-fprofile-use -Werror],[PROFILE_USE])
+LM_CHECK_ENABLE_CFLAG([-fprofile-use -fprofile-correction -Werror],[PROFILE_CORRECTION])
+
+if test "X$PROFILE_CORRECTION" = "Xtrue"; then
+   saved_CFLAGS=$CFLAGS
+   saved_LDFLAGS=$LDFLAGS
+   CFLAGS="-fprofile-generate $saved_CFLAGS"
+   LDFLAGS="-fprofile-generate $saved_LDFLAGS"
+   AC_MSG_CHECKING([whether $CC links with -fprofile-generate])
+   AC_LINK_IFELSE([AC_LANG_PROGRAM([],[return 0;])],
+        [AC_MSG_RESULT([yes])
+         PROFILE_GENERATE=true],
+        [AC_MSG_RESULT([no])
+         PROFILE_GENERATE=false])
+   CFLAGS=$saved_CFLAGS
+   LDFLAGS=$saved_LDFLAGS
+fi
 
 ## Check if this is clang
 LM_CHECK_ENABLE_CFLAG([-fprofile-instr-generate -Werror],[PROFILE_INSTR_GENERATE])
@@ -614,8 +636,8 @@ if test "X$PROFILE_INSTR_GENERATE" = "Xtrue"; then
       if test "X$LLVM_PROFDATA" != "X"; then
         CFLAGS="-fprofile-instr-use=default.profdata -Werror $saved_CFLAGS";
         $LLVM_PROFDATA merge -output=default.profdata *.profraw;
-        AC_MSG_CHECKING([whether gcc accepts -fprofile-instr-use=default.profdata -Werror])
-        AC_COMPILE_IFELSE([],
+        AC_MSG_CHECKING([whether $CC accepts -fprofile-instr-use=default.profdata -Werror])
+        AC_COMPILE_IFELSE([AC_LANG_PROGRAM([],[return 0;])],
           [AC_MSG_RESULT([yes])
            PROFILE_INSTR_USE=true],
           [AC_MSG_RESULT([no])
@@ -636,8 +658,6 @@ AS_HELP_STRING([--enable-pgo],
     *)	enable_pgo=yes ;;
   esac
 ],enable_pgo=default)
-
-LM_CHECK_ENABLE_CFLAG([-fprofile-use -fprofile-correction -Werror],[PROFILE_CORRECTION])
 
 USE_PGO=false
 AC_MSG_CHECKING([whether to do PGO of erts])
@@ -662,7 +682,7 @@ elif test "X$PROFILE_INSTR_GENERATE" = "Xtrue" -a "X$PROFILE_INSTR_USE" = "Xtrue
   PROFILE_COMPILER=clang
   AC_MSG_RESULT([yes, using -fprofile-instr-generate])
 else
-  if $enable_pgo = yes; then
+  if test $enable_pgo = yes; then
     AC_MSG_ERROR(cannot use PGO with this compiler)
   else
     AC_MSG_RESULT([no])
@@ -772,11 +792,6 @@ AC_SUBST(LIBCARBON)
 
 _search_path=/bin:/usr/bin:/usr/local/bin:$PATH
 
-AC_PATH_PROG(RM, rm, false, $_search_path)
-if test "$ac_cv_path_RM" = false; then
-  AC_MSG_ERROR([No 'rm' command found])
-fi
-
 AC_PATH_PROG(MKDIR, mkdir, false, $_search_path)
 if test "$ac_cv_path_MKDIR" = false; then
   AC_MSG_ERROR([No 'mkdir' command found])
@@ -791,9 +806,9 @@ _search_path=
 
 
 # Remove old configuration information.
-# Next line should be placed after AC_PATH_PROG(RM, ...), but before
-# first output to CONN_INFO. So this is just the right place.
-$RM -f "$ERL_TOP/erts/CONF_INFO"
+# Next line should be before first output to CONN_INFO. So this is
+# just the right place.
+rm -f "$ERL_TOP/erts/CONF_INFO"
 
 dnl Check if we should/can build a sharing-preserving emulator
 AC_MSG_CHECKING(if we are building a sharing-preserving emulator)
@@ -831,7 +846,7 @@ fi
 
 ## Delete previous failed configure results
 if test -f doc/CONF_INFO; then
-   $RM doc/CONF_INFO
+   rm -f doc/CONF_INFO
 fi
 
 AC_CHECK_PROGS(XSLTPROC, xsltproc)
@@ -957,7 +972,7 @@ AC_SUBST(ERLANG_OSTYPE)
 AC_MSG_CHECKING(for extra flags needed to export symbols)
 DEXPORT=""
 case $host_os in
-	aix4*)
+	aix*|os400*)
 		DEXPORT=-Wl,-bexpall,-brtl
 	;;
 	bsdi*)
@@ -1334,6 +1349,35 @@ LIBS=$zlib_save_LIBS
 fi
 AC_SUBST(Z_LIB)
 
+
+dnl -------------
+dnl esock
+dnl -------------
+
+AC_ARG_ENABLE(esock,
+AS_HELP_STRING([--enable-esock], [enable builtin experimental socket (as a nif) support (default)])
+AS_HELP_STRING([--disable-esock], [disable builtin experimental socket (as a nif) support]))
+
+dnl Default value
+USE_ESOCK=yes
+
+if test "x$enable_esock" = "xyes"; then
+    USE_ESOCK=yes
+else
+    if test "x$enable_esock" = "xno"; then
+        USE_ESOCK=no
+    fi
+fi
+
+if test "x$USE_ESOCK" = "xyes"; then
+    if test "x$USE_ESOCK" = "xyes"; then
+        AC_CHECK_FUNCS([localtime_r strftime])
+    fi
+fi
+
+AC_SUBST(USE_ESOCK)
+
+
 dnl
 dnl This test kindly borrowed from Tcl
 dnl
@@ -1389,7 +1433,7 @@ if test "$have_gethostbyname_r" = yes; then
 			AC_DEFINE(HAVE_GETHOSTBYNAME_R, GHBN_R_SOLARIS,
 				[Define to flavour of gethostbyname_r])
 		;;
-		aix4*)
+		aix*|os400*)
 			# AIX version also needs "struct hostent_data" defn
 			AC_TRY_COMPILE([#include <netdb.h>],
 				[struct hostent_data hd;],
@@ -1655,7 +1699,9 @@ if test x"$ac_cv_header_netinet_sctp_h" = x"yes"; then
                       struct sctp_paddrparams.spp_sackdelay,
                       struct sctp_paddrparams.spp_flags,
                       struct sctp_remote_error.sre_data,
-                      struct sctp_send_failed.ssf_data], [], [],
+                      struct sctp_send_failed.ssf_data,
+                      struct sctp_event_subscribe.sctp_authentication_event,
+                      struct sctp_event_subscribe.sctp_sender_dry_event], [], [],
         [#if HAVE_SYS_SOCKET_H
          #include <sys/socket.h>
          #endif
@@ -1996,7 +2042,7 @@ AC_CHECK_FUNCS([ieee_handler fpsetmask finite isnan isinf res_gethostbyname dlop
 		gethrtime localtime_r gmtime_r inet_pton mprotect \
 		mmap mremap memcpy mallopt sbrk _sbrk __sbrk brk _brk __brk \
 		flockfile fstat strlcpy strlcat setsid posix2time time2posix \
-		setlocale nl_langinfo poll mlockall ppoll])
+		setlocale nl_langinfo poll mlockall ppoll vsyslog])
 
 AC_MSG_CHECKING([for isfinite])
 AC_TRY_LINK([#include <math.h>],
@@ -2683,9 +2729,25 @@ if test X${enable_hipe} != Xno; then
 	        AC_MSG_ERROR([HiPE needs mprotect() on $ARCH])
             else
 	        enable_hipe=no
-	        AC_MSG_WARN([Disable HiPE due to lack of mprotect()])
+	        AC_MSG_WARN([HiPE disabled due to lack of mprotect()])
             fi
         fi
+        AC_MSG_CHECKING([for safe signal delivery])
+        AC_TRY_COMPILE([#include <signal.h>],
+          [#if defined(__APPLE__) && defined(__MACH__) && !defined(__DARWIN__)
+           #define __DARWIN__ 1
+           #endif
+
+           #if !(defined(__GLIBC__) || defined(__DARWIN__) || defined(__NetBSD__) || defined(__FreeBSD__) || defined(__sun__))
+          /*
+           * Unknown libc -- assume musl, which does not allow safe signals
+           */
+           #error "HiPE does not work without a libc that can guarantee that sigaltstack works"
+           #endif	/* !(__GLIBC__ || __DARWIN__ || __NetBSD__ || __FreeBSD__ || __sun__) */],
+        [AC_MSG_RESULT([yes])],
+        [enable_hipe=no
+         AC_MSG_RESULT([no, musl probably used. Need glibc to work properly])
+         AC_MSG_WARN([HiPE disabled due to lack of safe signal delivery])])
 fi
 
 dnl check to auto-enable hipe here...
@@ -2786,6 +2848,32 @@ AC_SUBST(HIPE_ENABLED)
 NATIVE_LIBS_ENABLED=
 if test X${enable_native_libs} = Xyes -a X${HIPE_ENABLED} = Xyes; then
   NATIVE_LIBS_ENABLED=yes
+  cat >> $ERL_TOP/erts/CONF_INFO <<EOF
+
+                 WARNING: In OTP 22, HiPE (the native code compiler) is
+		 not fully functional. The reasons for this are:
+
+		 1. There are new BEAM instructions for binary
+		 matching that the HiPE native code compiler does not
+		 support. 
+
+		 2. The new optimizations in the Erlang compiler create
+		 new combination of instructions that HiPE currently
+		 does not handle correctly.
+
+		 If erlc is invoked like so:
+
+		     erlc +native some_file.erl
+
+                 or like so:
+
+                     erlc +native some_file.beam
+
+		 and if any of the new binary matching instructions
+		 are used, the compiler will issue a warning and
+		 produce a BEAM file without native code.
+
+EOF
 fi
 AC_SUBST(NATIVE_LIBS_ENABLED)
 
@@ -3083,14 +3171,14 @@ if test "$enable_dtrace_test" = "yes" ; then
 		AC_MSG_CHECKING([for 2-stage DTrace precompilation])
                 AC_TRY_COMPILE([ #include "foo-dtrace.h" ],
                     [ERLANG_DIST_PORT_BUSY_ENABLED();],
-		    [$RM -f $DTRACE_2STEP_TEST
+		    [rm -f $DTRACE_2STEP_TEST
 		     dtrace -G $DTRACE_CPP $DTRACE_BITS_FLAG -Iemulator/beam -o $DTRACE_2STEP_TEST -s emulator/beam/erlang_dtrace.d conftest.$OBJEXT 2>&AS_MESSAGE_LOG_FD
                      if test -f $DTRACE_2STEP_TEST; then
-			$RM $DTRACE_2STEP_TEST
+			rm -f $DTRACE_2STEP_TEST
                         DTRACE_ENABLED_2STEP=yes
 		     fi],
                     [])
-		$RM -f foo-dtrace.h
+		rm -f foo-dtrace.h
 		AS_IF([test "x$DTRACE_ENABLED_2STEP" = "xyes"],
 		      [AC_MSG_RESULT([yes])],
                       [AC_MSG_RESULT([no])])
@@ -3184,11 +3272,15 @@ AS_HELP_STRING([--without-javac], [don't use any Java compiler]))
 dnl
 dnl Then there are a number of apps which needs a java compiler...
 dnl
-need_java="jinterface ic/java_src"
+need_java="jinterface"
+
+if test -d $ERL_TOP/lib/ic; then
+   need_java="$need_java ic/java_src"
+fi
 
 # Remove all SKIP files from previous runs
 for a in $need_java ; do
-  $RM -f $ERL_TOP/lib/$a/SKIP
+  rm -f $ERL_TOP/lib/$a/SKIP
 done
 
 if test "X$with_javac" = "Xno"; then
@@ -3239,7 +3331,7 @@ dnl this deliberately does not believe that 'gcc' is a C++ compiler
 AC_CHECK_TOOLS(CXX, [$CCC c++ g++ CC cxx cc++ cl], false)
 
 # Remove SKIP file from previous run
-$RM -f $ERL_TOP/lib/orber/SKIP
+rm -f $ERL_TOP/lib/orber/SKIP
 
 if test "$CXX" = false; then
   echo "No C++ compiler found" > $ERL_TOP/lib/orber/SKIP
@@ -3395,11 +3487,12 @@ AC_CONFIG_FILES([../make/make_emakefile:../make/make_emakefile.in],
 dnl
 dnl The ones below should be moved to their respective lib
 dnl
-dnl  ../lib/ssl/c_src/$host/Makefile:../lib/ssl/c_src/Makefile.in
 AC_CONFIG_FILES([
   ../lib/os_mon/c_src/$host/Makefile:../lib/os_mon/c_src/Makefile.in
   ../lib/runtime_tools/c_src/$host/Makefile:../lib/runtime_tools/c_src/Makefile.in
   ../lib/tools/c_src/$host/Makefile:../lib/tools/c_src/Makefile.in
   ])
+
+AC_CONFIG_FILES([../make/install_dir_data.sh:../make/install_dir_data.sh.in], [chmod +x ../make/install_dir_data.sh])
 
 AC_OUTPUT

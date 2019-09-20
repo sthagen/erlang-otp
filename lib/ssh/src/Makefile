@@ -55,6 +55,7 @@ MODULES= \
 	ssh_app \
 	ssh_auth\
 	ssh_bits \
+	ssh_channel_sup \
 	ssh_cli \
 	ssh_connection \
 	ssh_connection_handler \
@@ -66,7 +67,6 @@ MODULES= \
 	ssh_message \
 	ssh_no_io \
 	ssh_options \
-	ssh_server_channel_sup \
 	ssh_sftp \
 	ssh_sftpd \
 	ssh_sftpd_file\
@@ -74,6 +74,10 @@ MODULES= \
 	ssh_subsystem_sup \
 	ssh_sup \
 	ssh_system_sup \
+	ssh_tcpip_forward_srv \
+	ssh_tcpip_forward_client \
+	ssh_tcpip_forward_acceptor_sup \
+	ssh_tcpip_forward_acceptor \
 	ssh_transport \
 	ssh_xfer \
 	sshc_sup \
@@ -99,7 +103,7 @@ APP_TARGET= $(EBIN)/$(APP_FILE)
 APPUP_SRC= $(APPUP_FILE).src
 APPUP_TARGET= $(EBIN)/$(APPUP_FILE)
 
-INTERNAL_HRL_FILES = ssh_auth.hrl ssh_connect.hrl ssh_transport.hrl ssh.hrl ssh_userauth.hrl ssh_xfer.hrl
+INTERNAL_HRL_FILES = ssh_auth.hrl ssh_connect.hrl ssh_transport.hrl ssh.hrl ssh_xfer.hrl
 
 # ----------------------------------------------------
 # FLAGS
@@ -171,7 +175,7 @@ $(EBIN)/ssh_connection_handler.$(EMULATOR): ssh_connection_handler.erl ssh.hrl \
 $(EBIN)/ssh_shell.$(EMULATOR): ssh_shell.erl ssh_connect.hrl
 $(EBIN)/ssh_system_sup.$(EMULATOR): ssh_system_sup.erl ssh.hrl
 $(EBIN)/ssh_subsystem_sup.$(EMULATOR): ssh_subsystem_sup.erl
-$(EBIN)/ssh_server_channel_sup.$(EMULATOR): ssh_server_channel_sup.erl
+$(EBIN)/ssh_channel_sup.$(EMULATOR): ssh_channel_sup.erl ssh.hrl
 $(EBIN)/ssh_acceptor_sup.$(EMULATOR): ssh_acceptor_sup.erl ssh.hrl
 $(EBIN)/ssh_acceptor.$(EMULATOR): ssh_acceptor.erl ssh.hrl
 $(EBIN)/ssh_app.$(EMULATOR): ssh_app.erl

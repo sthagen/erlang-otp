@@ -255,7 +255,9 @@ static char* key_val_name = ERLANG_VERSION; /* Used by the registry
 					   * access functions.
 					   */
 static char* boot_script = NULL; /* used by option -start_erl and -boot */
-static char* config_script = NULL; /* used by option -start_erl and -config */
+static char** config_scripts = NULL; /* used by option -start_erl and -config */
+static int config_script_cnt = 0;
+static int got_start_erl = 0;
 
 static HANDLE this_module_handle;
 static int run_werl;
@@ -392,6 +394,22 @@ add_extra_suffixes(char *prog)
 }
 
 #ifdef __WIN32__
+static void add_boot_config(void)
+{
+    int i;
+    if (boot_script)
+	add_args("-boot", boot_script, NULL);
+    for (i = 0; i < config_script_cnt; i++) {
+        add_args("-config", config_scripts[i], NULL);
+    }
+}
+# define ADD_BOOT_CONFIG add_boot_config()
+#else
+# define ADD_BOOT_CONFIG
+#endif
+
+
+#ifdef __WIN32__
 __declspec(dllexport) int win_erlexec(int argc, char **argv, HANDLE module, int windowed)
 #else
 int main(int argc, char **argv)
@@ -408,7 +426,6 @@ int main(int argc, char **argv)
     int process_args = 1;
     int print_args_exit = 0;
     int print_qouted_cmd_exit = 0;
-    erts_cpu_info_t *cpuinfo = NULL;
     char* emu_name;
 
 #ifdef __WIN32__
@@ -467,8 +484,6 @@ int main(int argc, char **argv)
     /*
      * Construct the path of the executable.
      */
-    cpuinfo = erts_cpu_info_create();
-
 #if defined(__WIN32__) && defined(WIN32_ALWAYS_DEBUG)
     emu_type = "debug";
 #endif
@@ -525,9 +540,6 @@ int main(int argc, char **argv)
 	}
 	i++;
     }
-
-    erts_cpu_info_destroy(cpuinfo);
-    cpuinfo = NULL;
 
     if (malloc_lib) {
 	if (strcmp(malloc_lib, "libc") != 0)
@@ -587,16 +599,6 @@ int main(int argc, char **argv)
     
     i = 1;
 
-#ifdef __WIN32__
-#define ADD_BOOT_CONFIG					\
-    if (boot_script)					\
-	add_args("-boot", boot_script, NULL);		\
-    if (config_script)					\
-	add_args("-config", config_script, NULL);
-#else
-#define ADD_BOOT_CONFIG
-#endif
-
     get_home();
     add_args("-home", home, NULL);
 
@@ -616,7 +618,9 @@ int main(int argc, char **argv)
 		case 'b':
 		    if (strcmp(argv[i], "-boot") == 0) {
 			if (boot_script)
-			    error("Conflicting -start_erl and -boot options");
+			    error("Conflicting -boot options");
+                        if (got_start_erl)
+                            error("Conflicting -start_erl and -boot options");
 			if (i+1 >= argc)
 			    usage("-boot");
 			boot_script = strsave(argv[i+1]);
@@ -640,11 +644,14 @@ int main(int argc, char **argv)
 		    }
 #ifdef __WIN32__
 		    else if (strcmp(argv[i], "-config") == 0){
-			if (config_script)
+			if (got_start_erl)
 			    error("Conflicting -start_erl and -config options");
 			if (i+1 >= argc)
 			    usage("-config");
-			config_script = strsave(argv[i+1]);
+                        config_script_cnt++;
+                        config_scripts = erealloc(config_scripts,
+                                                  config_script_cnt * sizeof(char*));
+			config_scripts[config_script_cnt-1] = strsave(argv[i+1]);
 			i++;
 		    }
 #endif
@@ -660,15 +667,6 @@ int main(int argc, char **argv)
 			start_detached = 1;
 			add_args("-noshell", "-noinput", NULL);
 		    }
-		    break;
-
-		  case 'i':
-		    if (strcmp(argv[i], "-instr") == 0) {
-			add_Eargs("-Mim");
-			add_Eargs("true");
-		    }
-		    else
-			add_arg(argv[i]);
 		    break;
 
 		  case 'e':
@@ -1386,6 +1384,7 @@ strsave(char* string)
 
 static void get_start_erl_data(char *file)
 {
+    static char* a_config_script;
     int fp;
     char tmpbuffer[512];
     char start_erl_data[512];
@@ -1396,7 +1395,7 @@ static void get_start_erl_data(char *file)
     char* tprogname;
     if (boot_script) 
 	error("Conflicting -start_erl and -boot options");
-    if (config_script)
+    if (config_scripts)
 	error("Conflicting -start_erl and -config options");
     env = get_env("RELDIR");
     if (env)
@@ -1446,10 +1445,13 @@ static void get_start_erl_data(char *file)
     erts_snprintf(progname,strlen(tprogname) + 20,"%s -start_erl",tprogname);
 
     boot_script = emalloc(512);
-    config_script = emalloc(512);
+    a_config_script = emalloc(512);
     erts_snprintf(boot_script, 512, "%s/%s/start", reldir, otpstring);
-    erts_snprintf(config_script, 512, "%s/%s/sys", reldir, otpstring);
+    erts_snprintf(a_config_script, 512, "%s/%s/sys", reldir, otpstring);
+    config_scripts = &a_config_script;
+    config_script_cnt = 1;
        
+    got_start_erl = 1;
 }
 
 
@@ -1688,9 +1690,9 @@ static char **build_args_from_string(char *string)
     for(;;) {
 	switch (state) {
 	case Start:
-	    if (!*p) 
+	    if (!*p)
 		goto done;
-	    if (argc >= alloced - 1) { /* Make room for extra NULL */
+	    if (argc >= alloced - 2) { /* Make room for extra NULL and "--" */
 		argv = erealloc(argv, (alloced += 10) * sizeof(char *));
 	    }
 	    cur_s = argc + argv;
@@ -1779,11 +1781,14 @@ static char **build_args_from_string(char *string)
 	}
     }
 done:
-    argv[argc] = NULL; /* Sure to be large enough */
     if (!argc) {
 	efree(argv);
 	return NULL;
     }
+    argv[argc++] = "--"; /* Add a -- separator in order
+                            for different from different environments
+                            to effect each other */
+    argv[argc++] = NULL; /* Sure to be large enough */
     return argv;
 #undef ENSURE
 }
@@ -2034,11 +2039,13 @@ initial_argv_massage(int *argc, char ***argv)
     argv_buf ab = {0}, xab = {0};
     int ix, vix, ac;
     char **av;
+    char *sep = "--";
     struct {
 	int argc;
 	char **argv;
     } avv[] = {{INT_MAX, NULL}, {INT_MAX, NULL}, {INT_MAX, NULL},
-	       {INT_MAX, NULL}, {INT_MAX, NULL}, {INT_MAX, NULL}};
+	       {INT_MAX, NULL}, {INT_MAX, NULL},
+               {INT_MAX, NULL}, {INT_MAX, NULL}};
     /*
      * The environment flag containing OTP release is intentionally
      * undocumented and intended for OTP internal use only.
@@ -2058,6 +2065,8 @@ initial_argv_massage(int *argc, char ***argv)
     if (*argc > 1) {
 	avv[vix].argc = *argc - 1;
 	avv[vix++].argv = &(*argv)[1];
+        avv[vix].argc = 1;
+        avv[vix++].argv = &sep;
     }
 
     av = build_args_from_env("ERL_FLAGS");

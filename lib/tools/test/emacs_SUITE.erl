@@ -70,19 +70,20 @@ bif_highlight(Config) ->
 
 
 check_bif_highlight(Bin, Tag, Compare) ->
-    [_H,IntMatch,_T] =
+    [_H,Match,_T] =
         re:split(Bin,<<"defvar ",Tag/binary,
                        "[^(]*\\(([^)]*)">>,[]),
-    EmacsIntBifs = [list_to_atom(S) ||
-                  S <- string:tokens(binary_to_list(IntMatch)," '\"\n")],
+    EmacsBifs = [list_to_atom(S) ||
+                  S <- string:tokens(binary_to_list(Match)," '\"\n")],
 
-    ct:log("Emacs ~p",[EmacsIntBifs]),
-    ct:log("Int ~p",[Compare]),
+    ct:log("Comparing ~s", [Tag]),
+    ct:log("Emacs ~p",[EmacsBifs]),
+    ct:log("Erlang ~p",[Compare]),
 
-    ct:log("Diff1 ~p",[Compare -- EmacsIntBifs]),
-    ct:log("Diff2 ~p",[EmacsIntBifs -- Compare]),
-    [] = Compare -- EmacsIntBifs,
-    [] = EmacsIntBifs -- Compare.
+    ct:log("Only in Erlang ~p",[Compare -- EmacsBifs]),
+    ct:log("Only in Emacs ~p",[EmacsBifs -- Compare]),
+    [] = Compare -- EmacsBifs,
+    [] = EmacsBifs -- Compare.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -118,7 +119,7 @@ compile_and_load(_Config) ->
                                      false -> " "
                                  end,
                       emacs([Pedantic,
-                             " -f batch-byte-compile ",filename:join(Dir, File)]),
+                             " -f batch-byte-compile ", dquote(filename:join(Dir, File))]),
                       true
               end,
     lists:foreach(Compile, Files),
@@ -142,6 +143,10 @@ tests_compiled(_Config) ->
                    "-l erlang-test.elc -f ert-run-tests-batch-and-exit"]),
             ok
     end.
+
+
+dquote(Str) ->
+    "\"" ++ Str ++ "\"".
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -188,7 +193,9 @@ diff(Orig, File) ->
     end.
 
 emacs_version_ok(AcceptVer) ->
-    case os:cmd("emacs --version | head -1") of
+    VersionLine = os:cmd("emacs --version | head -1"),
+    io:format("~s~n", [VersionLine]),
+    case VersionLine of
         "GNU Emacs " ++ Ver ->
             case string:to_float(Ver) of
                 {Vsn, _} when Vsn >= AcceptVer ->
@@ -204,14 +211,14 @@ emacs_version_ok(AcceptVer) ->
 emacs(EmacsCmds) when is_list(EmacsCmds) ->
     Cmd = ["emacs ",
            "--batch --quick ",
-           "--directory ", emacs_dir(), " ",
+           "--directory ", dquote(emacs_dir()), " ",
            "--eval \"(require 'erlang-start)\" "
            | EmacsCmds],
     Res0 = os:cmd(Cmd ++ " ; echo $?"),
     Rows = string:lexemes(Res0, ["\r\n", $\n]),
     Res = lists:last(Rows),
     Output = string:join(lists:droplast(Rows), "\n"),
-    io:format("Cmd ~s:~n  => ~s ~ts~n", [Cmd, Res, Output]),
+    io:format("Cmd ~ts:~n  => ~s ~ts~n", [Cmd, Res, Output]),
     "0" = Res,
     Output.
 

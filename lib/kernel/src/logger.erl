@@ -43,11 +43,14 @@
          get_module_level/0, get_module_level/1,
          set_primary_config/1, set_primary_config/2,
          set_handler_config/2, set_handler_config/3,
+         set_proxy_config/1,
          update_primary_config/1,
          update_handler_config/2, update_handler_config/3,
+         update_proxy_config/1,
          update_formatter_config/2, update_formatter_config/3,
          get_primary_config/0, get_handler_config/1,
          get_handler_config/0, get_handler_ids/0, get_config/0,
+         get_proxy_config/0,
          add_handlers/1]).
 
 %% Private configuration
@@ -57,6 +60,8 @@
 -export([compare_levels/2]).
 -export([set_process_metadata/1, update_process_metadata/1,
          unset_process_metadata/0, get_process_metadata/0]).
+-export([i/0, i/1]).
+-export([timestamp/0]).
 
 %% Basic report formatting
 -export([format_report/1, format_otp_report/1]).
@@ -122,6 +127,18 @@
                           {filters,log | stop,[{filter_id(),filter()}]} |
                           {module_level,level(),[module()]}].
 
+-type olp_config() :: #{sync_mode_qlen => non_neg_integer(),
+                        drop_mode_qlen => pos_integer(),
+                        flush_qlen => pos_integer(),
+                        burst_limit_enable => boolean(),
+                        burst_limit_max_count => pos_integer(),
+                        burst_limit_window_time => pos_integer(),
+                        overload_kill_enable => boolean(),
+                        overload_kill_qlen => pos_integer(),
+                        overload_kill_mem_size => pos_integer(),
+                        overload_kill_restart_after =>
+                            non_neg_integer() | infinity}.
+
 -export_type([log_event/0,
               level/0,
               report/0,
@@ -137,7 +154,9 @@
               filter_arg/0,
               filter_return/0,
               config_handler/0,
-              formatter_config/0]).
+              formatter_config/0,
+              olp_config/0,
+              timestamp/0]).
 
 %%%-----------------------------------------------------------------
 %%% API
@@ -337,6 +356,10 @@ internal_log(Level,Term) when is_atom(Level) ->
     erlang:display_string("Logger - "++ atom_to_list(Level) ++ ": "),
     erlang:display(Term).
 
+-spec timestamp() -> timestamp().
+timestamp() ->
+    os:system_time(microsecond).
+
 %%%-----------------------------------------------------------------
 %%% Configuration
 -spec add_primary_filter(FilterId,Filter) -> ok | {error,term()} when
@@ -390,6 +413,7 @@ set_primary_config(Key,Value) ->
 set_primary_config(Config) ->
     logger_server:set_config(primary,Config).
 
+
 -spec set_handler_config(HandlerId,level,Level) -> Return when
       HandlerId :: handler_id(),
       Level :: level() | all | none,
@@ -418,6 +442,11 @@ set_handler_config(HandlerId,Key,Value) ->
       Config :: handler_config().
 set_handler_config(HandlerId,Config) ->
     logger_server:set_config(HandlerId,Config).
+
+-spec set_proxy_config(Config) -> ok | {error,term()} when
+      Config :: olp_config().
+set_proxy_config(Config) ->
+    logger_server:set_config(proxy,Config).
 
 -spec update_primary_config(Config) -> ok | {error,term()} when
       Config :: primary_config().
@@ -453,6 +482,11 @@ update_handler_config(HandlerId,Key,Value) ->
 update_handler_config(HandlerId,Config) ->
     logger_server:update_config(HandlerId,Config).
 
+-spec update_proxy_config(Config) -> ok | {error,term()} when
+      Config :: olp_config().
+update_proxy_config(Config) ->
+    logger_server:update_config(proxy,Config).
+
 -spec get_primary_config() -> Config when
       Config :: primary_config().
 get_primary_config() ->
@@ -485,6 +519,12 @@ get_handler_config() ->
 get_handler_ids() ->
     {ok,#{handlers:=HandlerIds}} = logger_config:get(?LOGGER_TABLE,primary),
     HandlerIds.
+
+-spec get_proxy_config() -> Config when
+      Config :: olp_config().
+get_proxy_config() ->
+    {ok,Config} = logger_config:get(?LOGGER_TABLE,proxy),
+    Config.
 
 -spec update_formatter_config(HandlerId,FormatterConfig) ->
                                      ok | {error,term()} when
@@ -560,11 +600,11 @@ get_module_level() ->
 %%%-----------------------------------------------------------------
 %%% Misc
 -spec compare_levels(Level1,Level2) -> eq | gt | lt when
-      Level1 :: level(),
-      Level2 :: level().
-compare_levels(Level,Level) when ?IS_LEVEL(Level) ->
+      Level1 :: level() | all | none,
+      Level2 :: level() | all | none.
+compare_levels(Level,Level) when ?IS_LEVEL_ALL(Level) ->
     eq;
-compare_levels(Level1,Level2) when ?IS_LEVEL(Level1), ?IS_LEVEL(Level2) ->
+compare_levels(Level1,Level2) when ?IS_LEVEL_ALL(Level1), ?IS_LEVEL_ALL(Level2) ->
     Int1 = logger_config:level_to_int(Level1),
     Int2 = logger_config:level_to_int(Level2),
     if Int1 < Int2 -> gt;
@@ -606,11 +646,149 @@ unset_process_metadata() ->
 
 -spec get_config() -> #{primary=>primary_config(),
                         handlers=>[handler_config()],
+                        proxy=>olp_config(),
                         module_levels=>[{module(),level() | all | none}]}.
 get_config() ->
     #{primary=>get_primary_config(),
       handlers=>get_handler_config(),
+      proxy=>get_proxy_config(),
       module_levels=>lists:keysort(1,get_module_level())}.
+
+-spec i() -> ok.
+i() ->
+    #{primary := Primary,
+      handlers := HandlerConfigs,
+      proxy := Proxy,
+      module_levels := Modules} = get_config(),
+    M = modifier(),
+    i_primary(Primary,M),
+    i_handlers(HandlerConfigs,M),
+    i_proxy(Proxy,M),
+    i_modules(Modules,M).
+
+-spec i(What) -> ok when
+      What :: primary | handlers | proxy | modules | handler_id().
+i(primary) ->
+    i_primary(get_primary_config(),modifier());
+i(handlers) ->
+    i_handlers(get_handler_config(),modifier());
+i(proxy) ->
+    i_proxy(get_proxy_config(),modifier());
+i(modules) ->
+    i_modules(get_module_level(),modifier());
+i(HandlerId) when is_atom(HandlerId) ->
+    case get_handler_config(HandlerId) of
+        {ok,HandlerConfig} ->
+            i_handlers([HandlerConfig],modifier());
+        Error ->
+            Error
+    end;
+i(What) ->
+    erlang:error(badarg,[What]).
+
+
+i_primary(#{level := Level,
+            filters := Filters,
+            filter_default := FilterDefault},
+          M) ->
+    io:format("Primary configuration: ~n",[]),
+    io:format("    Level: ~p~n",[Level]),
+    io:format("    Filter Default: ~p~n", [FilterDefault]),
+    io:format("    Filters: ~n", []),
+    print_filters("        ",Filters,M).
+
+i_handlers(HandlerConfigs,M) ->
+    io:format("Handler configuration: ~n", []),
+    print_handlers(HandlerConfigs,M).
+
+i_proxy(Proxy,M) ->
+    io:format("Proxy configuration: ~n", []),
+    print_custom("    ",Proxy,M).
+
+i_modules(Modules,M) ->
+    io:format("Level set per module: ~n", []),
+    print_module_levels(Modules,M).
+
+encoding() ->
+    case lists:keyfind(encoding, 1, io:getopts()) of
+	false -> latin1;
+	{encoding, Enc} -> Enc
+    end.
+
+modifier() ->
+    modifier(encoding()).
+
+modifier(latin1) -> "";
+modifier(_) -> "t".
+
+print_filters(Indent, {Id, {Fun, Arg}}, M) ->
+    io:format("~sId: ~"++M++"p~n"
+              "~s    Fun: ~"++M++"p~n"
+              "~s    Arg: ~"++M++"p~n",
+              [Indent, Id, Indent, Fun, Indent, Arg]);
+print_filters(Indent,[],_M) ->
+    io:format("~s(none)~n",[Indent]);
+print_filters(Indent,Filters,M) ->
+    [print_filters(Indent,Filter,M) || Filter <- Filters],
+    ok.
+
+print_handlers(#{id := Id,
+                 module := Module,
+                 level := Level,
+                 filters := Filters, filter_default := FilterDefault,
+                 formatter := {FormatterModule,FormatterConfig}} = Config, M) ->
+    io:format("    Id: ~"++M++"p~n"
+              "        Module: ~p~n"
+              "        Level:  ~p~n"
+              "        Formatter:~n"
+              "            Module: ~p~n"
+              "            Config:~n",
+              [Id, Module, Level, FormatterModule]),
+    print_custom("                ",FormatterConfig,M),
+    io:format("        Filter Default: ~p~n"
+              "        Filters:~n",
+              [FilterDefault]),
+    print_filters("            ",Filters,M),
+    case maps:find(config,Config) of
+        {ok,HandlerConfig} ->
+            io:format("        Handler Config:~n"),
+            print_custom("            ",HandlerConfig,M);
+        error ->
+            ok
+    end,
+    MyKeys = [filter_default, filters, formatter, level, module, id, config],
+    case maps:without(MyKeys,Config) of
+        Empty when Empty==#{} ->
+            ok;
+        Unhandled ->
+            io:format("        Custom Config:~n"),
+            print_custom("            ",Unhandled,M)
+    end;
+print_handlers([], _M) ->
+    io:format("    (none)~n");
+print_handlers(HandlerConfigs, M) ->
+    [print_handlers(HandlerConfig, M) || HandlerConfig <- HandlerConfigs],
+    ok.
+
+print_custom(Indent, {Key, Value}, M) ->
+    io:format("~s~"++M++"p: ~"++M++"p~n",[Indent,Key,Value]);
+print_custom(Indent, Map, M) when is_map(Map) ->
+    print_custom(Indent,lists:keysort(1,maps:to_list(Map)), M);
+print_custom(Indent, List, M) when is_list(List), is_tuple(hd(List)) ->
+    [print_custom(Indent, X, M) || X <- List],
+    ok;
+print_custom(Indent, Value, M) ->
+    io:format("~s~"++M++"p~n",[Indent,Value]).
+
+print_module_levels({Module,Level},M) ->
+    io:format("    Module: ~"++M++"p~n"
+              "        Level: ~p~n",
+              [Module,Level]);
+print_module_levels([],_M) ->
+    io:format("    (none)~n");
+print_module_levels(Modules,M) ->
+    [print_module_levels(Module,M) || Module <- Modules],
+    ok.
 
 -spec internal_init_logger() -> ok | {error,term()}.
 %% This function is responsible for config of the logger
@@ -672,6 +850,17 @@ init_kernel_handlers(Env) ->
 %% This function is responsible for resolving the handler config
 %% and then starting the correct handlers. This is done after the
 %% kernel supervisor tree has been started as it needs the logger_sup.
+add_handlers(kernel) ->
+    Env = get_logger_env(kernel),
+    case get_proxy_opts(Env) of
+        undefined ->
+            add_handlers(kernel,Env);
+        Opts ->
+            case set_proxy_config(Opts) of
+                ok -> add_handlers(kernel,Env);
+                {error, Reason} -> {error,{bad_proxy_config,Reason}}
+            end
+    end;
 add_handlers(App) when is_atom(App) ->
     add_handlers(App,get_logger_env(App));
 add_handlers(HandlerConfig) ->
@@ -729,6 +918,8 @@ check_logger_config(kernel,[{filters,_,_}|Env]) ->
     check_logger_config(kernel,Env);
 check_logger_config(kernel,[{module_level,_,_}|Env]) ->
     check_logger_config(kernel,Env);
+check_logger_config(kernel,[{proxy,_}|Env]) ->
+    check_logger_config(kernel,Env);
 check_logger_config(_,Bad) ->
     throw(Bad).
 
@@ -759,7 +950,7 @@ get_logger_type(Env) ->
 
 get_logger_level() ->
     case application:get_env(kernel,logger_level,info) of
-        Level when ?IS_LEVEL(Level); Level=:=all; Level=:=none ->
+        Level when ?IS_LEVEL_ALL(Level) ->
             Level;
         Level ->
             throw({logger_level, Level})
@@ -782,6 +973,13 @@ get_primary_filters(Env) ->
             end;
         [] -> [];
         _ -> throw({multiple_filters,Env})
+    end.
+
+get_proxy_opts(Env) ->
+    case [P || P={proxy,_} <- Env] of
+        [{proxy,Opts}] -> Opts;
+        [] -> undefined;
+        _ -> throw({multiple_proxies,Env})
     end.
 
 %% This function looks at the kernel logger environment
@@ -880,30 +1078,30 @@ log_allowed(Location,Level,Msg,Meta0) when is_map(Meta0) ->
              maps:merge(Location,maps:merge(proc_meta(),Meta0))),
     case node(maps:get(gl,Meta)) of
         Node when Node=/=node() ->
-            log_remote(Node,Level,Msg,Meta),
-            do_log_allowed(Level,Msg,Meta);
+            log_remote(Node,Level,Msg,Meta);
         _ ->
-            do_log_allowed(Level,Msg,Meta)
-    end.
+            ok
+    end,
+    do_log_allowed(Level,Msg,Meta,tid()).
 
-do_log_allowed(Level,{Format,Args}=Msg,Meta)
+do_log_allowed(Level,{Format,Args}=Msg,Meta,Tid)
   when ?IS_LEVEL(Level),
        is_list(Format),
        is_list(Args),
        is_map(Meta) ->
-    logger_backend:log_allowed(#{level=>Level,msg=>Msg,meta=>Meta},tid());
-do_log_allowed(Level,Report,Meta)
+    logger_backend:log_allowed(#{level=>Level,msg=>Msg,meta=>Meta},Tid);
+do_log_allowed(Level,Report,Meta,Tid)
   when ?IS_LEVEL(Level),
        ?IS_REPORT(Report),
        is_map(Meta) ->
     logger_backend:log_allowed(#{level=>Level,msg=>{report,Report},meta=>Meta},
-                               tid());
-do_log_allowed(Level,String,Meta)
+                               Tid);
+do_log_allowed(Level,String,Meta,Tid)
   when ?IS_LEVEL(Level),
        ?IS_STRING(String),
        is_map(Meta) ->
     logger_backend:log_allowed(#{level=>Level,msg=>{string,String},meta=>Meta},
-                               tid()).
+                               Tid).
 tid() ->
     ets:whereis(?LOGGER_TABLE).
 
@@ -913,7 +1111,7 @@ log_remote(Node,Level,Msg,Meta) ->
     log_remote(Node,{log,Level,Msg,Meta}).
 
 log_remote(Node,Request) ->
-    {logger,Node} ! Request,
+    logger_proxy:log({remote,Node,Request}),
     ok.
 
 add_default_metadata(Meta) ->
@@ -937,7 +1135,7 @@ proc_meta() ->
 
 default(pid) -> self();
 default(gl) -> group_leader();
-default(time) -> erlang:system_time(microsecond).
+default(time) -> timestamp().
 
 %% Remove everything upto and including this module from the stacktrace
 filter_stacktrace(Module,[{Module,_,_,_}|_]) ->

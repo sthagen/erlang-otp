@@ -347,6 +347,7 @@
     
     <datatype>
       <name name="subsystem_daemon_option"/>
+      <name name="subsystem_specs"/>
       <name name="subsystem_spec"/>
       <desc>
 	<p>Defines a subsystem in the daemon.</p>
@@ -692,6 +693,25 @@
       </desc>
     </datatype>
 
+    <datatype>
+      <name name="tcpip_tunnel_in_daemon_option"/>
+      <desc>
+	<p>Enables (<c>true</c>) or disables (<c>false</c>) the possibility to tunnel a TCP/IP connection in to a
+	<seealso marker="ssh:ssh#daemon-2">server</seealso>.
+	Disabled per default.
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="tcpip_tunnel_out_daemon_option"/>
+      <desc>
+	<p>Enables (<c>true</c>) or disables (<c>false</c>) the possibility to tunnel a TCP/IP connection out of a
+	<seealso marker="ssh:ssh#daemon-2">server</seealso>.
+	Disabled per default.
+	</p>
+      </desc>
+    </datatype>
 
     <!--................................................................-->
     <datatype_title>Options common to clients and daemons</datatype_title>
@@ -1035,6 +1055,34 @@
       </desc>
     </datatype>
 
+    <datatype>
+      <name name="connection_info_tuple"/>
+      <name name="version"/>
+      <name name="protocol_version"/>
+      <name name="software_version"/>
+      <name name="conn_info_algs"/>
+      <name name="conn_info_channels"/>
+      <desc>
+	<p>Return values from the
+	<seealso marker="#connection_info/1">connection_info/1</seealso> and
+	<seealso marker="#connection_info/2">connection_info/2</seealso> functions.
+	</p>
+	<p>In the <c>option</c> info tuple are only the options included that differs from the default values.
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="daemon_info_tuple"/>
+      <desc>
+	<p>Return values from the
+	<seealso marker="#daemon_info/1">daemon_info/1</seealso> and
+	<seealso marker="#daemon_info/2">daemon_info/2</seealso> functions.
+	</p>
+	<p>In the <c>option</c> info tuple are only the options included that differs from the default values.
+	</p>
+      </desc>
+    </datatype> 
 
     <datatype>
       <name>opaque_client_options</name>
@@ -1098,12 +1146,15 @@
 
 <!-- CONNECTION_INFO/1, CONNECTION_INFO/2 -->
    <func>
+     <name name="connection_info" arity="1" since=""/>
      <name name="connection_info" arity="2" since=""/>
      <fsummary>Retrieves information about a connection.</fsummary>
      <desc>
-       <p>Retrieves information about a connection. The list <c>Keys</c> defines which information that
-       is returned.</p>
-     </desc>
+       <p>Returns information about a connection intended for e.g debugging or logging.
+       </p>
+       <p>When the <c>Key</c> is a single <c>Item</c>, the result is a single <c>InfoTuple</c>
+       </p>
+    </desc>
    </func>
 
 <!-- DEAMON/1,2,3 -->
@@ -1155,9 +1206,16 @@
 <!-- DAEMON_INFO/1 -->   
    <func>
      <name name="daemon_info" arity="1" since="OTP 19.0"/>
+     <name name="daemon_info" arity="2" since=""/>
      <fsummary>Get info about a daemon</fsummary>
      <desc>
-       <p>Returns a key-value list with information about the daemon.</p>
+       <p>Returns information about a daemon intended for e.g debugging or logging.
+       </p>
+       <p>When the <c>Key</c> is a single <c>Item</c>, the result is a single <c>InfoTuple</c>
+       </p>
+       <p>Note that <c>daemon_info/1</c> and <c>daemon_info/2</c> returns different types
+       due to compatibility reasons.
+       </p>
      </desc>
    </func>
 
@@ -1241,6 +1299,49 @@
       <fsummary>Stops the listener, but leaves existing connections started by the listener operational.</fsummary>
       <desc>
 	<p>Stops the listener, but leaves existing connections started by the listener operational.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="tcpip_tunnel_from_server" arity="5" since=""/>
+      <name name="tcpip_tunnel_from_server" arity="6" since=""/>
+      <fsummary>TCP/IP tunneling from a server to a client ("tcpip-forward")</fsummary>
+      <desc>
+	<p>Asks the remote server of <c>ConnectionRef</c> to listen to <c>ListenHost:ListenPort</c>.
+	When someone connects that address, the connection is forwarded in an encrypted channel from
+	the server to the client. The client (that is, at the node that calls this function) then
+	connects to <c>ConnectToHost:ConnectToPort</c>.
+	</p>
+	<p>The returned <c>TrueListenPort</c> is the port that is listened to. It is the same as
+	<c>ListenPort</c>, except when <c>ListenPort = 0</c>. In that case a free port is selected
+	by the underlying OS.
+	</p>
+	<p>Note that in case of an Erlang/OTP SSH server (daemon) as peer, that server must have been
+	started with the option
+	<seealso marker="#type-tcpip_tunnel_out_daemon_option">tcpip_tunnel_out</seealso>
+	to allow the connection.
+	</p>
+      </desc>
+    </func>
+    
+    <func>
+      <name name="tcpip_tunnel_to_server" arity="5" since=""/>
+      <name name="tcpip_tunnel_to_server" arity="6" since=""/>
+      <fsummary>TCP/IP tunneling from a client to a server ("direct-tcpip")</fsummary>
+      <desc>
+	<p>Tells the local client to listen to <c>ListenHost:ListenPort</c>.  When someone
+	connects to that address, the connection is forwarded in an encrypted channel to the peer server
+	of <c>ConnectionRef</c>. That server then connects to <c>ConnectToHost:ConnectToPort</c>.
+	</p>
+	<p>The returned <c>TrueListenPort</c> is the port that is listened to. It is the same as
+	<c>ListenPort</c>, except when <c>ListenPort = 0</c>. In that case a free port is selected
+	by the underlying OS.
+	</p>
+	<p>Note that in case of an Erlang/OTP SSH server (daemon) as peer, that server must have been
+	started with the option
+	<seealso marker="#type-tcpip_tunnel_in_daemon_option">tcpip_tunnel_in</seealso>
+	to allow the connection.
+	</p>
       </desc>
     </func>
 

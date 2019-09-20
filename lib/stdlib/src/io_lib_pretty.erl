@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -462,7 +462,9 @@ find_upper(Lower, Term, T, Dl, Dd, D, RF, Enc, Str) ->
     case If of
         {_, _, _Dots=0, _} -> % even if Len > T
             If;
-        {_, Len, _, _} when Len =< T, D1 < D orelse D < 0 ->
+        {_, _Len=T, _, _} ->  % increasing the depth is meaningless
+            If;
+        {_, Len, _, _} when Len < T, D1 < D orelse D < 0 ->
 	    find_upper(If, Term, T, D1, Dd2, D, RF, Enc, Str);
         _ ->
 	    search_depth(Lower, If, Term, T, Dl, D1, RF, Enc, Str)
@@ -507,20 +509,20 @@ print_length(#{}=M, _D, _T, _RF, _Enc, _Str) when map_size(M) =:= 0 ->
     {"#{}", 3, 0, no_more};
 print_length(Atom, _D, _T, _RF, Enc, _Str) when is_atom(Atom) ->
     S = write_atom(Atom, Enc),
-    {S, string:length(S), 0, no_more};
+    {S, io_lib:chars_length(S), 0, no_more};
 print_length(List, D, T, RF, Enc, Str) when is_list(List) ->
     %% only flat lists are "printable"
     case Str andalso printable_list(List, D, T, Enc) of
         true ->
             %% print as string, escaping double-quotes in the list
             S = write_string(List, Enc),
-            {S, string:length(S), 0, no_more};
+            {S, io_lib:chars_length(S), 0, no_more};
         {true, Prefix} ->
             %% Truncated lists when T < 0 could break some existing code.
             S = write_string(Prefix, Enc),
             %% NumOfDots = 0 to avoid looping--increasing the depth
             %% does not make Prefix longer.
-            {[S | "..."], 3 + string:length(S), 0, no_more};
+            {[S | "..."], 3 + io_lib:chars_length(S), 0, no_more};
         false ->
             case print_length_list(List, D, T, RF, Enc, Str) of
                 {What, Len, Dots, _More} when Dots > 0 ->
@@ -564,7 +566,7 @@ print_length(<<_/bitstring>> = Bin, D, T, RF, Enc, Str) ->
             {[$<,$<,S,$>,$>], 4 + length(S), 0, no_more};
         {false, List} when is_list(List) ->
             S = io_lib:write_string(List, $"), %"
-            {[$<,$<,S,"/utf8>>"], 9 + string:length(S), 0, no_more};
+            {[$<,$<,S,"/utf8>>"], 9 + io_lib:chars_length(S), 0, no_more};
         {true, true, Prefix} ->
             S = io_lib:write_string(Prefix, $"), %"
             More = fun(T1, Dd) ->
@@ -576,7 +578,7 @@ print_length(<<_/bitstring>> = Bin, D, T, RF, Enc, Str) ->
             More = fun(T1, Dd) ->
                            ?FUNCTION_NAME(Bin, D+Dd, T1, RF, Enc, Str)
                    end,
-            {[$<,$<,S|"/utf8...>>"], 12 + string:length(S), 3, More};
+            {[$<,$<,S|"/utf8...>>"], 12 + io_lib:chars_length(S), 3, More};
         false ->
             case io_lib:write_binary(Bin, D, T) of
                 {S, <<>>} ->
@@ -591,7 +593,7 @@ print_length(<<_/bitstring>> = Bin, D, T, RF, Enc, Str) ->
 print_length(Term, _D, _T, _RF, _Enc, _Str) ->
     S = io_lib:write(Term),
     %% S can contain unicode, so iolist_size(S) cannot be used here
-    {S, string:length(S), 0, no_more}.
+    {S, io_lib:chars_length(S), 0, no_more}.
 
 print_length_map(Map, 1, _T, RF, Enc, Str) ->
     More = fun(T1, Dd) -> ?FUNCTION_NAME(Map, 1+Dd, T1, RF, Enc, Str) end,
@@ -651,7 +653,7 @@ print_length_record(Tuple, 1, _T, RF, RDefs, Enc, Str) ->
     {"{...}", 5, 3, More};
 print_length_record(Tuple, D, T, RF, RDefs, Enc, Str) ->
     Name = [$# | write_atom(element(1, Tuple), Enc)],
-    NameL = string:length(Name),
+    NameL = io_lib:chars_length(Name),
     T1 = tsub(T, NameL+2),
     L = print_length_fields(RDefs, D - 1, T1, Tuple, 2, RF, Enc, Str),
     {Len, Dots} = list_length(L, NameL + 2, 0),
@@ -677,7 +679,7 @@ print_length_fields([Def | Defs], D, T, Tuple, I, RF, Enc, Str) ->
 
 print_length_field(Def, D, T, E, RF, Enc, Str) ->
     Name = write_atom(Def, Enc),
-    NameL = string:length(Name) + 3,
+    NameL = io_lib:chars_length(Name) + 3,
     {_, Len, Dots, _} =
         Field = print_length(E, D, tsub(T, NameL), RF, Enc, Str),
     {{field, Name, NameL, Field}, NameL + Len, Dots, no_more}.
@@ -720,36 +722,47 @@ printable_list(_L, 1, _T, _Enc) ->
     false;
 printable_list(L, _D, T, latin1) when T < 0 ->
     io_lib:printable_latin1_list(L);
-printable_list(L, _D, T, Enc) when T >= 0 ->
-    case slice(L, tsub(T, 2)) of
-        false ->
-            false;
-        {prefix, Prefix} when Enc =:= latin1 ->
-            io_lib:printable_latin1_list(Prefix) andalso {true, Prefix};
-        {prefix, Prefix} ->
-            %% Probably an overestimation.
-            io_lib:printable_list(Prefix) andalso {true, Prefix};
-        all when Enc =:= latin1 ->
-            io_lib:printable_latin1_list(L);
+printable_list(L, _D, T, latin1) when T >= 0 ->
+    N = tsub(T, 2),
+    case printable_latin1_list(L, N) of
         all ->
-            io_lib:printable_list(L)
+            true;
+        0 ->
+            {L1, _} = lists:split(N, L),
+            {true, L1};
+        _NC ->
+            false
+    end;
+printable_list(L, _D, T, _Unicode) when T >= 0 ->
+    N = tsub(T, 2),
+    %% Be careful not to traverse more of L than necessary.
+    try string:slice(L, 0, N) of
+        "" ->
+            false;
+        Prefix ->
+            case is_flat(L, lists:flatlength(Prefix)) of
+                true ->
+                    case string:equal(Prefix, L) of
+                        true ->
+                            io_lib:printable_list(L);
+                        false ->
+                            io_lib:printable_list(Prefix)
+                            andalso {true, Prefix}
+                    end;
+                false ->
+                    false
+            end
+    catch _:_ -> false
     end;
 printable_list(L, _D, T, _Uni) when T < 0->
     io_lib:printable_list(L).
 
-slice(L, N) ->
-    try string:length(L) =< N of
-        true ->
-            all;
-        false ->
-            case string:slice(L, 0, N) of
-                "" ->
-                    false;
-                Prefix ->
-                    {prefix, Prefix}
-            end
-    catch _:_ -> false
-    end.
+is_flat(_L, 0) ->
+    true;
+is_flat([C|Cs], N) when is_integer(C) ->
+    is_flat(Cs, N - 1);
+is_flat(_, _N) ->
+    false.
 
 printable_bin0(Bin, D, T, Enc) ->
     Len = case D >= 0 of
@@ -769,6 +782,8 @@ printable_bin0(Bin, D, T, Enc) ->
           end,
     printable_bin(Bin, Len, D, Enc).
 
+printable_bin(_Bin, 0, _D, _Enc) ->
+    false;
 printable_bin(Bin, Len, D, latin1) ->
     N = erlang:min(20, Len),
     L = binary_to_list(Bin, 1, N),
@@ -819,7 +834,7 @@ printable_bin1(Bin, Start, Len) ->
     end.
 
 %% -> all | integer() >=0. Adopted from io_lib.erl.
-% printable_latin1_list([_ | _], 0) -> 0;
+printable_latin1_list([_ | _], 0) -> 0;
 printable_latin1_list([C | Cs], N) when C >= $\s, C =< $~ ->
     printable_latin1_list(Cs, N - 1);
 printable_latin1_list([C | Cs], N) when C >= $\240, C =< $\377 ->
@@ -880,9 +895,6 @@ write_string(S, _Uni) ->
     io_lib:write_string(S, $"). %"
 
 expand({_, _, _Dots=0, no_more} = If, _T, _Dd) -> If;
-%% expand({{list,L}, _Len, _, no_more}, T, Dd) ->
-%%     {NL, NLen, NDots} = expand_list(L, T, Dd, 2),
-%%     {{list,NL}, NLen, NDots, no_more};
 expand({{tuple,IsTagged,L}, _Len, _, no_more}, T, Dd) ->
     {NL, NLen, NDots} = expand_list(L, T, Dd, 2),
     {{tuple,IsTagged,NL}, NLen, NDots, no_more};

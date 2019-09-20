@@ -65,7 +65,7 @@ void erl_init(void *hp,long heap_size)
 {
     erl_init_malloc(hp, heap_size);
     erl_init_marshal();
-    ei_init_resolve();
+    (void) ei_init();
 }
 
 void erl_set_compat_rel(unsigned rel)
@@ -299,12 +299,7 @@ void erl_mk_pid_helper(ETERM *ep, unsigned int number,
 		       unsigned int serial, unsigned int creation)
 {
     ERL_PID_NUMBER(ep)   = number & 0x7fff; /* 15 bits */
-    if (ei_internal_use_r9_pids_ports()) {
-	ERL_PID_SERIAL(ep)   = serial & 0x07;  /* 3 bits */
-    }
-    else {
-	ERL_PID_SERIAL(ep)   = serial & 0x1fff;  /* 13 bits */
-    }
+    ERL_PID_SERIAL(ep)   = serial & 0x1fff;  /* 13 bits */
     ERL_PID_CREATION(ep) = creation; /* 32 bits */
 }
 
@@ -334,12 +329,7 @@ ETERM *erl_mk_port(const char *node,
 
 void erl_mk_port_helper(ETERM* ep, unsigned number, unsigned int creation)
 {
-    if (ei_internal_use_r9_pids_ports()) {
-	ERL_PORT_NUMBER(ep)   = number & 0x3ffff; /* 18 bits */
-    }
-    else {
-	ERL_PORT_NUMBER(ep)   = number & 0x0fffffff; /* 18 bits */
-    }
+    ERL_PORT_NUMBER(ep)   = number & 0x0fffffff; /* 18 bits */
     ERL_PORT_CREATION(ep) = creation; /* 32 bits */
 }
 

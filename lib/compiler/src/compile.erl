@@ -265,13 +265,24 @@ expand_opt(r19, Os) ->
 expand_opt(r20, Os) ->
     expand_opt_before_21(Os);
 expand_opt(r21, Os) ->
-    [no_put_tuple2 | expand_opt(no_bsm3, Os)];
+    [no_shared_fun_wrappers,
+     no_swap, no_put_tuple2 | expand_opt(no_bsm3, Os)];
+expand_opt(r22, Os) ->
+    [no_shared_fun_wrappers, no_swap | Os];
 expand_opt({debug_info_key,_}=O, Os) ->
     [encrypt_debug_info,O|Os];
+expand_opt(no_type_opt=O, Os) ->
+    %% Be sure to keep the no_type_opt option so that it will
+    %% be recorded in the BEAM file, allowing the test suites
+    %% to recompile the file with this option.
+    [O,no_ssa_opt_type_start,
+     no_ssa_opt_type_continue,
+     no_ssa_opt_type_finish | Os];
 expand_opt(O, Os) -> [O|Os].
 
 expand_opt_before_21(Os) ->
-    [no_put_tuple2, no_get_hd_tl, no_ssa_opt_record,
+    [no_shared_fun_wrappers, no_swap,
+     no_put_tuple2, no_get_hd_tl, no_ssa_opt_record,
      no_utf8_atoms | expand_opt(no_bsm3, Os)].
 
 %% format_error(ErrorDescriptor) -> string()
@@ -286,6 +297,10 @@ format_error(bad_crypto_key) ->
     "invalid crypto key.";
 format_error(no_crypto_key) ->
     "no crypto key supplied.";
+format_error({unimplemented_instruction,Instruction}) ->
+    io_lib:fwrite("native-code compilation failed because of an "
+                  "unimplemented instruction (~s).",
+		  [Instruction]);
 format_error({native, E}) ->
     io_lib:fwrite("native-code compilation failed with reason: ~tP.",
 		  [E, 25]);
@@ -810,8 +825,6 @@ kernel_passes() ->
     %% Optimizations that must be done after all other optimizations.
     [{pass,sys_core_bsm},
      {iff,dcbsm,{listing,"core_bsm"}},
-     {pass,sys_core_dsetel},
-     {iff,dsetel,{listing,"dsetel"}},
 
      {iff,clint,?pass(core_lint_module)},
      {iff,core,?pass(save_core_code)},
@@ -823,20 +836,23 @@ kernel_passes() ->
      {pass,beam_kernel_to_ssa},
      {iff,dssa,{listing,"ssa"}},
      {iff,ssalint,{pass,beam_ssa_lint}},
-     {unless,no_share_opt,{pass,beam_ssa_share}},
-     {iff,dssashare,{listing,"ssashare"}},
-     {iff,ssalint,{pass,beam_ssa_lint}},
-     {unless,no_bsm_opt,{pass,beam_ssa_bsm}},
-     {iff,dssabsm,{listing,"ssabsm"}},
-     {iff,ssalint,{pass,beam_ssa_lint}},
-     {unless,no_fun_opt,{pass,beam_ssa_funs}},
-     {iff,dssafuns,{listing,"ssafuns"}},
-     {iff,ssalint,{pass,beam_ssa_lint}},
-     {unless,no_ssa_opt,{pass,beam_ssa_opt}},
-     {iff,dssaopt,{listing,"ssaopt"}},
-     {iff,ssalint,{pass,beam_ssa_lint}},
-     {unless,no_recv_opt,{pass,beam_ssa_recv}},
-     {iff,drecv,{listing,"recv"}},
+     {delay,
+      [{unless,no_bool_opt,{pass,beam_ssa_bool}},
+       {iff,dbool,{listing,"bool"}},
+       {unless,no_share_opt,{pass,beam_ssa_share}},
+       {iff,dssashare,{listing,"ssashare"}},
+       {iff,ssalint,{pass,beam_ssa_lint}},
+       {unless,no_bsm_opt,{pass,beam_ssa_bsm}},
+       {iff,dssabsm,{listing,"ssabsm"}},
+       {iff,ssalint,{pass,beam_ssa_lint}},
+       {unless,no_fun_opt,{pass,beam_ssa_funs}},
+       {iff,dssafuns,{listing,"ssafuns"}},
+       {iff,ssalint,{pass,beam_ssa_lint}},
+       {unless,no_ssa_opt,{pass,beam_ssa_opt}},
+       {iff,dssaopt,{listing,"ssaopt"}},
+       {iff,ssalint,{pass,beam_ssa_lint}},
+       {unless,no_recv_opt,{pass,beam_ssa_recv}},
+       {iff,drecv,{listing,"recv"}}]},
      {pass,beam_ssa_pre_codegen},
      {iff,dprecg,{listing,"precodegen"}},
      {iff,ssalint,{pass,beam_ssa_lint}},
@@ -853,10 +869,6 @@ asm_passes() ->
        {unless,no_postopt,
 	[{pass,beam_block},
 	 {iff,dblk,{listing,"block"}},
-	 {unless,no_except,{pass,beam_except}},
-	 {iff,dexcept,{listing,"except"}},
-	 {unless,no_bs_opt,{pass,beam_bs}},
-	 {iff,dbs,{listing,"bs"}},
 	 {unless,no_jopt,{pass,beam_jump}},
 	 {iff,djmp,{listing,"jump"}},
 	 {unless,no_peep_opt,{pass,beam_peep}},
@@ -1650,18 +1662,22 @@ native_compile_1(Code, St) ->
 	    case IgnoreErrors of
 		true ->
 		    Ws = [{St#compile.ifile,[{none,?MODULE,{native,R}}]}],
-		    {ok,St#compile{warnings=St#compile.warnings ++ Ws}};
+		    {ok,Code,St#compile{warnings=St#compile.warnings ++ Ws}};
 		false ->
 		    Es = [{St#compile.ifile,[{none,?MODULE,{native,R}}]}],
 		    {error,St#compile{errors=St#compile.errors ++ Es}}
 	    end
     catch
+        exit:{unimplemented_instruction,_}=Unimplemented ->
+            Ws = [{St#compile.ifile,
+                   [{none,?MODULE,Unimplemented}]}],
+            {ok,Code,St#compile{warnings=St#compile.warnings ++ Ws}};
 	Class:R:Stack ->
 	    case IgnoreErrors of
 		true ->
 		    Ws = [{St#compile.ifile,
 			   [{none,?MODULE,{native_crash,R,Stack}}]}],
-		    {ok,St#compile{warnings=St#compile.warnings ++ Ws}};
+		    {ok,Code,St#compile{warnings=St#compile.warnings ++ Ws}};
 		false ->
 		    erlang:raise(Class, R, Stack)
 	    end
@@ -2084,16 +2100,16 @@ pre_load() ->
     L = [beam_a,
 	 beam_asm,
 	 beam_block,
-	 beam_bs,
+	 beam_call_types,
 	 beam_clean,
 	 beam_dict,
-	 beam_except,
 	 beam_flatten,
 	 beam_jump,
 	 beam_kernel_to_ssa,
 	 beam_opcodes,
 	 beam_peep,
 	 beam_ssa,
+	 beam_ssa_bool,
 	 beam_ssa_bsm,
 	 beam_ssa_codegen,
 	 beam_ssa_dead,
@@ -2104,6 +2120,7 @@ pre_load() ->
 	 beam_ssa_share,
 	 beam_ssa_type,
 	 beam_trim,
+	 beam_types,
 	 beam_utils,
 	 beam_validator,
 	 beam_z,
@@ -2120,7 +2137,6 @@ pre_load() ->
 	 erl_scan,
 	 sys_core_alias,
 	 sys_core_bsm,
-	 sys_core_dsetel,
 	 sys_core_fold,
 	 v3_core,
 	 v3_kernel],

@@ -26,10 +26,11 @@
 	 init_per_group/2,end_per_group/2,
 	 init_per_testcase/2,end_per_testcase/2]).
 -export([token_set_get/1, tracer_set_get/1, print/1,
+         old_heap_token/1,
 	 send/1, distributed_send/1, recv/1, distributed_recv/1,
 	 trace_exit/1, distributed_exit/1, call/1, port/1,
 	 match_set_seq_token/1, gc_seq_token/1, label_capability_mismatch/1,
-         send_literal/1]).
+         send_literal/1,inherit_on_spawn/1,spawn_flag/1]).
 
 %% internal exports
 -export([simple_tracer/2, one_time_receiver/0, one_time_receiver/1,
@@ -50,8 +51,10 @@ suite() ->
 all() -> 
     [token_set_get, tracer_set_get, print, send, send_literal,
      distributed_send, recv, distributed_recv, trace_exit,
+     old_heap_token,
      distributed_exit, call, port, match_set_seq_token,
-     gc_seq_token, label_capability_mismatch].
+     gc_seq_token, label_capability_mismatch,
+     inherit_on_spawn, spawn_flag].
 
 groups() -> 
     [].
@@ -81,14 +84,29 @@ token_set_get(Config) when is_list(Config) ->
     do_token_set_get(timestamp),
     do_token_set_get(monotonic_timestamp),
     do_token_set_get(strict_monotonic_timestamp).
-    
+
+-define(SEQ_TRACE_SEND, 1).                     %(1 << 0)
+-define(SEQ_TRACE_RECEIVE, 2).                  %(1 << 1)
+-define(SEQ_TRACE_PRINT, 4).                    %(1 << 2)
+-define(SEQ_TRACE_NOW_TIMESTAMP, 8).            %(1 << 3)
+-define(SEQ_TRACE_STRICT_MON_TIMESTAMP, 16).    %(1 << 4)
+-define(SEQ_TRACE_MON_TIMESTAMP, 32).           %(1 << 5)
+-define(SEQ_TRACE_SPAWN, 64).                   %(1 << 6)
+
 do_token_set_get(TsType) ->
-    io:format("Testing ~p~n", [TsType]),
+    BaseOpts = ?SEQ_TRACE_SEND bor
+               ?SEQ_TRACE_RECEIVE bor
+               ?SEQ_TRACE_PRINT bor
+               ?SEQ_TRACE_SPAWN,
     Flags = case TsType of
-		timestamp -> 15;
-		strict_monotonic_timestamp -> 23;
-		monotonic_timestamp -> 39
-	    end,
+        timestamp ->
+            BaseOpts bor ?SEQ_TRACE_NOW_TIMESTAMP;
+        strict_monotonic_timestamp ->
+            BaseOpts bor ?SEQ_TRACE_STRICT_MON_TIMESTAMP;
+        monotonic_timestamp ->
+            BaseOpts bor ?SEQ_TRACE_MON_TIMESTAMP
+        end,
+    ct:pal("Type ~p, flags = ~p~n", [TsType, Flags]),
     Self = self(),
     seq_trace:reset_trace(),
     %% Test that initial seq_trace is disabled
@@ -100,6 +118,8 @@ do_token_set_get(TsType) ->
     {print,true} = seq_trace:get_token(print),
     false = seq_trace:set_token(send,true),
     {send,true} = seq_trace:get_token(send),
+    false = seq_trace:set_token(spawn,true),
+    {spawn,true} = seq_trace:get_token(spawn),
     false = seq_trace:set_token('receive',true),
     {'receive',true} = seq_trace:get_token('receive'),
     false = seq_trace:set_token(TsType,true),
@@ -149,17 +169,19 @@ tracer_set_get(Config) when is_list(Config) ->
     ok.
 
 print(Config) when is_list(Config) ->
-    lists:foreach(fun do_print/1, ?TIMESTAMP_MODES).
+    [do_print(TsType, Label) || TsType <- ?TIMESTAMP_MODES,
+                                Label <- [17, "label"]].
     
-do_print(TsType) ->
+do_print(TsType, Label) ->
     start_tracer(),
+    seq_trace:set_token(label, Label),
     set_token_flags([print, TsType]),
-    seq_trace:print(0,print1),
+    seq_trace:print(Label,print1),
     seq_trace:print(1,print2),
     seq_trace:print(print3),
     seq_trace:reset_trace(),
-    [{0,{print,_,_,[],print1}, Ts0},
-	   {0,{print,_,_,[],print3}, Ts1}] = stop_tracer(2),
+    [{Label,{print,_,_,[],print1}, Ts0},
+     {Label,{print,_,_,[],print3}, Ts1}] = stop_tracer(2),
     check_ts(TsType, Ts0),
     check_ts(TsType, Ts1).
 
@@ -462,8 +484,6 @@ call(Config) when is_list(Config) ->
     1 =
 	erlang:trace(Self, true, 
 		     [call, set_on_spawn, {tracer, TrB(pid)}]),
-    Label = 17,
-    seq_trace:set_token(label, Label), % Token enters here!!
     RefB = make_ref(),
     Pid2B = spawn_link(
 		    fun() ->
@@ -477,6 +497,12 @@ call(Config) when is_list(Config) ->
 			    RefB = call_tracee_1(RefB),
 			    Pid2B ! {self(), msg, RefB}
 		    end),
+
+    %% The token is set *AFTER* spawning to make sure we're testing that the
+    %% token follows on send and not that it inherits on spawn.
+    Label = 17,
+    seq_trace:set_token(label, Label),
+
     Pid1B ! {Self, msg, RefB},
     %% The message is passed Self -> Pid1B -> Pid2B -> Self, and the 
     %% seq_trace token follows invisibly. Traced functions are 
@@ -495,6 +521,62 @@ call(Config) when is_list(Config) ->
 		 {Pid2B, Token2B}}]} =
 	TrB({stop,2}),
     seq_trace:reset_trace(),
+    ok.
+
+%% The token should follow spawn, just like it follows messages.
+inherit_on_spawn(Config) when is_list(Config) ->
+    seq_trace:reset_trace(),
+    start_tracer(),
+
+    Ref = make_ref(),
+    seq_trace:set_token(label,Ref),
+    set_token_flags([send]),
+
+    Self = self(),
+    Other = spawn(fun() -> Self ! {gurka,Ref} end),
+
+    receive {gurka,Ref} -> ok end,
+    seq_trace:reset_trace(),
+
+    [{Ref,{send,_,Other,Self,{gurka,Ref}}, _Ts}] = stop_tracer(1),
+
+    ok.
+
+spawn_flag(Config) when is_list(Config) ->
+    seq_trace:reset_trace(),
+    start_tracer(),
+
+    Ref = make_ref(),
+    seq_trace:set_token(label,Ref),
+    set_token_flags([spawn]),
+
+    Self = self(),
+
+    {serial,{0,0}} = seq_trace:get_token(serial),
+
+    %% The serial number is bumped on spawning (just like message passing), so
+    %% our child should inherit a counter of 1.
+    ProcessA = spawn(fun() ->
+                             {serial,{0,1}} = seq_trace:get_token(serial),
+                             Self ! {a,Ref}
+                     end),
+    receive {a,Ref} -> ok end,
+
+    {serial,{1,2}} = seq_trace:get_token(serial),
+
+    ProcessB = spawn(fun() ->
+                             {serial,{2,3}} = seq_trace:get_token(serial),
+                             Self ! {b,Ref} 
+                     end),
+    receive {b,Ref} -> ok end,
+
+    {serial,{3,4}} = seq_trace:get_token(serial),
+
+    seq_trace:reset_trace(),
+
+    [{Ref,{spawn,{0,1},Self,ProcessA,[]}, _Ts},
+     {Ref,{spawn,{2,3},Self,ProcessB,[]}, _Ts}] = stop_tracer(2),
+
     ok.
 
 %% Send trace messages to a port.
@@ -562,6 +644,24 @@ get_port_message(Port) ->
 	    ct:fail(timeout)
     end.
 
+
+%% OTP-15849 ERL-700
+%% Verify changing label on existing token when it resides on old heap.
+%% Bug caused faulty ref from old to new heap.
+old_heap_token(Config) when is_list(Config) ->
+    seq_trace:set_token(label, 1),
+    erlang:garbage_collect(self(), [{type, minor}]),
+    erlang:garbage_collect(self(), [{type, minor}]),
+    %% Now token tuple should be on old-heap.
+    %% Set a new non-literal label which should reside on new-heap.
+    NewLabel = {self(), "new label"},
+    1 = seq_trace:set_token(label, NewLabel),
+
+    %% If bug, we now have a ref from old to new heap. Yet another minor gc
+    %% will make that a ref to deallocated memory.
+    erlang:garbage_collect(self(), [{type, minor}]),
+    {label,NewLabel} = seq_trace:get_token(label),
+    ok.
 
 
 match_set_seq_token(doc) ->
@@ -916,7 +1016,7 @@ stop_tracer(N) when is_integer(N) ->
 	    receive
 		{tracerlog,Data} ->
 		    Data
-	    after 1000 ->
+	    after 5000 ->
 		    {error,timeout}
 	    end
     end.

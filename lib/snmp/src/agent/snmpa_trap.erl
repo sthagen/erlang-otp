@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -364,13 +364,14 @@ send_trap(TrapRec, NotifyName, ContextName, Recv, Vbs, LocalEngineID,
 			 LocalEngineID, ExtraInfo, NetIf)
 	end
     catch
-	T:E ->
-	    Info = [{args, [TrapRec, NotifyName, ContextName, 
-			    Recv, Vbs, LocalEngineID, ExtraInfo, NetIf]},
-		    {tag,  T},
-		    {err,  E},
-		    {stacktrace, erlang:get_stacktrace()}],
-	    ?vlog("snmpa_trap:send_trap exception: ~p", [Info]),
+	C:E:S ->
+	    Info = [{args,  [TrapRec, NotifyName, ContextName, 
+                             Recv, Vbs, LocalEngineID, ExtraInfo, NetIf]},
+		    {class, C},
+		    {err,   E},
+		    {stacktrace, S}],
+	    ?vlog("snmpa_trap:send_trap exception: "
+                  "~n   ~p", [Info]),
 	    {error, {failed_sending_trap, Info}}
     end.
      
@@ -917,7 +918,7 @@ do_send_v2_trap(Recvs, Vbs, ExtraInfo, NetIf) ->
     TrapPdu = make_v2_notif_pdu(Vbs, 'snmpv2-trap'),
     AddrCommunities = mk_addr_communities(Recvs),
     lists:foreach(fun({Community, Addrs}) ->
-			  ?vtrace("~n   send v2 trap to ~p",[Addrs]),
+			  ?vtrace("send v2 trap to ~p",[Addrs]),
 			  NetIf ! {send_pdu, 'version-2', TrapPdu,
 				   {community, Community}, Addrs, ExtraInfo}
 		  end, AddrCommunities),
@@ -1114,7 +1115,7 @@ transform_taddrs(TAddrs) ->
 
 %% v2
 transform_taddr({?snmpUDPDomain, Addr}) ->
-    transform_taddr(transportDomainIdpIpv4, Addr);
+    transform_taddr(transportDomainUdpIpv4, Addr);
 transform_taddr({?transportDomainUdpIpv4, Addr}) ->
     transform_taddr(transportDomainUdpIpv4, Addr);
 transform_taddr({?transportDomainUdpIpv6, Addr}) ->

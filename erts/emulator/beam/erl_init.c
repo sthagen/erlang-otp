@@ -78,7 +78,7 @@ const char etp_erts_version[] = ERLANG_VERSION;
 const char etp_otp_release[] = ERLANG_OTP_RELEASE;
 const char etp_compile_date[] = ERLANG_COMPILE_DATE;
 const char etp_arch[] = ERLANG_ARCHITECTURE;
-#ifdef ERTS_ENABLE_KERNEL_POLL
+#if ERTS_ENABLE_KERNEL_POLL
 const int erts_use_kernel_poll = 1;
 const int etp_kernel_poll_support = 1;
 #else
@@ -376,6 +376,28 @@ erl_init(int ncpu,
 }
 
 static Eterm
+
+erl_spawn_system_process(Process* parent, Eterm mod, Eterm func, Eterm args,
+                         ErlSpawnOpts *so)
+{
+    Eterm res;
+    int arity;
+
+    ERTS_LC_ASSERT(ERTS_PROC_LOCK_MAIN & erts_proc_lc_my_proc_locks(parent));
+    arity = erts_list_length(args);
+
+    if (erts_find_function(mod, func, arity, erts_active_code_ix()) == NULL) {
+	erts_exit(ERTS_ERROR_EXIT, "No function %T:%T/%i\n", mod, func, arity);
+    }
+
+    so->flags |= SPO_SYSTEM_PROC;
+
+    res = erl_create_process(parent, mod, func, args, so);
+
+    return res;
+}
+
+static Eterm
 erl_first_process_otp(char* mod_name, int argc, char** argv)
 {
     int i;
@@ -386,17 +408,13 @@ erl_first_process_otp(char* mod_name, int argc, char** argv)
     ErlSpawnOpts so;
     Eterm boot_mod;
 
-    if (erts_find_function(am_erl_init, am_start, 2,
-			   erts_active_code_ix()) == NULL) {
-	erts_exit(ERTS_ERROR_EXIT, "No function erl_init:start/2\n");
-    }
-
     /*
      * We need a dummy parent process to be able to call erl_create_process().
      */
 
     erts_init_empty_process(&parent);
     erts_proc_lock(&parent, ERTS_PROC_LOCK_MAIN);
+
     hp = HAlloc(&parent, argc*2 + 4);
     args = NIL;
     for (i = argc-1; i >= 0; i--) {
@@ -404,49 +422,76 @@ erl_first_process_otp(char* mod_name, int argc, char** argv)
 	args = CONS(hp, new_binary(&parent, (byte*)argv[i], len), args);
 	hp += 2;
     }
-    boot_mod = erts_atom_put((byte *) mod_name, sys_strlen(mod_name), ERTS_ATOM_ENC_LATIN1, 1);
+    boot_mod = erts_atom_put((byte *) mod_name, sys_strlen(mod_name),
+                             ERTS_ATOM_ENC_LATIN1, 1);
     args = CONS(hp, args, NIL);
     hp += 2;
     args = CONS(hp, boot_mod, args);
 
-    so.flags = erts_default_spo_flags|SPO_SYSTEM_PROC;
-    res = erl_create_process(&parent, am_erl_init, am_start, args, &so);
+    so.flags = erts_default_spo_flags;
+    res = erl_spawn_system_process(&parent, am_erl_init, am_start, args, &so);
+    ASSERT(is_internal_pid(res));
+
     erts_proc_unlock(&parent, ERTS_PROC_LOCK_MAIN);
     erts_cleanup_empty_process(&parent);
+
     return res;
 }
 
 static Eterm
 erl_system_process_otp(Eterm parent_pid, char* modname, int off_heap_msgq, int prio)
-{
-    Eterm start_mod;
-    Process* parent;
+{ 
+    Process *parent;
     ErlSpawnOpts so;
-    Eterm res;
-
-    start_mod = erts_atom_put((byte *) modname, sys_strlen(modname), ERTS_ATOM_ENC_LATIN1, 1);
-    if (erts_find_function(start_mod, am_start, 0,
-			   erts_active_code_ix()) == NULL) {
-	erts_exit(ERTS_ERROR_EXIT, "No function %s:start/0\n", modname);
-    }
+    Eterm mod, res;
 
     parent = erts_pid2proc(NULL, 0, parent_pid, ERTS_PROC_LOCK_MAIN);
+    mod = erts_atom_put((byte *) modname, sys_strlen(modname),
+                        ERTS_ATOM_ENC_LATIN1, 1);
 
-    so.flags = erts_default_spo_flags|SPO_SYSTEM_PROC|SPO_USE_ARGS;
-    if (off_heap_msgq)
+    so.flags = erts_default_spo_flags|SPO_USE_ARGS;
+
+    if (off_heap_msgq) {
         so.flags |= SPO_OFF_HEAP_MSGQ;
-    so.min_heap_size    = H_MIN_SIZE;
-    so.min_vheap_size   = BIN_VH_MIN_SIZE;
-    so.max_heap_size    = H_MAX_SIZE;
-    so.max_heap_flags   = H_MAX_FLAGS;
-    so.priority         = prio;
-    so.max_gen_gcs      = (Uint16) erts_atomic32_read_nob(&erts_max_gen_gcs);
-    so.scheduler        = 0;
-    res = erl_create_process(parent, start_mod, am_start, NIL, &so);
+    }
+
+    so.min_heap_size  = H_MIN_SIZE;
+    so.min_vheap_size = BIN_VH_MIN_SIZE;
+    so.max_heap_size  = H_MAX_SIZE;
+    so.max_heap_flags = H_MAX_FLAGS;
+    so.priority       = prio;
+    so.max_gen_gcs    = (Uint16) erts_atomic32_read_nob(&erts_max_gen_gcs);
+    so.scheduler      = 0;
+
+    res = erl_spawn_system_process(parent, mod, am_start, NIL, &so);
+    ASSERT(is_internal_pid(res));
+
     erts_proc_unlock(parent, ERTS_PROC_LOCK_MAIN);
+
     return res;
 }
 
+Eterm erts_internal_spawn_system_process_3(BIF_ALIST_3) {
+    Eterm mod, func, args, res;
+    ErlSpawnOpts so;
+
+    mod = BIF_ARG_1;
+    func = BIF_ARG_2;
+    args = BIF_ARG_3;
+
+    ASSERT(is_atom(mod));
+    ASSERT(is_atom(func));
+    ASSERT(erts_list_length(args) >= 0);
+
+    so.flags = erts_default_spo_flags;
+    res = erl_spawn_system_process(BIF_P, mod, func, args, &so);
+
+    if (is_non_value(res)) {
+        BIF_ERROR(BIF_P, so.error_code);
+    }
+
+    BIF_RET(res);
+}
 
 Eterm
 erts_preloaded(Process* p)
@@ -548,6 +593,7 @@ void erts_usage(void)
     erts_fprintf(stderr, "               no_time_warp|single_time_warp|multi_time_warp\n");
     erts_fprintf(stderr, "-d             don't write a crash dump for internally detected errors\n");
     erts_fprintf(stderr, "               (halt(String) will still produce a crash dump)\n");
+    erts_fprintf(stderr, "-dcg           set the limit for the number of decentralized counter groups\n");
     erts_fprintf(stderr, "-fn[u|a|l]     Control how filenames are interpreted\n");
     erts_fprintf(stderr, "-hms size      set minimum heap size in words (default %d)\n",
 	       H_DEFAULT_SIZE);
@@ -740,6 +786,8 @@ early_init(int *argc, char **argv) /*
     int dirty_io_scheds;
     int max_reader_groups;
     int reader_groups;
+    int max_decentralized_counter_groups;
+    int decentralized_counter_groups;
     char envbuf[21]; /* enough for any 64-bit integer */
     size_t envbufsz;
 
@@ -759,7 +807,8 @@ early_init(int *argc, char **argv) /*
 
     erts_initialized = 0;
 
-    erts_pre_early_init_cpu_topology(&max_reader_groups,
+    erts_pre_early_init_cpu_topology(&max_decentralized_counter_groups,
+                                     &max_reader_groups,
 				     &ncpu,
 				     &ncpuonln,
 				     &ncpuavail);
@@ -820,6 +869,24 @@ early_init(int *argc, char **argv) /*
 	    }
 	    if (argv[i][0] == '-') {
 		switch (argv[i][1]) {
+		case 'd': {
+		    char *sub_param = argv[i]+2;
+		    if (has_prefix("cg", sub_param)) {
+			char *arg = get_arg(sub_param+2, argv[i+1], &i);
+			if (sscanf(arg, "%d", &max_decentralized_counter_groups) != 1) {
+			    erts_fprintf(stderr,
+					 "bad decentralized counter groups limit: %s\n", arg);
+			    erts_usage();
+			}
+			if (max_decentralized_counter_groups < 0) {
+			    erts_fprintf(stderr,
+					 "bad decentralized counter groups limit: %d\n",
+					 max_decentralized_counter_groups);
+			    erts_usage();
+			}
+		    }
+		    break;
+		}
 		case 'r': {
 		    char *sub_param = argv[i]+2;
 		    if (has_prefix("g", sub_param)) {
@@ -1141,8 +1208,10 @@ early_init(int *argc, char **argv) /*
     erts_early_init_cpu_topology(no_schedulers,
 				 &max_main_threads,
 				 max_reader_groups,
-				 &reader_groups);
-
+				 &reader_groups,
+                                 max_decentralized_counter_groups,
+                                 &decentralized_counter_groups);
+    erts_flxctr_setup(decentralized_counter_groups);
     {
 	erts_thr_late_init_data_t elid = ERTS_THR_LATE_INIT_DATA_DEF_INITER;
 	elid.mem.std.alloc = ethr_std_alloc;

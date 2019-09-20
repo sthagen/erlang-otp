@@ -149,7 +149,7 @@ close(Info, StartDir) ->
 				 ok;
 			     CacheBin ->
 				 %% save final version of the log cache to file
-				 _ = file:write_file(?log_cache_name,CacheBin),
+				 write_log_cache(CacheBin),
 				 put(ct_log_cache,undefined)
 			 end
 		 end,
@@ -542,7 +542,7 @@ tc_print(Category,Importance,Format,Args,Opts) ->
                     undefined -> atom_to_list(Category);
                     Hd        -> Hd
                 end,
-            Str = lists:concat([get_header(Heading),Format,"\n\n"]),
+            Str = lists:flatten([get_header(Heading),Format,"\n\n"]),
             try
                 io:format(?def_gl, Str, Args)
             catch
@@ -935,7 +935,7 @@ create_io_fun(FromPid, CtLogFd, EscChars) ->
 		    {_HdOrFt,S,A} -> {false,S,A};
 		    {S,A}         -> {true,S,A}
 		end,
-	    try io_lib:format(Str, Args) of
+	    try io_lib:format(lists:flatten(Str), Args) of
 		IoStr when Escapable, EscChars, IoList == [] ->
 		    escape_chars(IoStr);
 		IoStr when Escapable, EscChars ->
@@ -1138,10 +1138,10 @@ set_evmgr_gl(GL) ->
 
 open_ctlog(MiscIoName) ->
     {ok,Fd} = file:open(?ct_log_name,[write,{encoding,utf8}]),
-    io:format(Fd, header("Common Test Framework Log", {[],[1,2],[]}), []),
+    io:format(Fd, "~ts", [header("Common Test Framework Log", {[],[1,2],[]})]),
     case file:consult(ct_run:variables_file_name("../")) of
 	{ok,Vars} ->
-	    io:format(Fd, config_table(Vars), []);
+	    io:format(Fd, "~ts", [config_table(Vars)]);
 	{error,Reason} ->
 	    {ok,Cwd} = file:get_cwd(),
 	    Dir = filename:dirname(Cwd),
@@ -1213,7 +1213,7 @@ print_style_error(Fd, IoFormat, StyleSheet, Reason) ->
 
 close_ctlog(Fd) ->
     io:format(Fd, "\n</pre>\n", []),
-    io:format(Fd, [xhtml("<br><br>\n", "<br /><br />\n") | footer()], []),
+    io:format(Fd, "~ts", [[xhtml("<br><br>\n", "<br /><br />\n") | footer()]]),
     ok = file:close(Fd).
 
 %%%-----------------------------------------------------------------
@@ -2022,7 +2022,7 @@ update_all_runs_in_cache(AllRunsData) ->
 		    %% read from file as long as this logger process is alive
 		    put(ct_log_cache,term_to_binary(LogCache));
 		_ ->
-		    file:write_file(?log_cache_name,term_to_binary(LogCache))
+		    write_log_cache(term_to_binary(LogCache))
 	    end;		    
 	SavedLogCache ->
 	    update_all_runs_in_cache(AllRunsData,binary_to_term(SavedLogCache))
@@ -2036,7 +2036,7 @@ update_all_runs_in_cache(AllRunsData, LogCache) ->
 	    %% read from file as long as this logger process is alive
 	    put(ct_log_cache,term_to_binary(LogCache1));
 	_ ->
-	    file:write_file(?log_cache_name,term_to_binary(LogCache1))
+	    write_log_cache(term_to_binary(LogCache1))
     end.
 
 sort_all_runs(Dirs) ->
@@ -2668,7 +2668,7 @@ update_tests_in_cache(TempData,LogCache=#log_cache{tests=Tests}) ->
 	{_Pid,_Pid} ->
 	    put(ct_log_cache,CacheBin);
 	_ ->
-	    file:write_file(?log_cache_name,CacheBin)
+	    write_log_cache(CacheBin)
     end.
 
 %%
@@ -3399,4 +3399,10 @@ unexpected_io(Pid, _Category, _Importance, Content, CtLogFd, EscChars) ->
     IoFun = create_io_fun(Pid, CtLogFd, EscChars),
     Data = io_lib:format("~ts", [lists:foldl(IoFun, [], Content)]),
     test_server_io:print_unexpected(Data),
+    ok.
+
+write_log_cache(LogCacheBin) when is_binary(LogCacheBin) ->
+    TmpFile = ?log_cache_name++".tmp",
+    _ = file:write_file(TmpFile,LogCacheBin),
+    _ = file:rename(TmpFile,?log_cache_name),
     ok.

@@ -403,7 +403,7 @@ A line with `//` is also a comment.  It is recommended to only
 use this style of comments in files that define implementations of
 instructions.
 
-A long line can be broken into shorter lines by a placing a`\` before
+A long line can be broken into shorter lines by a placing a `\` before
 the newline.
 
 ### Variable definitions ###
@@ -1159,7 +1159,6 @@ implementation of `gen_element()`:
 
         return op;
     }
-}
 
 ### Defining the implementation ###
 
@@ -1452,32 +1451,32 @@ optionally additional heap space.
 
 ##### The NEXT_INSTRUCTION pre-bound variable #####
 
-The NEXT_INSTRUCTION is a pre-bound variable that is available in
+The NEXT\_INSTRUCTION is a pre-bound variable that is available in
 all instructions.  It expands to the address of the next instruction.
 
 Here is an example:
 
     i_call(CallDest) {
-        SET_CP(c_p, $NEXT_INSTRUCTION);
+        //| -no_next
+        $SAVE_CONTINUATION_POINTER($NEXT_INSTRUCTION);
         $DISPATCH_REL($CallDest);
     }
 
-When calling a function, the return address is first stored in `c_p->cp`
-(using the `SET_CP()` macro defined in `beam_emu.c`), and then control is
+When calling a function, the return address is first stored in `E[0]`
+(using the `$SAVE_CONTINUATION_POINTER()` macro), and then control is
 transferred to the callee.  Here is the generated code:
 
     OpCase(i_call_f):
     {
-      SET_CP(c_p, I+1);
-      ASSERT(VALID_INSTR(*(I + (fb(BeamExtraData(I[0]))) + 0)));
-      I += fb(BeamExtraData(I[0])) + 0;;
-      DTRACE_LOCAL_CALL(c_p, erts_code_to_codemfa(I));
-      Dispatch();;
+        ASSERT(VALID_INSTR(*(I+2)));
+        *E = (BeamInstr) (I+2);;
+
+        /* ... dispatch code intentionally left out ... */
     }
 
-We can see that that `$NEXT_INSTRUCTION` has been expanded to `I+1`.
+We can see that that `$NEXT_INSTRUCTION` has been expanded to `I+2`.
 That makes sense since the size of the `i_call_f/1` instruction is
-one word.
+two words.
 
 ##### The IP_ADJUSTMENT pre-bound variable #####
 
@@ -1545,7 +1544,7 @@ register, the pointer will no longer be valid.  (Y registers are
 stored on the stack.)
 
 In those circumstances, `$REFRESH_GEN_DEST()` must be invoked
-to set up the pointer again.  **beam\_makeops** will notice
+to set up the pointer again. **beam\_makeops** will notice
 if there is a call to a function that does a garbage collection and
 `$REFRESH_GEN_DEST()` is not called.
 

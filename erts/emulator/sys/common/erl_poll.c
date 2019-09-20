@@ -872,8 +872,8 @@ update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op, ErtsPollEvents events)
         }
     }
 
-#if defined(EV_DISPATCH) && !defined(__OpenBSD__)
-    /* If we have EV_DISPATCH we use it, unless we are on OpenBSD as the
+#if defined(EV_DISPATCH) && !(defined(__OpenBSD__) || defined(__NetBSD__))
+    /* If we have EV_DISPATCH we use it, unless we are on OpenBSD/NetBSD as the
        behavior of EV_EOF seems to be edge triggered there and we need it
        to be level triggered.
 
@@ -924,7 +924,7 @@ update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op, ErtsPollEvents events)
         ERTS_EV_SET(&evts[len++], fd, EVFILT_WRITE, flags, (void *) ERTS_POLL_EV_OUT);
     }
 #else
-    uint32_t flags = EV_ADD;
+    uint32_t flags = EV_ADD|EV_ENABLE;
 
     if (ps->oneshot) flags |= EV_ONESHOT;
 
@@ -932,9 +932,27 @@ update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op, ErtsPollEvents events)
         erts_atomic_dec_nob(&ps->no_of_user_fds);
         /* We don't do anything when a delete is issued. The fds will be removed
            when they are triggered, or when they are closed. */
-        events = 0;
+        if (ps->oneshot)
+            events = 0;
+        else {
+            flags = EV_DELETE;
+            events = ERTS_POLL_EV_IN;
+        }
     } else if (op == ERTS_POLL_OP_ADD) {
         erts_atomic_inc_nob(&ps->no_of_user_fds);
+        /* Only allow EV_IN in non-oneshot poll-sets */
+        ASSERT(ps->oneshot || events == ERTS_POLL_EV_IN);
+    } else if (!ps->oneshot) {
+        ASSERT(op == ERTS_POLL_OP_MOD);
+        /* If we are not oneshot and do a mod we should disable the FD.
+           We assume that it is only the read side that is active as
+           currently only read is selected upon in the non-oneshot
+           poll-sets. */
+        if (!events)
+            flags = EV_DISABLE;
+        else
+            flags = EV_ENABLE;
+        events = ERTS_POLL_EV_IN;
     }
 
     if (events & ERTS_POLL_EV_IN) {
@@ -961,16 +979,15 @@ update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op, ErtsPollEvents events)
         for (i = 0; i < len; i++) {
             const char *flags = "UNKNOWN";
             if (evts[i].flags == (EV_DELETE)) flags = "EV_DELETE";
-            if (evts[i].flags == (EV_ADD|EV_ONESHOT)) flags = "EV_ADD|EV_ONESHOT";
             if (evts[i].flags == (EV_ADD)) flags = "EV_ADD";
-#ifdef EV_DISPATCH
-            if (evts[i].flags == (EV_ADD|EV_DISPATCH)) flags = "EV_ADD|EV_DISPATCH";
-            if (evts[i].flags == (EV_ADD|EV_DISABLE)) flags = "EV_ADD|EV_DISABLE";
-            if (evts[i].flags == (EV_ENABLE|EV_DISPATCH)) flags = "EV_ENABLE|EV_DISPATCH";
+            if (evts[i].flags == (EV_ADD|EV_ONESHOT)) flags = "EV_ADD|EV_ONESHOT";
             if (evts[i].flags == (EV_ENABLE)) flags = "EV_ENABLE";
             if (evts[i].flags == (EV_DISABLE)) flags = "EV_DISABLE";
+            if (evts[i].flags == (EV_ADD|EV_DISABLE)) flags = "EV_ADD|EV_DISABLE";
+#ifdef EV_DISPATCH
+            if (evts[i].flags == (EV_ADD|EV_DISPATCH)) flags = "EV_ADD|EV_DISPATCH";
+            if (evts[i].flags == (EV_ENABLE|EV_DISPATCH)) flags = "EV_ENABLE|EV_DISPATCH";
             if (evts[i].flags == (EV_DISABLE|EV_DISPATCH)) flags = "EV_DISABLE|EV_DISABLE";
-            if (evts[i].flags == (EV_DISABLE)) flags = "EV_DISABLE";
 #endif
 
             keventbp += sprintf(keventbp, "%s{%lu, %s, %s}",i > 0 ? ", " : "",
@@ -2326,6 +2343,7 @@ uint32_t epoll_events(int kp_fd, int fd)
 {
     /* For epoll we read the information about what is selected upon from the proc fs.*/
     char fname[30];
+    char s[256];
     FILE *f;
     unsigned int pos, flags, mnt_id;
     int line = 0;
@@ -2343,16 +2361,17 @@ uint32_t epoll_events(int kp_fd, int fd)
     }
     if (fscanf(f,"\nmnt_id:\t%x\n", &mnt_id));
     line += 3;
-    while (!feof(f)) {
+    while (fgets(s, sizeof(s) / sizeof(*s), f)) {
         /* tfd:       10 events: 40000019 data:       180000000a */
         int ev_fd;
         uint32_t events;
         uint64_t data;
-        if (fscanf(f,"tfd:%d events:%x data:%llx\n", &ev_fd, &events,
+        if (sscanf(s,"tfd:%d events:%x data:%llx", &ev_fd, &events,
                    (unsigned long long*)&data) != 3) {
             fprintf(stderr,"failed to parse file %s on line %d, errno = %d\n", fname,
                     line,
                     errno);
+            fclose(f);
             return 0;
         }
         if (fd == ev_fd) {
@@ -2392,6 +2411,7 @@ ERTS_POLL_EXPORT(erts_poll_get_selected_events)(ErtsPollSet *ps,
 
     /* For epoll we read the information about what is selected upon from the proc fs.*/
     char fname[30];
+    char s[256];
     FILE *f;
     unsigned int pos, flags, mnt_id;
     int line = 0;
@@ -2406,20 +2426,22 @@ ERTS_POLL_EXPORT(erts_poll_get_selected_events)(ErtsPollSet *ps,
     if (fscanf(f,"pos:\t%x\nflags:\t%x", &pos, &flags) != 2) {
         fprintf(stderr,"failed to parse file %s, errno = %d\n", fname, errno);
         ASSERT(0);
+        fclose(f);
         return;
     }
     if (fscanf(f,"\nmnt_id:\t%x\n", &mnt_id));
     line += 3;
-    while (!feof(f)) {
+    while (fgets(s, sizeof(s) / sizeof(*s), f)) {
         /* tfd:       10 events: 40000019 data:       180000000a */
         int fd;
         uint32_t events;
         uint64_t data;
-        if (fscanf(f,"tfd:%d events:%x data:%llx\n", &fd, &events,
+        if (sscanf(s,"tfd:%d events:%x data:%llx", &fd, &events,
                    (unsigned long long*)&data) != 3) {
             fprintf(stderr,"failed to parse file %s on line %d, errno = %d\n",
                     fname, line, errno);
             ASSERT(0);
+            fclose(f);
             return;
         }
         if (fd == ps->wake_fds[0] || fd == ps->wake_fds[1])
@@ -2435,6 +2457,7 @@ ERTS_POLL_EXPORT(erts_poll_get_selected_events)(ErtsPollSet *ps,
         ev[fd] = (ERTS_POLL_EV_IN|ERTS_POLL_EV_OUT) & ERTS_POLL_EV_N2E(events);
         line++;
     }
+    fclose(f);
 #else
     for (fd = 0; fd < len; fd++)
         ev[fd] = ERTS_POLL_EV_NONE;

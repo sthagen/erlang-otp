@@ -32,6 +32,22 @@
 %%	Returns `true' if the function `Module:Name/Arity' does not
 %%	affect the state, nor depend on the state, although its
 %%	evaluation is not guaranteed to complete normally for all input.
+%%
+%%      NOTE: There is no need to include every new pure BIF
+%%      here. Including it here means that the value of the function
+%%      will be evaluated at compile-time if the arguments are
+%%      constant. If that optimization is not useful/desired, there is
+%%      no need to include the new BIF here.
+%%
+%%      Functions whose return value could conceivably change in a
+%%      future version of the runtime system must NOT be included here.
+%%
+%%      Here are some example of functions that should not be
+%%      included: `term_to_binary/1', hashing functions, non-trivial
+%%      encode/decode functions.
+%%
+%%      When unsure whether a new BIF should be included here, the
+%%      conservative safe choice is NOT to include it.
 
 -spec is_pure(atom(), atom(), arity()) -> boolean().
 
@@ -64,10 +80,12 @@ is_pure(erlang, 'or', 2) -> true;
 is_pure(erlang, 'rem', 2) -> true;
 is_pure(erlang, 'xor', 2) -> true;
 is_pure(erlang, abs, 1) -> true;
+is_pure(erlang, atom_to_binary, 1) -> true;
 is_pure(erlang, atom_to_binary, 2) -> true;
 is_pure(erlang, atom_to_list, 1) -> true;
 is_pure(erlang, binary_part, 2) -> true;
 is_pure(erlang, binary_part, 3) -> true;
+is_pure(erlang, binary_to_atom, 1) -> true;
 is_pure(erlang, binary_to_atom, 2) -> true;
 is_pure(erlang, binary_to_float, 1) -> true;
 is_pure(erlang, binary_to_integer, 1) -> true;
@@ -195,6 +213,7 @@ is_safe(erlang, is_float, 1) -> true;
 is_safe(erlang, is_function, 1) -> true;
 is_safe(erlang, is_integer, 1) -> true;
 is_safe(erlang, is_list, 1) -> true;
+is_safe(erlang, is_map, 1) -> true;
 is_safe(erlang, is_number, 1) -> true;
 is_safe(erlang, is_pid, 1) -> true;
 is_safe(erlang, is_port, 1) -> true;

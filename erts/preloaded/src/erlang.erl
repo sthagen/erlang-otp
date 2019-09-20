@@ -48,6 +48,8 @@
          dist_ctrl_put_data/2,
          dist_ctrl_get_data/1,
          dist_ctrl_get_data_notification/1,
+         dist_ctrl_get_opt/2,
+         dist_ctrl_set_opt/3,
          dist_get_stat/1]).
 
 -deprecated([get_stacktrace/0,now/0]).
@@ -107,8 +109,11 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -export([adler32/1, adler32/2, adler32_combine/3, append_element/2]).
--export([atom_to_binary/2, atom_to_list/1, binary_part/2, binary_part/3]).
--export([binary_to_atom/2, binary_to_existing_atom/2, binary_to_float/1]).
+-export([atom_to_binary/1, atom_to_binary/2]).
+-export([atom_to_list/1, binary_part/2, binary_part/3]).
+-export([binary_to_atom/1, binary_to_atom/2]).
+-export([binary_to_existing_atom/1, binary_to_existing_atom/2]).
+-export([binary_to_float/1]).
 -export([binary_to_integer/1,binary_to_integer/2]).
 -export([binary_to_list/1]).
 -export([binary_to_list/3, binary_to_term/1, binary_to_term/2]).
@@ -184,6 +189,27 @@
 -export([dt_get_tag/0, dt_get_tag_data/0, dt_prepend_vm_tag_data/1, dt_append_vm_tag_data/1,
 	 dt_put_tag/1, dt_restore_tag/1, dt_spread_tag/1]). 
 
+%% Operators
+
+-export(['=='/2, '=:='/2,
+         '/='/2, '=/='/2,
+         '=<'/2, '>='/2,
+         '<'/2, '>'/2]).
+
+-export(['-'/1, '+'/1,
+         '-'/2, '+'/2,
+         '/'/2, '*'/2,
+         'div'/2, 'rem'/2,
+         'bsl'/2, 'bsr'/2,
+         'bor'/2, 'band'/2,
+         'bxor'/2, 'bnot'/1]).
+
+-export(['and'/2, 'or'/2,
+         'xor'/2, 'not'/1]).
+
+-export(['--'/2, '++'/2]).
+
+-export(['!'/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Simple native code BIFs
@@ -339,6 +365,12 @@ adler32_combine(_FirstAdler, _SecondAdler, _SecondSize) ->
 append_element(_Tuple1, _Term) ->
     erlang:nif_error(undefined).
 
+%% atom_to_binary/1
+-spec atom_to_binary(Atom) -> binary() when
+      Atom :: atom().
+atom_to_binary(Atom) ->
+    erlang:atom_to_binary(Atom, utf8).
+
 %% atom_to_binary/2
 -spec atom_to_binary(Atom, Encoding) -> binary() when
       Atom :: atom(),
@@ -369,12 +401,24 @@ binary_part(_Subject, _PosLen) ->
 binary_part(_Subject, _Start, _Length) ->
     erlang:nif_error(undefined).
 
+%% binary_to_atom/1
+-spec binary_to_atom(Binary) -> atom() when
+      Binary :: binary().
+binary_to_atom(Binary) ->
+    erlang:binary_to_atom(Binary, utf8).
+
 %% binary_to_atom/2
 -spec binary_to_atom(Binary, Encoding) -> atom() when
       Binary :: binary(),
       Encoding :: latin1 | unicode | utf8.
 binary_to_atom(_Binary, _Encoding) ->
     erlang:nif_error(undefined).
+
+%% binary_to_existing_atom/1
+-spec binary_to_existing_atom(Binary) -> atom() when
+      Binary :: binary().
+binary_to_existing_atom(Binary) ->
+    erlang:binary_to_existing_atom(Binary, utf8).
 
 %% binary_to_existing_atom/2
 -spec binary_to_existing_atom(Binary, Encoding) -> atom() when
@@ -2184,7 +2228,7 @@ nodes(_Arg) ->
 -spec open_port(PortName, PortSettings) -> port() when
       PortName :: {spawn, Command :: string() | binary()} |
                   {spawn_driver, Command :: string() | binary()} |
-                  {spawn_executable, FileName :: file:name() } |
+                  {spawn_executable, FileName :: file:name_all() } |
                   {fd, In :: non_neg_integer(), Out :: non_neg_integer()},
       PortSettings :: [Opt],
       Opt :: {packet, N :: 1 | 2 | 4}
@@ -2295,7 +2339,7 @@ process_flag(_Flag, _Value) ->
                             non_neg_integer()}]} |
       {catchlevel, CatchLevel :: non_neg_integer()} |
       {current_function,
-       {Module :: module(), Function :: atom(), Arity :: arity()}} |
+       {Module :: module(), Function :: atom(), Arity :: arity()} | undefined} |
       {current_location,
        {Module :: module(), Function :: atom(), Arity :: arity(),
         Location :: [{file, Filename :: string()} | % not a stack_item()!
@@ -2526,6 +2570,9 @@ subtract(_,_) ->
                                 OldSchedulersOnline when
       SchedulersOnline :: pos_integer(),
       OldSchedulersOnline :: pos_integer();
+                        (system_logger, Logger) -> PrevLogger when
+      Logger :: logger | undefined | pid(),
+      PrevLogger :: logger | undefined | pid();
                         (trace_control_word, TCW) -> OldTCW when
       TCW :: non_neg_integer(),
       OldTCW :: non_neg_integer();
@@ -2731,8 +2778,9 @@ tuple_to_list(_Tuple) ->
          (schedulers | schedulers_online) -> pos_integer();
          (smp_support) -> boolean();
          (start_time) -> integer();
-         (system_version) -> string();
          (system_architecture) -> string();
+         (system_logger) -> logger | undefined | pid();
+         (system_version) -> string();
          (threads) -> boolean();
          (thread_pool_size) -> non_neg_integer();
          (time_correction) -> true | false;
@@ -3322,7 +3370,8 @@ dist_ctrl_input_handler(_DHandle, _InputHandler) ->
 dist_ctrl_put_data(_DHandle, _Data) ->
     erlang:nif_error(undefined).
 
--spec erlang:dist_ctrl_get_data(DHandle) -> Data | 'none' when
+-spec erlang:dist_ctrl_get_data(DHandle) -> {Size, Data} | Data | 'none' when
+      Size :: non_neg_integer(),
       DHandle :: dist_handle(),
       Data :: iodata().
 
@@ -3335,11 +3384,26 @@ dist_ctrl_get_data(_DHandle) ->
 dist_ctrl_get_data_notification(_DHandle) ->
     erlang:nif_error(undefined).
 
+-spec erlang:dist_ctrl_set_opt(DHandle, 'get_size', Value) -> OldValue when
+      DHandle :: dist_handle(),
+      Value :: boolean(),
+      OldValue :: boolean().
+
+dist_ctrl_set_opt(_DHandle, _Opt, _Val) ->
+    erlang:nif_error(undefined).
+
+-spec erlang:dist_ctrl_get_opt(DHandle, 'get_size') -> Value when
+      DHandle :: dist_handle(),
+      Value :: boolean().
+
+dist_ctrl_get_opt(_DHandle, _Opt) ->
+    erlang:nif_error(undefined).
+
 -spec erlang:dist_get_stat(DHandle) -> Res when
       DHandle :: dist_handle(),
       InputPackets :: non_neg_integer(),
       OutputPackets :: non_neg_integer(),
-      PendingOutputPackets :: boolean(),
+      PendingOutputPackets :: non_neg_integer(),
       Res :: {'ok', InputPackets, OutputPackets, PendingOutputPackets}.
 
 dist_get_stat(_DHandle) ->
@@ -3395,60 +3459,15 @@ get_cookie() ->
 -spec integer_to_list(Integer, Base) -> string() when
       Integer :: integer(),
       Base :: 2..36.
-integer_to_list(I, 10) ->
-    erlang:integer_to_list(I);
-integer_to_list(I, Base) 
-  when erlang:is_integer(I), erlang:is_integer(Base),
-       Base >= 2, Base =< 1+$Z-$A+10 ->
-    if I < 0 ->
-	    [$-|integer_to_list(-I, Base, [])];
-       true ->
-	    integer_to_list(I, Base, [])
-    end;
-integer_to_list(I, Base) ->
-    erlang:error(badarg, [I, Base]).
-
-integer_to_list(I0, Base, R0) ->
-    D = I0 rem Base,
-    I1 = I0 div Base,
-    R1 = if D >= 10 ->
-		 [D-10+$A|R0];
-	    true ->
-		 [D+$0|R0]
-	 end,
-    if I1 =:= 0 ->
-	    R1;
-       true ->
-	    integer_to_list(I1, Base, R1)
-    end.
+integer_to_list(_I, _Base) ->
+    erlang:nif_error(undefined).
 
 -spec integer_to_binary(Integer, Base) -> binary() when
       Integer :: integer(),
       Base :: 2..36.
-integer_to_binary(I, 10) ->
-    erlang:integer_to_binary(I);
-integer_to_binary(I, Base) 
-  when erlang:is_integer(I), erlang:is_integer(Base),
-       Base >= 2, Base =< 1+$Z-$A+10 ->
-    if I < 0 ->
-	    <<$-,(integer_to_binary(-I, Base, <<>>))/binary>>;
-       true ->
-	    integer_to_binary(I, Base, <<>>)
-    end;
-integer_to_binary(I, Base) ->
-    erlang:error(badarg, [I, Base]).
+integer_to_binary(_I, _Base) ->
+    erlang:nif_error(undefined).
 
-integer_to_binary(I0, Base, R0) ->
-    D = I0 rem Base,
-    I1 = I0 div Base,
-    R1 = if
-             D >= 10 -> <<(D-10+$A),R0/binary>>;
-             true -> <<(D+$0),R0/binary>>
-         end,
-    if
-        I1 =:= 0 -> R1;
-        true -> integer_to_binary(I1, Base, R1)
-    end.
 
 -record(cpu, {node = -1,
 	      processor = -1,
@@ -3934,3 +3953,98 @@ gc_info(Ref, N, {OrigColls,OrigRecl}) ->
 	{Ref, {_,Colls, Recl}} -> 
 	    gc_info(Ref, N-1, {Colls+OrigColls,Recl+OrigRecl})
     end.
+
+%% Operators
+
+-spec erlang:'=='(term(), term()) -> boolean().
+'=='(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'=:='(term(), term()) -> boolean().
+'=:='(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'/='(term(), term()) -> boolean().
+'/='(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'=/='(term(), term()) -> boolean().
+'=/='(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'=<'(term(), term()) -> boolean().
+'=<'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'>='(term(), term()) -> boolean().
+'>='(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'<'(term(), term()) -> boolean().
+'<'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'>'(term(), term()) -> boolean().
+'>'(_A, _B) ->
+    erlang:nif_error(undefined).
+
+-spec erlang:'-'(number()) -> number().
+'-'(_A) ->
+    erlang:nif_error(undefined).
+-spec erlang:'+'(number()) -> number().
+'+'(_A) ->
+    erlang:nif_error(undefined).
+-spec erlang:'-'(number(), number()) -> number().
+'-'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'+'(number(), number()) -> number().
+'+'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'/'(number(), number()) -> float().
+'/'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'*'(number(), number()) -> number().
+'*'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'div'(integer(), integer()) -> integer().
+'div'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'rem'(integer(), integer()) -> integer().
+'rem'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'bsl'(integer(), integer()) -> integer().
+'bsl'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'bsr'(integer(), integer()) -> integer().
+'bsr'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'bor'(integer(), integer()) -> integer().
+'bor'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'band'(integer(), integer()) -> integer().
+'band'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'bxor'(integer(), integer()) -> integer().
+'bxor'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'bnot'(integer()) -> integer().
+'bnot'(_A) ->
+    erlang:nif_error(undefined).
+
+-spec erlang:'--'(list(), list()) -> list().
+'--'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'++'(list(), term()) -> term().
+'++'(_A, _B) ->
+    erlang:nif_error(undefined).
+
+-spec erlang:'and'(boolean(), boolean()) -> boolean().
+'and'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'or'(boolean(), boolean()) -> boolean().
+'or'(_A, _B) ->
+    erlang:nif_error(undefined).
+
+-spec erlang:'xor'(boolean(), boolean()) -> boolean().
+'xor'(_A, _B) ->
+    erlang:nif_error(undefined).
+-spec erlang:'not'(boolean()) -> boolean().
+'not'(_A) ->
+    erlang:nif_error(undefined).
+
+-spec erlang:'!'(dst(), term()) -> term().
+'!'(_Dst, _Msg) ->
+    erlang:nif_error(undefined).

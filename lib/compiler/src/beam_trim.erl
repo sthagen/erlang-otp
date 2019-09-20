@@ -200,6 +200,8 @@ create_map(Trim, Moves) ->
        (Any) -> Any
     end.
 
+remap([{'%',_}=I|Is], Map, Acc) ->
+    remap(Is, Map, [I|Acc]);
 remap([{block,Bl0}|Is], Map, Acc) ->
     Bl = remap_block(Bl0, Map, []),
     remap(Is, Map, [{block,Bl}|Acc]);
@@ -242,6 +244,9 @@ remap([{make_fun2,_,_,_,_}=I|T], Map, Acc) ->
 remap([{deallocate,N}|Is], Map, Acc) ->
     I = {deallocate,Map({frame_size,N})},
     remap(Is, Map, [I|Acc]);
+remap([{swap,Reg1,Reg2}|Is], Map, Acc) ->
+    I = {swap,Map(Reg1),Map(Reg2)},
+    remap(Is, Map, [I|Acc]);
 remap([{test,Name,Fail,Ss}|Is], Map, Acc) ->
     I = {test,Name,Fail,[Map(S) || S <- Ss]},
     remap(Is, Map, [I|Acc]);
@@ -279,6 +284,8 @@ safe_labels([_|Is], Acc) ->
     safe_labels(Is, Acc);
 safe_labels([], Acc) -> cerl_sets:from_list(Acc).
 
+is_safe_label([{'%',_}|Is]) ->
+    is_safe_label(Is);
 is_safe_label([{line,_}|Is]) ->
     is_safe_label(Is);
 is_safe_label([{badmatch,{Tag,_}}|_]) ->
@@ -337,6 +344,8 @@ frame_layout_2(Is) -> reverse(Is).
 %%  to safe labels (i.e., the code at those labels don't depend
 %%  on the contents of any Y register).
 
+frame_size([{'%',_}|Is], Safe) ->
+    frame_size(Is, Safe);
 frame_size([{block,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{call_fun,_}|Is], Safe) ->
@@ -376,6 +385,8 @@ frame_size([{bs_set_position,_,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{bs_get_tail,_,_,_}|Is], Safe) ->
     frame_size(Is, Safe);
+frame_size([{swap,_,_}|Is], Safe) ->
+    frame_size(Is, Safe);
 frame_size(_, _) -> throw(not_possible).
 
 frame_size_branch(0, Is, Safe) ->
@@ -393,6 +404,8 @@ frame_size_branch(L, Is, Safe) ->
 %%  This function handles the same instructions as frame_size/2. It
 %%  assumes that any labels in the instructions are safe labels.
 
+is_not_used(Y, [{'%',_}|Is]) ->
+    is_not_used(Y, Is);
 is_not_used(Y, [{apply,_}|Is]) ->
     is_not_used(Y, Is);
 is_not_used(Y, [{bif,_,{f,_},Ss,Dst}|Is]) ->
@@ -436,6 +449,8 @@ is_not_used(Y, [{line,_}|Is]) ->
     is_not_used(Y, Is);
 is_not_used(Y, [{make_fun2,_,_,_,_}|Is]) ->
     is_not_used(Y, Is);
+is_not_used(Y, [{swap,Reg1,Reg2}|Is]) ->
+    Y =/= Reg1 andalso Y =/= Reg2 andalso is_not_used(Y, Is);
 is_not_used(Y, [{test,_,_,Ss}|Is]) ->
     not member(Y, Ss) andalso is_not_used(Y, Is);
 is_not_used(Y, [{test,_Op,{f,_},_Live,Ss,Dst}|Is]) ->

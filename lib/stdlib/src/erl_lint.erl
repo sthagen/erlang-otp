@@ -2,7 +2,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -79,6 +79,8 @@ value_option(Flag, Default, On, OnVal, Off, OffVal, Opts) ->
 -type fa()   :: {atom(), arity()}.   % function+arity
 -type ta()   :: {atom(), arity()}.   % type+arity
 
+-type module_or_mfa() :: module() | mfa().
+
 -record(typeinfo, {attr, line}).
 
 %% Usage of records, functions, and imports. The variable table, which
@@ -115,6 +117,8 @@ value_option(Flag, Default, On, OnVal, Off, OffVal, Opts) ->
                    :: erl_anno:anno(),
 	       clashes=[],			%Exported functions named as BIFs
                not_deprecated=[],               %Not considered deprecated
+               not_removed=gb_sets:empty()      %Not considered removed
+                   :: gb_sets:set(module_or_mfa()),
                func=[],                         %Current function
                warn_format=0,                   %Warn format calls
 	       enabled_warnings=[],		%All enabled warnings (ordset).
@@ -382,6 +386,8 @@ format_error({redefine_callback, {F, A}}) ->
 format_error({bad_callback, {M, F, A}}) ->
     io_lib:format("explicit module not allowed for callback ~tw:~tw/~w",
                   [M, F, A]);
+format_error({bad_module, {M, F, A}}) ->
+    io_lib:format("spec for function ~w:~tw/~w from other module", [M, F, A]);
 format_error({spec_fun_undefined, {F, A}}) ->
     io_lib:format("spec for undefined function ~tw/~w", [F, A]);
 format_error({missing_spec, {F,A}}) ->
@@ -573,7 +579,10 @@ start(File, Opts) ->
 		      false, Opts)},
 	 {missing_spec_all,
 	  bool_option(warn_missing_spec_all, nowarn_missing_spec_all,
-		      false, Opts)}
+		      false, Opts)},
+         {removed,
+          bool_option(warn_removed, nowarn_removed,
+                      true, Opts)}
 	],
     Enabled1 = [Category || {Category,true} <- Enabled0],
     Enabled = ordsets:from_list(Enabled1),
@@ -670,8 +679,9 @@ forms(Forms0, St0) ->
 						    no_auto = AutoImportSuppressed}),
     St2 = bif_clashes(Forms, St1),
     St3 = not_deprecated(Forms, St2),
-    St4 = foldl(fun form/2, pre_scan(Forms, St3), Forms),
-    post_traversal_check(Forms, St4).
+    St4 = not_removed(Forms, St3),
+    St5 = foldl(fun form/2, pre_scan(Forms, St4), Forms),
+    post_traversal_check(Forms, St5).
 
 pre_scan([{attribute,L,compile,C} | Fs], St) ->
     case is_warn_enabled(export_all, St) andalso
@@ -831,18 +841,38 @@ bif_clashes(Forms, #lint{nowarn_bif_clash=Nowarn} = St) ->
 
 %% not_deprecated(Forms, State0) -> State
 
-not_deprecated(Forms, St0) ->
+not_deprecated(Forms, #lint{compile=Opts}=St0) ->
     %% There are no line numbers in St0#lint.compile.
     MFAsL = [{MFA,L} ||
                 {attribute, L, compile, Args} <- Forms,
                 {nowarn_deprecated_function, MFAs0} <- lists:flatten([Args]),
                 MFA <- lists:flatten([MFAs0])],
-    Nowarn = [MFA || {MFA,_L} <- MFAsL],
+    Nowarn = [MFA ||
+                 {nowarn_deprecated_function, MFAs0} <- Opts,
+                 MFA <- lists:flatten([MFAs0])],
     ML = [{M,L} || {{M,_F,_A},L} <- MFAsL, is_atom(M)],
     St1 = foldl(fun ({M,L}, St2) ->
                         check_module_name(M, L, St2)
                 end, St0, ML),
     St1#lint{not_deprecated = ordsets:from_list(Nowarn)}.
+
+%% not_removed(Forms, State0) -> State
+
+not_removed(Forms, #lint{compile=Opts}=St0) ->
+    %% There are no line numbers in St0#lint.compile.
+    MFAsL = [{MFA,L} ||
+                {attribute, L, compile, Args} <- Forms,
+                {nowarn_removed, MFAs0} <- lists:flatten([Args]),
+                MFA <- lists:flatten([MFAs0])],
+    Nowarn = [MFA ||
+                 {nowarn_removed, MFAs0} <- Opts,
+                 MFA <- lists:flatten([MFAs0])],
+    St1 = foldl(fun ({{M, _F, _A}, L}, St2) ->
+                        check_module_name(M, L, St2);
+                    ({M,L}, St2) ->
+                        check_module_name(M, L, St2)
+                end, St0, MFAsL),
+    St1#lint{not_removed = gb_sets:from_list(Nowarn)}.
 
 %% The nowarn_bif_clash directive is not only deprecated, it's actually an error from R14A
 disallowed_compile_flags(Forms, St0) ->
@@ -2248,6 +2278,9 @@ expr({'fun',Line,Body}, Vt, St) ->
     case Body of
         {clauses,Cs} ->
             fun_clauses(Cs, Vt, St);
+        {function,record_info,2} ->
+            %% It is illegal to call record_info/2 with unknown arguments.
+            {[],add_error(Line, illegal_record_info, St)};
         {function,F,A} ->
 	    %% BifClash - Fun expression
             %% N.B. Only allows BIFs here as well, NO IMPORTS!!
@@ -2979,7 +3012,13 @@ spec_decl(Line, MFA0, TypeSpecs, St00 = #lint{specs = Specs, module = Mod}) ->
     St1 = St0#lint{specs = dict:store(MFA, Line, Specs)},
     case dict:is_key(MFA, Specs) of
 	true -> add_error(Line, {redefine_spec, MFA0}, St1);
-	false -> check_specs(TypeSpecs, spec_wrong_arity, Arity, St1)
+	false ->
+            case MFA of
+                {Mod, _, _} ->
+                    check_specs(TypeSpecs, spec_wrong_arity, Arity, St1);
+                _ ->
+                    add_error(Line, {bad_module, MFA}, St1)
+            end
     end.
 
 %% callback_decl(Line, Fun, Types, State) -> State.
@@ -3332,9 +3371,11 @@ handle_comprehension(E, Qs, Vt0, St0) ->
     Vt3 = vtmerge(vtsubtract(Vt2, Uvt), Uvt),
     %% Don't export local variables.
     Vt4 = vtold(Vt3, Vt0),
-    %% Forget about old variables which were not used.
-    Vt5 = vt_no_unused(Vt4),
-    {Vt5,St}.
+    %% Forget about old variables which were not used as well as unsafe
+    %% variables, preventing them from being marked as used and bound by
+    %% icrt_export/4.
+    Vt = vt_no_unsafe(vt_no_unused(Vt4)),
+    {Vt, St}.
 
 %% lc_quals(Qualifiers, ImportVarTable, State) ->
 %%      {VarTable,ShadowedVarTable,State}
@@ -3767,11 +3808,21 @@ deprecated_function(Line, M, F, As, St) ->
 		    add_warning(Line, {deprecated, MFA, Replacement, Rel}, St)
             end;
 	{removed, String} when is_list(String) ->
-	    add_warning(Line, {removed, MFA, String}, St);
+	    add_removed_warning(Line, MFA, {removed, MFA, String}, St);
 	{removed, Replacement, Rel} ->
-	    add_warning(Line, {removed, MFA, Replacement, Rel}, St);
+	    add_removed_warning(Line, MFA, {removed, MFA, Replacement, Rel}, St);
         no ->
 	    St
+    end.
+
+add_removed_warning(Line, {M, _, _}=MFA, Warning, #lint{not_removed=NotRemoved}=St) ->
+    case is_warn_enabled(removed, St) andalso
+        not gb_sets:is_element(M, NotRemoved) andalso
+        not gb_sets:is_element(MFA, NotRemoved) of
+        true ->
+            add_warning(Line, Warning, St);
+        false ->
+            St
     end.
 
 -dialyzer({no_match, deprecated_type/5}).

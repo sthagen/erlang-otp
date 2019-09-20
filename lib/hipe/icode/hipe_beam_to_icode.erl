@@ -557,32 +557,21 @@ trans_fun([{move,Src,Dst}|Instructions], Env) ->
   Dst1 = mk_var(Dst),
   Src1 = trans_arg(Src),
   [hipe_icode:mk_move(Dst1,Src1) | trans_fun(Instructions,Env)];
-%%--- catch --- ITS PROCESSING IS POSTPONED
-trans_fun([{'catch',N,{_,EndLabel}}|Instructions], Env) ->
-  NewContLbl = mk_label(new),
-  [{'catch',N,EndLabel},NewContLbl | trans_fun(Instructions,Env)];
-%%--- catch_end --- ITS PROCESSING IS POSTPONED
-trans_fun([{catch_end,_N}=I|Instructions], Env) ->
-  [I | trans_fun(Instructions,Env)];
-%%--- try --- ITS PROCESSING IS POSTPONED
-trans_fun([{'try',N,{_,EndLabel}}|Instructions], Env) ->
-  NewContLbl = mk_label(new),
-  [{'try',N,EndLabel},NewContLbl | trans_fun(Instructions,Env)];
-%%--- try_end ---
-trans_fun([{try_end,_N}|Instructions], Env) ->
-  [hipe_icode:mk_end_try() | trans_fun(Instructions,Env)];
-%%--- try_case --- ITS PROCESSING IS POSTPONED
-trans_fun([{try_case,_N}=I|Instructions], Env) ->
-  [I | trans_fun(Instructions,Env)];
-%%--- try_case_end ---
-trans_fun([{try_case_end,Arg}|Instructions], Env) ->
-  BadArg = trans_arg(Arg),
-  ErrVar = mk_var(new),
-  Vs = [mk_var(new)],
-  Atom = hipe_icode:mk_move(ErrVar,hipe_icode:mk_const(try_clause)),
-  Tuple = hipe_icode:mk_primop(Vs,mktuple,[ErrVar,BadArg]),
-  Fail = hipe_icode:mk_fail(Vs,error),
-  [Atom,Tuple,Fail | trans_fun(Instructions,Env)];
+%%
+%% try/catch -- THESE ARE KNOWN TO MISCOMPILE, SEE OTP-15949
+%%
+trans_fun([{'catch'=Name,_,_}|_], _Env) ->
+  nyi(Name);
+trans_fun([{catch_end=Name,_}|_], _Env) ->
+  nyi(Name);
+trans_fun([{'try'=Name,_,_}|_], _Env) ->
+  nyi(Name);
+trans_fun([{try_end=Name,_}|_], _Env) ->
+  nyi(Name);
+trans_fun([{try_case=Name,_}|_], _Env) ->
+  nyi(Name);
+trans_fun([{try_case_end=Name,_}|_], _Env) ->
+  nyi(Name);
 %%--- raise ---
 trans_fun([{raise,{f,0},[Reg1,Reg2],{x,0}}|Instructions], Env) ->
   V1 = trans_arg(Reg1),
@@ -689,8 +678,8 @@ trans_fun([{call_fun,N}|Instructions], Env) ->
   Dst = [mk_var({r,0})],
   [hipe_icode:mk_comment('call_fun'),
    hipe_icode:mk_primop(Dst,call_fun,Args) | trans_fun(Instructions,Env)];
-%%--- patched_make_fun --- make_fun/make_fun2 after fixes
-trans_fun([{patched_make_fun,MFA,Magic,FreeVarNum,Index}|Instructions], Env) ->
+%%--- make_fun2 ---
+trans_fun([{make_fun2,MFA,Index,Magic,FreeVarNum}|Instructions], Env) ->
   Args = extract_fun_args(FreeVarNum),
   Dst = [mk_var({r,0})],
   Fun = hipe_icode:mk_primop(Dst,
@@ -1189,12 +1178,41 @@ trans_fun([raw_raise|Instructions], Env) ->
   [hipe_icode:mk_primop(Dst,raw_raise,Vars) |
    trans_fun(Instructions, Env)];
 %%--------------------------------------------------------------------
+%% New binary matching added in OTP 22.
+%%--------------------------------------------------------------------
+%%--- bs_get_tail ---
+trans_fun([{bs_get_tail=Name,_,_,_}|_Instructions], _Env) ->
+  nyi(Name);
+%%--- bs_start_match3 ---
+trans_fun([{bs_start_match3=Name,_,_,_,_}|_Instructions], _Env) ->
+  nyi(Name);
+%%--- bs_get_position ---
+trans_fun([{bs_get_position=Name,_,_,_}|_Instructions], _Env) ->
+  nyi(Name);
+%%--- bs_set_position ---
+trans_fun([{bs_set_position=Name,_,_}|_Instructions], _Env) ->
+  nyi(Name);
+%%--------------------------------------------------------------------
+%% New instructions added in OTP 23.
+%%--------------------------------------------------------------------
+%%--- swap ---
+trans_fun([{swap,Reg1,Reg2}|Instructions], Env) ->
+  Var1 = mk_var(Reg1),
+  Var2 = mk_var(Reg2),
+  Temp = mk_var(new),
+  [hipe_icode:mk_move(Temp, Var1),
+   hipe_icode:mk_move(Var1, Var2),
+   hipe_icode:mk_move(Var2, Temp) | trans_fun(Instructions, Env)];
+%%--------------------------------------------------------------------
 %%--- ERROR HANDLING ---
 %%--------------------------------------------------------------------
 trans_fun([X|_], _) ->
   ?EXIT({'trans_fun/2',X});
 trans_fun([], _) ->
   [].
+
+nyi(Name) ->
+  throw({unimplemented_instruction,Name}).
 
 %%--------------------------------------------------------------------
 %% trans_call and trans_enter generate correct Icode calls/tail-calls,
@@ -1928,7 +1946,7 @@ mod_find_closure_info([FunCode|Fs], CI) ->
 mod_find_closure_info([], CI) ->
   CI.
 
-find_closure_info([{patched_make_fun,MFA={_M,_F,A},_Magic,FreeVarNum,_Index}|BeamCode],
+find_closure_info([{make_fun2,{_M,_F,A}=MFA,_Index,_Magic,FreeVarNum}|BeamCode],
 		  ClosureInfo) ->
   NewClosure = %% A-FreeVarNum+1 (The real arity + 1 for the closure)
     #closure_info{mfa=MFA, arity=A-FreeVarNum+1, fv_arity=FreeVarNum},
@@ -2006,41 +2024,8 @@ split_params(N, [ArgN|OrgArgs], Args) ->
 %%-----------------------------------------------------------------------
 
 preprocess_code(ModuleCode) ->
-  PatchedCode = patch_R7_funs(ModuleCode),
-  ClosureInfo = find_closure_info(PatchedCode),
-  {PatchedCode, ClosureInfo}.
-
-%%-----------------------------------------------------------------------
-%% Patches the "make_fun" BEAM instructions of R7 so that they also
-%% contain the index that the BEAM loader generates for funs.
-%% 
-%% The index starts from 0 and is incremented by 1 for each make_fun
-%% instruction encountered.
-%%
-%% Retained only for compatibility with BEAM code prior to R8.
-%%
-%% Temporarily, it also rewrites R8-PRE-RELEASE "make_fun2"
-%% instructions, since their embedded indices don't work.
-%%-----------------------------------------------------------------------
-
-patch_R7_funs(ModuleCode) ->
-  patch_make_funs(ModuleCode, 0).
-
-patch_make_funs([FunCode0|Fs], FunIndex0) ->
-  {PatchedFunCode,FunIndex} = patch_make_funs(FunCode0, FunIndex0, []),
-  [PatchedFunCode|patch_make_funs(Fs, FunIndex)];
-patch_make_funs([], _) -> [].
-
-patch_make_funs([{make_fun,MFA,Magic,FreeVarNum}|Is], FunIndex, Acc) ->
-  Patched = {patched_make_fun,MFA,Magic,FreeVarNum,FunIndex},
-  patch_make_funs(Is, FunIndex+1, [Patched|Acc]);
-patch_make_funs([{make_fun2,MFA,_BogusIndex,Magic,FreeVarNum}|Is], FunIndex, Acc) ->
-  Patched = {patched_make_fun,MFA,Magic,FreeVarNum,FunIndex},
-  patch_make_funs(Is, FunIndex+1, [Patched|Acc]);
-patch_make_funs([I|Is], FunIndex, Acc) ->
-  patch_make_funs(Is, FunIndex, [I|Acc]);
-patch_make_funs([], FunIndex, Acc) ->
-  {lists:reverse(Acc),FunIndex}.
+  ClosureInfo = find_closure_info(ModuleCode),
+  {ModuleCode, ClosureInfo}.
 
 %%-----------------------------------------------------------------------
 

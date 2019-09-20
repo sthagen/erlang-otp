@@ -179,21 +179,24 @@ function({function,Name,Arity,CLabel,Asm0}, Lc0) ->
 eliminate_moves(Is) ->
     eliminate_moves(Is, #{}, []).
 
-eliminate_moves([{select,select_val,Reg,_,List}=I|Is], D0, Acc) ->
-    D = update_value_dict(List, Reg, D0),
+eliminate_moves([{select,select_val,Reg,{f,Fail},List}=I|Is], D0, Acc) ->
+    D1 = add_unsafe_label(Fail, D0),
+    D = update_value_dict(List, Reg, D1),
     eliminate_moves(Is, D, [I|Acc]);
-eliminate_moves([{label,Lbl},{block,[{set,[Dst],[Lit],move}|BlkIs]}=Blk0|Is],
-        D, Acc0) ->
+eliminate_moves([{test,is_eq_exact,_,[Reg,Val]}=I,
+                 {block,BlkIs0}|Is], D0, Acc) ->
+    D = update_unsafe_labels(I, D0),
+    RegVal = {Reg,Val},
+    BlkIs = eliminate_moves_blk(BlkIs0, RegVal),
+    eliminate_moves([{block,BlkIs}|Is], D, [I|Acc]);
+eliminate_moves([{label,Lbl},{block,BlkIs0}=Blk|Is], D, Acc0) ->
     Acc = [{label,Lbl}|Acc0],
-    case already_has_value(Lit, Lbl, Dst, D) andalso
-        no_fallthrough(Acc0) of
-        true ->
-            %% Remove redundant 'move' instruction.
-            Blk = {block,BlkIs},
-            eliminate_moves([Blk|Is], D, Acc);
-        false ->
-            %% Keep 'move' instruction.
-            eliminate_moves([Blk0|Is], D, Acc)
+    case {no_fallthrough(Acc0),D} of
+        {true,#{Lbl:={_,_}=RegVal}} ->
+            BlkIs = eliminate_moves_blk(BlkIs0, RegVal),
+            eliminate_moves([{block,BlkIs}|Is], D, Acc);
+        {_,_} ->
+            eliminate_moves([Blk|Is], D, Acc)
     end;
 eliminate_moves([{block,[]}|Is], D, Acc) ->
     %% Empty blocks can prevent further jump optimizations.
@@ -203,16 +206,19 @@ eliminate_moves([I|Is], D0, Acc) ->
     eliminate_moves(Is, D, [I|Acc]);
 eliminate_moves([], _, Acc) -> reverse(Acc).
 
+eliminate_moves_blk([{set,[Dst],[_],move}|_]=Is, {_,Dst}) ->
+    Is;
+eliminate_moves_blk([{set,[Dst],[Lit],move}|Is], {Dst,Lit}) ->
+    %% Remove redundant 'move' instruction.
+    Is;
+eliminate_moves_blk([{set,[Dst],[_],move}|_]=Is, {Dst,_}) ->
+    Is;
+eliminate_moves_blk([{set,[_],[_],move}=I|Is], {_,_}=RegVal) ->
+    [I|eliminate_moves_blk(Is, RegVal)];
+eliminate_moves_blk(Is, _) -> Is.
+
 no_fallthrough([I|_]) ->
     is_unreachable_after(I).
-
-already_has_value(Lit, Lbl, Reg, D) ->
-    case D of
-        #{Lbl:={Reg,Lit}} ->
-            true;
-        #{} ->
-            false
-    end.
 
 update_value_dict([Lit,{f,Lbl}|T], Reg, D0) ->
     D = case D0 of
@@ -223,6 +229,9 @@ update_value_dict([Lit,{f,Lbl}|T], Reg, D0) ->
         end,
     update_value_dict(T, Reg, D);
 update_value_dict([], _, D) -> D.
+
+add_unsafe_label(L, D) ->
+    D#{L=>unsafe}.
 
 update_unsafe_labels(I, D) ->
     Ls = instr_labels(I),
@@ -571,8 +580,6 @@ is_unreachable_after(I) -> is_exit_instruction(I).
 
 -spec is_exit_instruction(instruction()) -> boolean().
 
-is_exit_instruction({call_ext,_,{extfunc,M,F,A}}) ->
-    erl_bifs:is_exit_bif(M, F, A);
 is_exit_instruction(if_end) -> true;
 is_exit_instruction({case_end,_}) -> true;
 is_exit_instruction({try_case_end,_}) -> true;

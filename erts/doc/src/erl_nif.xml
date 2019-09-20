@@ -38,13 +38,9 @@
     <p>A NIF library contains native implementation of some functions
       of an Erlang module. The native implemented functions (NIFs) are
       called like any other functions without any difference to the
-      caller. Each NIF must have an implementation in Erlang that
-      is invoked if the function is called before the NIF library
-      is successfully loaded. A typical such stub implementation
-      is to throw an exception. But it can also be used as a fallback
-      implementation if the NIF library is not implemented for some
-      architecture.</p>
-
+      caller. A NIF library is built as a dynamically linked library file
+      and loaded in runtime by calling <seealso marker="erlang#load_nif-2">
+      <c>erlang:load_nif/2</c></seealso>.</p>
     <warning>
       <marker id="WARNING"/>
       <p><em>Use this functionality with extreme care.</em></p>
@@ -56,7 +52,7 @@
         VM will misbehave.</p>
       <list type="bulleted">
         <item>
-          <p>A native function that crash will crash the whole VM.</p>
+          <p>A native function that crashes will crash the whole VM.</p>
         </item>
         <item>
           <p>An erroneously implemented native function can cause a VM
@@ -75,6 +71,9 @@
         </item>
       </list>
     </warning>
+  </description>
+  <section>
+    <title>Example</title>
 
     <p>A minimal example of a NIF library can look as follows:</p>
 
@@ -101,11 +100,13 @@ ERL_NIF_INIT(niftest,nif_funcs,NULL,NULL,NULL,NULL)</code>
 
 -export([init/0, hello/0]).
 
+-on_load(init/0).
+
 init() ->
       erlang:load_nif("./niftest", 0).
 
 hello() ->
-      "NIF library not loaded".</code>
+      erlang:nif_error("NIF library not loaded").</code>
 
     <p>Compile and test can look as follows (on Linux):</p>
 
@@ -116,28 +117,30 @@ $> erl
 1> c(niftest).
 {ok,niftest}
 2> niftest:hello().
-"NIF library not loaded"
-3> niftest:init().
-ok
-4> niftest:hello().
 "Hello world!"</code>
 
-    <p>A better solution for a real module is to take advantage of the new
-      directive <c>on_load</c> (see section
-      <seealso marker="doc/reference_manual:code_loading#on_load">Running a
-      Function When a Module is Loaded</seealso> in the Erlang Reference
-      Manual) to load the NIF library automatically when the module is
-      loaded.</p>
-
+    <p>
+      In the example above the <seealso marker="doc/reference_manual:code_loading#on_load">
+      <em><c>on_load</c></em></seealso> directive is used get function <c>init</c> called
+      automatically when the module is loaded. Function <c>init</c> in turn
+      calls <seealso marker="erlang#load_nif-2"><c>erlang:load_nif/2</c></seealso>
+      which loads the NIF library and replaces the <c>hello</c> function with its
+      native implementation in C. Once loaded, a NIF library is persistent. It
+      will not be unloaded until the module code version that it belongs to is
+      purged.</p>
+    <p>
+      Each NIF must have an implementation in Erlang to be invoked if the
+      function is called before the NIF library is successfully loaded. A
+      typical such stub implementation is to call <seealso marker="erlang#nif_error-1">
+      <c>erlang:nif_error</c></seealso> which will raise an exception. The
+      Erlang function can also be used as a fallback implementation if the NIF
+      library lacks implementation for some OS or hardware architecture for example.</p>
     <note>
       <p>A NIF does not have to be exported, it can be local to the module.
         However, unused local stub functions will be optimized
         away by the compiler, causing loading of the NIF library to fail.</p>
     </note>
-
-    <p>Once loaded, a NIF library is persistent. It will not be unloaded
-      until the module code version that it belongs to is purged.</p>
-  </description>
+  </section>
 
   <section>
   <title>Functionality</title>
@@ -546,8 +549,8 @@ int writeiovec(ErlNifEnv *env, ERL_NIF_TERM term, ERL_NIF_TERM *tail,
             <p>Many operations communicating with a process executing a
               dirty NIF can, however, complete while it executes the
               dirty NIF. For example, retrieving information about it through
-              <seealso marker="erlang:process_info/1">
-              <c>erlang:process_info</c></seealso>, setting its group leader,
+              <seealso marker="erlang#process_info/1">
+              <c>process_info</c></seealso>, setting its group leader,
               register/unregister its name, and so on.</p>
             <p>Termination of a process executing a dirty NIF can only be
               completed up to a certain point while it executes the dirty NIF.
@@ -783,14 +786,16 @@ typedef struct {
         <p>A process identifier (pid). In contrast to pid terms (instances of
           <c>ERL_NIF_TERM</c>), <c>ErlNifPid</c>s are self-contained and not
           bound to any <seealso marker="#ErlNifEnv">environment</seealso>.
-          <c>ErlNifPid</c> is an opaque type.</p>
+          <c>ErlNifPid</c> is an opaque type. It can be copied, moved
+	  in memory, forgotten, and so on.</p>
       </item>
       <tag><marker id="ErlNifPort"/><c>ErlNifPort</c></tag>
       <item>
         <p>A port identifier. In contrast to port ID terms (instances of
           <c>ERL_NIF_TERM</c>), <c>ErlNifPort</c>s are self-contained and not
           bound to any <seealso marker="#ErlNifEnv">environment</seealso>.
-          <c>ErlNifPort</c> is an opaque type.</p>
+	  <c>ErlNifPort</c> is an opaque type. It can be copied, moved
+	  in memory, forgotten, and so on.</p>
       </item>
       <tag><marker id="ErlNifResourceType"/><c>ErlNifResourceType</c></tag>
       <item>
@@ -1084,6 +1089,20 @@ typedef struct {
         <p>Returns <c>0</c> if <c>monitor1</c> and <c>monitor2</c> are equal,
           &lt; <c>0</c> if <c>monitor1</c> &lt; <c>monitor2</c>, and
           &gt; <c>0</c> if <c>monitor1</c> &gt; <c>monitor2</c>.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name since="OTP 22.0"><ret>int</ret>
+      <nametext>enif_compare_pids(const ErlNifPid *pid1, const ErlNifPid *pid2)
+      </nametext></name>
+      <fsummary>Compare two pids.</fsummary>
+      <desc>
+        <p>Compares two <seealso marker="#ErlNifPid"><c>ErlNifPid</c>
+	  </seealso>s according to term order.</p>
+        <p>Returns <c>0</c> if <c>pid1</c> and <c>pid2</c> are equal,
+          &lt; <c>0</c> if <c>pid1</c> &lt; <c>pid2</c>, and
+          &gt; <c>0</c> if <c>pid1</c> &gt; <c>pid2</c>.</p>
       </desc>
     </func>
 
@@ -1392,6 +1411,9 @@ enif_free_iovec(iovec);]]></code>
           initializes the pid variable <c>*pid</c> from it and returns
           <c>true</c>. Otherwise returns <c>false</c>. No check is done to see
           if the process is alive.</p>
+	<note><p><c>enif_get_local_pid</c> will return false if argument
+	<c>term</c> is the atom <seealso marker="#enif_make_pid">
+	<c>undefined</c></seealso>.</p></note>
       </desc>
     </func>
 
@@ -1476,6 +1498,9 @@ enif_free_iovec(iovec);]]></code>
           <c>term</c>.</p>
         <p>Returns <c>true</c> on success, or <c>false</c> if <c>term</c> is
           not a handle to a resource object of type <c>type</c>.</p>
+	<p><c>enif_get_resource</c> does not add a reference to the resource
+	  object. However, the pointer received in <c>*objp</c> is guaranteed to
+	  be valid at least as long as the resource handle <c>term</c> is valid.</p>
       </desc>
     </func>
 
@@ -1871,6 +1896,17 @@ enif_inspect_iovec(env, max_elements, term, &amp;tail, &amp;iovec);
     </func>
 
     <func>
+      <name since="OTP 22.0"><ret>int</ret>
+        <nametext>enif_is_pid_undefined(const ErlNifPid* pid)</nametext></name>
+      <fsummary>Determine if pid is undefined.</fsummary>
+      <desc>
+        <p>Returns <c>true</c> if <c>pid</c> has been set as undefined by
+	<seealso marker="#enif_set_pid_undefined"><c>enif_set_pid_undefined</c>
+	</seealso>.</p>
+      </desc>
+    </func>
+
+    <func>
       <name since="OTP R13B04"><ret>int</ret>
         <nametext>enif_is_port(ErlNifEnv* env, ERL_NIF_TERM term)</nametext>
       </name>
@@ -2217,6 +2253,18 @@ enif_inspect_iovec(env, max_elements, term, &amp;tail, &amp;iovec);
     </func>
 
     <func>
+      <name since="OTP 22.0"><ret>ERL_NIF_TERM</ret>
+        <nametext>enif_make_monitor_term(ErlNifEnv* env, const ErlNifMonitor* mon)</nametext></name>
+      <fsummary>Make monitor term from the given monitor identifier.</fsummary>
+      <desc>
+        <p>Creates a term identifying the given monitor received from
+	<seealso marker="#enif_monitor_process"><c>enif_monitor_process</c>
+	</seealso>.</p>
+	<p>This function is primarily intended for debugging purpose.</p>
+      </desc>
+    </func>
+
+    <func>
       <name since="OTP R14B"><ret>unsigned char *</ret><nametext>enif_make_new_binary(ErlNifEnv*
         env, size_t size, ERL_NIF_TERM* termp)</nametext></name>
       <fsummary>Allocate and create a new binary term.</fsummary>
@@ -2247,7 +2295,8 @@ enif_inspect_iovec(env, max_elements, term, &amp;tail, &amp;iovec);
       </name>
       <fsummary>Make a pid term.</fsummary>
       <desc>
-        <p>Makes a pid term from <c>*pid</c>.</p>
+        <p>Makes a pid term or the atom <seealso marker="#enif_set_pid_undefined">
+	<c>undefined</c></seealso> from <c>*pid</c>.</p>
       </desc>
     </func>
 
@@ -2613,7 +2662,9 @@ enif_map_iterator_destroy(env, &amp;iter);</code>
 	<p>Argument <c>caller_env</c> is the environment of the calling process
 	or callback. Must only be NULL if calling from a custom thread.</p>
         <p>Returns <c>0</c> on success, &lt; 0 if no <c>down</c> callback is
-          provided, and &gt; 0 if the process is no longer alive.</p>
+          provided, and &gt; 0 if the process is no longer alive or if
+	  <c>target_pid</c> is <seealso marker="#enif_set_pid_undefined">
+	  undefined</seealso>.</p>
         <p>This function is only thread-safe when the emulator with SMP support
           is used. It can only be used in a non-SMP emulator from a NIF-calling
           thread.</p>
@@ -2902,6 +2953,10 @@ enif_map_iterator_destroy(env, &amp;iter);</code>
           References made by <seealso marker="#enif_make_resource">
           <c>enif_make_resource</c></seealso>
           can only be removed by the garbage collector.</p>
+	<p>There are no guarantees exactly when the destructor of an
+	  unreferenced resource is called. It could be called directly by
+	  <c>enif_release_resource</c> but it could also be scheduled to be
+	  called at a later time possibly by another thread.</p>
       </desc>
     </func>
 
@@ -3063,7 +3118,14 @@ enif_map_iterator_destroy(env, &amp;iter);</code>
 	<code type="none">{select, Obj, Ref, ready_input | ready_output}</code>
 	<p><c>ready_input</c> or <c>ready_output</c> indicates if the event object
 	  is ready for reading or writing.</p>
-	<p>Argument <c>pid</c> may be <c>NULL</c> to indicate the calling process.</p>
+	<note><p>For complete control over the message format use the newer functions
+	  <seealso marker="#enif_select_read"><c>enif_select_read</c></seealso> or
+	  <seealso marker="#enif_select_write"><c>enif_select_write</c></seealso>
+	  introduced in erts-11.0 (OTP-22.0).</p>
+	</note>
+	<p>Argument <c>pid</c> may be <c>NULL</c> to indicate the calling
+	  process. It must not be set as <seealso marker="#enif_set_pid_undefined">
+	  undefined</seealso>.</p>
 	<p>Argument <c>obj</c> is a resource object obtained from
           <seealso marker="#enif_alloc_resource"><c>enif_alloc_resource</c></seealso>.
 	  The purpose of the resource objects is as a container of the event object
@@ -3074,16 +3136,18 @@ enif_map_iterator_destroy(env, &amp;iter);</code>
 	  or the atom <c>undefined</c>. It will be passed as <c>Ref</c> in the notifications.
 	  If a selective <c>receive</c> statement is used to wait for the notification
 	  then a reference created just before the <c>receive</c> will exploit a runtime
-	  optimization that bypasses all earlier received messages in the queue.</p>
+	  optimization that bypasses all earlier received messages in the
+	  queue.</p>
 	<p>The notifications are one-shot only. To receive further notifications of the same
 	  type (read or write), repeated calls to <c>enif_select</c> must be made
 	  after receiving each notification.</p>
 	<p><c>ERL_NIF_SELECT_CANCEL</c> can be used to cancel previously
 	  selected events. It must be used in a bitwise OR combination with
 	  <c>ERL_NIF_SELECT_READ</c> and/or <c>ERL_NIF_SELECT_WRITE</c> to
-	  indicate which type of event to cancel. The return value will
-	  tell if the event was actualy cancelled or if a notification may
-	  already have been sent.</p>
+	  indicate which type of event to cancel. Arguments <c>pid</c> and
+	  <c>ref</c> are ignored when <c>ERL_NIF_SELECT_CANCEL</c> is specified.
+	  The return value will tell if the event was actualy cancelled or if a
+	  notification may already have been sent.</p>
 	<p>Use <c>ERL_NIF_SELECT_STOP</c> as <c>mode</c> in order to safely
 	  close an event object that has been passed to <c>enif_select</c>. The
 	  <seealso marker="#ErlNifResourceStop"><c>stop</c></seealso> callback
@@ -3092,7 +3156,9 @@ enif_map_iterator_destroy(env, &amp;iter);</code>
 	  even if all notifications have been received (or cancelled) and no
 	  further calls to <c>enif_select</c> have been made.
 	  <c>ERL_NIF_SELECT_STOP</c> will first cancel any selected events
-	  before it calls or schedules the <c>stop</c> callback.</p>
+	  before it calls or schedules the <c>stop</c> callback. Arguments
+	  <c>pid</c> and <c>ref</c> are ignored when <c>ERL_NIF_SELECT_STOP</c>
+	  is specified.</p>
 	<p>The first call to <c>enif_select</c> for a specific OS <c>event</c> will establish
 	  a relation between the event object and the containing resource. All subsequent calls
 	  for an <c>event</c> must pass its containing resource as argument
@@ -3157,6 +3223,38 @@ if (retval &amp; ERL_NIF_SELECT_STOP_CALLED) {
     </func>
 
     <func>
+      <name since="OTP 22.0"><ret>int</ret>
+      <nametext>enif_select_read(ErlNifEnv* env, ErlNifEvent event, void* obj,
+      const ErlNifPid* pid, ERL_NIF_TERM msg, ErlNifEnv* msg_env)</nametext>
+      </name>
+      <name since="OTP 22.0"><ret>int</ret>
+      <nametext>enif_select_write(ErlNifEnv* env, ErlNifEvent event, void* obj,
+      const ErlNifPid* pid, ERL_NIF_TERM msg, ErlNifEnv* msg_env)</nametext>
+      </name>
+      <fsummary>Manage subscription on IO event.</fsummary>
+      <desc>
+	<p>These are variants of <seealso marker="#enif_select">enif_select</seealso>
+	where you can supply your own message term <c>msg</c> that will be sent to
+	the process instead of the predefined tuple <c>{select,_,_,_}.</c></p>
+        <p>Argument <c>msg_env</c> must either be <c>NULL</c> or the environment of
+	<c>msg</c> allocated with <seealso marker="#enif_alloc_env">
+	<c>enif_alloc_env</c></seealso>. If argument <c>msg_env</c> is
+	<c>NULL</c> the term <c>msg</c> will be copied, otherwise both
+	<c>msg</c> and <c>msg_env</c> will be invalidated by a successful call
+	to <c>enif_select_read</c> or <c>enif_select_write</c>. The environment
+	is then to either be freed with <seealso marker="#enif_free_env">
+        <c>enif_free_env</c></seealso> or cleared for reuse with
+	<seealso marker="#enif_clear_env"><c>enif_clear_env</c></seealso>. An
+	unsuccessful call will leave <c>msg</c> and <c>msg_env</c> still valid.</p>
+	<p>Apart from the message format <c>enif_select_read</c> and
+	<c>enif_select_write</c> behaves exactly the same as <seealso
+	marker="#enif_select">enif_select</seealso> with argument <c>mode</c> as
+	either <c>ERL_NIF_SELECT_READ</c> or <c>ERL_NIF_SELECT_WRITE</c>. To
+	cancel or close events use <seealso marker="#enif_select">enif_select</seealso>.</p>
+      </desc>
+    </func>
+
+    <func>
       <name since="OTP R14B"><ret>ErlNifPid *</ret>
         <nametext>enif_self(ErlNifEnv* caller_env, ErlNifPid* pid)</nametext>
       </name>
@@ -3201,8 +3299,9 @@ if (retval &amp; ERL_NIF_SELECT_STOP_CALLED) {
           <c>msg</c>) is invalidated by a successful call to <c>enif_send</c>.
           The environment is to either be freed with
           <seealso marker="#enif_free_env">
-          <c>enif_free_env</c></seealso> of cleared for reuse with
-          <seealso marker="#enif_clear_env"><c>enif_clear_env</c></seealso>.</p>
+          <c>enif_free_env</c></seealso> or cleared for reuse with
+          <seealso marker="#enif_clear_env"><c>enif_clear_env</c></seealso>. An
+	  unsuccessful call will leave <c>msg</c> and <c>msg_env</c> still valid.</p>
         <p>If <c>msg_env</c> is set to <c>NULL</c>, the <c>msg</c> term is
           copied and the original term and its environment is still valid after
           the call.</p>
@@ -3213,6 +3312,17 @@ if (retval &amp; ERL_NIF_SELECT_STOP_CALLED) {
           <p>Passing <c>msg_env</c> as <c>NULL</c> is only supported as from
             ERTS 8.0 (Erlang/OTP 19).</p>
         </note>
+      </desc>
+    </func>
+
+    <func>
+      <name since="OTP 22.0"><ret>void</ret>
+        <nametext>enif_set_pid_undefined(ErlNifPid* pid)</nametext></name>
+      <fsummary>Set pid as undefined.</fsummary>
+      <desc>
+        <p>Sets an <seealso marker="#ErlNifPid"><c>ErlNifPid</c></seealso>
+	variable as undefined. See <seealso marker="#enif_is_pid_undefined">
+	<c>enif_is_pid_undefined</c></seealso>.</p>
       </desc>
     </func>
 
@@ -3265,6 +3375,48 @@ if (retval &amp; ERL_NIF_SELECT_STOP_CALLED) {
         <c>erlang:term_to_binary/1</c></seealso> and
         <seealso marker="#enif_binary_to_term">
         <c>enif_binary_to_term</c></seealso>.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name since="OTP 22.0"><ret>ErlNifTermType</ret>
+        <nametext>enif_term_type(ErlNifEnv *env, ERL_NIF_TERM term)</nametext>
+      </name>
+      <fsummary>Determine the type of a term.</fsummary>
+      <desc>
+        <p>Determines the type of the given term. The term must be an ordinary
+          Erlang term and not one of the special terms returned by
+          <seealso marker="#enif_raise_exception">
+          <c>enif_raise_exception</c></seealso>,
+          <seealso marker="#enif_schedule_nif">
+          <c>enif_schedule_nif</c></seealso>, or similar.</p>
+        <p>The following types are defined at the moment:</p>
+        <taglist>
+          <tag><c>ERL_NIF_TERM_TYPE_ATOM</c></tag>
+          <item/>
+          <tag><c>ERL_NIF_TERM_TYPE_BITSTRING</c></tag>
+          <item><p>A bitstring or binary</p></item>
+          <tag><c>ERL_NIF_TERM_TYPE_FLOAT</c></tag>
+          <item/>
+          <tag><c>ERL_NIF_TERM_TYPE_FUN</c></tag>
+          <item/>
+          <tag><c>ERL_NIF_TERM_TYPE_INTEGER</c></tag>
+          <item/>
+          <tag><c>ERL_NIF_TERM_TYPE_LIST</c></tag>
+          <item><p>A list, empty or not</p></item>
+          <tag><c>ERL_NIF_TERM_TYPE_MAP</c></tag>
+          <item/>
+          <tag><c>ERL_NIF_TERM_TYPE_PID</c></tag>
+          <item/>
+          <tag><c>ERL_NIF_TERM_TYPE_PORT</c></tag>
+          <item/>
+          <tag><c>ERL_NIF_TERM_TYPE_REFERENCE</c></tag>
+          <item/>
+          <tag><c>ERL_NIF_TERM_TYPE_TUPLE</c></tag>
+          <item/>
+        </taglist>
+        <p>Note that new types may be added in the future, so the caller must
+          be prepared to handle unknown types.</p>
       </desc>
     </func>
 

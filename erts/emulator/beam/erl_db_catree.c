@@ -90,9 +90,9 @@
 ** Forward declarations
 */
 
-static SWord do_free_base_node_cont(DbTableCATree *tb, SWord num_left);
-static SWord do_free_routing_nodes_catree_cont(DbTableCATree *tb, SWord num_left);
-static DbTableCATreeNode *catree_first_base_node_from_free_list(DbTableCATree *tb);
+static SWord do_delete_base_node_cont(DbTableCATree *tb,
+                                    DbTableCATreeNode *base_node,
+                                    SWord num_left);
 
 /* Method interface functions */
 static int db_first_catree(Process *p, DbTable *tbl,
@@ -116,24 +116,31 @@ static int db_erase_object_catree(DbTable *tbl, Eterm object,Eterm *ret);
 static int db_slot_catree(Process *p, DbTable *tbl,
                           Eterm slot_term,  Eterm *ret);
 static int db_select_catree(Process *p, DbTable *tbl, Eterm tid,
-                            Eterm pattern, int reversed, Eterm *ret);
+                            Eterm pattern, int reversed, Eterm *ret,
+                            enum DbIterSafety);
 static int db_select_count_catree(Process *p, DbTable *tbl, Eterm tid,
-                                  Eterm pattern,  Eterm *ret);
+                                  Eterm pattern,  Eterm *ret, enum DbIterSafety);
 static int db_select_chunk_catree(Process *p, DbTable *tbl, Eterm tid,
                                   Eterm pattern, Sint chunk_size,
-                                  int reversed, Eterm *ret);
+                                  int reversed, Eterm *ret, enum DbIterSafety);
 static int db_select_continue_catree(Process *p, DbTable *tbl,
-                                     Eterm continuation, Eterm *ret);
+                                     Eterm continuation, Eterm *ret,
+                                     enum DbIterSafety*);
 static int db_select_count_continue_catree(Process *p, DbTable *tbl,
-                                           Eterm continuation, Eterm *ret);
+                                           Eterm continuation, Eterm *ret,
+                                           enum DbIterSafety*);
 static int db_select_delete_catree(Process *p, DbTable *tbl, Eterm tid,
-                                   Eterm pattern,  Eterm *ret);
+                                   Eterm pattern,  Eterm *ret,
+                                   enum DbIterSafety);
 static int db_select_delete_continue_catree(Process *p, DbTable *tbl, 
-                                            Eterm continuation, Eterm *ret);
+                                            Eterm continuation, Eterm *ret,
+                                            enum DbIterSafety*);
 static int db_select_replace_catree(Process *p, DbTable *tbl, Eterm tid,
-                                    Eterm pattern, Eterm *ret);
+                                    Eterm pattern, Eterm *ret,
+                                    enum DbIterSafety);
 static int db_select_replace_continue_catree(Process *p, DbTable *tbl,
-                                             Eterm continuation, Eterm *ret);
+                                             Eterm continuation, Eterm *ret,
+                                             enum DbIterSafety*);
 static int db_take_catree(Process *, DbTable *, Eterm, Eterm *);
 static void db_print_catree(fmtfn_t to, void *to_arg,
                             int show, DbTable *tbl);
@@ -142,11 +149,17 @@ static SWord db_free_table_continue_catree(DbTable *tbl, SWord);
 static void db_foreach_offheap_catree(DbTable *,
                                       void (*)(ErlOffHeap *, void *),
                                       void *);
-static SWord db_delete_all_objects_catree(Process* p, DbTable* tbl, SWord reds);
+static SWord db_delete_all_objects_catree(Process* p,
+                                          DbTable* tbl,
+                                          SWord reds,
+                                          Eterm* nitems_holder_wb);
+static Eterm db_delete_all_objects_get_nitems_from_holder_catree(Process* p,
+                                                                 Eterm nitems_holder);
 static int
 db_lookup_dbterm_catree(Process *, DbTable *, Eterm key, Eterm obj,
                         DbUpdateHandle*);
 static void db_finalize_dbterm_catree(int cret, DbUpdateHandle *);
+static int db_get_binary_info_catree(Process*, DbTable*, Eterm key, Eterm *ret);
 
 static void split_catree(DbTableCATree *tb,
                          DbTableCATreeNode* ERTS_RESTRICT base,
@@ -154,8 +167,17 @@ static void split_catree(DbTableCATree *tb,
 static void join_catree(DbTableCATree *tb,
                         DbTableCATreeNode *thiz,
                         DbTableCATreeNode *parent);
-
-
+static ERTS_INLINE
+int try_wlock_base_node(DbTableCATreeBaseNode *base_node);
+static ERTS_INLINE
+void wunlock_base_node(DbTableCATreeNode *base_node);
+static ERTS_INLINE
+void wlock_base_node_no_stats(DbTableCATreeNode *base_node);
+static ERTS_INLINE
+void wunlock_adapt_base_node(DbTableCATree* tb,
+                             DbTableCATreeNode* node,
+                             DbTableCATreeNode* parent,
+                             int current_level);
 /*
 ** External interface
 */
@@ -184,25 +206,32 @@ DbTableMethod db_catree =
     db_select_replace_continue_catree,
     db_take_catree,
     db_delete_all_objects_catree,
+    db_delete_all_objects_get_nitems_from_holder_catree,
     db_free_table_catree,
     db_free_table_continue_catree,
     db_print_catree,
     db_foreach_offheap_catree,
     db_lookup_dbterm_catree,
-    db_finalize_dbterm_catree
-
+    db_finalize_dbterm_catree,
+    db_get_binary_info_catree,
+    db_first_catree, /* raw_first same as first */
+    db_next_catree   /* raw_next same as next */
 };
 
 /*
  * Constants
  */
 
-#define ERL_DB_CATREE_LOCK_FAILURE_CONTRIBUTION 200
+#define ERL_DB_CATREE_LOCK_FAILURE_CONTRIBUTION 250
 #define ERL_DB_CATREE_LOCK_SUCCESS_CONTRIBUTION (-1)
+#define ERL_DB_CATREE_LOCK_GRAVITY_CONTRIBUTION (-500)
+#define ERL_DB_CATREE_LOCK_GRAVITY_PATTERN (0xFF800000)
 #define ERL_DB_CATREE_LOCK_MORE_THAN_ONE_CONTRIBUTION (-10)
 #define ERL_DB_CATREE_HIGH_CONTENTION_LIMIT 1000
 #define ERL_DB_CATREE_LOW_CONTENTION_LIMIT (-1000)
-#define ERL_DB_CATREE_MAX_ROUTE_NODE_LAYER_HEIGHT 14
+#define ERL_DB_CATREE_MAX_ROUTE_NODE_LAYER_HEIGHT 16
+#define ERL_DB_CATREE_LOCK_LOW_NO_CONTRIBUTION_LIMIT (-20000)
+#define ERL_DB_CATREE_LOCK_HIGH_NO_CONTRIBUTION_LIMIT (20000)
 
 /*
  * Internal CA tree related helper functions and macros
@@ -231,6 +260,27 @@ DbTableMethod db_catree =
 #define SET_ROOT_RELB(tb, v) erts_atomic_set_relb(&((tb)->root), (erts_aint_t)(v))
 #define SET_LEFT_RELB(ca_tree_route_node, v) erts_atomic_set_relb(&(ca_tree_route_node->u.route.left), (erts_aint_t)(v));
 #define SET_RIGHT_RELB(ca_tree_route_node, v) erts_atomic_set_relb(&(ca_tree_route_node->u.route.right), (erts_aint_t)(v));
+
+/* Change base node lock statistics */
+#define BASE_NODE_STAT_SET(NODE, VALUE) erts_atomic_set_nob(&(NODE)->u.base.lock_statistics, VALUE)
+#define BASE_NODE_STAT_READ(NODE) erts_atomic_read_nob(&(NODE)->u.base.lock_statistics)
+#define BASE_NODE_STAT_ADD(NODE, VALUE)                                 \
+    do {                                                                \
+        Sint v = erts_atomic_read_nob(&((NODE)->u.base.lock_statistics)); \
+        ASSERT(VALUE > 0);                                              \
+        if(v < ERL_DB_CATREE_LOCK_HIGH_NO_CONTRIBUTION_LIMIT) {          \
+            erts_atomic_set_nob(&(NODE->u.base.lock_statistics), v + VALUE); \
+        }                                                               \
+    }while(0);
+#define BASE_NODE_STAT_SUB(NODE, VALUE)                                 \
+    do {                                                                \
+        Sint v = erts_atomic_read_nob(&((NODE)->u.base.lock_statistics)); \
+        ASSERT(VALUE < 0);                                              \
+        if(v > ERL_DB_CATREE_LOCK_LOW_NO_CONTRIBUTION_LIMIT) {          \
+            erts_atomic_set_nob(&(NODE->u.base.lock_statistics), v + VALUE); \
+        }                                                               \
+    }while(0);
+
 
 /* Compares a key to the key in a route node */
 static ERTS_INLINE Sint cmp_key_route(Eterm key,
@@ -634,21 +684,64 @@ static int dbg_fastrand(void)
 static void dbg_provoke_random_splitjoin(DbTableCATree* tb,
                                          DbTableCATreeNode* base_node)
 {
-    if (tb->common.status & DB_CATREE_FORCE_SPLIT)
+    if (tb->common.status & DB_CATREE_FORCE_SPLIT ||
+        !(tb->common.status & DB_CATREE_DEBUG_RANDOM_SPLIT_JOIN))
         return;
 
     switch (dbg_fastrand() % 8) {
     case 1:
-        base_node->u.base.lock_statistics = 1+ERL_DB_CATREE_HIGH_CONTENTION_LIMIT;
+        BASE_NODE_STAT_ADD(base_node, 1+ERL_DB_CATREE_HIGH_CONTENTION_LIMIT);
         break;
     case 2:
-        base_node->u.base.lock_statistics = -1+ERL_DB_CATREE_LOW_CONTENTION_LIMIT;
+        BASE_NODE_STAT_SUB(base_node, -1+ERL_DB_CATREE_LOW_CONTENTION_LIMIT);
         break;
     }
 }
 #else
 #  define dbg_provoke_random_splitjoin(T,N)
 #endif /* PROVOKE_RANDOM_SPLIT_JOIN */
+
+static ERTS_NOINLINE
+void do_random_join(DbTableCATree* tb, Uint rand)
+{
+    DbTableCATreeNode* node = GET_ROOT_ACQB(tb);
+    DbTableCATreeNode* parent = NULL;
+    int level = 0;
+    Sint stat;
+    while (!node->is_base_node) {
+        parent = node;
+        if ((rand & (1 << level)) == 0) {
+            node = GET_LEFT_ACQB(node);
+        } else {
+            node = GET_RIGHT_ACQB(node);
+        }
+        level++;
+    }
+    BASE_NODE_STAT_SUB(node, ERL_DB_CATREE_LOCK_GRAVITY_CONTRIBUTION);
+    stat = BASE_NODE_STAT_READ(node);
+    if (stat >= ERL_DB_CATREE_LOW_CONTENTION_LIMIT &&
+        stat <= ERL_DB_CATREE_HIGH_CONTENTION_LIMIT) {
+        return; /* No adaptation */
+    }
+    if (parent != NULL && !try_wlock_base_node(&node->u.base)) {
+        if (!node->u.base.is_valid) {
+            wunlock_base_node(node);
+            return;
+        }
+        wunlock_adapt_base_node(tb, node, parent, level);
+    }
+}
+
+static ERTS_INLINE
+void do_random_join_with_low_probability(DbTableCATree* tb, Uint seed)
+{
+#ifndef ERTS_DB_CA_TREE_NO_RANDOM_JOIN_WITH_LOW_PROBABILITY
+    Uint32 rand = erts_sched_local_random(seed);
+    if (((rand & ERL_DB_CATREE_LOCK_GRAVITY_PATTERN)) == 0) {
+        do_random_join(tb, rand);
+    }
+#endif
+}
 
 static ERTS_INLINE
 int try_wlock_base_node(DbTableCATreeBaseNode *base_node)
@@ -677,9 +770,9 @@ void wlock_base_node(DbTableCATreeNode *base_node)
     if (try_wlock_base_node(&base_node->u.base)) {
         /* The lock is contended */
         wlock_base_node_no_stats(base_node);
-        base_node->u.base.lock_statistics += ERL_DB_CATREE_LOCK_FAILURE_CONTRIBUTION;
+        BASE_NODE_STAT_ADD(base_node, ERL_DB_CATREE_LOCK_FAILURE_CONTRIBUTION);
     } else {
-        base_node->u.base.lock_statistics += ERL_DB_CATREE_LOCK_SUCCESS_CONTRIBUTION;
+        BASE_NODE_STAT_SUB(base_node, ERL_DB_CATREE_LOCK_SUCCESS_CONTRIBUTION);
     }
 }
 
@@ -695,13 +788,14 @@ void wunlock_adapt_base_node(DbTableCATree* tb,
                              DbTableCATreeNode* parent,
                              int current_level)
 {
+    Sint base_node_lock_stat = BASE_NODE_STAT_READ(node);
     dbg_provoke_random_splitjoin(tb,node);
     if ((!node->u.base.root && parent && !(tb->common.status
                                            & DB_CATREE_FORCE_SPLIT))
-        || node->u.base.lock_statistics < ERL_DB_CATREE_LOW_CONTENTION_LIMIT) {
+        || base_node_lock_stat < ERL_DB_CATREE_LOW_CONTENTION_LIMIT) {
         join_catree(tb, node, parent);
     }
-    else if (node->u.base.lock_statistics > ERL_DB_CATREE_HIGH_CONTENTION_LIMIT
+    else if (base_node_lock_stat > ERL_DB_CATREE_HIGH_CONTENTION_LIMIT
         && current_level < ERL_DB_CATREE_MAX_ROUTE_NODE_LAYER_HEIGHT) {
         split_catree(tb, node, parent);
     }
@@ -714,11 +808,23 @@ static ERTS_INLINE
 void rlock_base_node(DbTableCATreeNode *base_node)
 {
     ASSERT(base_node->is_base_node);
-    erts_rwmtx_rlock(&base_node->u.base.lock);
+    if (EBUSY == erts_rwmtx_tryrlock(&base_node->u.base.lock)) {
+        /* The lock is contended */
+        BASE_NODE_STAT_ADD(base_node, ERL_DB_CATREE_LOCK_FAILURE_CONTRIBUTION);
+        erts_rwmtx_rlock(&base_node->u.base.lock);
+    }
 }
 
 static ERTS_INLINE
-void runlock_base_node(DbTableCATreeNode *base_node)
+void runlock_base_node(DbTableCATreeNode *base_node, DbTableCATree* tb)
+{
+    ASSERT(base_node->is_base_node);
+    erts_rwmtx_runlock(&base_node->u.base.lock);
+    do_random_join_with_low_probability(tb, (Uint)base_node);
+}
+
+static ERTS_INLINE
+void runlock_base_node_no_rand(DbTableCATreeNode *base_node)
 {
     ASSERT(base_node->is_base_node);
     erts_rwmtx_runlock(&base_node->u.base.lock);
@@ -800,7 +906,7 @@ void unlock_iter_base_node(CATreeRootIterator* iter)
 {
     ASSERT(iter->locked_bnode);
     if (iter->read_only)
-        runlock_base_node(iter->locked_bnode);
+        runlock_base_node(iter->locked_bnode, iter->tb);
     else if (iter->locked_bnode->u.base.is_valid) {
         wunlock_adapt_base_node(iter->tb, iter->locked_bnode,
                                 iter->bnode_parent, iter->bnode_level);
@@ -860,7 +966,7 @@ DbTableCATreeNode* find_rlock_valid_base_node(DbTableCATree* tb, Eterm key)
         rlock_base_node(base_node);
         if (base_node->u.base.is_valid)
             break;
-        runlock_base_node(base_node);
+        runlock_base_node_no_rand(base_node);
     }
     return base_node;
 }
@@ -909,8 +1015,8 @@ static DbTableCATreeNode *create_base_node(DbTableCATree *tb,
                         "erl_db_catree_base_node",
                         NIL,
                         ERTS_LOCK_FLAGS_CATEGORY_DB);
-    p->u.base.lock_statistics = ((tb->common.status & DB_CATREE_FORCE_SPLIT)
-                                 ? INT_MAX : 0);
+    BASE_NODE_STAT_SET(p, ((tb->common.status & DB_CATREE_FORCE_SPLIT)
+                           ? INT_MAX : 0));
     p->u.base.is_valid = 1;
     return p;
 }
@@ -1080,7 +1186,7 @@ static void join_catree(DbTableCATree *tb,
 
     ASSERT(thiz->is_base_node);
     if (parent == NULL) {
-        thiz->u.base.lock_statistics = 0;
+        BASE_NODE_STAT_SET(thiz, 0);
         wunlock_base_node(thiz);
         return;
     }
@@ -1089,11 +1195,11 @@ static void join_catree(DbTableCATree *tb,
         neighbor = leftmost_base_node(GET_RIGHT_ACQB(parent));
         if (try_wlock_base_node(&neighbor->u.base)) {
             /* Failed to acquire lock */
-            thiz->u.base.lock_statistics = 0;
+            BASE_NODE_STAT_SET(thiz, 0);
             wunlock_base_node(thiz);
             return;
         } else if (!neighbor->u.base.is_valid) {
-            thiz->u.base.lock_statistics = 0;
+            BASE_NODE_STAT_SET(thiz, 0);
             wunlock_base_node(thiz);
             wunlock_base_node(neighbor);
             return;
@@ -1139,11 +1245,11 @@ static void join_catree(DbTableCATree *tb,
         neighbor = rightmost_base_node(GET_LEFT_ACQB(parent));
         if (try_wlock_base_node(&neighbor->u.base)) {
             /* Failed to acquire lock */
-            thiz->u.base.lock_statistics = 0;
+            BASE_NODE_STAT_SET(thiz, 0);
             wunlock_base_node(thiz);
             return;
         } else if (!neighbor->u.base.is_valid) {
-            thiz->u.base.lock_statistics = 0;
+            BASE_NODE_STAT_SET(thiz, 0);
             wunlock_base_node(thiz);
             wunlock_base_node(neighbor);
             return;
@@ -1227,7 +1333,7 @@ static void split_catree(DbTableCATree *tb,
 
     if (less_than_two_elements(base->u.base.root)) {
         if (!(tb->common.status & DB_CATREE_FORCE_SPLIT))
-            base->u.base.lock_statistics = 0;
+            BASE_NODE_STAT_SET(base, 0);
         wunlock_base_node(base);
         return;
     } else {
@@ -1261,111 +1367,152 @@ static void split_catree(DbTableCATree *tb,
     }
 }
 
-/*
- * Helper functions for removing the table
+/* @brief Free the entire catree and its sub-trees.
+ *
+ * @param reds Reductions to spend.
+ * @return Reductions left. Negative value if not done.
  */
-
-static void catree_add_base_node_to_free_list(
-        DbTableCATree *tb,
-        DbTableCATreeNode *base_node_container)
+static SWord db_free_table_continue_catree(DbTable *tbl, SWord reds)
 {
-    base_node_container->u.base.next =
-        tb->base_nodes_to_free_list;
-    tb->base_nodes_to_free_list = base_node_container;
-}
+    DbTableCATree *tb = &tbl->catree;
+    DbTableCATreeNode *node;
+    DbTableCATreeNode *parent;
+    CATreeNodeStack rnode_stack;
+    DbTableCATreeNode *rnode_stack_array[STACK_NEED];
 
-static void catree_deque_base_node_from_free_list(DbTableCATree *tb)
-{
-    if (tb->base_nodes_to_free_list == NULL) {
-        return; /* List empty */
-    } else {
-        DbTableCATreeNode *first = tb->base_nodes_to_free_list;
-        tb->base_nodes_to_free_list = first->u.base.next;
+    if (!tb->deletion) {
+        /* First call */
+        tb->deletion = 1;
+        tb->nr_of_deleted_items = 0;
     }
-}
 
-static DbTableCATreeNode *catree_first_base_node_from_free_list(
-        DbTableCATree *tb)
-{
-    return tb->base_nodes_to_free_list;
-}
+    /*
+     * The route tree is traversed and freed while keeping it consistent
+     * during yields.
+     */
+    rnode_stack.array = rnode_stack_array;
+    rnode_stack.pos = 0;
+    rnode_stack.size = STACK_NEED;
 
-static SWord do_free_routing_nodes_catree_cont(DbTableCATree *tb, SWord num_left)
-{
-    DbTableCATreeNode *root;
-    DbTableCATreeNode *p;
-    for (;;) {
-        root = POP_NODE(&tb->free_stack_rnodes);
-    	if (root == NULL) break;
-        else if(root->is_base_node) {
-            catree_add_base_node_to_free_list(tb, root);
-            break;
+    node = GET_ROOT(tb);
+    if (node->is_base_node) {
+        if (node->u.base.root) {
+            reds = do_delete_base_node_cont(tb, node, reds);
+            if (reds < 0)
+                return reds; /* Yield */
         }
-    	for (;;) {
-            if ((GET_LEFT(root) != NULL) &&
-                (p = GET_LEFT(root))->is_base_node) {
-                SET_LEFT(root, NULL);
-                catree_add_base_node_to_free_list(tb, p);
-            } else if ((GET_RIGHT(root) != NULL) &&
-                       (p = GET_RIGHT(root))->is_base_node) {
-                SET_RIGHT(root, NULL);
-                catree_add_base_node_to_free_list(tb, p);
-            } else if ((p = GET_LEFT(root)) != NULL) {
-                SET_LEFT(root, NULL);
-                PUSH_NODE(&tb->free_stack_rnodes, root);
-                root = p;
-            } else if ((p = GET_RIGHT(root)) != NULL) {
-                SET_RIGHT(root, NULL);
-                PUSH_NODE(&tb->free_stack_rnodes, root);
-                root = p;
-            } else {
-                free_catree_route_node(tb, root);
-                if (--num_left >= 0) {
-                    break;
-                } else {
-                    return num_left;	/* Done enough for now */
-                }
-            }
-        }
+        free_catree_base_node(tb, node);
     }
-    return num_left;
-}
-
-static SWord do_free_base_node_cont(DbTableCATree *tb, SWord num_left)
-{
-    TreeDbTerm *root;
-    TreeDbTerm *p;
-    DbTableCATreeNode *base_node_container =
-        catree_first_base_node_from_free_list(tb);
-    for (;;) {
-        root = POP_NODE(&tb->free_stack_elems);
-        if (root == NULL) break;
+    else {
         for (;;) {
-            if ((p = root->left) != NULL) {
-                root->left = NULL;
-                PUSH_NODE(&tb->free_stack_elems, root);
-                root = p;
-            } else if ((p = root->right) != NULL) {
-                root->right = NULL;
-                PUSH_NODE(&tb->free_stack_elems, root);
-                root = p;
-            } else {
-                free_term((DbTable*)tb, root);
-                if (--num_left >= 0) {
+            DbTableCATreeNode* left = GET_LEFT(node);
+            DbTableCATreeNode* right = GET_RIGHT(node);
+
+            if (!left->is_base_node) {
+                PUSH_NODE(&rnode_stack, node);
+                node = left;
+            }
+            else if (!right->is_base_node) {
+                PUSH_NODE(&rnode_stack, node);
+                node = right;
+            }
+            else {
+                if (left->u.base.root) {
+                    reds = do_delete_base_node_cont(tb, left, reds);
+                    if (reds < 0)
+                        return reds; /* Yield */
+                }
+                if (right->u.base.root) {
+                    reds = do_delete_base_node_cont(tb, right, reds);
+                    if (reds < 0)
+                        return reds; /* Yield */
+                }
+
+                free_catree_base_node(tb, right);
+                free_catree_route_node(tb, node);
+                /*
+                 * Keep empty left base node to join with its grandparent
+                 * for tree consistency during yields.
+                 */
+
+                parent = POP_NODE(&rnode_stack);
+                if (parent) {
+                    if (node == GET_LEFT(parent)) {
+                        SET_LEFT(parent, left);
+                    }
+                    else {
+                        ASSERT(node == GET_RIGHT(parent));
+                        SET_RIGHT(parent, left);
+                    }
+
+                    reds -= 2;
+                    if (reds < 0)
+                        return reds; /* Yield */
+
+                    node = parent;
+                }
+                else {  /* Done */
+                    free_catree_base_node(tb, left);
                     break;
-                } else {
-                    return num_left;	/* Done enough for now */
                 }
             }
         }
     }
-    catree_deque_base_node_from_free_list(tb);
-    free_catree_base_node(tb, base_node_container);
-    base_node_container = catree_first_base_node_from_free_list(tb);
-    if (base_node_container != NULL) {
-        PUSH_NODE(&tb->free_stack_elems, base_node_container->u.base.root);
+
+    ASSERT(reds >= 0);
+    SET_ROOT(tb, NULL);
+    return reds;
+}
+
+/* @brief Free all objects of a base node, but keep the base node.
+ *
+ * @param reds Reductions to spend.
+ * @return Reductions left. Negative value if not done.
+ */
+static SWord do_delete_base_node_cont(DbTableCATree *tb,
+                                      DbTableCATreeNode *base_node,
+                                      SWord reds)
+{
+    TreeDbTerm *p;
+    DbTreeStack stack;
+    TreeDbTerm* stack_array[STACK_NEED];
+
+    stack.pos = 0;
+    stack.array = stack_array;
+
+    p = base_node->u.base.root;
+    for (;;) {
+        if (p->left) {
+            PUSH_NODE(&stack, p);
+            p = p->left;
+        }
+        else if (p->right) {
+            PUSH_NODE(&stack, p);
+            p = p->right;
+        }
+        else {
+            TreeDbTerm *parent;
+
+            DEC_NITEMS((DbTable*)tb);
+            tb->nr_of_deleted_items++;
+            free_term((DbTable*)tb, p);
+
+            parent = POP_NODE(&stack);
+            if (!parent)
+                break;
+            if (parent->left == p)
+                parent->left = NULL;
+            else {
+                ASSERT(parent->right == p);
+                parent->right = NULL;
+            }
+            if (--reds < 0)
+                return reds;	/* Yield */
+            p = parent;
+        }
     }
-    return num_left;
+    base_node->u.base.root = NULL;
+    return reds;
 }
 
 
@@ -1389,7 +1536,10 @@ int db_create_catree(Process *p, DbTable *tbl)
 
     root = create_base_node(tb, NULL);
     tb->deletion = 0;
-    tb->base_nodes_to_free_list = NULL;
+    tb->nr_of_deleted_items = 0;
+#ifdef DEBUG
+    tbl->common.status |= DB_CATREE_DEBUG_RANDOM_SPLIT_JOIN;
+#endif
     erts_atomic_init_relb(&(tb->root), (erts_aint_t)root);
     return DB_ERROR_NONE;
 }
@@ -1501,7 +1651,7 @@ static int db_get_catree(Process *p, DbTable *tbl, Eterm key, Eterm *ret)
     int result = db_get_tree_common(p, &tb->common,
                                     node->u.base.root,
                                     key, ret, NULL);
-    runlock_base_node(node);
+    runlock_base_node(node, tb);
     return result;
 }
 
@@ -1784,7 +1934,7 @@ static int db_member_catree(DbTable *tbl, Eterm key, Eterm *ret)
     int result = db_member_tree_common(&tb->common,
                                        node->u.base.root,
                                        key, ret, NULL);
-    runlock_base_node(node);
+    runlock_base_node(node, tb);
     return result;
 }
 
@@ -1796,7 +1946,7 @@ static int db_get_element_catree(Process *p, DbTable *tbl,
     int result = db_get_element_tree_common(p, &tb->common,
                                             node->u.base.root,
                                             key, ndex, ret, NULL);
-    runlock_base_node(node);
+    runlock_base_node(node, tb);
     return result;
 }
 
@@ -1843,7 +1993,8 @@ static int db_slot_catree(Process *p, DbTable *tbl,
 static int db_select_continue_catree(Process *p,
                                      DbTable *tbl,
                                      Eterm continuation,
-                                     Eterm *ret)
+                                     Eterm *ret,
+                                     enum DbIterSafety* safety_p)
 {
     int result;
     CATreeRootIterator iter;
@@ -1856,7 +2007,8 @@ static int db_select_continue_catree(Process *p,
 }
 
 static int db_select_catree(Process *p, DbTable *tbl, Eterm tid,
-                            Eterm pattern, int reverse, Eterm *ret)
+                            Eterm pattern, int reverse, Eterm *ret,
+                            enum DbIterSafety safety)
 {
     int result;
     CATreeRootIterator iter;
@@ -1871,7 +2023,8 @@ static int db_select_catree(Process *p, DbTable *tbl, Eterm tid,
 static int db_select_count_continue_catree(Process *p,
                                            DbTable *tbl,
                                            Eterm continuation,
-                                           Eterm *ret)
+                                           Eterm *ret,
+                                           enum DbIterSafety* safety_p)
 {
     int result;
     CATreeRootIterator iter;
@@ -1885,7 +2038,8 @@ static int db_select_count_continue_catree(Process *p,
 }
 
 static int db_select_count_catree(Process *p, DbTable *tbl, Eterm tid,
-                                  Eterm pattern, Eterm *ret)
+                                  Eterm pattern, Eterm *ret,
+                                  enum DbIterSafety safety)
 {
     int result;
     CATreeRootIterator iter;
@@ -1899,7 +2053,8 @@ static int db_select_count_catree(Process *p, DbTable *tbl, Eterm tid,
 
 static int db_select_chunk_catree(Process *p, DbTable *tbl, Eterm tid,
                                   Eterm pattern, Sint chunk_size,
-                                  int reversed, Eterm *ret)
+                                  int reversed, Eterm *ret,
+                                  enum DbIterSafety safety)
 {
     int result;
     CATreeRootIterator iter;
@@ -1915,7 +2070,8 @@ static int db_select_chunk_catree(Process *p, DbTable *tbl, Eterm tid,
 static int db_select_delete_continue_catree(Process *p,
                                             DbTable *tbl,
                                             Eterm continuation,
-                                            Eterm *ret)
+                                            Eterm *ret,
+                                            enum DbIterSafety* safety_p)
 {
     DbTreeStack stack;
     TreeDbTerm * stack_array[STACK_NEED];
@@ -1931,7 +2087,8 @@ static int db_select_delete_continue_catree(Process *p,
 }
 
 static int db_select_delete_catree(Process *p, DbTable *tbl, Eterm tid,
-                                   Eterm pattern, Eterm *ret)
+                                   Eterm pattern, Eterm *ret,
+                                   enum DbIterSafety safety)
 {
     DbTreeStack stack;
     TreeDbTerm * stack_array[STACK_NEED];
@@ -1948,7 +2105,8 @@ static int db_select_delete_catree(Process *p, DbTable *tbl, Eterm tid,
 }
 
 static int db_select_replace_catree(Process *p, DbTable *tbl, Eterm tid,
-                                    Eterm pattern, Eterm *ret)
+                                    Eterm pattern, Eterm *ret,
+                                    enum DbIterSafety safety_p)
 {
     int result;
     CATreeRootIterator iter;
@@ -1961,7 +2119,8 @@ static int db_select_replace_catree(Process *p, DbTable *tbl, Eterm tid,
 }
 
 static int db_select_replace_continue_catree(Process *p, DbTable *tbl,
-                                             Eterm continuation, Eterm *ret)
+                                             Eterm continuation, Eterm *ret,
+                                             enum DbIterSafety* safety_p)
 {
     int result;
     CATreeRootIterator iter;
@@ -2013,63 +2172,57 @@ static int db_free_table_catree(DbTable *tbl)
     return 1;
 }
 
-static SWord db_free_table_continue_catree(DbTable *tbl, SWord reds)
-{
-    DbTableCATreeNode *first_base_node;
-    DbTableCATree *tb = &tbl->catree;
-    if (!tb->deletion) {
-        tb->deletion = 1;
-        tb->free_stack_elems.array =
-            erts_db_alloc(ERTS_ALC_T_DB_STK,
-                          (DbTable *) tb,
-                          sizeof(TreeDbTerm *) * STACK_NEED);
-        tb->free_stack_elems.pos = 0;
-        tb->free_stack_elems.slot = 0;
-        tb->free_stack_rnodes.array =
-            erts_db_alloc(ERTS_ALC_T_DB_STK,
-                          (DbTable *) tb,
-                          sizeof(DbTableCATreeNode *) * STACK_NEED);
-        tb->free_stack_rnodes.pos = 0;
-        tb->free_stack_rnodes.size = STACK_NEED;
-        PUSH_NODE(&tb->free_stack_rnodes, GET_ROOT(tb));
-        tb->is_routing_nodes_freed = 0;
-        tb->base_nodes_to_free_list = NULL;
-    }
-    if ( ! tb->is_routing_nodes_freed ) {
-        reds = do_free_routing_nodes_catree_cont(tb, reds);
-        if (reds < 0) {
-            return reds; /* Not finished */
-        } else {
-            tb->is_routing_nodes_freed = 1; /* Ready with the routing nodes */
-            first_base_node = catree_first_base_node_from_free_list(tb);
-            PUSH_NODE(&tb->free_stack_elems, first_base_node->u.base.root);
-        }
-    }
-    while (catree_first_base_node_from_free_list(tb) != NULL) {
-        reds = do_free_base_node_cont(tb, reds);
-        if (reds < 0) {
-            return reds; /* Continue later */
-        }
-    }
-    /* Time to free the main structure*/
-    erts_db_free(ERTS_ALC_T_DB_STK,
-                 (DbTable *) tb,
-                 (void *) tb->free_stack_elems.array,
-                 sizeof(TreeDbTerm *) * STACK_NEED);
-    erts_db_free(ERTS_ALC_T_DB_STK,
-                 (DbTable *) tb,
-                 (void *) tb->free_stack_rnodes.array,
-                 sizeof(DbTableCATreeNode *) * STACK_NEED);
+static
+int db_catree_nr_of_items_deleted_wb_dtor(Binary *context_bin) {
+    (void)context_bin;
     return 1;
 }
 
-static SWord db_delete_all_objects_catree(Process* p, DbTable* tbl, SWord reds)
+typedef struct {
+    Uint nr_of_deleted_items;
+} DbCATreeNrOfItemsDeletedWb;
+
+static Eterm
+create_and_install_num_of_deleted_items_wb_bin(Process *p, DbTableCATree *tb)
 {
+    Binary* bin =
+        erts_create_magic_binary(sizeof(DbCATreeNrOfItemsDeletedWb),
+                                 db_catree_nr_of_items_deleted_wb_dtor);
+    DbCATreeNrOfItemsDeletedWb* data = ERTS_MAGIC_BIN_DATA(bin);
+    Eterm* hp = HAlloc(p, ERTS_MAGIC_REF_THING_SIZE);
+    Eterm mref = erts_mk_magic_ref(&hp, &MSO(p), bin);
+    data->nr_of_deleted_items = 0;
+    tb->nr_of_deleted_items_wb = bin;
+    erts_refc_inctest(&bin->intern.refc, 2);   
+    return mref;
+}
+
+static Eterm db_delete_all_objects_get_nitems_from_holder_catree(Process* p,
+                                                                 Eterm mref)
+{
+    Binary* bin = erts_magic_ref2bin(mref);
+    DbCATreeNrOfItemsDeletedWb* data = ERTS_MAGIC_BIN_DATA(bin);
+    return erts_make_integer(data->nr_of_deleted_items, p);
+}
+
+static SWord db_delete_all_objects_catree(Process* p,
+                                          DbTable* tbl,
+                                          SWord reds,
+                                          Eterm* nitems_holder_wb)
+{
+    DbTableCATree *tb = &tbl->catree;
+    DbCATreeNrOfItemsDeletedWb* data;
+    if (!tb->deletion) {
+        *nitems_holder_wb =
+            create_and_install_num_of_deleted_items_wb_bin(p, tb);
+    }
     reds = db_free_table_continue_catree(tbl, reds);
     if (reds < 0)
         return reds;
+    data = ERTS_MAGIC_BIN_DATA(tb->nr_of_deleted_items_wb);
+    data->nr_of_deleted_items = tb->nr_of_deleted_items;
+    erts_bin_release(tb->nr_of_deleted_items_wb);
     db_create_catree(p, tbl);
-    erts_atomic_set_nob(&tbl->catree.common.nitems, 0);
     return reds;
 }
 
@@ -2095,10 +2248,15 @@ static void db_foreach_offheap_catree(DbTable *tbl,
                                       void (*func)(ErlOffHeap *, void *),
                                       void *arg)
 {
+    DbTableCATree* tb = &tbl->catree;
     CATreeRootIterator iter;
     TreeDbTerm** root;
 
-    init_root_iterator(&tbl->catree, &iter, 1);
+    if (!GET_ROOT(tb)) {
+        ASSERT(tb->common.status & DB_DELETE);
+        return;
+    }
+    init_root_iterator(tb, &iter, 1);
     root = catree_find_first_root(&iter);
     do {
         db_foreach_offheap_tree_common(*root, func, arg);
@@ -2106,7 +2264,7 @@ static void db_foreach_offheap_catree(DbTable *tbl,
     } while (root);
     destroy_root_iterator(&iter);
 
-    do_for_route_nodes(GET_ROOT(&tbl->catree), func, arg);
+    do_for_route_nodes(GET_ROOT(tb), func, arg);
 }
 
 static int db_lookup_dbterm_catree(Process *p, DbTable *tbl, Eterm key, Eterm obj,
@@ -2136,6 +2294,19 @@ static void db_finalize_dbterm_catree(int cret, DbUpdateHandle *handle)
                             handle->u.catree.parent,
                             handle->u.catree.current_level);
     return;
+}
+
+static int db_get_binary_info_catree(Process *p, DbTable *tbl, Eterm key,
+                                     Eterm *ret)
+{
+    DbTableCATree *tb = &tbl->catree;
+    FindBaseNode fbn;
+    DbTableCATreeNode* node = find_wlock_valid_base_node(tb, key, &fbn);
+    TreeDbTerm* this = db_find_tree_node_common(&tbl->common, node->u.base.root,
+                                                key);
+    *ret = db_binary_info_tree_common(p, this);
+    wunlock_base_node(node);
+    return DB_ERROR_NONE;
 }
 
 #ifdef ERTS_ENABLE_LOCK_COUNT
@@ -2176,7 +2347,7 @@ void db_catree_force_split(DbTableCATree* tb, int on)
     init_root_iterator(tb, &iter, 1);
     root = catree_find_first_root(&iter);
     do {
-        iter.locked_bnode->u.base.lock_statistics = (on ? INT_MAX : 0);
+        BASE_NODE_STAT_SET(iter.locked_bnode, (on ? INT_MAX : 0));
         root = catree_find_next_root(&iter, NULL);
     } while (root);
     destroy_root_iterator(&iter);
@@ -2185,6 +2356,14 @@ void db_catree_force_split(DbTableCATree* tb, int on)
         tb->common.status |= DB_CATREE_FORCE_SPLIT;
     else
         tb->common.status &= ~DB_CATREE_FORCE_SPLIT;
+}
+
+void db_catree_debug_random_split_join(DbTableCATree* tb, int on)
+{
+    if (on)
+        tb->common.status |= DB_CATREE_DEBUG_RANDOM_SPLIT_JOIN;
+    else
+        tb->common.status &= ~DB_CATREE_DEBUG_RANDOM_SPLIT_JOIN;
 }
 
 void db_calc_stats_catree(DbTableCATree* tb, DbCATreeStats* stats)
@@ -2223,6 +2402,34 @@ void db_calc_stats_catree(DbTableCATree* tb, DbCATreeStats* stats)
         }
     } while (depth > 0);
 }
+
+struct debug_catree_fa {
+    void (*func)(ErlOffHeap *, void *);
+    void *arg;
+};
+
+static void debug_free_route_node(void *vfap, ErtsThrPrgrVal val, void *vnp)
+{
+    DbTableCATreeNode *np = vnp;
+    if (np->u.route.key.oh) {
+        struct debug_catree_fa *fap = vfap;
+        ErlOffHeap oh;
+        ERTS_INIT_OFF_HEAP(&oh);
+        oh.first = np->u.route.key.oh;
+        (*fap->func)(&oh, fap->arg);
+    }
+}
+
+void
+erts_db_foreach_thr_prgr_offheap_catree(void (*func)(ErlOffHeap *, void *),
+                                        void *arg)
+{
+    struct debug_catree_fa fa;
+    fa.func = func;
+    fa.arg = arg;
+    erts_debug_later_op_foreach(do_free_route_node, debug_free_route_node, &fa);
+}
+
 
 #ifdef HARDDEBUG
 

@@ -22,7 +22,8 @@
 -export([all/0,suite/0,groups/0,init_per_suite/1,end_per_suite/1,
 	 init_per_group/2,end_per_group/2,
          calls/1,tuple_matching/1,recv/1,maps/1,
-         cover_ssa_dead/1,combine_sw/1,share_opt/1]).
+         cover_ssa_dead/1,combine_sw/1,share_opt/1,
+         beam_ssa_dead_crash/1,stack_init/1]).
 
 suite() -> [{ct_hooks,[ts_install_cth]}].
 
@@ -37,7 +38,9 @@ groups() ->
        maps,
        cover_ssa_dead,
        combine_sw,
-       share_opt
+       share_opt,
+       beam_ssa_dead_crash,
+       stack_init
       ]}].
 
 init_per_suite(Config) ->
@@ -188,6 +191,17 @@ recv(_Config) ->
     self() ! {[self(),r1],{2,99,<<"data">>}},
     {Parent,r1,<<1:32,2:8,99:8,"data">>} = tricky_recv_4(),
 
+    %% Test tricky_recv_5/0.
+    self() ! 1,
+    a = tricky_recv_5(),
+    self() ! 2,
+    b = tricky_recv_5(),
+
+    %% tricky_recv_6/0 is a compile-time error.
+    tricky_recv_6(),
+
+    recv_coverage(),
+
     ok.
 
 sync_wait_mon({Pid, Ref}, Timeout) ->
@@ -293,6 +307,101 @@ tricky_recv_4() ->
 	end,
     id({Pid,R,Request}).
 
+%% beam_ssa_pre_codegen would accidentally create phi nodes on critical edges
+%% when fixing up receives; the call to id/2 can either succeed or land in the
+%% catch block, and we added a phi node to its immediate successor.
+tricky_recv_5() ->
+    try
+        receive
+            X=1 ->
+                id(42),
+                a;
+            X=2 ->
+                b
+        end,
+        case X of
+            1 -> a;
+            2 -> b
+        end
+    catch
+        _:_ -> c
+    end.
+
+%% When fixing tricky_recv_5, we introduced a compiler crash when the common
+%% exit block was ?EXCEPTION_BLOCK and floats were in the picture.
+tricky_recv_6() ->
+    RefA = make_ref(),
+    RefB = make_ref(),
+    receive
+        {RefA, Number} -> Number + 1.0;
+        {RefB, Number} -> Number + 2.0
+    after 0 ->
+        ok
+    end.
+
+recv_coverage() ->
+    self() ! 1,
+    a = recv_coverage_1(),
+    self() ! 2,
+    b = recv_coverage_1(),
+
+    self() ! 1,
+    a = recv_coverage_2(),
+    self() ! 2,
+    b = recv_coverage_2(),
+
+    ok.
+
+%% Similar to tricky_recv_5/0, but provides test coverage for the #b_switch{}
+%% terminator.
+recv_coverage_1() ->
+    receive
+        X=1 ->
+            %% Jump to common exit block through #b_switch{list=L}
+            case id(0) of
+                0 -> a;
+                1 -> b;
+                2 -> c;
+                3 -> d
+            end;
+        X=2 ->
+            %% Jump to common exit block through #b_switch{fail=F}
+            case id(42) of
+                0 -> exit(quit);
+                1 -> exit(quit);
+                2 -> exit(quit);
+                3 -> exit(quit);
+                _ -> b
+            end
+    end,
+    case X of
+        1 -> a;
+        2 -> b
+    end.
+
+%% Similar to recv_coverage_1/0, providing test coverage for #b_br{}.
+recv_coverage_2() ->
+    receive
+        X=1 ->
+            A = id(1),
+            %% Jump to common exit block through #b_br{succ=S}.
+            if
+                A =:= 1 -> a;
+                true -> exit(quit)
+            end;
+        X=2 ->
+            A = id(2),
+            %% Jump to common exit block through #b_br{fail=F}.
+            if
+                A =:= 1 -> exit(quit);
+                true -> a
+            end
+    end,
+    case X of
+        1 -> a;
+        2 -> b
+    end.
+
 maps(_Config) ->
     {'EXIT',{{badmatch,#{}},_}} = (catch maps_1(any)),
     ok.
@@ -344,47 +453,7 @@ cover_ssa_dead(_Config) ->
     40.0 = percentage(4.0, 10.0),
     60.0 = percentage(6, 10),
 
-    %% Cover '=:=', followed by '=/='.
-    false = 'cover__=:=__=/='(41),
-    true = 'cover__=:=__=/='(42),
-    false = 'cover__=:=__=/='(43),
-
-    %% Cover '<', followed by '=/='.
-    true = 'cover__<__=/='(41),
-    false = 'cover__<__=/='(42),
-    false = 'cover__<__=/='(43),
-
-    %% Cover '=<', followed by '=/='.
-    true = 'cover__=<__=/='(41),
-    true = 'cover__=<__=/='(42),
-    false = 'cover__=<__=/='(43),
-
-    %% Cover '>=', followed by '=/='.
-    false = 'cover__>=__=/='(41),
-    true = 'cover__>=__=/='(42),
-    true = 'cover__>=__=/='(43),
-
-    %% Cover '>', followed by '=/='.
-    false = 'cover__>__=/='(41),
-    false = 'cover__>__=/='(42),
-    true = 'cover__>__=/='(43),
-
     ok.
-
-'cover__=:=__=/='(X) when X =:= 42 -> X =/= 43;
-'cover__=:=__=/='(_) -> false.
-
-'cover__<__=/='(X) when X < 42 -> X =/= 42;
-'cover__<__=/='(_) -> false.
-
-'cover__=<__=/='(X) when X =< 42 -> X =/= 43;
-'cover__=<__=/='(_) -> false.
-
-'cover__>=__=/='(X) when X >= 42 -> X =/= 41;
-'cover__>=__=/='(_) -> false.
-
-'cover__>__=/='(X) when X > 42 -> X =/= 42;
-'cover__>__=/='(_) -> false.
 
 format_str(Str, FormatData, IoList, EscChars) ->
     Escapable = FormatData =:= escapable,
@@ -481,9 +550,11 @@ do_comb_sw_2(X) ->
     erase(?MODULE).
 
 share_opt(_Config) ->
-    ok = do_share_opt(0).
+    ok = do_share_opt_1(0),
+    ok = do_share_opt_2(),
+    ok.
 
-do_share_opt(A) ->
+do_share_opt_1(A) ->
     %% The compiler would be stuck in an infinite loop in beam_ssa_share.
     case A of
         0 -> a;
@@ -492,6 +563,104 @@ do_share_opt(A) ->
     end,
     receive after 1 -> ok end.
 
+do_share_opt_2() ->
+    ok = sopt_2({[pointtopoint], [{dstaddr,any}]}, ok),
+    ok = sopt_2({[broadcast], [{broadaddr,any}]}, ok),
+    ok = sopt_2({[], []}, ok),
+    ok.
+
+sopt_2({Flags, Opts}, ok) ->
+    Broadcast = lists:member(broadcast, Flags),
+    P2P = lists:member(pointtopoint, Flags),
+    case Opts of
+        %% The following two clauses would be combined to one, silently
+        %% discarding the guard test of the P2P variable.
+        [{broadaddr,_}|Os] when Broadcast ->
+            sopt_2({Flags, Os}, ok);
+        [{dstaddr,_}|Os] when P2P ->
+            sopt_2({Flags, Os}, ok);
+        [] ->
+            ok
+    end.
+    
+beam_ssa_dead_crash(_Config) ->
+    not_A_B = do_beam_ssa_dead_crash(id(false), id(true)),
+    not_A_not_B = do_beam_ssa_dead_crash(false, false),
+    neither = do_beam_ssa_dead_crash(true, false),
+    neither = do_beam_ssa_dead_crash(true, true),
+    ok.
+
+do_beam_ssa_dead_crash(A, B) ->
+    %% beam_ssa_dead attempts to shortcut branches that branch other
+    %% branches. When a two-way branch is encountered, beam_ssa_dead
+    %% will simulate execution along both paths, in the hope that both
+    %% paths happens to end up in the same place.
+    %%
+    %% During the simulated execution of this function, the boolean
+    %% varible for a `br` instruction would be replaced with the
+    %% literal atom `nil`, which is not allowed, and would crash the
+    %% compiler. In practice, during the actual execution, control
+    %% would never be transferred to that `br` instruction when the
+    %% variable in question had the value `nil`.
+    %%
+    %% beam_ssa_dead has been updated to immediately abort the search
+    %% along the current path if there is an attempt to substitute a
+    %% non-boolean value into a `br` instruction.
+
+    case
+        case not A of
+            false ->
+                false;
+            true ->
+                B
+        end
+    of
+        V
+            when
+                V /= nil
+                andalso
+                V /= false ->
+            not_A_B;
+        _ ->
+            case
+                case not A of
+                    false ->
+                        false;
+                    true ->
+                        not B
+                end
+            of
+                true ->
+                    not_A_not_B;
+                false ->
+                    neither
+            end
+    end.
+
+stack_init(_Config) ->
+    6 = stack_init(a, #{a => [1,2,3]}),
+    0 = stack_init(missing, #{}),
+    ok.
+
+stack_init(Key, Map) ->
+    %% beam_ssa_codegen would wrongly assume that y(0) would always be
+    %% initialized by the `get_map_elements` instruction that follows, and
+    %% would set up the stack frame using an `allocate` instruction and
+    %% would not generate an `init` instruction to initialize y(0).
+    Res = case Map of
+              #{Key := Elements} ->
+                  %% Elements will be assigned to y(0) if the key Key exists.
+                  lists:foldl(fun(El, Acc) ->
+                                      Acc + El
+                              end, 0, Elements);
+              #{} ->
+                  %% y(0) will be left uninitialized when the key is not
+                  %% present in the map.
+                  0
+          end,
+    %% y(0) would be uninitialized here if the key was not present in the map
+    %% (if the second clause was executed).
+    id(Res).
 
 %% The identity function.
 id(I) -> I.

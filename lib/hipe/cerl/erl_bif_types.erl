@@ -2225,10 +2225,7 @@ type_order() ->
    t_map(), t_list(), t_bitstr()].
 
 key_comparisons_fail(X0, KeyPos, TupleList, Opaques) ->
-  X = case t_is_number(t_inf(X0, t_number(), Opaques), Opaques) of
-	false -> X0;
-	true -> t_number()
-      end,
+  X = erl_types:t_widen_to_number(X0),
   lists:all(fun(Tuple) ->
 		Key = type(erlang, element, 2, [KeyPos, Tuple]),
 		t_is_none(t_inf(Key, X, Opaques))

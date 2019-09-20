@@ -66,7 +66,7 @@
 
 -export_type([public_key/0, private_key/0, pem_entry/0,
 	      pki_asn1_type/0, asn1_type/0, ssh_file/0, der_encoded/0,
-              key_params/0, digest_type/0]).
+              key_params/0, digest_type/0, issuer_name/0, oid/0]).
 
 -type public_key()           ::  rsa_public_key() | dsa_public_key() | ec_public_key() | ed_public_key() .
 -type private_key()          ::  rsa_private_key() | dsa_private_key() | ec_private_key() | ed_private_key() .
@@ -112,6 +112,7 @@
 -type ssh_file()             :: openssh_public_key | rfc4716_public_key | known_hosts |
 				auth_keys.
 -type digest_type()          :: none % None is for backwards compatibility
+                              | sha1 % Backwards compatibility
                               | crypto:rsa_digest_type()
                               | crypto:dss_digest_type()
                               | crypto:ecdsa_digest_type().
@@ -406,8 +407,7 @@ decrypt_private(CipherText,
 		Options)
   when is_binary(CipherText),
        is_list(Options) ->
-    Padding = proplists:get_value(rsa_pad, Options, rsa_pkcs1_padding),
-    crypto:private_decrypt(rsa, CipherText, format_rsa_private_key(Key), Padding).
+    crypto:private_decrypt(rsa, CipherText, format_rsa_private_key(Key), default_options(Options)).
 
 %%--------------------------------------------------------------------
 %% Description: Public key decryption using the public key.
@@ -428,8 +428,7 @@ decrypt_public(CipherText, Key) ->
                                      PlainText :: binary() .
 decrypt_public(CipherText, #'RSAPublicKey'{modulus = N, publicExponent = E}, 
 	       Options) when is_binary(CipherText), is_list(Options)  ->
-    Padding = proplists:get_value(rsa_pad, Options, rsa_pkcs1_padding),
-    crypto:public_decrypt(rsa, CipherText,[E, N], Padding).
+    crypto:public_decrypt(rsa, CipherText,[E, N], default_options(Options)).
 
 %%--------------------------------------------------------------------
 %% Description: Public key encryption using the public key.
@@ -451,8 +450,7 @@ encrypt_public(PlainText, Key) ->
                                        CipherText :: binary() .
 encrypt_public(PlainText, #'RSAPublicKey'{modulus=N,publicExponent=E}, 
 	       Options) when is_binary(PlainText), is_list(Options) ->
-    Padding = proplists:get_value(rsa_pad, Options, rsa_pkcs1_padding),
-    crypto:public_encrypt(rsa, PlainText, [E,N], Padding).
+    crypto:public_encrypt(rsa, PlainText, [E,N], default_options(Options)).
 
 %%--------------------------------------------------------------------
 %%
@@ -480,8 +478,7 @@ encrypt_private(PlainText,
   when is_binary(PlainText),
        is_integer(N), is_integer(E), is_integer(D),
        is_list(Options) ->
-    Padding = proplists:get_value(rsa_pad, Options, rsa_pkcs1_padding),
-    crypto:private_encrypt(rsa, PlainText, format_rsa_private_key(Key), Padding).
+    crypto:private_encrypt(rsa, PlainText, format_rsa_private_key(Key), default_options(Options)).
 
 %%--------------------------------------------------------------------
 %% Description: List available group sizes among the pre-computed dh groups
@@ -1234,6 +1231,33 @@ pkix_test_root_cert(Name, Opts) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
+default_options([]) ->
+    [{rsa_padding, rsa_pkcs1_padding}];
+default_options(Opts) ->
+    case proplists:get_value(rsa_pad, Opts) of
+        undefined ->
+            case proplists:get_value(rsa_padding, Opts) of
+                undefined ->
+                    case lists:dropwhile(fun erlang:is_tuple/1, Opts) of
+                        [Pad|_] ->
+                            set_padding(Pad, Opts);
+                        [] ->
+                            set_padding(rsa_pkcs1_padding, Opts)
+                    end;
+                Pad ->
+                    set_padding(Pad, Opts)
+            end;
+        Pad ->
+            set_padding(Pad, Opts)
+    end.
+
+set_padding(Pad, Opts) ->
+    [{rsa_padding,Pad} | [{T,V} || {T,V} <- Opts,
+                                   T =/= rsa_padding,
+                                   T =/= rsa_pad]
+    ].
+
+
 format_sign_key(Key = #'RSAPrivateKey'{}) ->
     {rsa, format_rsa_private_key(Key)};
 format_sign_key(#'DSAPrivateKey'{p = P, q = Q, g = G, x = X}) ->

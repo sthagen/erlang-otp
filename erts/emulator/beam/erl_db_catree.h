@@ -42,11 +42,10 @@ typedef struct {
 
 typedef struct {
     erts_rwmtx_t lock; /* The lock for this base node */
-    Sint lock_statistics;
+    erts_atomic_t lock_statistics;
     int is_valid; /* If this base node is still valid */
     TreeDbTerm *root; /* The root of the sequential tree */
     ErtsThrPrgrLaterOp free_item; /* Used when freeing using thread progress */
-    struct DbTableCATreeNode * next; /* Used when gradually deleting */
 
     char end_of_struct__;
 } DbTableCATreeBaseNode;
@@ -83,10 +82,11 @@ typedef struct db_table_catree {
     /* CA Tree-specific fields */
     erts_atomic_t root;         /* The tree root (DbTableCATreeNode*) */
     Uint deletion;		/* Being deleted */
-    DbTreeStack free_stack_elems;/* Used for deletion ...*/
-    CATreeNodeStack free_stack_rnodes;
-    DbTableCATreeNode *base_nodes_to_free_list;
     int is_routing_nodes_freed;
+    /* The fields below are used by delete_all_objects and
+       select_delete(DeleteAll)*/
+    Uint nr_of_deleted_items;
+    Binary* nr_of_deleted_items_wb;
 } DbTableCATree;
 
 typedef struct {
@@ -104,7 +104,6 @@ void db_initialize_catree(void);
 
 int db_create_catree(Process *p, DbTable *tbl);
 
-
 TreeDbTerm** catree_find_root(Eterm key, CATreeRootIterator*);
 
 TreeDbTerm** catree_find_next_from_pb_key_root(Eterm key, CATreeRootIterator*);
@@ -121,6 +120,7 @@ void erts_lcnt_enable_db_catree_lock_count(DbTableCATree *tb, int enable);
 #endif
 
 void db_catree_force_split(DbTableCATree*, int on);
+void db_catree_debug_random_split_join(DbTableCATree*, int on);
 
 typedef struct {
     Uint route_nodes;
@@ -128,6 +128,9 @@ typedef struct {
     Uint max_depth;
 } DbCATreeStats;
 void db_calc_stats_catree(DbTableCATree*, DbCATreeStats*);
+void
+erts_db_foreach_thr_prgr_offheap_catree(void (*func)(ErlOffHeap *, void *),
+                                        void *arg);
 
 
 #endif /* _DB_CATREE_H */

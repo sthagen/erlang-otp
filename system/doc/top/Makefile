@@ -39,6 +39,7 @@ INFO_FILES = ../../../README.md ../../COPYRIGHT PR.template
 
 TOPDOCDIR=.
 
+include ../general_info/xmlfiles.mk
 include ../installation_guide/xmlfiles.mk
 include ../system_principles/xmlfiles.mk
 include ../embedded/xmlfiles.mk
@@ -56,6 +57,7 @@ XML_FILES = \
 	$(BOOK_FILES)
 
 XML_GUIDE_FILES = \
+	$(GENERAL_INFO_CHAPTER_FILES:%=general_info/%) \
 	$(INST_GUIDE_CHAPTER_FILES:%=installation_guide/%) \
 	$(INST_GUIDE_CHAPTER_GEN_FILES:%=installation_guide/%) \
 	$(SYSTEM_PRINCIPLES_CHAPTER_FILES:%=system_principles/%) \
@@ -79,6 +81,7 @@ XML_GUIDE_FILES = \
 
 XML_GEN_FILES = \
 	$(XML_GUIDE_FILES:%=$(XMLDIR)/%) \
+	$(XMLDIR)/general_info/part.xml \
 	$(XMLDIR)/installation_guide/part.xml \
 	$(XMLDIR)/system_principles/part.xml \
 	$(XMLDIR)/embedded/part.xml \
@@ -91,12 +94,31 @@ XML_GEN_FILES = \
 	$(XMLDIR)/oam/part.xml
 
 
-XMLLINT_SRCDIRS= $(XMLDIR)/installation_guide:$(XMLDIR)/system_principles:$(XMLDIR)/embedded:$(XMLDIR)/getting_started:$(XMLDIR)/reference_manual:$(XMLDIR)/programming_examples:$(XMLDIR)/efficiency_guide:$(XMLDIR)/tutorial:$(XMLDIR)/design_principles:$(XMLDIR)/oam
+XMLLINT_SRCDIRS= $(XMLDIR)/general_info:$(XMLDIR)/installation_guide:$(XMLDIR)/system_principles:$(XMLDIR)/embedded:$(XMLDIR)/getting_started:$(XMLDIR)/reference_manual:$(XMLDIR)/programming_examples:$(XMLDIR)/efficiency_guide:$(XMLDIR)/tutorial:$(XMLDIR)/design_principles:$(XMLDIR)/oam
 HTMLDIR= ../html
 PDFREFDIR= pdf
 
 TOP_PDF_FILE = $(PDFDIR)/$(APPLICATION)-$(VSN).pdf
 TOPDOC=true
+
+ifdef RELEASE_PATH
+INST_TYPE=rel
+INST_TYPE_SRC_DIR=$(RELEASE_PATH)
+# We build to the 'temporary' dir in order to be able to install
+# results using INSTALL_DATA (in order to get correct access
+# rights on installed files)
+INST_TYPE_DEST_DIR=$(RELSYSDIR)/temporary
+INST_TYPE_DEST_DIR_DEP=$(INST_TYPE_DEST_DIR)
+INST_TYPE_JS_DEST_DIR=$(INST_TYPE_DEST_DIR)
+INST_TYPE_VSN_FILE=$(INST_TYPE_DEST_DIR)/OTP_VERSION
+else
+INST_TYPE=src
+INST_TYPE_SRC_DIR=$(ERL_TOP)
+INST_TYPE_DEST_DIR=$(HTMLDIR)
+INST_TYPE_DEST_DIR_DEP=
+INST_TYPE_JS_DEST_DIR=$(INST_TYPE_DEST_DIR)/js
+INST_TYPE_VSN_FILE=$(ERL_TOP)/OTP_VERSION
+endif
 
 #--------------------------------------------------------------------------
 # We generate the index page from the installed system. This make
@@ -107,17 +129,18 @@ EBIN = ebin
 
 INDEX_SCRIPT = $(EBIN)/erl_html_tools.$(EMULATOR)
 INDEX_SRC = src/erl_html_tools.erl
-INDEX_FILES = \
-	$(HTMLDIR)/index.html \
-	$(HTMLDIR)/applications.html 
 
-JAVASCRIPT = $(HTMLDIR)/js/erlresolvelinks.js
+INDEX_HTML=$(INST_TYPE_DEST_DIR)/index.html
+APPLICATIONS_HTML=$(INST_TYPE_DEST_DIR)/applications.html
+INDEX_FILES = $(INDEX_HTML) $(APPLICATIONS_HTML)
+
+JAVASCRIPT = $(INST_TYPE_JS_DEST_DIR)/erlresolvelinks.js
 JAVASCRIPT_BUILD_SCRIPT = $(EBIN)/erlresolvelinks.$(EMULATOR)
 JAVASCRIPT_BUILD_SCRIPT_SRC = src/erlresolvelinks.erl
 
 MAN_INDEX_SCRIPT = $(EBIN)/otp_man_index.$(EMULATOR)
 MAN_INDEX_SRC = src/otp_man_index.erl
-MAN_INDEX = $(HTMLDIR)/man_index.html
+MAN_INDEX = $(INST_TYPE_DEST_DIR)/man_index.html
 
 GLOSSARY  = $(HTMLDIR)/glossary.html
 GLOSSARY_SRC = $(ERL_TOP)/system/internal_tools/doctools/src/glossary.erl
@@ -132,18 +155,19 @@ TEMPLATES = \
 $(INDEX_SCRIPT): $(INDEX_SRC)
 	$(ERLC) -o$(EBIN) +warn_unused_vars $<
 
-# We don't list toc_*.html as targets because we don't know
-$(HTMLDIR)/index.html + $(HTMLDIR)/applications.html: $(INDEX_SCRIPT) $(TEMPLATES)
-	echo "Generating index $@"
-# Check if we are building the index from source or an installed release
-	if test "$$RELEASE_ROOT" = "" ; then \
-		$(ERL) -noshell -pa $(EBIN) -s erl_html_tools top_index src $(ERL_TOP) \
-		$(HTMLDIR) `cat "$(ERL_TOP)/OTP_VERSION"` -s erlang halt ;\
+$(INST_TYPE_DEST_DIR)/OTP_VERSION: $(INST_TYPE_DEST_DIR_DEP)
+	if test -f "$(RELEASE_PATH)/releases/$(SYSTEM_VSN)/OTP_VERSION"; then \
+		$(CP) "$(RELEASE_PATH)/releases/$(SYSTEM_VSN)/OTP_VERSION" $@; \
 	else \
-		$(ERL) -noshell -pa $(EBIN) -s erl_html_tools top_index rel $(RELEASE_ROOT) \
-		$(HTMLDIR) `cat "$(RELEASE_ROOT)/releases/$(SYSTEM_VSN)/OTP_VERSION"` \
-		-s erlang halt ;\
+		$(CP) $(ERL_TOP)/OTP_VERSION $@; \
 	fi
+
+# We don't list toc_*.html as targets because we don't know
+$(INDEX_HTML) + $(APPLICATIONS_HTML): $(INST_TYPE_DEST_DIR_DEP) $(INDEX_SCRIPT) $(TEMPLATES) $(INST_TYPE_VSN_FILE)
+	echo "Generating index $@"
+	$(ERL) -noshell -pa $(EBIN) -s erl_html_tools top_index $(INST_TYPE) \
+		$(INST_TYPE_SRC_DIR) $(INST_TYPE_DEST_DIR) \
+		`cat "$(INST_TYPE_VSN_FILE)"` -s erlang halt
 
 
 #--------------------------------------------------------------------------
@@ -151,26 +175,18 @@ $(HTMLDIR)/index.html + $(HTMLDIR)/applications.html: $(INDEX_SCRIPT) $(TEMPLATE
 $(JAVASCRIPT_BUILD_SCRIPT): $(JAVASCRIPT_BUILD_SCRIPT_SRC)
 	$(ERLC) -o$(EBIN) +warn_unused_vars $<
 
-$(JAVASCRIPT): $(JAVASCRIPT_BUILD_SCRIPT)
-	erl -noshell -pa $(EBIN) -s erlresolvelinks make -s erlang halt
-	$(INSTALL_DIR) $(HTMLDIR)/js
-	$(INSTALL_DATA) erlresolvelinks.js $(JAVASCRIPT) 
+$(JAVASCRIPT): $(INST_TYPE_DEST_DIR_DEP) $(JAVASCRIPT_BUILD_SCRIPT)
+	erl -noshell -pa $(EBIN) -run erlresolvelinks make $(ERL_TOP) \
+		$(INST_TYPE_SRC_DIR) $(INST_TYPE_JS_DEST_DIR) -s erlang halt
 
 #--------------------------------------------------------------------------
 
 $(MAN_INDEX_SCRIPT): $(MAN_INDEX_SRC)
 	$(ERLC) -o$(EBIN) +warn_unused_vars $<
 
-$(MAN_INDEX): $(MAN_INDEX_SCRIPT)
-# Check if we are building the index from source or an installed release
-	if test "$$RELEASE_ROOT" = "" ; then \
-		$(ERL) -noshell -pa $(EBIN) -s otp_man_index gen src $(ERL_TOP) $@  \
-			-s erlang halt ;\
-	else \
-		$(ERL) -noshell -pa $(EBIN) -s otp_man_index gen rel $(RELEASE_ROOT) $@  \
-			-s erlang halt ;\
-	fi
-
+$(MAN_INDEX): $(INST_TYPE_DEST_DIR_DEP) $(MAN_INDEX_SCRIPT)
+	$(ERL) -noshell -pa $(EBIN) -s otp_man_index gen $(INST_TYPE) \
+		$(INST_TYPE_SRC_DIR) $@ -s erlang halt
 
 #--------------------------------------------------------------------------
 
@@ -248,17 +264,21 @@ html:   $(INDEX_FILES) \
 debug opt: 
 
 clean:
-	rm -rf 	../html/js
-	rm -f PR.template 
-	rm -f  $(INDEX_FILES) $(MAN_INDEX)
-	rm -f  $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
-	rm -f $(INDEX_SCRIPT) $(GLOSSARY_SCRIPT) \
-		$(JAVASCRIPT_BUILD_SCRIPT) 
-	rm -f erl_crash.dump errs core *~
+	$(RM) ../html/js/*.js
+	$(RM) PR.template
+	$(RM) $(XMLDIR)/*.xml
+	$(RM) $(INDEX_FILES) $(MAN_INDEX)
+	$(RM) $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
+	$(RM) $(INDEX_SCRIPT) $(GLOSSARY_SCRIPT) $(JAVASCRIPT_BUILD_SCRIPT) 
+	$(RM) erl_crash.dump errs core *~
+
 # ----------------------------------------------------
 # Release Target
 # ---------------------------------------------------- 
 include $(ERL_TOP)/make/otp_release_targets.mk
+
+$(RELSYSDIR)/temporary:
+	$(INSTALL_DIR) $(RELSYSDIR)/temporary
 
 release_docs_spec: docs
 	$(INSTALL_DIR)  "$(RELEASE_PATH)"
@@ -268,13 +288,13 @@ release_docs_spec: docs
 	$(INSTALL_DATA)  \
 		$(TOP_PDF_FILE) $(RELSYSDIR)/pdf
 	$(INSTALL_DIR)  $(RELSYSDIR)/js
-	$(INSTALL_DATA)  \
-		$(JAVASCRIPT) $(RELSYSDIR)/js
+	$(INSTALL_DATA) $(JAVASCRIPT) $(RELSYSDIR)/js
 	$(INSTALL_DATA) $(INDEX_FILES) $(MAN_INDEX) $(RELSYSDIR)
 	$(INSTALL_DIR)  $(RELSYSDIR)/docbuild
 	$(INSTALL_DATA) $(INDEX_SCRIPT) $(MAN_INDEX_SCRIPT) $(JAVASCRIPT_BUILD_SCRIPT) \
 		$(INDEX_SRC) $(MAN_INDEX_SRC) $(JAVASCRIPT_BUILD_SCRIPT_SRC) \
 		$(TEMPLATES) $(RELSYSDIR)/docbuild
+	$(RM) -r $(RELSYSDIR)/temporary
 
 
 release_spec:

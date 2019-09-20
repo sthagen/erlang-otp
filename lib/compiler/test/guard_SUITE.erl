@@ -19,7 +19,7 @@
 %%
 -module(guard_SUITE).
 
--include_lib("common_test/include/ct.hrl").
+-include_lib("syntax_tools/include/merl.hrl").
 
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
 	 init_per_group/2,end_per_group/2,
@@ -31,11 +31,13 @@
 	 old_guard_tests/1,complex_guard/1,
 	 build_in_guard/1,gbif/1,
 	 t_is_boolean/1,is_function_2/1,
-	 tricky/1,rel_ops/1,rel_op_combinations/1,literal_type_tests/1,
+	 tricky/1,rel_ops/1,rel_op_combinations/1,
+         generated_combinations/1,literal_type_tests/1,
 	 basic_andalso_orelse/1,traverse_dcd/1,
 	 check_qlc_hrl/1,andalso_semi/1,t_tuple_size/1,binary_part/1,
 	 bad_constants/1,bad_guards/1,
-         guard_in_catch/1,beam_bool_SUITE/1]).
+         guard_in_catch/1,beam_bool_SUITE/1,
+         repeated_type_tests/1]).
 
 suite() -> [{ct_hooks,[ts_install_cth]}].
 
@@ -50,10 +52,11 @@ groups() ->
        more_xor_guards,build_in_guard,
        old_guard_tests,complex_guard,gbif,
        t_is_boolean,is_function_2,tricky,
-       rel_ops,rel_op_combinations,
+       rel_ops,rel_op_combinations,generated_combinations,
        literal_type_tests,basic_andalso_orelse,traverse_dcd,
        check_qlc_hrl,andalso_semi,t_tuple_size,binary_part,
-       bad_constants,bad_guards,guard_in_catch,beam_bool_SUITE]}].
+       bad_constants,bad_guards,guard_in_catch,beam_bool_SUITE,
+       repeated_type_tests]}].
 
 init_per_suite(Config) ->
     test_lib:recompile(?MODULE),
@@ -1210,6 +1213,10 @@ tricky(Config) when is_list(Config) ->
     error = tricky_3(#{}),
     error = tricky_3({a,b}),
 
+    {'EXIT',_} = (catch tricky_4(x)),
+    {'EXIT',_} = (catch tricky_4(42)),
+    {'EXIT',_} = (catch tricky_4(true)),
+
     ok.
 
 tricky_1(X, Y) when abs((X == 1) or (Y == 2)) -> ok;
@@ -1226,6 +1233,13 @@ tricky_3(X)
     ok;
 tricky_3(_) ->
     error.
+
+tricky_4(X) ->
+    B = (abs(X) or abs(X)) =:= true,
+    case B of
+        true -> ok;
+        false -> error
+    end.
 
 %% From dets_v9:read_buckets/11, simplified.
 
@@ -1577,6 +1591,122 @@ redundant_12(X) when X >= 50, X =< 80 -> 2*X;
 redundant_12(X) when X < 51 -> 5*X;
 redundant_12(_) -> none.
 
+generated_combinations(Config) ->
+    case ?MODULE of
+	guard_SUITE -> generated_combinations_1(Config);
+	_ -> {skip,"Enough to run this case once."}
+    end.
+
+%% Exhaustively test all combinations of relational operators
+%% to ensure the correctness of the optimizations in beam_ssa_dead.
+
+generated_combinations_1(Config) ->
+    Mod = ?FUNCTION_NAME,
+    RelOps = ['=:=','=/=','==','/=','<','=<','>=','>'],
+    Combinations0 = [{Op1,Op2} || Op1 <- RelOps, Op2 <- RelOps],
+    Combinations1 = gen_lit_combs(Combinations0),
+    Combinations2 = [{neq,Comb} ||
+                        {_Op1,_Lit1,Op2,_Lit2}=Comb <- Combinations1,
+                        Op2 =:= '=/=' orelse Op2 =:= '/='] ++ Combinations1,
+    Combinations = gen_func_names(Combinations2, 0),
+    Fs = gen_rel_op_functions(Combinations),
+    Tree = ?Q(["-module('@Mod@').",
+               "-compile([export_all,nowarn_export_all])."]) ++ Fs,
+    %%merl:print(Tree),
+    Opts = test_lib:opt_opts(?MODULE),
+    {ok,_Bin} = merl:compile_and_load(Tree, Opts),
+    test_combinations(Combinations, Mod).
+
+gen_lit_combs([{Op1,Op2}|T]) ->
+    [{Op1,7,Op2,6},
+     {Op1,7.0,Op2,6},
+     {Op1,7,Op2,6.0},
+     {Op1,7.0,Op2,6.0},
+
+     {Op1,7,Op2,7},
+     {Op1,7.0,Op2,7},
+     {Op1,7,Op2,7.0},
+     {Op1,7.0,Op2,7.0},
+
+     {Op1,6,Op2,7},
+     {Op1,6.0,Op2,7},
+     {Op1,6,Op2,7.0},
+     {Op1,6.0,Op2,7.0}|gen_lit_combs(T)];
+gen_lit_combs([]) -> [].
+
+gen_func_names([E|Es], I) ->
+    Name = list_to_atom("f" ++ integer_to_list(I)),
+    [{Name,E}|gen_func_names(Es, I+1)];
+gen_func_names([], _) -> [].
+
+gen_rel_op_functions([{Name,{neq,{Op1,Lit1,Op2,Lit2}}}|T]) ->
+    %% Note that in the translation to SSA, '=/=' will be
+    %% translated to '=:=' in a guard (with switched success
+    %% and failure labels). Therefore, to test the optimization,
+    %% we must use '=/=' (or '/=') in a body context.
+    %%
+    %% Here is an example of a generated function:
+    %%
+    %%     f160(A) when erlang:'>='(A, 7) ->
+    %%          one;
+    %%     f160(A) ->
+    %%          true = erlang:'/='(A, 7),
+    %%          two.
+    [?Q("'@Name@'(A) when erlang:'@Op1@'(A, _@Lit1@) -> one;
+        '@Name@'(A) -> true = erlang:'@Op2@'(A, _@Lit2@), two. ")|
+     gen_rel_op_functions(T)];
+gen_rel_op_functions([{Name,{Op1,Lit1,Op2,Lit2}}|T]) ->
+    %% Example of a generated function:
+    %%
+    %% f721(A) when erlang:'=<'(A, 7.0) -> one;
+    %% f721(A) when erlang:'<'(A, 6) -> two;
+    %% f721(_) -> three.
+    [?Q("'@Name@'(A) when erlang:'@Op1@'(A, _@Lit1@) -> one;
+        '@Name@'(A) when erlang:'@Op2@'(A, _@Lit2@) -> two;
+        '@Name@'(_) -> three.")|gen_rel_op_functions(T)];
+gen_rel_op_functions([]) -> [].
+
+test_combinations([{Name,E}|T], Mod) ->
+    try
+        test_combinations_1([5,6,7,8,9], E, fun Mod:Name/1),
+        test_combination(6.5, E, fun Mod:Name/1)
+    catch
+        error:Reason:Stk ->
+            io:format("~p: ~p\n", [Name,E]),
+            erlang:raise(error, Reason, Stk)
+    end,
+    test_combinations(T, Mod);
+test_combinations([], _Mod) -> ok.
+
+test_combinations_1([V|Vs], E, Fun) ->
+    test_combination(V, E, Fun),
+    test_combination(float(V), E, Fun),
+    test_combinations_1(Vs, E, Fun);
+test_combinations_1([], _, _) -> ok.
+
+test_combination(Val, {neq,Expr}, Fun) ->
+    Result = eval_combination_expr(Expr, Val),
+    Result = try
+                 Fun(Val)                       %Returns 'one' or 'two'.
+             catch
+                 error:{badmatch,_} ->
+                     three
+             end;
+test_combination(Val, Expr, Fun) ->
+    Result = eval_combination_expr(Expr, Val),
+    Result = Fun(Val).
+
+eval_combination_expr({Op1,Lit1,Op2,Lit2}, Val) ->
+    case erlang:Op1(Val, Lit1) of
+        true ->
+            one;
+        false ->
+            case erlang:Op2(Val, Lit2) of
+                true -> two;
+                false -> three
+            end
+    end.
+
 %% Test type tests on literal values. (From emulator test suites.)
 literal_type_tests(Config) when is_list(Config) ->
     case ?MODULE of
@@ -1812,6 +1942,15 @@ andalso_semi(Config) when is_list(Config) ->
     ok = andalso_semi_bar([a,b,c]),
     ok = andalso_semi_bar(1),
     fc(catch andalso_semi_bar([a,b])),
+
+    ok = andalso_semi_dispatch(name, fun andalso_semi/1),
+    ok = andalso_semi_dispatch(name, fun ?MODULE:andalso_semi/1),
+    ok = andalso_semi_dispatch(name, {?MODULE,andalso_semi,1}),
+    fc(catch andalso_semi_dispatch(42, fun andalso_semi/1)),
+    fc(catch andalso_semi_dispatch(name, not_fun)),
+    fc(catch andalso_semi_dispatch(name, fun andalso_semi_dispatch/2)),
+    fc(catch andalso_semi_dispatch(42, {a,b})),
+
     ok.
 
 andalso_semi_foo(Bar) when is_integer(Bar) andalso Bar =:= 0; Bar =:= 1 ->
@@ -1820,6 +1959,10 @@ andalso_semi_foo(Bar) when is_integer(Bar) andalso Bar =:= 0; Bar =:= 1 ->
 andalso_semi_bar(Bar) when is_list(Bar) andalso length(Bar) =:= 3; Bar =:= 1 ->
    ok.
 
+andalso_semi_dispatch(Registry, MFAOrFun) when
+      is_atom(Registry) andalso is_function(MFAOrFun, 1);
+      is_atom(Registry) andalso tuple_size(MFAOrFun) == 3 ->
+    ok.
 
 t_tuple_size(Config) when is_list(Config) ->
     10 = do_tuple_size({1,2,3,4}),
@@ -2115,7 +2258,8 @@ do_guard_in_catch_bin(From) ->
 
 %%%
 %%% The beam_bool pass has been eliminated. Here are the tests from
-%%% beam_bool_SUITE.
+%%% beam_bool_SUITE, as well as new tests to test the new beam_ssa_bool
+%%% module.
 %%%
 
 beam_bool_SUITE(_Config) ->
@@ -2124,6 +2268,9 @@ beam_bool_SUITE(_Config) ->
     y_registers(),
     protected(),
     maps(),
+    cover_shortcut_branches(),
+    wrong_order(),
+    megaco(),
     ok.
 
 before_and_inside_if() ->
@@ -2260,6 +2407,102 @@ maps() ->
 %% Cover handling of put_map in in split_block_label_used/2.
 evidence(#{0 := Charge}) when 0; #{[] => Charge} == #{[] => 42} ->
     ok.
+
+cover_shortcut_branches() ->
+    ok = cover_shortcut_branches({r1}, 0, 42, false),
+    ok = cover_shortcut_branches({r1}, 42, 42, true),
+    error = cover_shortcut_branches({r1}, same, same, false),
+    error = cover_shortcut_branches({r1}, x, y, true),
+    error = cover_shortcut_branches({r2}, 0, 42, false),
+    error = cover_shortcut_branches({}, 0, 42, false),
+    error = cover_shortcut_branches(not_tuple, 0, 42, false),
+    ok.
+
+cover_shortcut_branches(St, X, Y, Z) ->
+    if
+        %% The ((Y =:= X) =:= Z) part will test handling of a comparison
+        %% operator followed by a one-way `br`.
+        ((element(1, St) =:= r1) orelse fail) and ((Y =:= X) =:= Z) ->
+            ok;
+        true ->
+            error
+    end.
+
+wrong_order() ->
+    ok = wrong_order(repeat_until_fail, true),
+    ok = wrong_order(repeat_until_fail, whatever),
+    error = wrong_order(repeat_until_fail, false),
+    error = wrong_order(nope, true),
+    ok.
+
+wrong_order(RepeatType, Mode) ->
+    Parallel = Mode =/= false,
+    RepeatStop = RepeatType =:= repeat_until_fail,
+    if
+        Parallel andalso RepeatStop ->
+            ok;
+        true ->
+            error
+    end.
+
+megaco() ->
+    ok = megaco('NULL', 0),
+    ok = megaco('NULL', 7),
+    ok = megaco('NULL', 15),
+    ok = megaco('NULL', asn1_NOVALUE),
+    ok = megaco(asn1_NOVALUE, 0),
+    ok = megaco(asn1_NOVALUE, 7),
+    ok = megaco(asn1_NOVALUE, 15),
+    ok = megaco(asn1_NOVALUE, asn1_NOVALUE),
+
+    error = megaco(bad, 0),
+    error = megaco(bad, 7),
+    error = megaco(bad, 15),
+    error = megaco(bad, asn1_NOVALUE),
+
+    error = megaco('NULL', not_integer),
+    error = megaco('NULL', -1),
+    error = megaco('NULL', 16),
+    error = megaco(asn1_NOVALUE, not_integer),
+    error = megaco(asn1_NOVALUE, -1),
+    error = megaco(asn1_NOVALUE, 16),
+
+    error = megaco(bad, bad),
+    error = megaco(bad, -1),
+    error = megaco(bad, 42),
+
+    ok.
+
+megaco(Top, SelPrio)
+  when (Top =:= 'NULL' orelse Top =:= asn1_NOVALUE) andalso
+       ((is_integer(SelPrio) andalso ((0 =< SelPrio) and (SelPrio =< 15))) orelse
+	SelPrio =:= asn1_NOVALUE) ->
+    ok;
+megaco(_, _) ->
+    error.
+
+%%%
+%%% End of beam_bool_SUITE tests.
+%%%
+
+repeated_type_tests(_Config) ->
+    binary = repeated_type_test(<<42>>),
+    bitstring = repeated_type_test(<<1:1>>),
+    other = repeated_type_test(atom),
+    ok.
+
+repeated_type_test(T) ->
+    %% Test for a bug in beam_ssa_dead.
+    if is_bitstring(T) ->
+            if is_binary(T) ->                  %This test would be optimized away.
+                    binary;
+               true ->
+                    bitstring
+            end;
+       true ->
+            other
+    end.
+
 
 %% Call this function to turn off constant propagation.
 id(I) -> I.

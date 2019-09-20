@@ -653,8 +653,6 @@ erts_alloc_init(int *argc, char **argv, ErtsAllocInitOpts *eaiop)
 	= erts_timer_type_size(ERTS_ALC_T_HL_PTIMER);
     fix_type_sizes[ERTS_ALC_FIX_TYPE_IX(ERTS_ALC_T_BIF_TIMER)]
 	= erts_timer_type_size(ERTS_ALC_T_BIF_TIMER);
-    fix_type_sizes[ERTS_ALC_FIX_TYPE_IX(ERTS_ALC_T_NIF_EXP_TRACE)]
-	= sizeof(NifExportTrace);
     fix_type_sizes[ERTS_ALC_FIX_TYPE_IX(ERTS_ALC_T_MREF_NSCHED_ENT)]
 	= sizeof(ErtsNSchedMagicRefTableEntry);
     fix_type_sizes[ERTS_ALC_FIX_TYPE_IX(ERTS_ALC_T_MINDIRECTION)]
@@ -2392,10 +2390,6 @@ erts_memory(fmtfn_t *print_to_p, void *print_to_arg, void *proc, Eterm earg)
 		       &size.processes_used,
 		       fi,
 		       ERTS_ALC_T_BIF_TIMER);
-	add_fix_values(&size.processes,
-		       &size.processes_used,
-		       fi,
-		       ERTS_ALC_T_NIF_EXP_TRACE);
     }
 
     if (want.atom || want.atom_used) {
@@ -3904,7 +3898,7 @@ check_memory_fence(void *ptr, Uint *size, ErtsAlcType_t n, int func)
 {
     Uint sz;
     Uint found_type;
-    UWord pre_pattern;
+    UWord pre_pattern, expected_pattern;
     UWord post_pattern;
     UWord *ui_ptr;
 #ifdef HARD_DEBUG
@@ -3914,6 +3908,8 @@ check_memory_fence(void *ptr, Uint *size, ErtsAlcType_t n, int func)
     if (!ptr)
 	return NULL;
 
+    expected_pattern = MK_PATTERN(n);
+
     ui_ptr = (UWord *) ptr;
     pre_pattern = *(--ui_ptr);
     *size = sz = *(--ui_ptr);
@@ -3922,7 +3918,13 @@ check_memory_fence(void *ptr, Uint *size, ErtsAlcType_t n, int func)
 #endif
 
     found_type = GET_TYPE_OF_PATTERN(pre_pattern);
-    if (pre_pattern != MK_PATTERN(n)) {
+
+    if (found_type != n) {
+        erts_exit(ERTS_ABORT_EXIT, "ERROR: Miss matching allocator types"
+                  " used in alloc and free\n");
+    }
+
+    if (pre_pattern != expected_pattern) {
 	if ((FIXED_FENCE_PATTERN_MASK & pre_pattern) != FIXED_FENCE_PATTERN)
 	    erts_exit(ERTS_ABORT_EXIT,
 		     "ERROR: Fence at beginning of memory block (p=0x%u) "
@@ -3932,8 +3934,7 @@ check_memory_fence(void *ptr, Uint *size, ErtsAlcType_t n, int func)
 
     sys_memcpy((void *) &post_pattern, (void *) (((char *)ptr)+sz), sizeof(UWord));
 
-    if (post_pattern != MK_PATTERN(n)
-	|| pre_pattern != post_pattern) {
+    if (post_pattern != expected_pattern || pre_pattern != post_pattern) {
 	char fbuf[10];
 	char obuf[10];
 	char *ftype;

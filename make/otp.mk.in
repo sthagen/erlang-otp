@@ -4,7 +4,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1997-2016. All Rights Reserved.
+# Copyright Ericsson AB 1997-2019. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -51,6 +51,8 @@ TYPES = @TYPES@
 
 USE_PGO = @USE_PGO@
 
+USE_ESOCK = @USE_ESOCK@
+
 # Slash separated list of return values from $(origin VAR)
 # that are untrusted - set default in this file instead.
 # The list is not space separated since some return values
@@ -73,6 +75,7 @@ INSTALL_DIR     = @INSTALL_DIR@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT  = @INSTALL_SCRIPT@
 INSTALL_DATA    = @INSTALL_DATA@
+INSTALL_DIR_DATA = $(ERL_TOP)/make/install_dir_data.sh
 
 CC = @CC@
 GCC = @GCC@
@@ -107,6 +110,10 @@ ifdef BOOTSTRAP
 else
   ERL_COMPILE_FLAGS += +debug_info
 endif
+ifeq ($(USE_ESOCK),yes)
+ERL_COMPILE_FLAGS += -DUSE_ESOCK=true
+endif
+
 ERLC_WFLAGS = -W
 ERLC = erlc $(ERLC_WFLAGS) $(ERLC_FLAGS)
 ERL = erl -boot start_clean
@@ -274,6 +281,7 @@ XSLTPROC = @XSLTPROC@
 FOP = @FOP@
 XMLLINT = @XMLLINT@
 CP = @CP@
+MKDIR = @MKDIR@
 
 DOCGEN=$(ERL_TOP)/lib/erl_docgen
 FOP_CONFIG = $(DOCGEN)/priv/fop.xconf
@@ -313,5 +321,5 @@ $(MAN6DIR)/%.6 $(MAN6DIR)/%.7: $(XMLDIR)/%_app.xml
 $(XMLDIR)/%.xml: $(XMLDIR)/%.xmlsrc
 	$(gen_verbose)escript $(DOCGEN)/priv/bin/codeline_preprocessing.escript $(shell pwd) $< $@
 
-.fo.pdf:
+$(PDFDIR)/%.pdf: %.fo
 	$(FOP) -c $(FOP_CONFIG) -cache $(ERL_TOP)/make/$(TARGET)/fop-fonts.cache -fo $< -pdf $@

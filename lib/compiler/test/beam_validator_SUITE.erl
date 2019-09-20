@@ -34,7 +34,9 @@
 	 undef_label/1,illegal_instruction/1,failing_gc_guard_bif/1,
 	 map_field_lists/1,cover_bin_opt/1,
 	 val_dsetel/1,bad_tuples/1,bad_try_catch_nesting/1,
-         receive_stacked/1,aliased_types/1]).
+         receive_stacked/1,aliased_types/1,type_conflict/1,
+         infer_on_eq/1,infer_dead_value/1,infer_on_ne/1,
+         branch_to_try_handler/1,call_without_stack/1]).
 
 -include_lib("common_test/include/ct.hrl").
 
@@ -63,7 +65,9 @@ groups() ->
        undef_label,illegal_instruction,failing_gc_guard_bif,
        map_field_lists,cover_bin_opt,val_dsetel,
        bad_tuples,bad_try_catch_nesting,
-       receive_stacked,aliased_types]}].
+       receive_stacked,aliased_types,type_conflict,
+       infer_on_eq,infer_dead_value,infer_on_ne,
+       branch_to_try_handler,call_without_stack]}].
 
 init_per_suite(Config) ->
     test_lib:recompile(?MODULE),
@@ -107,13 +111,12 @@ xrange(Config) when is_list(Config) ->
     Errors = do_val(xrange, Config),
     [{{t,sum_1,2},
       {{bif,'+',{f,0},[{x,-1},{x,1}],{x,0}},4,
-       {uninitialized_reg,{x,-1}}}},
+       {bad_register,{x,-1}}}},
      {{t,sum_2,2},
-      {{bif,'+',{f,0},[{x,0},{x,1023}],{x,0}},4,
-       {uninitialized_reg,{x,1023}}}},
+      {{bif,'+',{f,0},[{x,0},{x,1023}],{x,0}},4,limit}},
      {{t,sum_3,2},
       {{bif,'+',{f,0},[{x,0},{x,1}],{x,-1}},4,
-       {invalid_store,{x,-1},number}}},
+       {bad_register,{x,-1}}}},
      {{t,sum_4,2},
       {{bif,'+',{f,0},[{x,0},{x,1}],{x,1023}},4,limit}}] = Errors,
     ok.
@@ -122,15 +125,15 @@ yrange(Config) when is_list(Config) ->
     Errors = do_val(yrange, Config),
     [{{t,sum_1,2},
       {{move,{x,1},{y,-1}},5,
-       {invalid_store,{y,-1},term}}},
+       {bad_register,{y,-1}}}},
      {{t,sum_2,2},
       {{bif,'+',{f,0},[{x,0},{y,1024}],{x,0}},7,
-       {uninitialized_reg,{y,1024}}}},
+       limit}},
      {{t,sum_3,2},
       {{move,{x,1},{y,1024}},5,limit}},
      {{t,sum_4,2},
       {{move,{x,1},{y,-1}},5,
-       {invalid_store,{y,-1},term}}}] = Errors,
+       {bad_register,{y,-1}}}}] = Errors,
     ok.
 
 stack(Config) when is_list(Config) ->
@@ -147,19 +150,34 @@ stack(Config) when is_list(Config) ->
 
 call_last(Config) when is_list(Config) ->
     Errors = do_val(call_last, Config),
-    [{{t,a,1},{{call_last,1,{f,8},2},9,{allocated,1}}},
+    [{{t,a,1},
+      {{call_last,1,{f,8},2},9,{allocated,1}}},
      {{t,b,1},
-      {{call_ext_last,2,{extfunc,lists,seq,2},2},
-       10,
-       {allocated,1}}}] = Errors,
+      {{call_ext_last,2,{extfunc,lists,seq,2},2},10,{allocated,1}}},
+     {{t,baz,2},
+      {{call_ext_only,2,{extfunc,erlang,put,2}},5,{allocated,0}}},
+     {{t,biz,2},
+      {{call_only,2,{f,10}},5,{allocated,0}}}] = Errors,
+    ok.
+
+call_without_stack(Config) when is_list(Config) ->
+    Errors = do_val(call_without_stack, Config),
+    [{{t,local,2},
+        {{call,2,{f,2}},4,{allocated,none}}},
+     {{t,remote,2},
+        {{call_ext,2,{extfunc,lists,seq,2}},4,{allocated,none}}}] = Errors,
     ok.
 
 merge_undefined(Config) when is_list(Config) ->
     Errors = do_val(merge_undefined, Config),
-    [{{t,handle_call,2},
-      {{call_ext,1,{extfunc,erlang,exit,1}},
-       10,
-       {uninitialized_reg,{y,0}}}}] = Errors,
+    [{{t,undecided,2},
+      {{call_ext,2,{extfunc,debug,filter,2}},
+       22,
+       {allocated,undecided}}},
+     {{t,uninitialized,2},
+      {{call_ext,2,{extfunc,io,format,2}},
+       17,
+       {uninitialized_reg,{y,1}}}}] = Errors,
     ok.
 
 uninit(Config) when is_list(Config) ->
@@ -178,7 +196,7 @@ unsafe_catch(Config) when is_list(Config) ->
     Errors = do_val(unsafe_catch, Config),
     [{{t,small,2},
       {{bs_put_integer,{f,0},{integer,16},1,
-	{field_flags,[unsigned,big]},{y,0}},
+        {field_flags,[unsigned,big]},{y,0}},
        20,
        {unassigned,{y,0}}}}] = Errors,
     ok.
@@ -211,19 +229,19 @@ bad_catch_try(Config) when is_list(Config) ->
     Errors = do_val(bad_catch_try, Config),
     [{{bad_catch_try,bad_1,1},
       {{'catch',{x,0},{f,3}},
-       5,{invalid_store,{x,0},{catchtag,[3]}}}},
+       5,{invalid_tag_register,{x,0}}}},
      {{bad_catch_try,bad_2,1},
       {{catch_end,{x,9}},
-       8,{source_not_y_reg,{x,9}}}},
+       8,{invalid_tag_register,{x,9}}}},
      {{bad_catch_try,bad_3,1},
-      {{catch_end,{y,1}},9,{bad_type,{atom,kalle}}}},
+      {{catch_end,{y,1}},9,{invalid_tag,{y,1},{t_atom,[kalle]}}}},
      {{bad_catch_try,bad_4,1},
-      {{'try',{x,0},{f,15}},5,{invalid_store,{x,0},{trytag,[15]}}}},
+      {{'try',{x,0},{f,15}},5,{invalid_tag_register,{x,0}}}},
      {{bad_catch_try,bad_5,1},
-      {{try_case,{y,1}},12,{bad_type,term}}},
+      {{try_case,{y,1}},12,{invalid_tag,{y,1},any}}},
      {{bad_catch_try,bad_6,1},
       {{move,{integer,1},{y,1}},7,
-       {invalid_store,{y,1},{integer,1}}}}] = Errors,
+       {invalid_store,{y,1}}}}] = Errors,
     ok.
 
 cons_guard(Config) when is_list(Config) ->
@@ -231,7 +249,7 @@ cons_guard(Config) when is_list(Config) ->
     [{{cons,foo,1},
       {{get_list,{x,0},{x,1},{x,2}},
        5,
-       {bad_type,{needed,cons},{actual,term}}}}] = Errors,
+       {bad_type,{needed,cons},{actual,any}}}}] = Errors,
     ok.
 
 freg_range(Config) when is_list(Config) ->
@@ -247,7 +265,7 @@ freg_range(Config) when is_list(Config) ->
      {{t,sum_3,2},
       {{bif,fadd,{f,0},[{fr,0},{fr,1}],{fr,-1}},
        7,
-       {bad_target,{fr,-1}}}},
+       {bad_register,{fr,-1}}}},
      {{t,sum_4,2},
       {{bif,fadd,{f,0},[{fr,0},{fr,1}],{fr,1024}},
        7,
@@ -262,7 +280,7 @@ freg_uninit(Config) when is_list(Config) ->
        {uninitialized_reg,{fr,1}}}},
      {{t,sum_2,2},
       {{bif,fadd,{f,0},[{fr,0},{fr,1}],{fr,0}},
-       9,
+       10,
        {uninitialized_reg,{fr,0}}}}] = Errors,
     ok.
 
@@ -519,9 +537,9 @@ bad_tuples(Config) ->
      {{bad_tuples,long,2},
       {{put,{atom,too_long}},8,not_building_a_tuple}},
      {{bad_tuples,self_referential,1},
-      {{put,{x,1}},7,{tuple_in_progress,{x,1}}}},
+      {{put,{x,1}},7,{unfinished_tuple,{x,1}}}},
      {{bad_tuples,short,1},
-      {{move,{x,1},{x,0}},7,{tuple_in_progress,{x,1}}}}] = Errors,
+      {{move,{x,1},{x,0}},7,{unfinished_tuple,{x,1}}}}] = Errors,
 
     ok.
 
@@ -539,37 +557,37 @@ receive_stacked(Config) ->
     [{{receive_stacked,f1,0},
       {{loop_rec_end,{f,3}},
        17,
-       {fragile_message_reference,{y,0}}}},
+       {fragile_message_reference,{y,_}}}},
      {{receive_stacked,f2,0},
-      {{test_heap,3,0},10,{fragile_message_reference,{y,1}}}},
+      {{test_heap,3,0},10,{fragile_message_reference,{y,_}}}},
      {{receive_stacked,f3,0},
-      {{test_heap,3,0},10,{fragile_message_reference,{y,1}}}},
+      {{test_heap,3,0},10,{fragile_message_reference,{y,_}}}},
      {{receive_stacked,f4,0},
-      {{test_heap,3,0},10,{fragile_message_reference,{y,1}}}},
+      {{test_heap,3,0},10,{fragile_message_reference,{y,_}}}},
      {{receive_stacked,f5,0},
       {{loop_rec_end,{f,23}},
        23,
-       {fragile_message_reference,{y,1}}}},
+       {fragile_message_reference,{y,_}}}},
      {{receive_stacked,f6,0},
-      {{gc_bif,byte_size,{f,29},0,[{y,0}],{x,0}},
+      {{gc_bif,byte_size,{f,29},0,[{y,_}],{x,0}},
        12,
-       {fragile_message_reference,{y,0}}}},
+       {fragile_message_reference,{y,_}}}},
      {{receive_stacked,f7,0},
       {{loop_rec_end,{f,33}},
        20,
-       {fragile_message_reference,{y,0}}}},
+       {fragile_message_reference,{y,_}}}},
      {{receive_stacked,f8,0},
       {{loop_rec_end,{f,38}},
        20,
-       {fragile_message_reference,{y,0}}}},
+       {fragile_message_reference,{y,_}}}},
      {{receive_stacked,m1,0},
       {{loop_rec_end,{f,43}},
        19,
-       {fragile_message_reference,{y,0}}}},
+       {fragile_message_reference,{y,_}}}},
      {{receive_stacked,m2,0},
       {{loop_rec_end,{f,48}},
        33,
-       {fragile_message_reference,{y,0}}}}] = Errors,
+       {fragile_message_reference,{y,_}}}}] = Errors,
 
     %% Compile the original source code as a smoke test.
     Data = proplists:get_value(data_dir, Config),
@@ -579,20 +597,177 @@ receive_stacked(Config) ->
 
     ok.
 
+aliased_types(Config) ->
+    Seq = lists:seq(1, 5),
+    1 = aliased_types_1(Seq, Config),
+
+    {1,1} = aliased_types_2(Seq),
+    {42,none} = aliased_types_2([]),
+
+    gurka = aliased_types_3([gurka]),
+    gaffel = aliased_types_3([gaffel]),
+
+    ok.
+
 %% ERL-735: validator failed to track types on aliased registers, rejecting
 %% legitimate optimizations.
 %%
 %%    move x0 y0
 %%    bif hd L1 x0
 %%    get_hd y0     %% The validator failed to see that y0 was a list
-aliased_types(Config) when is_list(Config) ->
-    Bug = lists:seq(1, 5),
+%%
+aliased_types_1(Bug, Config) ->
     if
         Config =/= [gurka, gaffel] -> %% Pointless branch.
             _ = hd(Bug),
             lists:seq(1, 5),
             hd(Bug)
     end.
+
+%% ERL-832: validator failed to realize that a Y register was a cons.
+aliased_types_2(Bug) ->
+    Res = case Bug of
+              [] -> id(42);
+              _ -> hd(Bug)
+          end,
+    {Res,case Bug of
+             [] -> none;
+             _ -> hd(Bug)
+         end}.
+
+%% ERL-832 part deux; validator failed to realize that an aliased register was
+%% a cons.
+aliased_types_3(Bug) ->
+    List = [Y || Y <- Bug],
+    case List of
+        [] -> Bug;
+        _ ->
+            if
+                hd(List) -> a:a();
+                true -> ok
+            end,
+            hd(List)
+    end.
+
+
+%% ERL-867; validation proceeded after a type conflict, causing incorrect types
+%% to be joined.
+
+-record(r, { e1 = e1, e2 = e2 }).
+
+type_conflict(Config) when is_list(Config) ->
+    {e1, e2} = type_conflict_1(#r{}),
+    ok.
+
+type_conflict_1(C) ->
+    Src = id(C#r.e2),
+    TRes = try id(Src) of
+               R -> R
+           catch
+               %% C:R can never match, yet it assumed that the type of 'C' was
+               %% an atom from here on.
+               C:R -> R
+           end,
+    {C#r.e1, TRes}.
+
+%% ERL-886; validation failed to infer types on both sides of '=:='
+
+infer_on_eq(Config) when is_list(Config) ->
+    {ok, gurka} = infer_on_eq_1(id({gurka})),
+    {ok, gaffel} = infer_on_eq_2(id({gaffel})),
+    {ok, elefant} = infer_on_eq_3(id({elefant})),
+    {ok, myra} = infer_on_eq_4(id({myra})),
+    ok.
+
+infer_on_eq_1(T) ->
+    1 = erlang:tuple_size(T),
+    {ok, erlang:element(1, T)}.
+
+infer_on_eq_2(T) ->
+    Size = erlang:tuple_size(T),
+    Size = 1,
+    {ok, erlang:element(1, T)}.
+
+infer_on_eq_3(T) ->
+    true = 1 =:= erlang:tuple_size(T),
+    {ok, erlang:element(1, T)}.
+
+infer_on_eq_4(T) ->
+    true = erlang:tuple_size(T) =:= 1,
+    {ok, erlang:element(1, T)}.
+
+%% ERIERL-348; types were inferred for dead values, causing validation to fail.
+
+-record(idv, {key}).
+
+infer_dead_value(Config) when is_list(Config) ->
+    a = idv_1({a, b, c, d, e, f, g}, {0, 0, 0, 0, 0, 0, 0}),
+    b = idv_1({a, b, c, d, 0, 0, 0}, {a, b, c, d, 0, 0, 0}),
+    c = idv_1({0, 0, 0, 0, 0, f, g}, {0, 0, 0, 0, 0, f, g}),
+    error = idv_1(gurka, gaffel),
+
+    ok = idv_2(id(#idv{})),
+
+    ok.
+
+idv_1({_A, _B, _C, _D, _E, _F, _G},
+      {0, 0, 0, 0, 0, 0, 0}) ->
+    a;
+idv_1({A, B, C, D,_E, _F, _G}=_Tuple1,
+      {A, B, C, D, 0, 0, 0}=_Tuple2) ->
+    b;
+idv_1({_A, _B, _C, _D, _E, F, G},
+      {0, 0, 0, 0, 0, F, G}) ->
+    c;
+idv_1(_A, _B) ->
+    error.
+
+%% ERL-998; type inference for select_val (#b_switch{}) was more clever than
+%% that for is_ne_exact (#b_br{}), sometimes failing validation when the type
+%% optimization pass acted on the former and the validator got the latter.
+
+-record(ion, {state}).
+
+infer_on_ne(Config) when is_list(Config) ->
+    #ion{state = closing} = ion_1(#ion{ state = id(open) }),
+    #ion{state = closing} = ion_close(#ion{ state = open }),
+    ok.
+
+ion_1(State = #ion{state = open}) -> ion_2(State);
+ion_1(State = #ion{state = closing}) -> ion_2(State).
+
+ion_2(State = #ion{state = open}) -> ion_close(State);
+ion_2(#ion{state = closing}) -> ok.
+
+ion_close(State = #ion{}) -> State#ion{state = closing}.
+
+%% ERL-995: The first solution to ERIERL-348 was incomplete and caused
+%% validation to fail when living values depended on delayed type inference on
+%% "dead" values.
+
+idv_2(State) ->
+    Flag = (State#idv.key == undefined),
+    case id(gurka) of
+        {_} -> id([Flag]);
+        _ -> ok
+    end,
+    if
+        Flag -> idv_called_once(State);
+        true -> ok
+    end.
+
+idv_called_once(_State) -> ok.
+
+%% Direct jumps to try/catch handlers crash the emulator and must fail
+%% validation. This is provoked by OTP-15945.
+
+branch_to_try_handler(Config) ->
+    Errors = do_val(branch_to_try_handler, Config),
+    [{{branch_to_try_handler,main,1},
+      {{bif,tuple_size,{f,3},[{y,0}],{x,0}},
+       12,
+       {illegal_branch,try_handler,3}}}] = Errors,
+    ok.
 
 %%%-------------------------------------------------------------------------
 
@@ -652,3 +827,6 @@ night(Turned) ->
     ok.
 
 participating(_, _, _, _) -> ok.
+
+id(I) ->
+    I.

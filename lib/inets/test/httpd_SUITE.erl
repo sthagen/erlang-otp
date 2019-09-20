@@ -28,6 +28,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("public_key/include/public_key.hrl").
+-include_lib("inets/include/httpd.hrl").
 -include("inets_test_lib.hrl").
 
 %% Note: This directive should only be used in test suites.
@@ -58,6 +59,7 @@ all() ->
      {group, https_limit},
      {group, http_custom},
      {group, https_custom},
+     {group, https_custom},
      {group, http_basic_auth},
      {group, https_basic_auth},
      {group, http_auth_api},
@@ -78,7 +80,11 @@ all() ->
      {group, http_rel_path_script_alias},
      {group, http_not_sup},
      {group, https_not_sup},
-     mime_types_format
+     mime_types_format,
+     erl_script_timeout_default,
+     erl_script_timeout_option,
+     erl_script_timeout_proplist,
+     erl_script_timeout_apache
     ].
 
 groups() ->
@@ -135,7 +141,7 @@ groups() ->
      {http_1_1, [],
       [host, chunked, expect, cgi, cgi_chunked_encoding_test,
        trace, range, if_modified_since, mod_esi_chunk_timeout,
-       esi_put, esi_post] ++ http_head() ++ http_get() ++ load()},
+       esi_put, esi_post, esi_proagate] ++ http_head() ++ http_get() ++ load()},
      {http_1_0, [], [host, cgi, trace] ++ http_head() ++ http_get() ++ load()},
      {http_0_9, [], http_head() ++ http_get() ++ load()},
      {http_rel_path_script_alias, [], [cgi]},
@@ -382,6 +388,10 @@ init_per_testcase(disk_log_bad_file, Config0) ->
     Config1 = init_httpd(http_logging, [{type, ip_comm} | Config0]),
     ct:timetrap({seconds, 20}),
     dbg(disk_log_internal, Config1, init);
+
+init_per_testcase(erl_script_timeout_default, Config) ->
+    ct:timetrap({seconds, 60}),
+    dbg(erl_script_timeout_default, Config, init);
 
 init_per_testcase(Case, Config) ->
     ct:timetrap({seconds, 20}),
@@ -1045,6 +1055,17 @@ mod_esi_chunk_timeout(Config) when is_list(Config) ->
 					 proplists:get_value(port, Config),
 					 proplists:get_value(host, Config),
 					 proplists:get_value(node, Config)).
+%%-------------------------------------------------------------------------
+esi_proagate(Config)  when is_list(Config) -> 
+    register(propagate_test, self()),
+    ok = http_status("GET /cgi-bin/erl/httpd_example:new_status_and_location ",
+                  Config, [{statuscode, 201}]),
+    receive
+        {status, 201} ->
+            ok;
+        Err ->
+            ct:fail(Err)
+    end.        
 
 %%-------------------------------------------------------------------------
 cgi() ->
@@ -1776,6 +1797,130 @@ mime_types_format(Config) when is_list(Config) ->
      {"cpt","application/mac-compactpro"},
      {"hqx","application/mac-binhex40"}]} = httpd_conf:load_mime_types(MimeTypes).
 
+erl_script_timeout_default(Config) when is_list(Config) ->
+    inets:start(),
+    {ok, Pid} =	inets:start(httpd,
+                            [{port, 0},
+                             {server_name,"localhost"},
+                             {server_root,"./"},
+                             {document_root,"./"},
+                             {bind_address, any},
+                             {mimetypes, [{"html", "text/html"}]},
+                             {modules,[mod_esi]},
+                             {erl_script_alias, {"/erl", [httpd_example]}}
+                            ]),
+    Info = httpd:info(Pid),
+
+    Port = proplists:get_value(port, Info),
+
+    %% Default erl_script_timeout is 15.
+    %% Verify:  13 =< erl_script_timeout =< 17
+    Url = http_get_url(Port, 500, 13000, 4000),
+
+    {ok, {_, _, Body}} = httpc:request(get, {Url, []}, [{timeout, 45000}], []),
+    ct:log("Response: ~p~n", [Body]),
+    verify_body(Body, 13000),
+    inets:stop().
+
+erl_script_timeout_option(Config) when is_list(Config) ->
+    inets:start(),
+    {ok, Pid} =	inets:start(httpd,
+                            [{port, 0},
+                             {server_name,"localhost"},
+                             {server_root,"./"},
+                             {document_root,"./"},
+                             {bind_address, any},
+                             {mimetypes, [{"html", "text/html"}]},
+                             {modules,[mod_esi]},
+                             {erl_script_timeout, 2},
+                             {erl_script_alias, {"/erl", [httpd_example]}}
+                            ]),
+    Info = httpd:info(Pid),
+    verify_timeout(Info, 2),
+
+    Port = proplists:get_value(port, Info),
+
+    %% Verify:  1 =< erl_script_timeout =< 3
+    Url = http_get_url(Port, 500, 1000, 2000),
+
+    {ok, {_, _, Body}} = httpc:request(Url),
+    ct:log("Response: ~p~n", [Body]),
+    verify_body(Body, 1000),
+    inets:stop().
+
+erl_script_timeout_proplist(Config) when is_list(Config) ->
+    HttpdConf = filename:join(get_tmp_dir(Config),
+                              "httpd_erl_script_timeout_proplist.conf"),
+    ServerConfig =
+        "[{port, 0},\n" ++
+        " {server_name,\"localhost\"},\n" ++
+        " {server_root,\"./\"},\n" ++
+        " {document_root,\"./\"},\n" ++
+        " {bind_address, any},\n" ++
+        " {mimetypes, [{\"html\", \"text/html\"}]},\n" ++
+        " {modules,[mod_esi]},\n" ++
+        " {erl_script_timeout, 5},\n" ++
+        " {erl_script_alias, {\"/erl\", [httpd_example]}}\n" ++
+        "].",
+    ok = file:write_file(HttpdConf, ServerConfig),
+
+    inets:start(),
+    {ok, Pid} =	inets:start(httpd,
+                            [{proplist_file, HttpdConf}]),
+    Info = httpd:info(Pid),
+    verify_timeout(Info, 5),
+
+    Port = proplists:get_value(port, Info),
+
+    %% Verify:  3 =< erl_script_timeout =< 7
+    Url = http_get_url(Port, 500, 3000, 4000),
+
+    {ok, {_, _, Body}} = httpc:request(Url),
+    ct:log("Response: ~p~n", [Body]),
+    verify_body(Body, 3000),
+    inets:stop().
+
+erl_script_timeout_apache(Config) when is_list(Config) ->
+    HttpdConf = filename:join(get_tmp_dir(Config),
+                              "httpd_erl_script_timeout.conf"),
+    MimeTypes = filename:join(get_tmp_dir(Config),
+                              "erl_script_timeout_mime_types.conf"),
+
+    MimeTypesConf =
+        "html\n" ++
+        "text/html\n",
+
+    ok = file:write_file(MimeTypes, MimeTypesConf),
+
+    ServerConfig =
+        "Port 0\n" ++
+        "ServerName localhost\n" ++
+        "ServerRoot ./\n" ++
+        "DocumentRoot ./\n" ++
+        "BindAddress 0.0.0.0\n" ++
+        "MimeTypes " ++ MimeTypes ++ "\n" ++
+        "Modules mod_esi\n" ++
+        "ErlScriptTimeout 8\n" ++
+        "ErlScriptAlias /erl httpd_example\n",
+
+    ok = file:write_file(HttpdConf, ServerConfig),
+
+    inets:start(),
+    {ok, Pid} =	inets:start(httpd,
+                            [{file, HttpdConf}]),
+    Info = httpd:info(Pid),
+    verify_timeout(Info, 8),
+
+    Port = proplists:get_value(port, Info),
+
+    %% Verify:  6 =< erl_script_timeout =< 10
+    Url = http_get_url(Port, 500, 6000, 4000),
+
+    {ok, {_, _, Body}} = httpc:request(Url),
+    ct:log("Response: ~p~n", [Body]),
+    verify_body(Body, 6000),
+    inets:stop().
+
 
 %%--------------------------------------------------------------------
 %% Internal functions -----------------------------------
@@ -1784,6 +1929,38 @@ url(http, End, Config) ->
     Port = proplists:get_value(port, Config),
     {ok,Host} = inet:gethostname(),
     ?URL_START ++ Host ++ ":" ++ integer_to_list(Port) ++ End.
+
+http_get_url(Port0, HeaderDelay, ChunkDelay, BadChunkDelay) ->
+    {ok, Host} = inet:gethostname(),
+    Port = integer_to_list(Port0),
+    HD = integer_to_list(HeaderDelay),
+    CD = integer_to_list(ChunkDelay),
+    BD = integer_to_list(BadChunkDelay),
+    "http://" ++ Host ++ ":" ++ Port ++
+        "/erl/httpd_example/get_chunks?header_delay=" ++ HD ++
+        "&chunk_delay=" ++ CD ++
+        "&bad_chunk_delay=" ++ BD.
+
+verify_body(Body, Timeout0) ->
+    Timeout = integer_to_list(Timeout0),
+    Res = string:find(Body, Timeout),
+    ct:log("Result: ~p~n", [Res]),
+    %% Fail if BAD chunk is found.
+    case Res =:= Timeout ++ " ms\r\n" of
+        true ->
+            ok;
+        false ->
+            ct:fail("Unexpected chunk received!")
+    end.
+
+verify_timeout(Info, Expected) ->
+    Timeout = proplists:get_value(erl_script_timeout, Info),
+    case Timeout =:= Expected of
+        true ->
+            ok;
+        false ->
+            ct:fail("Bad Timeout - Expected: ~p Got: ~p", [Expected, Timeout])
+    end.
 
 do_max_clients(Config) ->
     Version = proplists:get_value(http_version, Config),
@@ -2082,8 +2259,17 @@ head_status(_) ->
 
 basic_conf() ->
     [{modules, [mod_alias, mod_range, mod_responsecontrol,
-		mod_trace, mod_esi, mod_cgi, mod_get, mod_head]}].
-
+		mod_trace, mod_esi, ?MODULE, mod_cgi, mod_get, mod_head]}].
+do(ModData) ->
+    case whereis(propagate_test) of
+        undefined ->
+            ok;
+        _ ->
+            {already_sent, Status, _Size} = proplists:get_value(response, ModData#mod.data),
+            propagate_test ! {status, Status}              
+    end,
+    {proceed, ModData#mod.data}.
+                
 not_sup_conf() ->
      [{modules, [mod_get]}].
 

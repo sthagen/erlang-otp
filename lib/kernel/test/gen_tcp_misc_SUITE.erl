@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 	 init_per_group/2,end_per_group/2, 
 	 controlling_process/1, controlling_process_self/1,
 	 no_accept/1, close_with_pending_output/1, active_n/1,
+         active_n_closed/1,
 	 data_before_close/1,
 	 iter_max_socks/0, iter_max_socks/1,
 	 get_status/1,
@@ -36,7 +37,8 @@
 	 show_econnreset_passive/1, econnreset_after_sync_send/1,
 	 econnreset_after_async_send_active/1,
 	 econnreset_after_async_send_active_once/1,
-	 econnreset_after_async_send_passive/1, linger_zero/1,
+	 econnreset_after_async_send_passive/1,
+         linger_zero/1, linger_zero_sndbuf/1,
 	 default_options/1, http_bad_packet/1, 
 	 busy_send/1, busy_disconnect_passive/1, busy_disconnect_active/1,
 	 fill_sendq/1, partial_recv_and_close/1, 
@@ -53,7 +55,7 @@
 	 active_once_closed/1, send_timeout/1, send_timeout_active/1,
          otp_7731/1, zombie_sockets/1, otp_7816/1, otp_8102/1,
          wrapping_oct/0, wrapping_oct/1, otp_9389/1, otp_13939/1,
-         otp_12242/1]).
+         otp_12242/1, delay_send_error/1]).
 
 %% Internal exports.
 -export([sender/3, not_owner/1, passive_sockets_server/2, priority_server/1, 
@@ -73,14 +75,15 @@ suite() ->
 all() -> 
     [controlling_process, controlling_process_self, no_accept,
      close_with_pending_output, data_before_close,
-     iter_max_socks, passive_sockets, active_n,
+     iter_max_socks, passive_sockets, active_n, active_n_closed,
      accept_closed_by_other_process, otp_3924, closed_socket,
      shutdown_active, shutdown_passive, shutdown_pending,
      show_econnreset_active, show_econnreset_active_once,
      show_econnreset_passive, econnreset_after_sync_send,
      econnreset_after_async_send_active,
      econnreset_after_async_send_active_once,
-     econnreset_after_async_send_passive, linger_zero,
+     econnreset_after_async_send_passive,
+     linger_zero, linger_zero_sndbuf,
      default_options, http_bad_packet, busy_send,
      busy_disconnect_passive, busy_disconnect_active,
      fill_sendq, partial_recv_and_close,
@@ -97,7 +100,7 @@ all() ->
      active_once_closed, send_timeout, send_timeout_active, otp_7731,
      wrapping_oct,
      zombie_sockets, otp_7816, otp_8102, otp_9389,
-     otp_12242].
+     otp_12242, delay_send_error].
 
 groups() -> 
     [].
@@ -1356,7 +1359,42 @@ linger_zero(Config) when is_list(Config) ->
     ok = gen_tcp:close(Client),
     ok = ct:sleep(1),
     undefined = erlang:port_info(Client, connected),
-    {error, econnreset} = gen_tcp:recv(S, PayloadSize).
+    {error, econnreset} = gen_tcp:recv(S, PayloadSize),
+    ok.
+
+
+linger_zero_sndbuf(Config) when is_list(Config) ->
+    %% All the econnreset tests will prove that {linger, {true, 0}} aborts
+    %% a connection when the driver queue is empty. We will test here
+    %% that it also works when the driver queue is not empty
+    %% and the linger zero option is set on the listen socket.
+    {OS, _} = os:type(),
+    {ok, Listen} =
+        gen_tcp:listen(0, [{active, false},
+                           {recbuf, 4096},
+                           {show_econnreset, true},
+                           {linger, {true, 0}}]),
+    {ok, Port} = inet:port(Listen),
+    {ok, Client} =
+        gen_tcp:connect(localhost, Port,
+				   [{active, false},
+				    {sndbuf, 4096}]),
+    {ok, Server} = gen_tcp:accept(Listen),
+    ok = gen_tcp:close(Listen),
+    PayloadSize = 1024 * 1024,
+    Payload = binary:copy(<<"0123456789ABCDEF">>, 256 * 1024), % 1 MB
+    ok = gen_tcp:send(Server, Payload),
+    case erlang:port_info(Server, queue_size) of
+	{queue_size, N} when N > 0 -> ok;
+	{queue_size, 0} when OS =:= win32 -> ok;
+	{queue_size, 0} = T -> ct:fail(T)
+    end,
+    {ok, [{linger, {true, 0}}]} = inet:getopts(Server, [linger]),
+    ok = gen_tcp:close(Server),
+    ok = ct:sleep(1),
+    undefined = erlang:port_info(Server, connected),
+    {error, closed} = gen_tcp:recv(Client, PayloadSize),
+    ok.
 
 
 %% Thanks to Luke Gorrie. Tests for a very specific problem with 
@@ -1981,10 +2019,10 @@ recvtclass(_Config) ->
 %% platforms - change {unix,_} to false?
 
 %% pktoptions is not supported for IPv4
-recvtos_ok({unix,openbsd}, OSVer) -> not semver_lt(OSVer, {6,4,0});
+recvtos_ok({unix,openbsd}, OSVer) -> not semver_lt(OSVer, {6,6,0});
 recvtos_ok({unix,darwin}, OSVer) -> not semver_lt(OSVer, {19,0,0});
 %% Using the option returns einval, so it is not implemented.
-recvtos_ok({unix,freebsd}, OSVer) -> not semver_lt(OSVer, {11,2,0});
+recvtos_ok({unix,freebsd}, OSVer) -> not semver_lt(OSVer, {12,1,0});
 recvtos_ok({unix,sunos}, OSVer) -> not semver_lt(OSVer, {5,12,0});
 %% Does not return any value - not implemented for pktoptions
 recvtos_ok({unix,linux}, OSVer) -> not semver_lt(OSVer, {3,1,0});
@@ -1993,10 +2031,10 @@ recvtos_ok({unix,_}, _) -> true;
 recvtos_ok(_, _) -> false.
 
 %% pktoptions is not supported for IPv4
-recvttl_ok({unix,openbsd}, OSVer) -> not semver_lt(OSVer, {6,4,0});
+recvttl_ok({unix,openbsd}, OSVer) -> not semver_lt(OSVer, {6,6,0});
 recvttl_ok({unix,darwin}, OSVer) -> not semver_lt(OSVer, {19,0,0});
 %% Using the option returns einval, so it is not implemented.
-recvttl_ok({unix,freebsd}, OSVer) -> not semver_lt(OSVer, {11,2,0});
+recvttl_ok({unix,freebsd}, OSVer) -> not semver_lt(OSVer, {12,1,0});
 recvttl_ok({unix,sunos}, OSVer) -> not semver_lt(OSVer, {5,12,0});
 %% Does not return any value - not implemented for pktoptions
 recvttl_ok({unix,linux}, OSVer) -> not semver_lt(OSVer, {2,7,0});
@@ -2005,11 +2043,11 @@ recvttl_ok({unix,_}, _) -> true;
 recvttl_ok(_, _) -> false.
 
 %% pktoptions is not supported for IPv6
-recvtclass_ok({unix,openbsd}, OSVer) -> not semver_lt(OSVer, {6,4,0});
+recvtclass_ok({unix,openbsd}, OSVer) -> not semver_lt(OSVer, {6,6,0});
 recvtclass_ok({unix,darwin}, OSVer) -> not semver_lt(OSVer, {19,0,0});
 recvtclass_ok({unix,sunos}, OSVer) -> not semver_lt(OSVer, {5,12,0});
 %% Using the option returns einval, so it is not implemented.
-recvtclass_ok({unix,freebsd}, OSVer) -> not semver_lt(OSVer, {11,2,0});
+recvtclass_ok({unix,freebsd}, OSVer) -> not semver_lt(OSVer, {12,1,0});
 %% Does not return any value - not implemented for pktoptions
 recvtclass_ok({unix,linux}, OSVer) -> not semver_lt(OSVer, {3,1,0});
 %%
@@ -2086,8 +2124,39 @@ test_pktoptions(Family, Spec, CheckConnect, OSType, OSVer) ->
 %%%    {ok,<<"hi">>} = gen_tcp:recv(S1, 2, Timeout),
     %%
     %% Verify returned remote options
-    {ok,[{pktoptions,OptsVals1}]} = inet:getopts(S1, [pktoptions]),
-    {ok,[{pktoptions,OptsVals2}]} = inet:getopts(S2, [pktoptions]),
+    VerifyRemOpts =
+        fun(S, Role) ->
+                case inet:getopts(S, [pktoptions]) of
+                    {ok, [{pktoptions, PktOpts1}]} ->
+                        PktOpts1;
+                    {ok, UnexpOK1} ->
+                        io:format("Unexpected OK (~w): "
+                                  "~n   ~p"
+                                  "~n", [Role, UnexpOK1]),
+                        exit({unexpected_getopts_ok,
+                              Role,
+                              Spec,
+                              TrueRecvOpts,
+                              OptsVals,
+                              OptsValsDefault,
+                              UnexpOK1});
+                    {error, UnexpERR1} ->
+                        io:format("Unexpected ERROR (~w): "
+                                  "~n   ~p"
+                                  "~n", [Role, UnexpERR1]),
+                        exit({unexpected_getopts_failure,
+                              Role,
+                              Spec,
+                              TrueRecvOpts,
+                              OptsVals,
+                              OptsValsDefault,
+                              UnexpERR1})
+                end
+        end,
+    OptsVals1 = VerifyRemOpts(S1, dest),
+    OptsVals2 = VerifyRemOpts(S2, orig),
+    %% {ok,[{pktoptions,OptsVals1}]} = inet:getopts(S1, [pktoptions]),
+    %% {ok,[{pktoptions,OptsVals2}]} = inet:getopts(S2, [pktoptions]),
     (Result1 = sets_eq(OptsVals1, OptsVals))
         orelse io:format(
                  "Accept differs: ~p neq ~p~n", [OptsVals1,OptsVals]),
@@ -2155,18 +2224,19 @@ collect_accepts(N,Tmo) ->
     A = millis(),
     receive
 	{accepted,P,Msg} ->
-	    [{P,Msg}] ++ collect_accepts(N-1,Tmo-(millis() - A))
+            NextN = if N =:= infinity -> N; true -> N - 1 end,
+	    [{P,Msg}] ++ collect_accepts(NextN, Tmo - (millis()-A))
     after Tmo ->
 	    []
     end.
    
 -define(EXPECT_ACCEPTS(Pattern,N,Timeout),
 	(fun() ->
-                 case collect_accepts(if N =:= infinity -> -1; true -> N end,Timeout) of
+                 case collect_accepts((N), (Timeout)) of
 		     Pattern ->
 			 ok;
-		     Other ->
-			 {error,{unexpected,{Other,process_info(self(),messages)}}}
+		     Other__ ->
+			 {error,{unexpected,{Other__,process_info(self(),messages)}}}
 		 end
 	 end)()).
 	
@@ -2551,7 +2621,51 @@ active_once_closed(Config) when is_list(Config) ->
 	     ok = inet:setopts(A,[{active,once}]),
 	     ok = receive {tcp_closed, A} -> ok after 1000 -> error end
      end)().
-   
+
+%% Check that active n and tcp_close messages behave as expected.
+active_n_closed(Config) when is_list(Config) ->
+    {ok, L} = gen_tcp:listen(0, [binary, {active, false}]),
+
+    P = self(),
+
+    {ok,Port} = inet:port(L),
+
+    spawn_link(fun() ->
+                       Payload = <<0:50000/unit:8>>,
+                       Cnt = 10000,
+                       P ! {size,Cnt * byte_size(Payload)},
+                       {ok, S} = gen_tcp:connect("localhost", Port, [binary, {active, false}]),
+                       _ = [gen_tcp:send(S, Payload) || _ <- lists:seq(1, Cnt)],
+                       gen_tcp:close(S)
+          end),
+
+    receive {size,SendSize} -> SendSize end,
+    {ok, S} = gen_tcp:accept(L),
+    inet:setopts(S, [{active, 10}]),
+    RecvSize =
+        (fun Server(Size) ->
+                 receive
+                     {tcp, S, Bin} ->
+                         Server(byte_size(Bin) + Size);
+                     {tcp_closed, S} ->
+                         Size;
+                     {tcp_passive, S} ->
+                         inet:setopts(S, [{active, 10}]),
+                         Server(Size);
+                     Msg ->
+                         io:format("~p~n", [Msg]),
+                         Server(Size)
+                 end
+         end)(0),
+
+    gen_tcp:close(L),
+
+    if SendSize =:= RecvSize ->
+            ok;
+       true ->
+            ct:fail("Send and Recv size not equal: ~p ~p",[SendSize, RecvSize])
+    end.
+
 %% Test the send_timeout socket option.
 send_timeout(Config) when is_list(Config) ->
     Dir = filename:dirname(code:which(?MODULE)),
@@ -3427,3 +3541,37 @@ otp_12242(Addr) when tuple_size(Addr) =:= 4 ->
 
 wait(Mref) ->
     receive {'DOWN',Mref,_,_,Reason} -> Reason end.
+
+%% OTP-15536
+%% Test that send error works correctly for delay_send
+delay_send_error(_Config) ->
+    {ok, L} =
+        gen_tcp:listen(
+          0, [{reuseaddr, true}, {packet, 1}, {active, false}]),
+    {ok,{{0,0,0,0},PortNum}}=inet:sockname(L),
+    {ok, C} =
+        gen_tcp:connect(
+          "localhost", PortNum,
+          [{packet, 1}, {active, false}, {delay_send, true}]),
+    {ok, S} = gen_tcp:accept(L),
+    %% Do a couple of sends first to see that it works
+    ok = gen_tcp:send(C, "hello"),
+    ok = gen_tcp:send(C, "hello"),
+    ok = gen_tcp:send(C, "hello"),
+    %% Close the receiver
+    ok = gen_tcp:close(S),
+    %%
+    case gen_tcp:send(C, "hello") of
+        ok ->
+            case gen_tcp:send(C, "hello") of
+                ok ->
+                    timer:sleep(1000), %% Sleep in order for delay_send to have time to trigger
+                    %% This used to result in a double free
+                    {error, closed} = gen_tcp:send(C, "hello");
+                {error, closed} ->
+                    ok
+            end;
+        {error, closed} ->
+            ok
+    end,
+    ok = gen_tcp:close(C).

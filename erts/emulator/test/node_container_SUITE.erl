@@ -51,7 +51,8 @@
          unique_pid/1,
          iter_max_procs/1,
          magic_ref/1,
-         dist_entry_gc/1]).
+         dist_entry_gc/1,
+         persistent_term/1]).
 
 suite() ->
     [{ct_hooks,[ts_install_cth]},
@@ -63,7 +64,8 @@ all() ->
      node_table_gc, dist_link_refc, dist_monitor_refc,
      node_controller_refc, ets_refc, match_spec_refc,
      timer_refc, pid_wrap, port_wrap, bad_nc,
-     unique_pid, iter_max_procs, magic_ref].
+     unique_pid, iter_max_procs,
+     magic_ref, persistent_term].
 
 init_per_suite(Config) ->
     Config.
@@ -71,25 +73,10 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     erts_debug:set_internal_state(available_internal_state, true),
     erts_debug:set_internal_state(node_tab_delayed_delete, -1), %% restore original value
-    available_internal_state(false).
-
-available_internal_state(Bool) when Bool == true; Bool == false ->
-    case {Bool,
-          (catch erts_debug:get_internal_state(available_internal_state))} of
-        {true, true} ->
-            true;
-        {false, true} ->
-            erts_debug:set_internal_state(available_internal_state, false),
-            true;
-        {true, _} ->
-            erts_debug:set_internal_state(available_internal_state, true),
-            false;
-        {false, _} ->
-            false
-    end.
+    erts_test_utils:available_internal_state(false).
 
 init_per_testcase(_Case, Config) when is_list(Config) ->
-    available_internal_state(true),
+    erts_test_utils:available_internal_state(true),
     Config.
 
 end_per_testcase(_Case, Config) when is_list(Config) ->
@@ -585,7 +572,17 @@ node_controller_refc(Config) when is_list(Config) ->
     wait_until(fun () -> not is_process_alive(P) end),
     lists:foreach(fun (Proc) -> garbage_collect(Proc) end, processes()),
     false = get_node_references({Node,Creation}),
-    false = get_dist_references(Node),
+    wait_until(fun () ->
+                       case get_dist_references(Node) of
+                           false ->
+                               true;
+                           [{{system,thread_progress_delete_timer},
+                             [{system,1}]}] ->
+                               false;
+                           Other ->
+                               ct:fail(Other)
+                       end
+               end),
     false = lists:member(Node, nodes(known)),
     nc_refc_check(node()),
     erts_debug:set_internal_state(node_tab_delayed_delete, -1), %% restore original value
@@ -886,7 +883,22 @@ magic_ref(Config) when is_list(Config) ->
 	{'DOWN', Mon, process, Pid, _} ->
 	    ok
     end,
-    {Addr0, 2, true} = erts_debug:get_internal_state({magic_ref,MRef0}),
+    MaxTime = erlang:monotonic_time(millisecond) + 1000,
+    %% The DOWN signal is sent before heap is cleaned up,
+    %% so we might need to wait some time after the DOWN
+    %% signal has been received before the heap actually
+    %% has been cleaned up...
+    wait_until(fun () ->
+                       case erts_debug:get_internal_state({magic_ref,MRef0}) of
+                           {Addr0, 2, true} ->
+                               true;
+                           {Addr0, 3, true} ->
+                               true = MaxTime >= erlang:monotonic_time(millisecond),
+                               false;
+                           Error ->
+                               ct:fail(Error)
+                       end
+               end),
     id(MRef0),
     id(MRef1),
     MRefExt = term_to_binary(erts_debug:set_internal_state(make, magic_ref)),
@@ -894,6 +906,44 @@ magic_ref(Config) when is_list(Config) ->
     {MRef2, _Addr2} = binary_to_term(MRefExt),
     true = is_reference(MRef2),
     true = erts_debug:get_internal_state({magic_ref,MRef2}),
+    ok.
+
+persistent_term(Config) when is_list(Config) ->
+    {ok, Node} = start_node(get_nodefirstname()),
+    Self = self(),
+    NcData = make_ref(),
+    RPid = spawn_link(Node,
+                      fun () ->
+                              Self ! {NcData, self(), hd(erlang:ports()), erlang:make_ref()}
+                      end),
+    Data = receive
+               {NcData, RPid, RPort, RRef} ->
+                   {RPid, RPort, RRef}
+           end,
+    unlink(RPid),
+    stop_node(Node),
+    Stuff = lists:foldl(fun (N, Acc) ->
+                                persistent_term:put({?MODULE, N}, Data),
+                                persistent_term:erase({?MODULE, N-1}),
+                                node_container_refc_check(node()),
+                                Data = persistent_term:get({?MODULE, N}),
+                                try
+                                    persistent_term:get({?MODULE, N-1})
+                                catch
+                                    error:badarg ->
+                                        ok
+                                end,
+                                case N rem 4 of
+                                    0 -> [persistent_term:get({?MODULE, N})|Acc];
+                                    _ -> Acc
+                                end
+                        end,
+                        [],
+                        lists:seq(1, 100)),
+    persistent_term:erase({?MODULE, 100}),
+    receive after 2000 -> ok end, %% give literal gc some time to run...
+    node_container_refc_check(node()),
+    id(Stuff),
     ok.
 
 
@@ -928,9 +978,9 @@ id(X) ->
 -define(ND_REFS, erts_debug:get_internal_state(node_and_dist_references)).
 
 node_container_refc_check(Node) when is_atom(Node) ->
-    AIS = available_internal_state(true),
+    AIS = erts_test_utils:available_internal_state(true),
     nc_refc_check(Node),
-    available_internal_state(AIS).
+    erts_test_utils:available_internal_state(AIS).
 
 nc_refc_check(Node) when is_atom(Node) ->
     Ref = make_ref(),

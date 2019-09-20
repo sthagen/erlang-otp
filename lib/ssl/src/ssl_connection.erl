@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2013-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2013-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -39,9 +39,9 @@
 
 %% Setup
 
--export([connect/8, handshake/7, handshake/2, handshake/3,
+-export([connect/8, handshake/7, handshake/2, handshake/3, handle_common_event/5,
          handshake_continue/3, handshake_cancel/1,
-	 socket_control/4, socket_control/5, start_or_recv_cancel_timer/2]).
+	 socket_control/4, socket_control/5]).
 
 %% User Events 
 -export([send/2, recv/3, close/2, shutdown/2,
@@ -71,16 +71,16 @@
 -export([terminate/3, format_status/2]).
 
 %% Erlang Distribution export
--export([get_sslsocket/1, dist_handshake_complete/2]).
+-export([dist_handshake_complete/2]).
 
 %%====================================================================
 %% Setup
 %%====================================================================
 %%--------------------------------------------------------------------
 -spec connect(tls_connection | dtls_connection,
-	      host(), inet:port_number(), 
+	      ssl:host(), inet:port_number(), 
 	      port() | {tuple(), port()}, %% TLS | DTLS  
-	      {#ssl_options{}, #socket_options{},
+	      {ssl_options(), #socket_options{},
 	       %% Tracker only needed on server side
 	       undefined},
 	      pid(), tuple(), timeout()) ->
@@ -98,7 +98,7 @@ connect(Connection, Host, Port, Socket, Options, User, CbInfo, Timeout) ->
 %%--------------------------------------------------------------------
 -spec handshake(tls_connection | dtls_connection,
 		 inet:port_number(), port(),
-		 {#ssl_options{}, #socket_options{}, undefined | pid()},
+		 {ssl_options(), #socket_options{}, undefined | pid()},
 		 pid(), tuple(), timeout()) ->
 			{ok, #sslsocket{}} | {error, reason()}.
 %%
@@ -115,7 +115,7 @@ handshake(Connection, Port, Socket, Opts, User, CbInfo, Timeout) ->
 
 %%--------------------------------------------------------------------
 -spec handshake(#sslsocket{}, timeout()) ->  {ok, #sslsocket{}} |
-                                                 {ok,  #sslsocket{}, map()}| {error, reason()}.
+                                             {ok,  #sslsocket{}, map()}| {error, reason()}.
 %%
 %% Description: Starts ssl handshake. 
 %%--------------------------------------------------------------------
@@ -124,14 +124,14 @@ handshake(#sslsocket{pid = [Pid|_]} = Socket, Timeout) ->
 	connected ->
 	    {ok, Socket};
         {ok, Ext} ->
-            {ok, Socket, Ext};
+            {ok, Socket, no_records(Ext)};
  	Error ->
 	    Error
     end.
 
 %%--------------------------------------------------------------------
--spec handshake(#sslsocket{}, {#ssl_options{},#socket_options{}},
-		timeout()) ->   {ok, #sslsocket{}} | {error, reason()}.
+-spec handshake(#sslsocket{}, {ssl_options(),#socket_options{}}, timeout()) ->
+                       {ok, #sslsocket{}} | {ok, #sslsocket{}, map()} | {error, reason()}.
 %%
 %% Description: Starts ssl handshake with some new options 
 %%--------------------------------------------------------------------
@@ -144,7 +144,7 @@ handshake(#sslsocket{pid = [Pid|_]} = Socket, SslOptions, Timeout) ->
     end.
 
 %%--------------------------------------------------------------------
--spec handshake_continue(#sslsocket{}, [ssl_option()],
+-spec handshake_continue(#sslsocket{}, [ssl:tls_server_option()],
                          timeout()) ->  {ok,  #sslsocket{}}| {error, reason()}.
 %%
 %% Description: Continues handshake with new options
@@ -183,27 +183,23 @@ socket_control(Connection, Socket, Pid, Transport) ->
 %%--------------------------------------------------------------------	    
 socket_control(Connection, Socket, Pids, Transport, udp_listener) ->
     %% dtls listener process must have the socket control
-    {ok, Connection:socket(Pids, Transport, Socket, Connection, undefined)};
+    {ok, Connection:socket(Pids, Transport, Socket, undefined)};
 
 socket_control(tls_connection = Connection, Socket, [Pid|_] = Pids, Transport, ListenTracker) ->
     case Transport:controlling_process(Socket, Pid) of
 	ok ->
-	    {ok, Connection:socket(Pids, Transport, Socket, Connection, ListenTracker)};
+	    {ok, Connection:socket(Pids, Transport, Socket, ListenTracker)};
 	{error, Reason}	->
 	    {error, Reason}
     end;
 socket_control(dtls_connection = Connection, {_, Socket}, [Pid|_] = Pids, Transport, ListenTracker) ->
     case Transport:controlling_process(Socket, Pid) of
 	ok ->
-	    {ok, Connection:socket(Pids, Transport, Socket, Connection, ListenTracker)};
+	    {ok, Connection:socket(Pids, Transport, Socket, ListenTracker)};
 	{error, Reason}	->
 	    {error, Reason}
     end.
 
-start_or_recv_cancel_timer(infinity, _RecvFrom) ->
-    undefined;
-start_or_recv_cancel_timer(Timeout, RecvFrom) ->
-    erlang:send_after(Timeout, self(), {cancel_start_or_recv, RecvFrom}).
 
 %%====================================================================
 %% User events
@@ -216,9 +212,9 @@ start_or_recv_cancel_timer(Timeout, RecvFrom) ->
 %%--------------------------------------------------------------------
 send(Pid, Data) -> 
     call(Pid, {application_data, 
-				    %% iolist_to_binary should really
-				    %% be called iodata_to_binary()
-				    erlang:iolist_to_binary(Data)}).
+				    %% iolist_to_iovec should really
+				    %% be called iodata_to_iovec()
+				    erlang:iolist_to_iovec(Data)}).
 
 %%--------------------------------------------------------------------
 -spec recv(pid(), integer(), timeout()) ->  
@@ -316,9 +312,6 @@ renegotiation(ConnectionPid) ->
 internal_renegotiation(ConnectionPid, #{current_write := WriteState}) ->
     gen_statem:cast(ConnectionPid, {internal_renegotiate, WriteState}). 
 
-get_sslsocket(ConnectionPid) ->
-    call(ConnectionPid, get_sslsocket).
-
 dist_handshake_complete(ConnectionPid, DHandle) ->
     gen_statem:cast(ConnectionPid, {dist_handshake_complete, DHandle}).
 
@@ -335,47 +328,46 @@ prf(ConnectionPid, Secret, Label, Seed, WantedLength) ->
 %%====================================================================
 %% Alert and close handling
 %%====================================================================
-handle_own_alert(Alert, _, StateName,
+handle_own_alert(Alert0, _, StateName,
 		 #state{static_env = #static_env{role = Role,
                                                  protocol_cb = Connection},
-                        ssl_options = SslOpts} = State) ->
+                        ssl_options = #{log_level := LogLevel}} = State) ->
     try %% Try to tell the other side
-        send_alert(Alert, StateName, State)
+        send_alert(Alert0, StateName, State)
     catch _:_ ->  %% Can crash if we are in a uninitialized state
 	    ignore
     end,
     try %% Try to tell the local user
-	log_alert(SslOpts#ssl_options.log_level, Role,
-	          Connection:protocol_name(), StateName,
-	          Alert#alert{role = Role}),
+        Alert = Alert0#alert{role = Role},
+	log_alert(LogLevel, Role, Connection:protocol_name(), StateName, Alert),
 	handle_normal_shutdown(Alert,StateName, State)
     catch _:_ ->
 	    ok
     end,
     {stop, {shutdown, own_alert}, State}.
 
-handle_normal_shutdown(Alert, _, #state{static_env = #static_env{role = Role,
-                                                                 socket = Socket,
-                                                                 transport_cb = Transport,
-                                                                 protocol_cb = Connection,
-                                                                 tracker = Tracker},
-					start_or_recv_from = StartFrom,
-                                        renegotiation = {false, first}} = State) ->
+handle_normal_shutdown(Alert, StateName, #state{static_env = #static_env{role = Role,
+                                                                         socket = Socket,
+                                                                         transport_cb = Transport,
+                                                                         protocol_cb = Connection,
+                                                                         tracker = Tracker},
+                                                handshake_env = #handshake_env{renegotiation = {false, first}},
+                                                start_or_recv_from = StartFrom} = State) ->
     Pids = Connection:pids(State),
-    alert_user(Pids, Transport, Tracker,Socket, StartFrom, Alert, Role, Connection);
+    alert_user(Pids, Transport, Tracker,Socket, StartFrom, Alert, Role, StateName, Connection);
 
 handle_normal_shutdown(Alert, StateName, #state{static_env = #static_env{role = Role,
                                                                          socket = Socket,
                                                                          transport_cb = Transport,
                                                                          protocol_cb = Connection,
                                                                          tracker = Tracker},
-                                                                         socket_options = Opts,
-                                                                         user_application = {_Mon, Pid},
+                                                connection_env  = #connection_env{user_application = {_Mon, Pid}},
+                                                socket_options = Opts,
 						start_or_recv_from = RecvFrom} = State) ->
     Pids = Connection:pids(State),
-    alert_user(Pids, Transport, Tracker, Socket, StateName, Opts, Pid, RecvFrom, Alert, Role, Connection).
+    alert_user(Pids, Transport, Tracker, Socket, StateName, Opts, Pid, RecvFrom, Alert, Role, StateName, Connection).
 
-handle_alert(#alert{level = ?FATAL} = Alert, StateName,
+handle_alert(#alert{level = ?FATAL} = Alert0, StateName,
 	     #state{static_env = #static_env{role = Role,
                                              socket = Socket,
                                              host = Host,
@@ -383,15 +375,17 @@ handle_alert(#alert{level = ?FATAL} = Alert, StateName,
                                              tracker = Tracker,
                                              transport_cb = Transport,
                                              protocol_cb = Connection},
-		    ssl_options = SslOpts,
+                    connection_env  = #connection_env{user_application = {_Mon, Pid}},
+		    ssl_options = #{log_level := LogLevel},
                     start_or_recv_from = From,
-                    session = Session, user_application = {_Mon, Pid},
+                    session = Session, 
 		    socket_options = Opts} = State) ->
     invalidate_session(Role, Host, Port, Session),
-    log_alert(SslOpts#ssl_options.log_level, Role, Connection:protocol_name(), 
-              StateName, Alert#alert{role = opposite_role(Role)}),
+    Alert = Alert0#alert{role = opposite_role(Role)},
+    log_alert(LogLevel, Role, Connection:protocol_name(),
+              StateName, Alert),
     Pids = Connection:pids(State),
-    alert_user(Pids, Transport, Tracker, Socket, StateName, Opts, Pid, From, Alert, Role, Connection),
+    alert_user(Pids, Transport, Tracker, Socket, StateName, Opts, Pid, From, Alert, Role, StateName, Connection),
     {stop, {shutdown, normal}, State};
 
 handle_alert(#alert{level = ?WARNING, description = ?CLOSE_NOTIFY} = Alert, 
@@ -401,48 +395,48 @@ handle_alert(#alert{level = ?WARNING, description = ?CLOSE_NOTIFY} = Alert,
 	    StateName, State) -> 
     handle_normal_shutdown(Alert, StateName, State),
     {stop,{shutdown, peer_close}, State};
-handle_alert(#alert{level = ?WARNING, description = ?NO_RENEGOTIATION} = Alert, StateName, 
+handle_alert(#alert{level = ?WARNING, description = ?NO_RENEGOTIATION} = Alert0, StateName, 
 	     #state{static_env = #static_env{role = Role,
                                              protocol_cb = Connection},
-                    ssl_options = SslOpts,
-                    renegotiation = {true, internal}} = State) ->
-    log_alert(SslOpts#ssl_options.log_level, Role, 
-              Connection:protocol_name(), StateName, Alert#alert{role = opposite_role(Role)}),
+                    handshake_env = #handshake_env{renegotiation = {true, internal}},
+                    ssl_options = #{log_level := LogLevel}} = State) ->
+    Alert = Alert0#alert{role = opposite_role(Role)},
+    log_alert(LogLevel, Role,
+              Connection:protocol_name(), StateName, Alert),
     handle_normal_shutdown(Alert, StateName, State),
     {stop,{shutdown, peer_close}, State};
 
 handle_alert(#alert{level = ?WARNING, description = ?NO_RENEGOTIATION} = Alert, connection = StateName, 
 	     #state{static_env = #static_env{role = Role,
                                              protocol_cb = Connection},
-                    ssl_options = SslOpts,
-                    renegotiation = {true, From}
+                    handshake_env = #handshake_env{renegotiation = {true, From}} = HsEnv,
+                    ssl_options = #{log_level := LogLevel}
 		   } = State0) ->
-    log_alert(SslOpts#ssl_options.log_level,  Role,
+    log_alert(LogLevel, Role,
               Connection:protocol_name(), StateName, Alert#alert{role = opposite_role(Role)}),
     gen_statem:reply(From, {error, renegotiation_rejected}),
     State = Connection:reinit_handshake_data(State0),
-    Connection:next_event(connection, no_record, State#state{renegotiation = undefined});
+    Connection:next_event(connection, no_record, State#state{handshake_env = HsEnv#handshake_env{renegotiation = undefined}});
 
 handle_alert(#alert{level = ?WARNING, description = ?NO_RENEGOTIATION} = Alert, StateName, 
 	     #state{static_env = #static_env{role = Role,
                                              protocol_cb = Connection},
-                    ssl_options = SslOpts,
-                    renegotiation = {true, From}
+                    handshake_env = #handshake_env{renegotiation = {true, From}} = HsEnv,
+                    ssl_options = #{log_level := LogLevel}
                    } = State0) ->
-    log_alert(SslOpts#ssl_options.log_level, Role,
-              Connection:protocol_name(), StateName,
-              Alert#alert{role = opposite_role(Role)}),
+    log_alert(LogLevel, Role,
+              Connection:protocol_name(), StateName, Alert#alert{role = opposite_role(Role)}),
     gen_statem:reply(From, {error, renegotiation_rejected}),
     %% Go back to connection!
-    State = Connection:reinit(State0#state{renegotiation = undefined}),
+    State = Connection:reinit(State0#state{handshake_env = HsEnv#handshake_env{renegotiation = undefined}}),
     Connection:next_event(connection, no_record, State);
 
 %% Gracefully log and ignore all other warning alerts
 handle_alert(#alert{level = ?WARNING} = Alert, StateName,
 	     #state{static_env = #static_env{role = Role,
                                              protocol_cb = Connection},
-                    ssl_options = SslOpts} = State) ->
-    log_alert(SslOpts#ssl_options.log_level, Role,
+                    ssl_options = #{log_level := LogLevel}} = State) ->
+    log_alert(LogLevel, Role,
               Connection:protocol_name(), StateName,
               Alert#alert{role = opposite_role(Role)}),
     Connection:next_event(StateName, no_record, State).
@@ -450,106 +444,112 @@ handle_alert(#alert{level = ?WARNING} = Alert, StateName,
 %%====================================================================
 %% Data handling
 %%====================================================================
-passive_receive(State0 = #state{user_data_buffer = Buffer}, StateName, Connection) -> 
-    case Buffer of
-	<<>> ->
-	    {Record, State} = Connection:next_record(State0),
-	    Connection:next_event(StateName, Record, State);
+passive_receive(State0 = #state{user_data_buffer = {_,BufferSize,_}}, StateName, Connection, StartTimerAction) ->
+    case BufferSize of
+	0 ->
+	    Connection:next_event(StateName, no_record, State0, StartTimerAction);
 	_ ->
 	    case read_application_data(<<>>, State0) of
                 {stop, _, _} = ShutdownError ->
                     ShutdownError;
                 {Record, State} ->
-                    Connection:next_event(StateName, Record, State)
+                    case State#state.start_or_recv_from of
+                        undefined ->
+                            %% Cancel recv timeout as data has been delivered
+                            Connection:next_event(StateName, Record, State, 
+                                                  [{{timeout, recv}, infinity, timeout}]);
+                        _ ->
+                            Connection:next_event(StateName, Record, State, StartTimerAction)
+                    end
             end
     end.
 
 read_application_data(
   Data,
   #state{
-     user_data_buffer = Buffer0,
-     erl_dist_handle = DHandle} = State) ->
+     user_data_buffer = {Front0,BufferSize0,Rear0},
+     connection_env = #connection_env{erl_dist_handle = DHandle}} = State) ->
     %%
-    Buffer = bincat(Buffer0, Data),
+    Front = Front0,
+    BufferSize = BufferSize0 + byte_size(Data),
+    Rear = [Data|Rear0],
     case DHandle of
         undefined ->
-            #state{
-               socket_options = SocketOpts,
-               bytes_to_read = BytesToRead,
-               start_or_recv_from = RecvFrom,
-               timer = Timer} = State,
-            read_application_data(
-              Buffer, State, SocketOpts, RecvFrom, Timer, BytesToRead);
+            read_application_data(State, Front, BufferSize, Rear);
         _ ->
-            try read_application_dist_data(Buffer, State, DHandle)
+            try read_application_dist_data(DHandle, Front, BufferSize, Rear) of
+                Buffer ->
+                    {no_record, State#state{user_data_buffer = Buffer}}
             catch error:_ ->
                     {stop,disconnect,
-                     State#state{
-                       user_data_buffer = Buffer,
-                       bytes_to_read = undefined}}
+                     State#state{user_data_buffer = {Front,BufferSize,Rear}}}
             end
     end.
 
-read_application_dist_data(Buffer, State, DHandle) ->
-    case Buffer of
-        <<Size:32,Data:Size/binary>> ->
-            erlang:dist_ctrl_put_data(DHandle, Data),
-            {no_record,
-             State#state{
-               user_data_buffer = <<>>,
-               bytes_to_read = undefined}};
-        <<Size:32,Data:Size/binary,Rest/binary>> ->
-            erlang:dist_ctrl_put_data(DHandle, Data),
-            read_application_dist_data(Rest, State, DHandle);
-        _ ->
-            {no_record,
-             State#state{
-               user_data_buffer = Buffer,
-               bytes_to_read = undefined}}
-    end.
 
-read_application_data(
-  Buffer0, State, SocketOpts0, RecvFrom, Timer, BytesToRead) ->
-    %%
-    case get_data(SocketOpts0, BytesToRead, Buffer0) of
-	{ok, ClientData, Buffer} -> % Send data
-            #state{
-               static_env =
-                   #static_env{
-                      socket = Socket,
-                      protocol_cb = Connection,
-                      transport_cb = Transport,
-                      tracker = Tracker},
-               user_application = {_Mon, Pid}} = State,
-            SocketOpts =
-                deliver_app_data(
-                  Connection:pids(State),
-                  Transport, Socket, SocketOpts0,
-                  ClientData, Pid, RecvFrom, Tracker, Connection),
-            cancel_timer(Timer),
+read_application_data(#state{
+                         socket_options = SocketOpts,
+                         bytes_to_read = BytesToRead,
+                         start_or_recv_from = RecvFrom} = State, Front, BufferSize, Rear) ->
+    read_application_data(State, Front, BufferSize, Rear, SocketOpts, RecvFrom, BytesToRead).
+
+%% Pick binary from queue front, if empty wait for more data
+read_application_data(State, [Bin|Front], BufferSize, Rear, SocketOpts, RecvFrom, BytesToRead) ->
+    read_application_data_bin(State, Front, BufferSize, Rear, SocketOpts, RecvFrom, BytesToRead, Bin);
+read_application_data(State, [] = Front, BufferSize, [] = Rear, SocketOpts, RecvFrom, BytesToRead) ->
+    0 = BufferSize, % Assert
+    {no_record, State#state{socket_options = SocketOpts,
+                            bytes_to_read = BytesToRead,
+                            start_or_recv_from = RecvFrom,
+                            user_data_buffer = {Front,BufferSize,Rear}}};
+read_application_data(State, [], BufferSize, Rear, SocketOpts, RecvFrom, BytesToRead) ->
+    [Bin|Front] = lists:reverse(Rear),
+    read_application_data_bin(State, Front, BufferSize, [], SocketOpts, RecvFrom, BytesToRead, Bin).
+
+read_application_data_bin(State, Front, BufferSize, Rear, SocketOpts, RecvFrom, BytesToRead, <<>>) ->
+    %% Done with this binary - get next
+    read_application_data(State, Front, BufferSize, Rear, SocketOpts, RecvFrom, BytesToRead);
+read_application_data_bin(State, Front0, BufferSize0, Rear0, SocketOpts0, RecvFrom, BytesToRead, Bin0) ->
+    %% Decode one packet from a binary
+    case get_data(SocketOpts0, BytesToRead, Bin0) of
+	{ok, Data, Bin} -> % Send data
+            BufferSize = BufferSize0 - (byte_size(Bin0) - byte_size(Bin)),
+            read_application_data_deliver(
+              State, [Bin|Front0], BufferSize, Rear0, SocketOpts0, RecvFrom, Data);
+        {more, undefined} ->
+            %% We need more data, do not know how much
             if
-                SocketOpts#socket_options.active =:= false;
-                Buffer =:= <<>> ->
-                    %% Passive mode, wait for active once or recv
-                    %% Active and empty, get more data
-                    {no_record,
-                     State#state{
-                       user_data_buffer = Buffer,
-                       start_or_recv_from = undefined,
-                       timer = undefined,
-                       bytes_to_read = undefined,
-                       socket_options = SocketOpts
-                      }};
-                true -> %% We have more data
-                    read_application_data(
-                      Buffer, State, SocketOpts,
-                      undefined, undefined, undefined)
+                byte_size(Bin0) < BufferSize0 ->
+                    %% We have more data in the buffer besides the first binary - concatenate all and retry
+                    Bin = iolist_to_binary([Bin0,Front0|lists:reverse(Rear0)]),
+                    read_application_data_bin(
+                      State, [], BufferSize0, [], SocketOpts0, RecvFrom, BytesToRead, Bin);
+                true ->
+                    %% All data is in the first binary, no use to retry - wait for more
+                    {no_record, State#state{socket_options = SocketOpts0,
+                                            bytes_to_read = BytesToRead,
+                                            start_or_recv_from = RecvFrom,
+                                            user_data_buffer = {[Bin0|Front0],BufferSize0,Rear0}}}
             end;
-	{more, Buffer} -> % no reply, we need more data
-            {no_record, State#state{user_data_buffer = Buffer}};
-	{passive, Buffer} ->
-	    {no_record, State#state{user_data_buffer = Buffer}};
-	{error,_Reason} -> %% Invalid packet in packet mode
+        {more, Size} when Size =< BufferSize0 ->
+            %% We have a packet in the buffer - collect it in a binary and decode
+            {Data,Front,Rear} = iovec_from_front(Size - byte_size(Bin0), Front0, Rear0, [Bin0]),
+            Bin = iolist_to_binary(Data),
+            read_application_data_bin(
+              State, Front, BufferSize0, Rear, SocketOpts0, RecvFrom, BytesToRead, Bin);
+        {more, _Size} ->
+            %% We do not have a packet in the buffer - wait for more
+            {no_record, State#state{socket_options = SocketOpts0,
+                                    bytes_to_read = BytesToRead,
+                                    start_or_recv_from = RecvFrom,
+                                    user_data_buffer = {[Bin0|Front0],BufferSize0,Rear0}}};
+        passive ->
+            {no_record, State#state{socket_options = SocketOpts0,
+                                    bytes_to_read = BytesToRead,
+                                    start_or_recv_from = RecvFrom,
+                                    user_data_buffer = {[Bin0|Front0],BufferSize0,Rear0}}};
+	{error,_Reason} ->
+            %% Invalid packet in packet mode
             #state{
                static_env =
                    #static_env{
@@ -557,12 +557,177 @@ read_application_data(
                       protocol_cb = Connection,
                       transport_cb = Transport,
                       tracker = Tracker},
-               user_application = {_Mon, Pid}} = State,
+               connection_env =
+                   #connection_env{user_application = {_Mon, Pid}}} = State,
+            Buffer = iolist_to_binary([Bin0,Front0|lists:reverse(Rear0)]),
 	    deliver_packet_error(
               Connection:pids(State), Transport, Socket, SocketOpts0,
-              Buffer0, Pid, RecvFrom, Tracker, Connection),
-            {stop, {shutdown, normal}, State}
+              Buffer, Pid, RecvFrom, Tracker, Connection),
+            {stop, {shutdown, normal}, State#state{socket_options = SocketOpts0,
+                                                   bytes_to_read = BytesToRead,
+                                                   start_or_recv_from = RecvFrom,
+                                                   user_data_buffer = {[Buffer],BufferSize0,[]}}}
     end.
+
+read_application_data_deliver(State, Front, BufferSize, Rear, SocketOpts0, RecvFrom, Data) ->
+    #state{
+       static_env =
+           #static_env{
+              socket = Socket,
+              protocol_cb = Connection,
+              transport_cb = Transport,
+              tracker = Tracker},
+       connection_env =
+           #connection_env{user_application = {_Mon, Pid}}} = State,
+    SocketOpts =
+        deliver_app_data(
+          Connection:pids(State), Transport, Socket, SocketOpts0, Data, Pid, RecvFrom, Tracker, Connection),
+    if
+        SocketOpts#socket_options.active =:= false ->
+            %% Passive mode, wait for active once or recv
+            {no_record,
+             State#state{
+               user_data_buffer = {Front,BufferSize,Rear},
+               start_or_recv_from = undefined,
+                bytes_to_read = undefined,
+               socket_options = SocketOpts
+              }};
+        true -> %% Try to deliver more data
+            read_application_data(State, Front, BufferSize, Rear, SocketOpts, undefined, undefined)
+    end.
+
+
+read_application_dist_data(DHandle, [Bin|Front], BufferSize, Rear) ->
+    read_application_dist_data(DHandle, Front, BufferSize, Rear, Bin);
+read_application_dist_data(_DHandle, [] = Front, BufferSize, [] = Rear) ->
+    BufferSize = 0,
+    {Front,BufferSize,Rear};
+read_application_dist_data(DHandle, [], BufferSize, Rear) ->
+    [Bin|Front] = lists:reverse(Rear),
+    read_application_dist_data(DHandle, Front, BufferSize, [], Bin).
+%%
+read_application_dist_data(DHandle, Front0, BufferSize, Rear0, Bin0) ->
+    case Bin0 of
+        %%
+        %% START Optimization
+        %% It is cheaper to match out several packets in one match operation than to loop for each
+        <<SizeA:32, DataA:SizeA/binary,
+          SizeB:32, DataB:SizeB/binary,
+          SizeC:32, DataC:SizeC/binary,
+          SizeD:32, DataD:SizeD/binary, Rest/binary>>
+          when 0 < SizeA, 0 < SizeB, 0 < SizeC, 0 < SizeD ->
+            %% We have 4 complete packets in the first binary
+            erlang:dist_ctrl_put_data(DHandle, DataA),
+            erlang:dist_ctrl_put_data(DHandle, DataB),
+            erlang:dist_ctrl_put_data(DHandle, DataC),
+            erlang:dist_ctrl_put_data(DHandle, DataD),
+            read_application_dist_data(
+              DHandle, Front0, BufferSize - (4*4+SizeA+SizeB+SizeC+SizeD), Rear0, Rest);
+        <<SizeA:32, DataA:SizeA/binary,
+          SizeB:32, DataB:SizeB/binary,
+          SizeC:32, DataC:SizeC/binary, Rest/binary>>
+          when 0 < SizeA, 0 < SizeB, 0 < SizeC ->
+            %% We have 3 complete packets in the first binary
+            erlang:dist_ctrl_put_data(DHandle, DataA),
+            erlang:dist_ctrl_put_data(DHandle, DataB),
+            erlang:dist_ctrl_put_data(DHandle, DataC),
+            read_application_dist_data(
+              DHandle, Front0, BufferSize - (3*4+SizeA+SizeB+SizeC), Rear0, Rest);
+        <<SizeA:32, DataA:SizeA/binary,
+          SizeB:32, DataB:SizeB/binary, Rest/binary>>
+          when 0 < SizeA, 0 < SizeB ->
+            %% We have 2 complete packets in the first binary
+            erlang:dist_ctrl_put_data(DHandle, DataA),
+            erlang:dist_ctrl_put_data(DHandle, DataB),
+            read_application_dist_data(
+              DHandle, Front0, BufferSize - (2*4+SizeA+SizeB), Rear0, Rest);
+        %% END Optimization
+        %%
+        %% Basic one packet code path
+        <<Size:32, Data:Size/binary, Rest/binary>> ->
+            %% We have a complete packet in the first binary
+            0 < Size andalso erlang:dist_ctrl_put_data(DHandle, Data),
+            read_application_dist_data(DHandle, Front0, BufferSize - (4+Size), Rear0, Rest);
+        <<Size:32, FirstData/binary>> when 4+Size =< BufferSize ->
+            %% We have a complete packet in the buffer
+            %% - fetch the missing content from the buffer front
+            {Data,Front,Rear} = iovec_from_front(Size - byte_size(FirstData), Front0, Rear0, [FirstData]),
+            0 < Size andalso erlang:dist_ctrl_put_data(DHandle, Data),
+            read_application_dist_data(DHandle, Front, BufferSize - (4+Size), Rear);
+        <<Bin/binary>> ->
+            %% In OTP-21 the match context reuse optimization fails if we use Bin0 in recursion, so here we
+            %% match out the whole binary which will trick the optimization into keeping the match context
+            %% for the first binary contains complete packet code above
+            case Bin of
+                <<_Size:32, _InsufficientData/binary>> ->
+                    %% We have a length field in the first binary but there is not enough data
+                    %% in the buffer to form a complete packet - await more data
+                    {[Bin|Front0],BufferSize,Rear0};
+                <<IncompleteLengthField/binary>> when 4 < BufferSize ->
+                    %% We do not have a length field in the first binary but the buffer
+                    %% contains enough data to maybe form a packet
+                    %% - fetch a tiny binary from the buffer front to complete the length field
+                    {LengthField,Front,Rear} =
+                        case IncompleteLengthField of
+                            <<>> ->
+                                iovec_from_front(4, Front0, Rear0, []);
+                            _ ->
+                                iovec_from_front(
+                                  4 - byte_size(IncompleteLengthField), Front0, Rear0, [IncompleteLengthField])
+                        end,
+                    LengthBin = iolist_to_binary(LengthField),
+                    read_application_dist_data(DHandle, Front, BufferSize, Rear, LengthBin);
+                <<IncompleteLengthField/binary>> ->
+                    %% We do not have enough data in the buffer to even form a length field - await more data
+                    case IncompleteLengthField of
+                        <<>> ->
+                            {Front0,BufferSize,Rear0};
+                        _ ->
+                            {[IncompleteLengthField|Front0],BufferSize,Rear0}
+                    end
+            end
+    end.
+
+iovec_from_front(0, Front, Rear, Acc) ->
+    {lists:reverse(Acc),Front,Rear};
+iovec_from_front(Size, [], Rear, Acc) ->
+    case Rear of
+        %% Avoid lists:reverse/1 for simple cases.
+        %% Case clause for [] to avoid infinite loop.
+        [_] ->
+            iovec_from_front(Size, Rear, [], Acc);
+        [Bin2,Bin1] ->
+            iovec_from_front(Size, [Bin1,Bin2], [], Acc);
+        [Bin3,Bin2,Bin1] ->
+            iovec_from_front(Size, [Bin1,Bin2,Bin3], [], Acc);
+        [_,_,_|_] = Rear ->
+            iovec_from_front(Size, lists:reverse(Rear), [], Acc)
+    end;
+iovec_from_front(Size, [Bin|Front], Rear, []) ->
+    case Bin of
+        <<Last:Size/binary>> -> % Just enough
+            {[Last],Front,Rear};
+        <<Last:Size/binary, Rest/binary>> -> % More than enough, split here
+            {[Last],[Rest|Front],Rear};
+        <<>> -> % Not enough, skip empty binaries
+            iovec_from_front(Size, Front, Rear, []);
+        <<_/binary>> -> % Not enough
+            BinSize = byte_size(Bin),
+            iovec_from_front(Size - BinSize, Front, Rear, [Bin])
+    end;
+iovec_from_front(Size, [Bin|Front], Rear, Acc) ->
+    case Bin of
+        <<Last:Size/binary>> -> % Just enough
+            {lists:reverse(Acc, [Last]),Front,Rear};
+        <<Last:Size/binary, Rest/binary>> -> % More than enough, split here
+            {lists:reverse(Acc, [Last]),[Rest|Front],Rear};
+        <<>> -> % Not enough, skip empty binaries
+            iovec_from_front(Size, Front, Rear, Acc);
+        <<_/binary>> -> % Not enough
+            BinSize = byte_size(Bin),
+            iovec_from_front(Size - BinSize, Front, Rear, [Bin|Acc])
+    end.
+
 
 %%====================================================================
 %% Help functions for tls|dtls_connection.erl
@@ -576,26 +741,27 @@ handle_session(#server_hello{cipher_suite = CipherSuite,
 			     compression_method = Compression}, 
 	       Version, NewId, ConnectionStates, ProtoExt, Protocol0,
 	       #state{session = #session{session_id = OldId},
-		      negotiated_version = ReqVersion,
-		      negotiated_protocol = CurrentProtocol} = State0) ->
+		      handshake_env = #handshake_env{negotiated_protocol = CurrentProtocol} = HsEnv,
+                      connection_env = #connection_env{negotiated_version = ReqVersion} = CEnv} = State0) ->
     #{key_exchange := KeyAlgorithm} =
-	ssl_cipher_format:suite_definition(CipherSuite),
+	ssl_cipher_format:suite_bin_to_map(CipherSuite),
     
     PremasterSecret = make_premaster_secret(ReqVersion, KeyAlgorithm),
 
     {ExpectNPN, Protocol} = case Protocol0 of
 				undefined -> 
+
 				    {false, CurrentProtocol};
 				_ -> 
 				    {ProtoExt =:= npn, Protocol0}
 			    end,
 
-    State = State0#state{key_algorithm = KeyAlgorithm,
-			 negotiated_version = Version,
-			 connection_states = ConnectionStates,
-			 premaster_secret = PremasterSecret,
-			 expecting_next_protocol_negotiation = ExpectNPN,
-			 negotiated_protocol = Protocol},
+    State = State0#state{connection_states = ConnectionStates,
+			 handshake_env = HsEnv#handshake_env{kex_algorithm = KeyAlgorithm,
+                                                             premaster_secret = PremasterSecret,
+                                                             expecting_next_protocol_negotiation = ExpectNPN,
+                                                             negotiated_protocol = Protocol},
+                         connection_env = CEnv#connection_env{negotiated_version = Version}},
     
     case ssl_session:is_new(OldId, NewId) of
 	true ->
@@ -607,12 +773,11 @@ handle_session(#server_hello{cipher_suite = CipherSuite,
     end.
 
 %%--------------------------------------------------------------------
--spec ssl_config(#ssl_options{}, client | server, #state{}) -> #state{}.
+-spec ssl_config(ssl_options(), client | server, #state{}) -> #state{}.
 %%--------------------------------------------------------------------
-ssl_config(Opts, Role, State) ->
-    ssl_config(Opts, Role, State, new).
-
-ssl_config(Opts, Role, #state{static_env = InitStatEnv0} =State0, Type) ->
+ssl_config(Opts, Role, #state{static_env = InitStatEnv0, 
+                              handshake_env = HsEnv,
+                              connection_env = CEnv} = State0) ->
     {ok, #{cert_db_ref := Ref, 
            cert_db_handle := CertDbHandle, 
            fileref_db_handle := FileRefHandle, 
@@ -624,27 +789,19 @@ ssl_config(Opts, Role, #state{static_env = InitStatEnv0} =State0, Type) ->
 	ssl_config:init(Opts, Role), 
     TimeStamp = erlang:monotonic_time(),
     Session = State0#state.session,
-
-    State = State0#state{session = Session#session{own_certificate = OwnCert,
-                                                   time_stamp = TimeStamp},
-                         static_env = InitStatEnv0#static_env{
-                                        file_ref_db = FileRefHandle,
-                                        cert_db_ref = Ref,
-                                        cert_db = CertDbHandle,
-                                        crl_db = CRLDbHandle,
-                                        session_cache = CacheHandle
-                                       },
-                         private_key = Key,
-                         diffie_hellman_params = DHParams,
-                         ssl_options = Opts},
-    case Type of
-        new ->
-            Handshake = ssl_handshake:init_handshake_history(),
-            State#state{tls_handshake_history = Handshake};
-        continue ->
-            State
-    end.
-
+    
+    State0#state{session = Session#session{own_certificate = OwnCert,
+                                           time_stamp = TimeStamp},
+                 static_env = InitStatEnv0#static_env{
+                                file_ref_db = FileRefHandle,
+                                cert_db_ref = Ref,
+                                cert_db = CertDbHandle,
+                                crl_db = CRLDbHandle,
+                                session_cache = CacheHandle
+                               },
+                 handshake_env = HsEnv#handshake_env{diffie_hellman_params = DHParams},
+                 connection_env = CEnv#connection_env{private_key = Key},
+                 ssl_options = Opts}.
 
 %%====================================================================
 %% gen_statem general state functions with connection cb argument
@@ -657,8 +814,8 @@ ssl_config(Opts, Role, #state{static_env = InitStatEnv0} =State0, Type) ->
 %%--------------------------------------------------------------------
 
 init({call, From}, {start, Timeout}, State0, Connection) ->
-    Timer = start_or_recv_cancel_timer(Timeout, From),
-    Connection:next_event(hello, no_record, State0#state{start_or_recv_from = From, timer = Timer});
+    Connection:next_event(hello, no_record, State0#state{start_or_recv_from = From},
+                          [{{timeout, handshake}, Timeout, close}]);
 init({call, From}, {start, {Opts, EmOpts}, Timeout}, 
      #state{static_env = #static_env{role = Role},
             ssl_options = OrigSSLOptions,
@@ -705,21 +862,18 @@ hello(info, Msg, State, _) ->
 hello(Type, Msg, State, Connection) ->
     handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
 
-user_hello({call, From}, cancel, #state{negotiated_version = Version} = State, _) ->
+user_hello({call, From}, cancel, #state{connection_env = #connection_env{negotiated_version = Version}} = State, _) ->
     gen_statem:reply(From, ok),
     handle_own_alert(?ALERT_REC(?FATAL, ?USER_CANCELED, user_canceled),
                      Version, ?FUNCTION_NAME, State);
 user_hello({call, From}, {handshake_continue, NewOptions, Timeout},
-           #state{hello = Hello,
-                  static_env = #static_env{role = Role},
-                  start_or_recv_from = RecvFrom,
+           #state{static_env = #static_env{role = Role},
+                  handshake_env = #handshake_env{hello = Hello},
                   ssl_options = Options0} = State0, _Connection) ->
-    Timer = start_or_recv_cancel_timer(Timeout, RecvFrom),
-    Options = ssl:handle_options(NewOptions, Options0#ssl_options{handshake = full}),
-    State = ssl_config(Options, Role, State0, continue),
-    {next_state, hello, State#state{start_or_recv_from = From,
-                                    timer = Timer}, 
-     [{next_event, internal, Hello}]};
+    Options = ssl:handle_options(NewOptions, Options0#{handshake => full}),
+    State = ssl_config(Options, Role, State0),
+    {next_state, hello, State#state{start_or_recv_from = From}, 
+     [{next_event, internal, Hello}, {{timeout, handshake}, Timeout, close}]};
 user_hello(_, _, _, _) ->
     {keep_state_and_data, [postpone]}.
 
@@ -733,41 +887,41 @@ abbreviated({call, From}, Msg, State, Connection) ->
     handle_call(Msg, From, ?FUNCTION_NAME, State, Connection);
 abbreviated(internal, #finished{verify_data = Data} = Finished,
 	    #state{static_env = #static_env{role = server},
-		   negotiated_version = Version,
-		   expecting_finished = true,
-		   tls_handshake_history = Handshake,
+                   handshake_env = #handshake_env{tls_handshake_history = Hist,
+                                                  expecting_finished = true} = HsEnv,
+		   connection_env = #connection_env{negotiated_version = Version},
 		   session = #session{master_secret = MasterSecret},
 		   connection_states = ConnectionStates0} =
 		State0, Connection) ->
     case ssl_handshake:verify_connection(ssl:tls_version(Version), Finished, client,
 					 get_current_prf(ConnectionStates0, write),
-					 MasterSecret, Handshake) of
+					 MasterSecret, Hist) of
         verified ->
 	    ConnectionStates =
 		ssl_record:set_client_verify_data(current_both, Data, ConnectionStates0),
 	    {Record, State} = prepare_connection(State0#state{connection_states = ConnectionStates,
-							      expecting_finished = false}, Connection),
-	    Connection:next_event(connection, Record, State);
+                                                              handshake_env = HsEnv#handshake_env{expecting_finished = false}}, Connection),
+	    Connection:next_event(connection, Record, State, [{{timeout, handshake}, infinity, close}]);
 	#alert{} = Alert ->
 	    handle_own_alert(Alert, Version, ?FUNCTION_NAME, State0)
     end;
 abbreviated(internal, #finished{verify_data = Data} = Finished,
 	    #state{static_env = #static_env{role = client},
-                   tls_handshake_history = Handshake0,
+                   handshake_env = #handshake_env{tls_handshake_history = Hist0},
+                   connection_env = #connection_env{negotiated_version = Version},
 		   session = #session{master_secret = MasterSecret},
-		   negotiated_version = Version,
 		   connection_states = ConnectionStates0} = State0, Connection) ->
     case ssl_handshake:verify_connection(ssl:tls_version(Version), Finished, server,
 					 get_pending_prf(ConnectionStates0, write),
-					 MasterSecret, Handshake0) of
+					 MasterSecret, Hist0) of
         verified ->
 	    ConnectionStates1 =
 		ssl_record:set_server_verify_data(current_read, Data, ConnectionStates0),
-	    {State1, Actions} =
+	    {#state{handshake_env = HsEnv} = State1, Actions} =
 		finalize_handshake(State0#state{connection_states = ConnectionStates1},
 				   ?FUNCTION_NAME, Connection),
-	    {Record, State} = prepare_connection(State1#state{expecting_finished = false}, Connection),
-	    Connection:next_event(connection, Record, State, Actions);
+	    {Record, State} = prepare_connection(State1#state{handshake_env = HsEnv#handshake_env{expecting_finished = false}}, Connection),
+	    Connection:next_event(connection, Record, State, [{{timeout, handshake}, infinity, close} | Actions]);
 	#alert{} = Alert ->
 	    handle_own_alert(Alert, Version, ?FUNCTION_NAME, State0)
     end;
@@ -775,19 +929,20 @@ abbreviated(internal, #finished{verify_data = Data} = Finished,
 %% & before finished message and it is not allowed during renegotiation
 abbreviated(internal, #next_protocol{selected_protocol = SelectedProtocol},
 	    #state{static_env = #static_env{role = server},
-                   expecting_next_protocol_negotiation = true} = State,
+                   handshake_env = #handshake_env{expecting_next_protocol_negotiation = true} = HsEnv} = State,
 	    Connection) ->
     Connection:next_event(?FUNCTION_NAME, no_record, 
-			  State#state{negotiated_protocol = SelectedProtocol,
-                                      expecting_next_protocol_negotiation = false});
+			  State#state{handshake_env = HsEnv#handshake_env{negotiated_protocol = SelectedProtocol,
+                                                                         expecting_next_protocol_negotiation = false}});
 abbreviated(internal, 
 	    #change_cipher_spec{type = <<1>>},  
-            #state{connection_states = ConnectionStates0} = State, Connection) ->
+            #state{connection_states = ConnectionStates0,
+                   handshake_env = HsEnv} = State, Connection) ->
     ConnectionStates1 =
 	ssl_record:activate_pending_connection_state(ConnectionStates0, read, Connection),
     Connection:next_event(?FUNCTION_NAME, no_record, State#state{connection_states = 
                                                                      ConnectionStates1,
-                                                                 expecting_finished = true});
+                                                                 handshake_env = HsEnv#handshake_env{expecting_finished = true}});
 abbreviated(info, Msg, State, _) ->
     handle_info(Msg, ?FUNCTION_NAME, State);
 abbreviated(Type, Msg, State, Connection) ->
@@ -806,22 +961,22 @@ certify(info, Msg, State, _) ->
     handle_info(Msg, ?FUNCTION_NAME, State);
 certify(internal, #certificate{asn1_certificates = []},
 	#state{static_env = #static_env{role = server},
-               negotiated_version = Version,
-	       ssl_options = #ssl_options{verify = verify_peer,
-					  fail_if_no_peer_cert = true}} =
+               connection_env = #connection_env{negotiated_version = Version},
+	       ssl_options = #{verify := verify_peer,
+                               fail_if_no_peer_cert := true}} =
 	    State, _) ->
     Alert =  ?ALERT_REC(?FATAL,?HANDSHAKE_FAILURE),
     handle_own_alert(Alert, Version, ?FUNCTION_NAME, State);
 certify(internal, #certificate{asn1_certificates = []},
 	#state{static_env = #static_env{role = server},
-	       ssl_options = #ssl_options{verify = verify_peer,
-					  fail_if_no_peer_cert = false}} =
+	       ssl_options = #{verify := verify_peer,
+                               fail_if_no_peer_cert := false}} =
 	State0, Connection) ->
     Connection:next_event(?FUNCTION_NAME, no_record, State0#state{client_certificate_requested = false});
 certify(internal, #certificate{},
 	#state{static_env = #static_env{role = server},
-	       negotiated_version = Version,
-	       ssl_options = #ssl_options{verify = verify_none}} =
+               connection_env = #connection_env{negotiated_version = Version},
+	       ssl_options = #{verify := verify_none}} =
 	    State, _) ->
     Alert =  ?ALERT_REC(?FATAL,?UNEXPECTED_MESSAGE, unrequested_certificate),
     handle_own_alert(Alert, Version, ?FUNCTION_NAME, State);
@@ -832,7 +987,7 @@ certify(internal, #certificate{} = Cert,
                                cert_db = CertDbHandle,
                                cert_db_ref = CertDbRef,
                                crl_db = CRLDbInfo},
-               negotiated_version = Version,
+               connection_env = #connection_env{negotiated_version = Version},
 	       ssl_options = Opts} = State, Connection) ->
     case ssl_handshake:certify(Cert, CertDbHandle, CertDbRef, 
 			       Opts, CRLDbInfo, Role, Host) of
@@ -844,34 +999,42 @@ certify(internal, #certificate{} = Cert,
     end;
 certify(internal, #server_key_exchange{exchange_keys = Keys},
         #state{static_env = #static_env{role = client},
-               negotiated_version = Version,
-	       key_algorithm = Alg,
-	       public_key_info = PubKeyInfo,
+               handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                              public_key_info = PubKeyInfo} = HsEnv,
+               connection_env = #connection_env{negotiated_version = Version},
                session = Session,
 	       connection_states = ConnectionStates} = State, Connection)
-  when Alg == dhe_dss; Alg == dhe_rsa;
-       Alg == ecdhe_rsa; Alg == ecdhe_ecdsa;
-       Alg == dh_anon; Alg == ecdh_anon;
-       Alg == psk; Alg == dhe_psk; Alg == ecdhe_psk; Alg == rsa_psk;
-       Alg == srp_dss; Alg == srp_rsa; Alg == srp_anon ->
+  when KexAlg == dhe_dss; 
+       KexAlg == dhe_rsa;
+       KexAlg == ecdhe_rsa; 
+       KexAlg == ecdhe_ecdsa;
+       KexAlg == dh_anon; 
+       KexAlg == ecdh_anon;
+       KexAlg == psk; 
+       KexAlg == dhe_psk; 
+       KexAlg == ecdhe_psk; 
+       KexAlg == rsa_psk;
+       KexAlg == srp_dss; 
+       KexAlg == srp_rsa; 
+       KexAlg == srp_anon ->
 
-    Params = ssl_handshake:decode_server_key(Keys, Alg, ssl:tls_version(Version)),
+    Params = ssl_handshake:decode_server_key(Keys, KexAlg, ssl:tls_version(Version)),
 
     %% Use negotiated value if TLS-1.2 otherwhise return default
-    HashSign = negotiated_hashsign(Params#server_key_params.hashsign, Alg, PubKeyInfo, ssl:tls_version(Version)),
+    HashSign = negotiated_hashsign(Params#server_key_params.hashsign, KexAlg, PubKeyInfo, ssl:tls_version(Version)),
 
-    case is_anonymous(Alg) of
+    case is_anonymous(KexAlg) of
 	true ->
 	    calculate_secret(Params#server_key_params.params,
-			     State#state{hashsign_algorithm = HashSign}, Connection);
+			     State#state{handshake_env = HsEnv#handshake_env{hashsign_algorithm = HashSign}}, Connection);
 	false ->
 	    case  ssl_handshake:verify_server_key(Params, HashSign, 
 						  ConnectionStates, ssl:tls_version(Version), PubKeyInfo) of
 		true ->
 		    calculate_secret(Params#server_key_params.params,
-				     State#state{hashsign_algorithm = HashSign,
-                                                 session = session_handle_params(Params#server_key_params.params, Session)}, 
-				     Connection);
+				     State#state{handshake_env = HsEnv#handshake_env{hashsign_algorithm = HashSign},
+                                                 session = session_handle_params(Params#server_key_params.params, Session)},
+                    Connection);
 		false ->
 		    handle_own_alert(?ALERT_REC(?FATAL, ?DECRYPT_ERROR),
 						Version, ?FUNCTION_NAME, State)
@@ -879,11 +1042,17 @@ certify(internal, #server_key_exchange{exchange_keys = Keys},
     end;
 certify(internal, #certificate_request{},
 	#state{static_env = #static_env{role = client},
-               negotiated_version = Version,
-               key_algorithm = Alg} = State, _)
-  when Alg == dh_anon; Alg == ecdh_anon;
-       Alg == psk; Alg == dhe_psk; Alg == ecdhe_psk; Alg == rsa_psk;
-       Alg == srp_dss; Alg == srp_rsa; Alg == srp_anon ->
+               handshake_env = #handshake_env{kex_algorithm = KexAlg},
+               connection_env = #connection_env{negotiated_version = Version}} = State, _)
+  when KexAlg == dh_anon; 
+       KexAlg == ecdh_anon;
+       KexAlg == psk; 
+       KexAlg == dhe_psk; 
+       KexAlg == ecdhe_psk; 
+       KexAlg == rsa_psk;
+       KexAlg == srp_dss; 
+       KexAlg == srp_rsa; 
+       KexAlg == srp_anon ->
     handle_own_alert(?ALERT_REC(?FATAL, ?HANDSHAKE_FAILURE),
                      Version, ?FUNCTION_NAME, State);
 certify(internal, #certificate_request{},
@@ -895,9 +1064,10 @@ certify(internal, #certificate_request{},
     Connection:next_event(?FUNCTION_NAME, no_record, State#state{client_certificate_requested = true});
 certify(internal, #certificate_request{} = CertRequest,
 	#state{static_env = #static_env{role = client},
+               handshake_env = HsEnv,
+               connection_env = #connection_env{negotiated_version = Version},
                session = #session{own_certificate = Cert},
-                ssl_options = #ssl_options{signature_algs = SupportedHashSigns},
-               negotiated_version = Version} = State, Connection) ->
+               ssl_options = #{signature_algs := SupportedHashSigns}} = State, Connection) ->
     case ssl_handshake:select_hashsign(CertRequest, Cert, 
                                        SupportedHashSigns, ssl:tls_version(Version)) of
 	#alert {} = Alert ->
@@ -905,53 +1075,55 @@ certify(internal, #certificate_request{} = CertRequest,
 	NegotiatedHashSign -> 	
 	    Connection:next_event(?FUNCTION_NAME, no_record,
 				  State#state{client_certificate_requested = true,
-                                              cert_hashsign_algorithm = NegotiatedHashSign})
+                                              handshake_env = HsEnv#handshake_env{cert_hashsign_algorithm = NegotiatedHashSign}})
     end;
 %% PSK and RSA_PSK might bypass the Server-Key-Exchange
 certify(internal, #server_hello_done{},
 	#state{static_env = #static_env{role = client},
                session = #session{master_secret = undefined},
-	       negotiated_version = Version,
-	       psk_identity = PSKIdentity,
-	       ssl_options = #ssl_options{user_lookup_fun = PSKLookup},
-	       premaster_secret = undefined,
-	       key_algorithm = Alg} = State0, Connection)
-  when Alg == psk ->
-    case ssl_handshake:premaster_secret({Alg, PSKIdentity}, PSKLookup) of
+               connection_env = #connection_env{negotiated_version = Version},
+               handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                              premaster_secret = undefined,
+                                              server_psk_identity = PSKIdentity} = HsEnv,
+	       ssl_options = #{user_lookup_fun := PSKLookup}} = State0, Connection)
+  when KexAlg == psk ->
+    case ssl_handshake:premaster_secret({KexAlg, PSKIdentity}, PSKLookup) of
 	#alert{} = Alert ->
 	    handle_own_alert(Alert, Version, ?FUNCTION_NAME, State0);
 	PremasterSecret ->
 	    State = master_secret(PremasterSecret,
-				  State0#state{premaster_secret = PremasterSecret}),
-	    client_certify_and_key_exchange(State, Connection)
+				  State0#state{handshake_env =
+                                                   HsEnv#handshake_env{premaster_secret = PremasterSecret}}),
+            client_certify_and_key_exchange(State, Connection)
     end;
 certify(internal, #server_hello_done{},
 	#state{static_env = #static_env{role = client},
+               connection_env = #connection_env{negotiated_version = {Major, Minor}} = Version,
+               handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                              premaster_secret = undefined,
+                                              server_psk_identity = PSKIdentity} = HsEnv,
                session = #session{master_secret = undefined},
-	       ssl_options = #ssl_options{user_lookup_fun = PSKLookup},
-	       negotiated_version = {Major, Minor} = Version,
-	       psk_identity = PSKIdentity,
-	       premaster_secret = undefined,
-	       key_algorithm = Alg} = State0, Connection)
-  when Alg == rsa_psk ->
+	       ssl_options = #{user_lookup_fun := PSKLookup}} = State0, Connection)
+  when KexAlg == rsa_psk ->
     Rand = ssl_cipher:random_bytes(?NUM_OF_PREMASTERSECRET_BYTES-2),
     RSAPremasterSecret = <<?BYTE(Major), ?BYTE(Minor), Rand/binary>>,
-    case ssl_handshake:premaster_secret({Alg, PSKIdentity}, PSKLookup, 
+    case ssl_handshake:premaster_secret({KexAlg, PSKIdentity}, PSKLookup, 
 					RSAPremasterSecret) of
 	#alert{} = Alert ->
 	    handle_own_alert(Alert, Version, ?FUNCTION_NAME, State0);
 	PremasterSecret ->
 	    State = master_secret(PremasterSecret, 
-				  State0#state{premaster_secret = RSAPremasterSecret}),
+				  State0#state{handshake_env = 
+                                                   HsEnv#handshake_env{premaster_secret = RSAPremasterSecret}}),
 	    client_certify_and_key_exchange(State, Connection)
     end;
 %% Master secret was determined with help of server-key exchange msg
 certify(internal, #server_hello_done{}, 
 	#state{static_env = #static_env{role = client},
-           session = #session{master_secret = MasterSecret} = Session,
-	       connection_states = ConnectionStates0,
-	       negotiated_version = Version,
-	       premaster_secret = undefined} = State0, Connection) ->
+               connection_env = #connection_env{negotiated_version = Version},
+               handshake_env = #handshake_env{premaster_secret = undefined},
+               session = #session{master_secret = MasterSecret} = Session,
+	       connection_states = ConnectionStates0} = State0, Connection) ->
     case ssl_handshake:master_secret(ssl:tls_version(Version), Session,
 				     ConnectionStates0, client) of
 	{MasterSecret, ConnectionStates} ->
@@ -963,10 +1135,10 @@ certify(internal, #server_hello_done{},
 %% Master secret is calculated from premaster_secret
 certify(internal, #server_hello_done{},
 	#state{static_env = #static_env{role = client},
+               connection_env = #connection_env{negotiated_version = Version},
+               handshake_env = #handshake_env{premaster_secret = PremasterSecret},
                session = Session0,
-	       connection_states = ConnectionStates0,
-	       negotiated_version = Version,
-	       premaster_secret = PremasterSecret} = State0, Connection) ->
+	       connection_states = ConnectionStates0} = State0, Connection) ->
     case ssl_handshake:master_secret(ssl:tls_version(Version), PremasterSecret,
 				     ConnectionStates0, client) of
 	{MasterSecret, ConnectionStates} ->
@@ -980,12 +1152,13 @@ certify(internal, #server_hello_done{},
 certify(internal = Type, #client_key_exchange{} = Msg,
 	#state{static_env = #static_env{role = server},
 	       client_certificate_requested = true,
-	       ssl_options = #ssl_options{fail_if_no_peer_cert = true}} = State, 
+	       ssl_options = #{fail_if_no_peer_cert := true}} = State,
 	Connection) ->
     %% We expect a certificate here
     handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection);
 certify(internal, #client_key_exchange{exchange_keys = Keys},
-	State = #state{key_algorithm = KeyAlg, negotiated_version = Version}, Connection) ->
+	State = #state{handshake_env = #handshake_env{kex_algorithm = KeyAlg}, 
+                       connection_env = #connection_env{negotiated_version = Version}}, Connection) ->
     try
 	certify_client_key_exchange(ssl_handshake:decode_client_key(Keys, KeyAlg, ssl:tls_version(Version)),
 				    State, Connection)
@@ -1009,50 +1182,51 @@ cipher(info, Msg, State, _) ->
 cipher(internal, #certificate_verify{signature = Signature, 
 				     hashsign_algorithm = CertHashSign},
        #state{static_env = #static_env{role = server},
-	      key_algorithm = KexAlg,
-	      public_key_info = PublicKeyInfo,
-	      negotiated_version = Version,
-	      session = #session{master_secret = MasterSecret},
-	      tls_handshake_history = Handshake
+              handshake_env = #handshake_env{tls_handshake_history = Hist,
+                                             kex_algorithm = KexAlg,
+                                             public_key_info = PubKeyInfo} = HsEnv,
+              connection_env = #connection_env{negotiated_version = Version},
+	      session = #session{master_secret = MasterSecret}
 	     } = State, Connection) ->
     
     TLSVersion = ssl:tls_version(Version),
     %% Use negotiated value if TLS-1.2 otherwhise return default
-    HashSign = negotiated_hashsign(CertHashSign, KexAlg, PublicKeyInfo, TLSVersion),
-    case ssl_handshake:certificate_verify(Signature, PublicKeyInfo,
-					  TLSVersion, HashSign, MasterSecret, Handshake) of
+    HashSign = negotiated_hashsign(CertHashSign, KexAlg, PubKeyInfo, TLSVersion),
+    case ssl_handshake:certificate_verify(Signature, PubKeyInfo,
+					  TLSVersion, HashSign, MasterSecret, Hist) of
 	valid ->
 	    Connection:next_event(?FUNCTION_NAME, no_record,
-				  State#state{cert_hashsign_algorithm = HashSign});
+				  State#state{handshake_env = HsEnv#handshake_env{cert_hashsign_algorithm = HashSign}});
 	#alert{} = Alert ->
 	    handle_own_alert(Alert, Version, ?FUNCTION_NAME, State)
     end;
 %% client must send a next protocol message if we are expecting it
 cipher(internal, #finished{},
        #state{static_env = #static_env{role = server},
-              expecting_next_protocol_negotiation = true,
-	      negotiated_protocol = undefined, negotiated_version = Version} = State0,
+              handshake_env = #handshake_env{expecting_next_protocol_negotiation = true,
+                                             negotiated_protocol = undefined},
+              connection_env = #connection_env{negotiated_version = Version}} = State0,
        _Connection) ->
     handle_own_alert(?ALERT_REC(?FATAL,?UNEXPECTED_MESSAGE), Version, ?FUNCTION_NAME, State0);
 cipher(internal, #finished{verify_data = Data} = Finished,
        #state{static_env = #static_env{role = Role,
                                        host = Host,
                                        port = Port},
-              negotiated_version = Version,
-              expecting_finished = true,
+              handshake_env = #handshake_env{tls_handshake_history = Hist,
+                                             expecting_finished = true} = HsEnv,
+              connection_env = #connection_env{negotiated_version = Version},
 	      session = #session{master_secret = MasterSecret}
 	      = Session0,
               ssl_options = SslOpts,
-	      connection_states = ConnectionStates0,
-	      tls_handshake_history = Handshake0} = State, Connection) ->
+	      connection_states = ConnectionStates0} = State, Connection) ->
     case ssl_handshake:verify_connection(ssl:tls_version(Version), Finished,
 					 opposite_role(Role),
 					 get_current_prf(ConnectionStates0, read),
-					 MasterSecret, Handshake0) of
+					 MasterSecret, Hist) of
         verified ->
-	    Session = register_session(Role, host_id(Role, Host, SslOpts), Port, Session0),
+	    Session = handle_session(Role, SslOpts, Host, Port, Session0),
 	    cipher_role(Role, Data, Session, 
-			State#state{expecting_finished = false}, Connection);
+			State#state{handshake_env = HsEnv#handshake_env{expecting_finished = false}}, Connection);
         #alert{} = Alert ->
 	    handle_own_alert(Alert, Version, ?FUNCTION_NAME, State)
     end;
@@ -1060,19 +1234,17 @@ cipher(internal, #finished{verify_data = Data} = Finished,
 %% & before finished message and it is not allowed during renegotiation
 cipher(internal, #next_protocol{selected_protocol = SelectedProtocol},
        #state{static_env = #static_env{role = server},
-              expecting_next_protocol_negotiation = true,
-	      expecting_finished = true} = State0, Connection) ->
-    {Record, State} = 
-	Connection:next_record(State0#state{negotiated_protocol = SelectedProtocol}),
-    Connection:next_event(?FUNCTION_NAME, Record, 
-			  State#state{expecting_next_protocol_negotiation = false});
-cipher(internal, #change_cipher_spec{type = <<1>>},  #state{connection_states = ConnectionStates0} =
+              handshake_env = #handshake_env{expecting_finished = true,
+                                             expecting_next_protocol_negotiation = true} = HsEnv} = State, Connection) ->
+    Connection:next_event(?FUNCTION_NAME, no_record, 
+			  State#state{handshake_env = HsEnv#handshake_env{negotiated_protocol = SelectedProtocol,
+                                                                          expecting_next_protocol_negotiation = false}});
+cipher(internal, #change_cipher_spec{type = <<1>>},  #state{handshake_env = HsEnv, connection_states = ConnectionStates0} =
 	   State, Connection) ->
     ConnectionStates =
 	ssl_record:activate_pending_connection_state(ConnectionStates0, read, Connection),
-    Connection:next_event(?FUNCTION_NAME, no_record, State#state{connection_states = 
-                                                                     ConnectionStates,
-                                                                 expecting_finished = true});
+    Connection:next_event(?FUNCTION_NAME, no_record, State#state{handshake_env = HsEnv#handshake_env{expecting_finished = true},
+                                                                 connection_states = ConnectionStates});
 cipher(Type, Msg, State, Connection) ->
     handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
 
@@ -1085,14 +1257,14 @@ connection({call, RecvFrom}, {recv, N, Timeout},
 	   #state{static_env = #static_env{protocol_cb = Connection},
                   socket_options =
                       #socket_options{active = false}} = State0, Connection) ->
-    Timer = start_or_recv_cancel_timer(Timeout, RecvFrom),
     passive_receive(State0#state{bytes_to_read = N,
-                                 start_or_recv_from = RecvFrom, 
-                                 timer = Timer}, ?FUNCTION_NAME, Connection);
+                                 start_or_recv_from = RecvFrom}, ?FUNCTION_NAME, Connection,
+                    [{{timeout, recv}, Timeout, timeout}]);
 
-connection({call, From}, renegotiate, #state{static_env = #static_env{protocol_cb = Connection}} = State,
+connection({call, From}, renegotiate, #state{static_env = #static_env{protocol_cb = Connection},
+                                             handshake_env = HsEnv} = State,
 	   Connection) ->
-    Connection:renegotiate(State#state{renegotiation = {true, From}}, []);
+    Connection:renegotiate(State#state{handshake_env = HsEnv#handshake_env{renegotiation = {true, From}}}, []);
 connection({call, From}, peer_certificate, 
 	   #state{session = #session{peer_certificate = Cert}} = State, _) ->
     hibernate_after(?FUNCTION_NAME, State, [{reply, From,  {ok, Cert}}]); 
@@ -1103,34 +1275,43 @@ connection({call, From}, {connection_information, false}, State, _) ->
     Info = connection_info(State),
     hibernate_after(?FUNCTION_NAME, State, [{reply, From, {ok, Info}}]);
 connection({call, From}, negotiated_protocol, 
-	   #state{negotiated_protocol = undefined} = State, _) ->
+	   #state{handshake_env = #handshake_env{alpn = undefined,
+                                                 negotiated_protocol = undefined}} = State, _) ->
     hibernate_after(?FUNCTION_NAME, State, [{reply, From, {error, protocol_not_negotiated}}]);
 connection({call, From}, negotiated_protocol, 
-	   #state{negotiated_protocol = SelectedProtocol} = State, _) ->
+	   #state{handshake_env = #handshake_env{alpn = undefined,
+                                                 negotiated_protocol = SelectedProtocol}} = State, _) ->
+    hibernate_after(?FUNCTION_NAME, State,
+		    [{reply, From, {ok, SelectedProtocol}}]);
+connection({call, From}, negotiated_protocol,
+	   #state{handshake_env = #handshake_env{alpn = SelectedProtocol,
+                                                 negotiated_protocol = undefined}} = State, _) ->
     hibernate_after(?FUNCTION_NAME, State,
 		    [{reply, From, {ok, SelectedProtocol}}]);
 connection({call, From}, Msg, State, Connection) ->
     handle_call(Msg, From, ?FUNCTION_NAME, State, Connection);
 connection(cast, {internal_renegotiate, WriteState}, #state{static_env = #static_env{protocol_cb = Connection},
+                                                            handshake_env = HsEnv,
                                                             connection_states = ConnectionStates} 
            = State, Connection) -> 
-    Connection:renegotiate(State#state{renegotiation = {true, internal},
+    Connection:renegotiate(State#state{handshake_env = HsEnv#handshake_env{renegotiation = {true, internal}},
                                        connection_states = ConnectionStates#{current_write => WriteState}}, []);
 connection(cast, {dist_handshake_complete, DHandle},
-           #state{ssl_options = #ssl_options{erl_dist = true},
+           #state{ssl_options = #{erl_dist := true},
+                  connection_env = CEnv,
                   socket_options = SockOpts} = State0, Connection) ->
     process_flag(priority, normal),
     State1 =
         State0#state{
           socket_options = SockOpts#socket_options{active = true},
-          erl_dist_handle = DHandle,
+          connection_env = CEnv#connection_env{erl_dist_handle = DHandle},
           bytes_to_read = undefined},
     {Record, State} = read_application_data(<<>>, State1),
     Connection:next_event(connection, Record, State);
 connection(info, Msg, State, _) ->
     handle_info(Msg, ?FUNCTION_NAME, State);
-connection(internal, {recv, _}, State, Connection) ->
-    passive_receive(State, ?FUNCTION_NAME, Connection);
+connection(internal, {recv, Timeout}, State, Connection) ->
+    passive_receive(State, ?FUNCTION_NAME, Connection, [{{timeout, recv}, Timeout, timeout}]);
 connection(Type, Msg, State, Connection) ->
     handle_common_event(Type, Msg, ?FUNCTION_NAME, State, Connection).
 
@@ -1147,59 +1328,74 @@ downgrade(Type, Event, State, Connection) ->
 %% common or unexpected events for the state.
 %%--------------------------------------------------------------------
 handle_common_event(internal, {handshake, {#hello_request{} = Handshake, _}}, connection = StateName,  
-		    #state{static_env = #static_env{role = client}} = State, _) ->
+		    #state{static_env = #static_env{role = client}, 
+                           handshake_env = HsEnv} = State, _) ->
     %% Should not be included in handshake history
-    {next_state, StateName, State#state{renegotiation = {true, peer}}, [{next_event, internal, Handshake}]};
+    {next_state, StateName, State#state{handshake_env = HsEnv#handshake_env{renegotiation = {true, peer}}},
+     [{next_event, internal, Handshake}]};
 handle_common_event(internal, {handshake, {#hello_request{}, _}}, StateName,
                     #state{static_env = #static_env{role = client}}, _)
   when StateName =/= connection ->
     keep_state_and_data;
 handle_common_event(internal, {handshake, {Handshake, Raw}}, StateName,
-		    #state{tls_handshake_history = Hs0} = State0,
+		    #state{handshake_env = #handshake_env{tls_handshake_history = Hist0}} = State0,
 		    Connection) ->
    
     PossibleSNI = Connection:select_sni_extension(Handshake),
     %% This function handles client SNI hello extension when Handshake is
     %% a client_hello, which needs to be determined by the connection callback.
     %% In other cases this is a noop
-    State = handle_sni_extension(PossibleSNI, State0),
-    HsHist = ssl_handshake:update_handshake_history(Hs0, iolist_to_binary(Raw)),
-    {next_state, StateName, State#state{tls_handshake_history = HsHist}, 
+    State = #state{handshake_env = HsEnv} = handle_sni_extension(PossibleSNI, State0),
+
+    Hist = ssl_handshake:update_handshake_history(Hist0, Raw),
+    {next_state, StateName, State#state{handshake_env = HsEnv#handshake_env{tls_handshake_history = Hist}}, 
      [{next_event, internal, Handshake}]};
 handle_common_event(internal, {protocol_record, TLSorDTLSRecord}, StateName, State, Connection) -> 
     Connection:handle_protocol_record(TLSorDTLSRecord, StateName, State);
 handle_common_event(timeout, hibernate, _, _, _) ->
     {keep_state_and_data, [hibernate]};
 handle_common_event(internal, #change_cipher_spec{type = <<1>>}, StateName, 
-		    #state{negotiated_version = Version} = State,  _) ->
+		    #state{connection_env = #connection_env{negotiated_version = Version}} = State,  _) ->
     handle_own_alert(?ALERT_REC(?FATAL, ?HANDSHAKE_FAILURE), Version, 
 				StateName, State);
-handle_common_event(_Type, Msg, StateName, #state{negotiated_version = Version} = State, 
+handle_common_event({timeout, handshake}, close, _StateName, #state{start_or_recv_from = StartFrom} = State, _) ->
+    {stop_and_reply,
+     {shutdown, user_timeout},
+     {reply, StartFrom, {error, timeout}}, State#state{start_or_recv_from = undefined}};
+handle_common_event({timeout, recv}, timeout, StateName, #state{start_or_recv_from = RecvFrom} = State, _) ->
+    {next_state, StateName, State#state{start_or_recv_from = undefined,
+                                        bytes_to_read = undefined}, [{reply, RecvFrom, {error, timeout}}]};
+handle_common_event(Type, Msg, StateName, #state{connection_env =
+                                                      #connection_env{negotiated_version = Version}} = State, 
 		    _) ->
-    Alert =  ?ALERT_REC(?FATAL,?UNEXPECTED_MESSAGE, {unexpected_msg, Msg}),
+    Alert =  ?ALERT_REC(?FATAL,?UNEXPECTED_MESSAGE, {unexpected_msg, {Type,Msg}}),
     handle_own_alert(Alert, Version, StateName, State).
 
 handle_call({application_data, _Data}, _, _, _, _) ->
     %% In renegotiation priorities handshake, send data when handshake is finished
     {keep_state_and_data, [postpone]};
-handle_call({close, _} = Close, From, StateName, State, _Connection) ->
+handle_call({close, _} = Close, From, StateName, #state{connection_env = CEnv} = State, _Connection) ->
     %% Run terminate before returning so that the reuseaddr
     %% inet-option works properly
     Result = terminate(Close, StateName, State),
     {stop_and_reply,
      {shutdown, normal},
-     {reply, From, Result}, State#state{terminated = true}};
+     {reply, From, Result}, State#state{connection_env = CEnv#connection_env{terminated = true}}};
 handle_call({shutdown, read_write = How}, From, StateName,
 	    #state{static_env = #static_env{transport_cb = Transport,
-                                            socket = Socket}} = State, _) ->
+                                            socket = Socket},
+                   connection_env = CEnv} = State, _) ->
     try send_alert(?ALERT_REC(?WARNING, ?CLOSE_NOTIFY),
                    StateName, State) of
         _ -> 
             case Transport:shutdown(Socket, How) of
                 ok ->
-                    {next_state, StateName, State#state{terminated = true}, [{reply, From, ok}]};
+                    {next_state, StateName, State#state{connection_env = 
+                                                            CEnv#connection_env{terminated = true}},
+                     [{reply, From, ok}]};
                 Error ->
-                    {stop, StateName, State#state{terminated = true}, [{reply, From, Error}]}
+                    {stop_and_reply, {shutdown, normal}, {reply, From, Error}, 
+                     State#state{connection_env = CEnv#connection_env{terminated = true}}}
             end
     catch
         throw:Return ->
@@ -1212,7 +1408,7 @@ handle_call({shutdown, How0}, From, StateName,
 	ok ->
 	    {next_state, StateName, State, [{reply, From, ok}]};
 	Error ->
-            {stop, StateName, State, [{reply, From, Error}]}
+            {stop_and_reply, {shutdown, normal}, {reply, From, Error}, State}
     end;
 handle_call({recv, _N, _Timeout}, From, _,  
 		  #state{socket_options = 
@@ -1221,15 +1417,13 @@ handle_call({recv, _N, _Timeout}, From, _,
 handle_call({recv, N, Timeout}, RecvFrom, StateName, State, _) ->
     %% Doing renegotiate wait with handling request until renegotiate is
     %% finished. 
-    Timer = start_or_recv_cancel_timer(Timeout, RecvFrom),
-    {next_state, StateName, State#state{bytes_to_read = N, start_or_recv_from = RecvFrom,
-					timer = Timer}, 
-     [{next_event, internal, {recv, RecvFrom}}]};
+    {next_state, StateName, State#state{bytes_to_read = N, start_or_recv_from = RecvFrom}, 
+     [{next_event, internal, {recv, RecvFrom}} , {{timeout, recv}, Timeout, timeout}]};
 handle_call({new_user, User}, From, StateName, 
-		  State =#state{user_application = {OldMon, _}}, _) ->
+            State = #state{connection_env = #connection_env{user_application = {OldMon, _}} = CEnv}, _) ->
     NewMon = erlang:monitor(process, User),
     erlang:demonitor(OldMon, [flush]),
-    {next_state, StateName, State#state{user_application = {NewMon,User}},
+    {next_state, StateName, State#state{connection_env = CEnv#connection_env{user_application = {NewMon, User}}},
      [{reply, From, ok}]};
 handle_call({get_opts, OptTags}, From, _,
             #state{static_env = #static_env{socket = Socket,
@@ -1239,23 +1433,31 @@ handle_call({get_opts, OptTags}, From, _,
     {keep_state_and_data, [{reply, From, OptsReply}]};
 handle_call({set_opts, Opts0}, From, StateName, 
 	    #state{static_env =  #static_env{socket = Socket,
-                                            transport_cb = Transport},
+                                            transport_cb = Transport,
+                                            tracker = Tracker},
+                   connection_env = 
+                       #connection_env{user_application = {_Mon, Pid}},
                    socket_options = Opts1
                   } = State0, Connection) ->
     {Reply, Opts} = set_socket_opts(Connection, Transport, Socket, Opts0, Opts1, []),
+    case {proplists:lookup(active, Opts0), Opts} of
+        {{_, N}, #socket_options{active=false}} when is_integer(N) ->
+            send_user(
+              Pid,
+              format_passive(
+                Connection:pids(State0), Transport, Socket, Tracker, Connection));
+        _ ->
+            ok
+    end,
     State = State0#state{socket_options = Opts},
     handle_active_option(Opts#socket_options.active, StateName, From, Reply, State);
     
 handle_call(renegotiate, From, StateName, _, _) when StateName =/= connection ->
     {keep_state_and_data, [{reply, From, {error, already_renegotiating}}]};
 
-handle_call(get_sslsocket, From, _StateName, State, Connection) ->
-    SslSocket = Connection:socket(State),
-    {keep_state_and_data, [{reply, From, SslSocket}]};
-
 handle_call({prf, Secret, Label, Seed, WantedLength}, From, _,
 	    #state{connection_states = ConnectionStates,
-		   negotiated_version = Version}, _) ->
+		   connection_env = #connection_env{negotiated_version = Version}}, _) ->
     #{security_parameters := SecParams} =
 	ssl_record:current_connection_state(ConnectionStates, read),
     #security_parameters{master_secret = MasterSecret,
@@ -1292,7 +1494,7 @@ handle_info({ErrorTag, Socket, econnaborted}, StateName,
 		  } = State)  when StateName =/= connection ->
     Pids = Connection:pids(State),
     alert_user(Pids, Transport, Tracker,Socket, 
-	       StartFrom, ?ALERT_REC(?FATAL, ?CLOSE_NOTIFY), Role, Connection),
+	       StartFrom, ?ALERT_REC(?FATAL, ?CLOSE_NOTIFY), Role, StateName, Connection),
     {stop, {shutdown, normal}, State};
 
 handle_info({ErrorTag, Socket, Reason}, StateName, #state{static_env = #static_env{socket = Socket,
@@ -1303,14 +1505,14 @@ handle_info({ErrorTag, Socket, Reason}, StateName, #state{static_env = #static_e
     {stop, {shutdown,normal}, State};
 
 handle_info({'DOWN', MonitorRef, _, _, Reason}, _,
-            #state{user_application = {MonitorRef, _Pid},
-                   ssl_options = #ssl_options{erl_dist = true}}) ->
+            #state{connection_env = #connection_env{user_application = {MonitorRef, _Pid}},
+                   ssl_options = #{erl_dist := true}}) ->
     {stop, {shutdown, Reason}};
 handle_info({'DOWN', MonitorRef, _, _, _}, _,
-            #state{user_application = {MonitorRef, _Pid}}) ->
+            #state{connection_env = #connection_env{user_application = {MonitorRef, _Pid}}}) ->
     {stop, {shutdown, normal}};
 handle_info({'EXIT', Pid, _Reason}, StateName,
-            #state{user_application = {_MonitorRef, Pid}} = State) ->
+            #state{connection_env = #connection_env{user_application = {_MonitorRef, Pid}}} = State) ->
     %% It seems the user application has linked to us
     %% - ignore that and let the monitor handle this
     {next_state, StateName, State};
@@ -1323,22 +1525,8 @@ handle_info({'EXIT', Socket, normal}, _StateName, #state{static_env = #static_en
 handle_info({'EXIT', Socket, Reason}, _StateName, #state{static_env = #static_env{socket = Socket}} = State) ->
     {stop,{shutdown, Reason}, State};
 
-handle_info(allow_renegotiate, StateName, State) ->
-    {next_state, StateName, State#state{allow_renegotiate = true}};
-
-handle_info({cancel_start_or_recv, StartFrom}, StateName,
-	    #state{renegotiation = {false, first}} = State) when StateName =/= connection ->
-    {stop_and_reply,
-     {shutdown, user_timeout},
-     {reply, StartFrom, {error, timeout}},
-     State#state{timer = undefined}};
-handle_info({cancel_start_or_recv, RecvFrom}, StateName, 
-	    #state{start_or_recv_from = RecvFrom} = State) when RecvFrom =/= undefined ->
-    {next_state, StateName, State#state{start_or_recv_from = undefined,
-					bytes_to_read = undefined,
-					timer = undefined}, [{reply, RecvFrom, {error, timeout}}]};
-handle_info({cancel_start_or_recv, _RecvFrom}, StateName, State) ->
-    {next_state, StateName, State#state{timer = undefined}};
+handle_info(allow_renegotiate, StateName, #state{handshake_env = HsEnv} = State) ->
+    {next_state, StateName, State#state{handshake_env = HsEnv#handshake_env{allow_renegotiate = true}}};
 
 handle_info(Msg, StateName, #state{static_env = #static_env{socket = Socket, error_tag = Tag}} = State) ->
     Report = io_lib:format("SSL: Got unexpected info: ~p ~n", [{Msg, Tag, Socket}]),
@@ -1348,7 +1536,7 @@ handle_info(Msg, StateName, #state{static_env = #static_env{socket = Socket, err
 %%====================================================================
 %% general gen_statem callbacks
 %%====================================================================
-terminate(_, _, #state{terminated = true}) ->
+terminate(_, _, #state{connection_env = #connection_env{terminated = true}}) ->
     %% Happens when user closes the connection using ssl:close/1
     %% we want to guarantee that Transport:close has been called
     %% when ssl:close/1 returns unless it is a downgrade where
@@ -1384,7 +1572,7 @@ terminate(Reason, connection, #state{static_env = #static_env{
                                                      transport_cb = Transport,
                                                      socket = Socket},
                                      connection_states = ConnectionStates,
-                                     ssl_options = #ssl_options{padding_check = Check}
+                                     ssl_options = #{padding_check := Check}
                                     } = State) ->
     handle_trusted_certs_db(State),
     Alert = terminate_alert(Reason),
@@ -1402,24 +1590,19 @@ format_status(normal, [_, StateName, State]) ->
     [{data, [{"State", {StateName, State}}]}];  
 format_status(terminate, [_, StateName, State]) ->
     SslOptions = (State#state.ssl_options),
-    NewOptions = SslOptions#ssl_options{password = ?SECRET_PRINTOUT,
-					cert = ?SECRET_PRINTOUT,
-					cacerts = ?SECRET_PRINTOUT,
-					key = ?SECRET_PRINTOUT,			      
-					dh = ?SECRET_PRINTOUT,
-					psk_identity = ?SECRET_PRINTOUT,
-					srp_identity = ?SECRET_PRINTOUT},
+    NewOptions = SslOptions#{password => ?SECRET_PRINTOUT,
+                             cert => ?SECRET_PRINTOUT,
+                             cacerts => ?SECRET_PRINTOUT,
+                             key => ?SECRET_PRINTOUT,
+                             dh => ?SECRET_PRINTOUT,
+                             psk_identity => ?SECRET_PRINTOUT,
+                             srp_identity => ?SECRET_PRINTOUT},
     [{data, [{"State", {StateName, State#state{connection_states = ?SECRET_PRINTOUT,
 					       protocol_buffers =  ?SECRET_PRINTOUT,
 					       user_data_buffer = ?SECRET_PRINTOUT,
-					       tls_handshake_history =  ?SECRET_PRINTOUT,
+					       handshake_env =  ?SECRET_PRINTOUT,
+                                               connection_env = ?SECRET_PRINTOUT,
 					       session =  ?SECRET_PRINTOUT,
-					       private_key =  ?SECRET_PRINTOUT,
-					       diffie_hellman_params = ?SECRET_PRINTOUT,
-					       diffie_hellman_keys =  ?SECRET_PRINTOUT,
-					       srp_params = ?SECRET_PRINTOUT,
-					       srp_keys =  ?SECRET_PRINTOUT,
-					       premaster_secret =  ?SECRET_PRINTOUT,
 					       ssl_options = NewOptions,
 					       flight_buffer =  ?SECRET_PRINTOUT}
 		       }}]}].
@@ -1433,13 +1616,13 @@ send_alert(Alert, _, #state{static_env = #static_env{protocol_cb = Connection}} 
     Connection:send_alert(Alert, State).
 
 connection_info(#state{static_env = #static_env{protocol_cb = Connection},
-                       sni_hostname = SNIHostname,
+                       handshake_env = #handshake_env{sni_hostname = SNIHostname},
                        session = #session{session_id = SessionId,
                                           cipher_suite = CipherSuite, ecc = ECCCurve},
-		       negotiated_version =  {_,_} = Version, 
+		       connection_env = #connection_env{negotiated_version =  {_,_} = Version}, 
 		       ssl_options = Opts}) ->
     RecordCB = record_cb(Connection),
-    CipherSuiteDef = #{key_exchange := KexAlg} = ssl_cipher_format:suite_definition(CipherSuite),
+    CipherSuiteDef = #{key_exchange := KexAlg} = ssl_cipher_format:suite_bin_to_map(CipherSuite),
     IsNamedCurveSuite = lists:member(KexAlg,
                                      [ecdh_ecdsa, ecdhe_ecdsa, ecdh_rsa, ecdhe_rsa, ecdh_anon]),
     CurveInfo = case ECCCurve of
@@ -1450,7 +1633,7 @@ connection_info(#state{static_env = #static_env{protocol_cb = Connection},
 		end,
     [{protocol, RecordCB:protocol_version(Version)},
      {session_id, SessionId},
-     {cipher_suite, ssl_cipher_format:erl_suite_definition(CipherSuiteDef)},
+     {cipher_suite, ssl_cipher_format:suite_legacy(CipherSuiteDef)},
      {selected_cipher_suite, CipherSuiteDef},
      {sni_hostname, SNIHostname} | CurveInfo] ++ ssl_options_list(Opts).
 
@@ -1464,10 +1647,11 @@ security_info(#state{connection_states = ConnectionStates}) ->
 
 do_server_hello(Type, #{next_protocol_negotiation := NextProtocols} =
 		    ServerHelloExt,
-		#state{negotiated_version = Version,
+		#state{connection_env = #connection_env{negotiated_version = Version},
+                       handshake_env = HsEnv,
 		       session = #session{session_id = SessId},
 		       connection_states = ConnectionStates0,
-                       ssl_options = #ssl_options{versions = [HighestVersion|_]}}
+                       ssl_options = #{versions := [HighestVersion|_]}}
 		= State0, Connection) when is_atom(Type) ->
     %% TLS 1.3 - Section 4.1.3
     %% Override server random values for TLS 1.3 downgrade protection mechanism.
@@ -1477,8 +1661,8 @@ do_server_hello(Type, #{next_protocol_negotiation := NextProtocols} =
 	ssl_handshake:server_hello(SessId, ssl:tls_version(Version),
                                    ConnectionStates1, ServerHelloExt),
     State = server_hello(ServerHello,
-			 State1#state{expecting_next_protocol_negotiation =
-					  NextProtocols =/= undefined}, Connection),
+			 State1#state{handshake_env = HsEnv#handshake_env{expecting_next_protocol_negotiation =
+                                                                              NextProtocols =/= undefined}}, Connection),
     case Type of
 	new ->
 	    new_server_hello(ServerHello, State, Connection);
@@ -1543,8 +1727,8 @@ override_server_random(Random, _, _) ->
 new_server_hello(#server_hello{cipher_suite = CipherSuite,
 			      compression_method = Compression,
 			      session_id = SessionId},
-		#state{session = Session0,
-		       negotiated_version = Version} = State0, Connection) ->
+                 #state{session = Session0,
+                        connection_env = #connection_env{negotiated_version = Version}} = State0, Connection) ->
     try server_certify_and_key_exchange(State0, Connection) of
         #state{} = State1 ->
             {State, Actions} = server_hello_done(State1, Connection),
@@ -1560,7 +1744,7 @@ new_server_hello(#server_hello{cipher_suite = CipherSuite,
 
 resumed_server_hello(#state{session = Session,
 			    connection_states = ConnectionStates0,
-			    negotiated_version = Version} = State0, Connection) ->
+			    connection_env = #connection_env{negotiated_version = Version}} = State0, Connection) ->
 
     case ssl_handshake:master_secret(ssl:tls_version(Version), Session,
 				     ConnectionStates0, server) of
@@ -1576,42 +1760,35 @@ resumed_server_hello(#state{session = Session,
 
 server_hello(ServerHello, State0, Connection) ->
     CipherSuite = ServerHello#server_hello.cipher_suite,
-    #{key_exchange := KeyAlgorithm}  = ssl_cipher_format:suite_definition(CipherSuite),
-    State = Connection:queue_handshake(ServerHello, State0),
-    State#state{key_algorithm = KeyAlgorithm}.
+    #{key_exchange := KeyAlgorithm}  = ssl_cipher_format:suite_bin_to_map(CipherSuite),
+    #state{handshake_env = HsEnv} = State = Connection:queue_handshake(ServerHello, State0),
+    State#state{handshake_env = HsEnv#handshake_env{kex_algorithm = KeyAlgorithm}}.
 
 server_hello_done(State, Connection) ->
     HelloDone = ssl_handshake:server_hello_done(),
     Connection:send_handshake(HelloDone, State).
 
 handle_peer_cert(Role, PeerCert, PublicKeyInfo,
-		 #state{session = #session{cipher_suite = CipherSuite} = Session} = State0,
+		 #state{handshake_env = HsEnv,
+                    session = #session{cipher_suite = CipherSuite} = Session} = State0,
 		 Connection) ->
-    State1 = State0#state{session =
-			 Session#session{peer_certificate = PeerCert},
-			 public_key_info = PublicKeyInfo},
-    #{key_exchange := KeyAlgorithm} = ssl_cipher_format:suite_definition(CipherSuite),
+    State1 = State0#state{handshake_env = HsEnv#handshake_env{public_key_info = PublicKeyInfo},
+                          session =
+                              Session#session{peer_certificate = PeerCert}},
+    #{key_exchange := KeyAlgorithm} = ssl_cipher_format:suite_bin_to_map(CipherSuite),
     State = handle_peer_cert_key(Role, PeerCert, PublicKeyInfo, KeyAlgorithm, State1),
     Connection:next_event(certify, no_record, State).
 
 handle_peer_cert_key(client, _,
 		     {?'id-ecPublicKey',  #'ECPoint'{point = _ECPoint} = PublicKey,
 		      PublicKeyParams},
-		     KeyAlg, #state{session = Session} = State)  when KeyAlg == ecdh_rsa;
+		     KeyAlg, #state{handshake_env = HsEnv,
+                                    session = Session} = State)  when KeyAlg == ecdh_rsa;
                                                                       KeyAlg == ecdh_ecdsa ->
     ECDHKey = public_key:generate_key(PublicKeyParams),
     PremasterSecret = ssl_handshake:premaster_secret(PublicKey, ECDHKey),
-    master_secret(PremasterSecret, State#state{diffie_hellman_keys = ECDHKey,
+    master_secret(PremasterSecret, State#state{handshake_env = HsEnv#handshake_env{kex_keys = ECDHKey},
                                                session = Session#session{ecc = PublicKeyParams}});
-%% We do currently not support cipher suites that use fixed DH.
-%% If we want to implement that the following clause can be used
-%% to extract DH parameters form cert.
-%% handle_peer_cert_key(client, _PeerCert, {?dhpublicnumber, PublicKey, PublicKeyParams},
-%%                      {_,SignAlg},
-%% 		        #state{diffie_hellman_keys = {_, MyPrivatKey}} = State) when
-%%                                                                           SignAlg == dh_rsa;
-%% 									     SignAlg == dh_dss ->
-%%     dh_master_secret(PublicKeyParams, PublicKey, MyPrivatKey, State);
 handle_peer_cert_key(_, _, _, _, State) ->
     State.
 
@@ -1627,16 +1804,16 @@ certify_client(#state{client_certificate_requested = false} = State, _) ->
     State.
 
 verify_client_cert(#state{static_env = #static_env{role = client},
+                          handshake_env = #handshake_env{tls_handshake_history = Hist,
+                                                         cert_hashsign_algorithm = HashSign},
+                          connection_env = #connection_env{negotiated_version = Version,
+                                                           private_key = PrivateKey},
                           client_certificate_requested = true,
-			  negotiated_version = Version,
-			  private_key = PrivateKey,
 			  session = #session{master_secret = MasterSecret,
-					     own_certificate = OwnCert},
-			  cert_hashsign_algorithm = HashSign,
-			  tls_handshake_history = Handshake0} = State, Connection) ->
+					     own_certificate = OwnCert}} = State, Connection) ->
 
     case ssl_handshake:client_certificate_verify(OwnCert, MasterSecret,
-						 ssl:tls_version(Version), HashSign, PrivateKey, Handshake0) of
+						 ssl:tls_version(Version), HashSign, PrivateKey, Hist) of
         #certificate_verify{} = Verified ->
            Connection:queue_handshake(Verified, State);
 	ignore ->
@@ -1647,7 +1824,7 @@ verify_client_cert(#state{static_env = #static_env{role = client},
 verify_client_cert(#state{client_certificate_requested = false} = State, _) ->
     State.
 
-client_certify_and_key_exchange(#state{negotiated_version = Version} =
+client_certify_and_key_exchange(#state{connection_env = #connection_env{negotiated_version = Version}} =
 				State0, Connection) ->
     try do_client_certify_and_key_exchange(State0, Connection) of
         State1 = #state{} ->
@@ -1672,7 +1849,9 @@ server_certify_and_key_exchange(State0, Connection) ->
     request_client_cert(State2, Connection).
 
 certify_client_key_exchange(#encrypted_premaster_secret{premaster_secret= EncPMS},
-			    #state{private_key = Key, client_hello_version = {Major, Minor} = Version} = State, Connection) ->
+			    #state{connection_env = #connection_env{private_key = Key}, 
+                                   handshake_env = #handshake_env{client_hello_version = {Major, Minor} = Version}}
+                            = State, Connection) ->
     FakeSecret = make_premaster_secret(Version, rsa),
     %% Countermeasure for Bleichenbacher attack always provide some kind of premaster secret
     %% and fail handshake later.RFC 5246 section 7.4.7.1.
@@ -1693,59 +1872,61 @@ certify_client_key_exchange(#encrypted_premaster_secret{premaster_secret= EncPMS
         end,    
     calculate_master_secret(PremasterSecret, State, Connection, certify, cipher);
 certify_client_key_exchange(#client_diffie_hellman_public{dh_public = ClientPublicDhKey},
-			    #state{diffie_hellman_params = #'DHParameter'{} = Params,
-				   diffie_hellman_keys = {_, ServerDhPrivateKey}} = State,
+			    #state{handshake_env = #handshake_env{diffie_hellman_params = #'DHParameter'{} = Params,
+                                                                  kex_keys = {_, ServerDhPrivateKey}}
+				  } = State,
 			    Connection) ->
     PremasterSecret = ssl_handshake:premaster_secret(ClientPublicDhKey, ServerDhPrivateKey, Params),
     calculate_master_secret(PremasterSecret, State, Connection, certify, cipher);
 
 certify_client_key_exchange(#client_ec_diffie_hellman_public{dh_public = ClientPublicEcDhPoint},
-			    #state{diffie_hellman_keys = ECDHKey} = State, Connection) ->
+			    #state{handshake_env = #handshake_env{kex_keys = ECDHKey}} = State, Connection) ->
     PremasterSecret = ssl_handshake:premaster_secret(#'ECPoint'{point = ClientPublicEcDhPoint}, ECDHKey),
     calculate_master_secret(PremasterSecret, State, Connection, certify, cipher);
 certify_client_key_exchange(#client_psk_identity{} = ClientKey,
 			    #state{ssl_options = 
-				       #ssl_options{user_lookup_fun = PSKLookup}} = State0,
+				       #{user_lookup_fun := PSKLookup}} = State0,
 			    Connection) ->
     PremasterSecret = ssl_handshake:premaster_secret(ClientKey, PSKLookup),
     calculate_master_secret(PremasterSecret, State0, Connection, certify, cipher);
 certify_client_key_exchange(#client_dhe_psk_identity{} = ClientKey,
-			    #state{diffie_hellman_params = #'DHParameter'{} = Params,
-				   diffie_hellman_keys = {_, ServerDhPrivateKey},
+			    #state{handshake_env = #handshake_env{diffie_hellman_params = #'DHParameter'{} = Params,
+                                                                  kex_keys = {_, ServerDhPrivateKey}},
 				   ssl_options = 
-				       #ssl_options{user_lookup_fun = PSKLookup}} = State0,
+				       #{user_lookup_fun := PSKLookup}} = State0,
 			    Connection) ->
     PremasterSecret = 
 	ssl_handshake:premaster_secret(ClientKey, ServerDhPrivateKey, Params, PSKLookup),
     calculate_master_secret(PremasterSecret, State0, Connection, certify, cipher);
 certify_client_key_exchange(#client_ecdhe_psk_identity{} = ClientKey,
-			    #state{diffie_hellman_keys = ServerEcDhPrivateKey,
+			    #state{handshake_env = #handshake_env{kex_keys = ServerEcDhPrivateKey},
 				   ssl_options =
-				       #ssl_options{user_lookup_fun = PSKLookup}} = State,
+				       #{user_lookup_fun := PSKLookup}} = State,
 			    Connection) ->
     PremasterSecret =
 	ssl_handshake:premaster_secret(ClientKey, ServerEcDhPrivateKey, PSKLookup),
     calculate_master_secret(PremasterSecret, State, Connection, certify, cipher);
 certify_client_key_exchange(#client_rsa_psk_identity{} = ClientKey,
-			    #state{private_key = Key,
+			    #state{connection_env = #connection_env{private_key = Key},
 				   ssl_options = 
-				       #ssl_options{user_lookup_fun = PSKLookup}} = State0,
+				       #{user_lookup_fun := PSKLookup}} = State0,
 			    Connection) ->
     PremasterSecret = ssl_handshake:premaster_secret(ClientKey, Key, PSKLookup),
     calculate_master_secret(PremasterSecret, State0, Connection, certify, cipher);
 certify_client_key_exchange(#client_srp_public{} = ClientKey,
-			    #state{srp_params = Params,
-				   srp_keys = Key
+			    #state{handshake_env = #handshake_env{srp_params = Params,
+                                                                  kex_keys = Key}
 				  } = State0, Connection) ->
     PremasterSecret = ssl_handshake:premaster_secret(ClientKey, Key, Params),
     calculate_master_secret(PremasterSecret, State0, Connection, certify, cipher).
 
-certify_server(#state{key_algorithm = Algo} = State, _) when Algo == dh_anon; 
-							     Algo == ecdh_anon; 
-							     Algo == psk; 
-							     Algo == dhe_psk; 
-							     Algo == ecdhe_psk; 
-							     Algo == srp_anon  ->
+certify_server(#state{handshake_env = #handshake_env{kex_algorithm = KexAlg}} = 
+                   State, _) when KexAlg == dh_anon; 
+                                  KexAlg == ecdh_anon; 
+                                  KexAlg == psk; 
+                                  KexAlg == dhe_psk; 
+                                  KexAlg == ecdhe_psk; 
+                                  KexAlg == srp_anon  ->
     State;
 certify_server(#state{static_env = #static_env{cert_db = CertDbHandle,
                                                cert_db_ref = CertDbRef},
@@ -1757,18 +1938,19 @@ certify_server(#state{static_env = #static_env{cert_db = CertDbHandle,
 	    throw(Alert)
     end.
 
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = rsa} = State,_) ->
+key_exchange(#state{static_env = #static_env{role = server}, 
+                    handshake_env = #handshake_env{kex_algorithm = rsa}} = State,_) ->
     State;
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = Algo,
-		    hashsign_algorithm = HashSignAlgo,
-		    diffie_hellman_params = #'DHParameter'{} = Params,
-		    private_key = PrivateKey,
-		    connection_states = ConnectionStates0,
-		    negotiated_version = Version
-		   } = State0, Connection)
-  when Algo == dhe_dss;
-       Algo == dhe_rsa;
-       Algo == dh_anon ->
+key_exchange(#state{static_env = #static_env{role = server}, 
+		    handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                                   diffie_hellman_params = #'DHParameter'{} = Params,
+                                                   hashsign_algorithm = HashSignAlgo},
+                    connection_env = #connection_env{negotiated_version = Version,
+                                                     private_key = PrivateKey},
+		    connection_states = ConnectionStates0} = State0, Connection)
+  when KexAlg == dhe_dss;
+       KexAlg == dhe_rsa;
+       KexAlg == dh_anon ->
     DHKeys = public_key:generate_key(Params),
     #{security_parameters := SecParams} =
 	ssl_record:pending_connection_state(ConnectionStates0, read),
@@ -1778,24 +1960,26 @@ key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = Alg
 					       HashSignAlgo, ClientRandom,
 					       ServerRandom,
 					       PrivateKey}),
-    State = Connection:queue_handshake(Msg, State0),
-    State#state{diffie_hellman_keys = DHKeys};
+    #state{handshake_env = HsEnv} = State = Connection:queue_handshake(Msg, State0),
+    State#state{handshake_env = HsEnv#handshake_env{kex_keys = DHKeys}};
 key_exchange(#state{static_env = #static_env{role = server},
-                    private_key = #'ECPrivateKey'{parameters = ECCurve} = Key,
-                    key_algorithm = Algo,
+                    handshake_env = #handshake_env{kex_algorithm = KexAlg} = HsEnv,
+                    connection_env = #connection_env{private_key = #'ECPrivateKey'{parameters = ECCurve} = Key},
                    session = Session} = State, _)
-  when Algo == ecdh_ecdsa; Algo == ecdh_rsa ->
-    State#state{diffie_hellman_keys = Key,
+  when KexAlg == ecdh_ecdsa; 
+       KexAlg == ecdh_rsa ->
+    State#state{handshake_env = HsEnv#handshake_env{kex_keys = Key},
                 session = Session#session{ecc = ECCurve}};
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = Algo,
-		    hashsign_algorithm = HashSignAlgo,
-		    private_key = PrivateKey,
+key_exchange(#state{static_env = #static_env{role = server}, 
+                    handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                                   hashsign_algorithm = HashSignAlgo},
+                    connection_env = #connection_env{negotiated_version = Version,
+                                                     private_key = PrivateKey},
 		    session = #session{ecc = ECCCurve},
-		    connection_states = ConnectionStates0,
-		    negotiated_version = Version
-		   } = State0, Connection)
-  when Algo == ecdhe_ecdsa; Algo == ecdhe_rsa;
-       Algo == ecdh_anon ->
+		    connection_states = ConnectionStates0} = State0, Connection)
+  when KexAlg == ecdhe_ecdsa; 
+       KexAlg == ecdhe_rsa;
+       KexAlg == ecdh_anon ->
 
     ECDHKeys = public_key:generate_key(ECCCurve),
     #{security_parameters := SecParams} = 
@@ -1807,18 +1991,19 @@ key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = Alg
 				       HashSignAlgo, ClientRandom,
 				       ServerRandom,
 				       PrivateKey}),
-    State = Connection:queue_handshake(Msg, State0),
-    State#state{diffie_hellman_keys = ECDHKeys};
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = psk,
-		    ssl_options = #ssl_options{psk_identity = undefined}} = State, _) ->
+    #state{handshake_env = HsEnv} = State = Connection:queue_handshake(Msg, State0),
+    State#state{handshake_env = HsEnv#handshake_env{kex_keys = ECDHKeys}};
+key_exchange(#state{static_env = #static_env{role = server}, 
+                    handshake_env = #handshake_env{kex_algorithm = psk},
+		    ssl_options = #{psk_identity := undefined}} = State, _) ->
     State;
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = psk,
-		    ssl_options = #ssl_options{psk_identity = PskIdentityHint},
-		    hashsign_algorithm = HashSignAlgo,
-		    private_key = PrivateKey,
-		    connection_states = ConnectionStates0,
-		    negotiated_version = Version
-		   } = State0, Connection) ->
+key_exchange(#state{static_env = #static_env{role = server}, 
+		    ssl_options = #{psk_identity := PskIdentityHint},
+		    handshake_env = #handshake_env{kex_algorithm = psk,
+                                                   hashsign_algorithm = HashSignAlgo},     
+                    connection_env = #connection_env{negotiated_version = Version,
+                                                     private_key = PrivateKey},
+             connection_states = ConnectionStates0} = State0, Connection) ->
     #{security_parameters := SecParams} = 
 	ssl_record:pending_connection_state(ConnectionStates0, read),
     #security_parameters{client_random = ClientRandom,
@@ -1827,15 +2012,16 @@ key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = psk
 				     {psk, PskIdentityHint,
 				      HashSignAlgo, ClientRandom,
 				      ServerRandom,
-						       PrivateKey}),
+                                      PrivateKey}),
     Connection:queue_handshake(Msg, State0);
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = dhe_psk,
-		    ssl_options = #ssl_options{psk_identity = PskIdentityHint},
-		    hashsign_algorithm = HashSignAlgo,
-		    diffie_hellman_params = #'DHParameter'{} = Params,
-		    private_key = PrivateKey,
-		    connection_states = ConnectionStates0,
-		    negotiated_version = Version
+key_exchange(#state{static_env = #static_env{role = server},                    
+		    ssl_options = #{psk_identity := PskIdentityHint},
+		    handshake_env = #handshake_env{kex_algorithm = dhe_psk,
+                                                   diffie_hellman_params = #'DHParameter'{} = Params,
+                                                   hashsign_algorithm = HashSignAlgo},                                        
+                    connection_env = #connection_env{negotiated_version = Version,
+                                                     private_key = PrivateKey},
+		    connection_states = ConnectionStates0
 		   } = State0, Connection) ->
     DHKeys = public_key:generate_key(Params),
     #{security_parameters := SecParams} =
@@ -1848,15 +2034,16 @@ key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = dhe
 				       HashSignAlgo, ClientRandom,
 				       ServerRandom,
 				       PrivateKey}),
-    State = Connection:queue_handshake(Msg, State0),
-    State#state{diffie_hellman_keys = DHKeys};
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = ecdhe_psk,
-		    ssl_options = #ssl_options{psk_identity = PskIdentityHint},
-		    hashsign_algorithm = HashSignAlgo,
-		    private_key = PrivateKey,
+    #state{handshake_env = HsEnv} = State = Connection:queue_handshake(Msg, State0),
+    State#state{handshake_env = HsEnv#handshake_env{kex_keys = DHKeys}};
+key_exchange(#state{static_env = #static_env{role = server}, 
+		    ssl_options = #{psk_identity := PskIdentityHint},
+                    handshake_env = #handshake_env{kex_algorithm = ecdhe_psk,
+                                                   hashsign_algorithm = HashSignAlgo},
+                    connection_env = #connection_env{negotiated_version = Version,
+                                                     private_key = PrivateKey},
                     session = #session{ecc = ECCCurve},
-		    connection_states = ConnectionStates0,
-		    negotiated_version = Version
+		    connection_states = ConnectionStates0
 		   } = State0, Connection) ->
     ECDHKeys = public_key:generate_key(ECCCurve),
     #{security_parameters := SecParams} =
@@ -1869,17 +2056,19 @@ key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = ecd
 				       HashSignAlgo, ClientRandom,
 				       ServerRandom,
 				       PrivateKey}),
-    State = Connection:queue_handshake(Msg, State0),
-    State#state{diffie_hellman_keys = ECDHKeys};
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = rsa_psk,
-		    ssl_options = #ssl_options{psk_identity = undefined}} = State, _) ->
+    #state{handshake_env = HsEnv} = State = Connection:queue_handshake(Msg, State0),
+    State#state{handshake_env = HsEnv#handshake_env{kex_keys = ECDHKeys}};
+key_exchange(#state{static_env = #static_env{role = server}, 
+                    handshake_env = #handshake_env{kex_algorithm = rsa_psk},
+		    ssl_options = #{psk_identity := undefined}} = State, _) ->
     State;
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = rsa_psk,
-		    ssl_options = #ssl_options{psk_identity = PskIdentityHint},
-		    hashsign_algorithm = HashSignAlgo,
-		    private_key = PrivateKey,
-		    connection_states = ConnectionStates0,
-		    negotiated_version = Version
+key_exchange(#state{static_env = #static_env{role = server}, 
+		    ssl_options = #{psk_identity := PskIdentityHint},
+                    handshake_env = #handshake_env{kex_algorithm = rsa_psk,
+                                                   hashsign_algorithm = HashSignAlgo}, 
+                    connection_env = #connection_env{negotiated_version = Version,
+                                                     private_key = PrivateKey},
+		    connection_states = ConnectionStates0
 		   } = State0, Connection) ->
     #{security_parameters := SecParams} =
 	ssl_record:pending_connection_state(ConnectionStates0, read),
@@ -1891,17 +2080,18 @@ key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = rsa
 				       ServerRandom,
 				       PrivateKey}),
     Connection:queue_handshake(Msg, State0);
-key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = Algo,
-		    ssl_options = #ssl_options{user_lookup_fun = LookupFun},
-		    hashsign_algorithm = HashSignAlgo,
+key_exchange(#state{static_env = #static_env{role = server}, 
+		    ssl_options = #{user_lookup_fun := LookupFun},
+                    handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                                   hashsign_algorithm = HashSignAlgo}, 
+                    connection_env = #connection_env{negotiated_version = Version,
+                                                     private_key = PrivateKey},
 		    session = #session{srp_username = Username},
-		    private_key = PrivateKey,
-		    connection_states = ConnectionStates0,
-		    negotiated_version = Version
+		    connection_states = ConnectionStates0
 		   } = State0, Connection)
-  when Algo == srp_dss;
-       Algo == srp_rsa;
-       Algo == srp_anon ->
+  when KexAlg == srp_dss;
+       KexAlg == srp_rsa;
+       KexAlg == srp_anon ->
     SrpParams = handle_srp_identity(Username, LookupFun),
     Keys = case generate_srp_server_keys(SrpParams, 0) of
 	       Alert = #alert{} ->
@@ -1918,82 +2108,86 @@ key_exchange(#state{static_env = #static_env{role = server}, key_algorithm = Alg
 				       HashSignAlgo, ClientRandom,
 				       ServerRandom,
 				       PrivateKey}),
-    State = Connection:queue_handshake(Msg, State0),
-    State#state{srp_params = SrpParams,
-		srp_keys = Keys};
+    #state{handshake_env = HsEnv} = State = Connection:queue_handshake(Msg, State0),
+    State#state{handshake_env = HsEnv#handshake_env{srp_params = SrpParams,
+                                                    kex_keys = Keys}};
 key_exchange(#state{static_env = #static_env{role = client},
-		    key_algorithm = rsa,
-		    public_key_info = PublicKeyInfo,
-		    negotiated_version = Version,
-		    premaster_secret = PremasterSecret} = State0, Connection) ->
+                    handshake_env = #handshake_env{kex_algorithm = rsa,
+                                                   public_key_info = PublicKeyInfo,
+                                                   premaster_secret = PremasterSecret},
+                    connection_env = #connection_env{negotiated_version = Version}
+		   } = State0, Connection) ->
     Msg = rsa_key_exchange(ssl:tls_version(Version), PremasterSecret, PublicKeyInfo),
     Connection:queue_handshake(Msg, State0);
 key_exchange(#state{static_env = #static_env{role = client},
-		    key_algorithm = Algorithm,
-		    negotiated_version = Version,
-		    diffie_hellman_keys = {DhPubKey, _}
-		   } = State0, Connection)
-  when Algorithm == dhe_dss;
-       Algorithm == dhe_rsa;
-       Algorithm == dh_anon ->
+                    handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                                   kex_keys = {DhPubKey, _}},
+                    connection_env = #connection_env{negotiated_version = Version}
+                   } = State0, Connection)
+  when KexAlg == dhe_dss;
+       KexAlg == dhe_rsa;
+       KexAlg == dh_anon ->
     Msg =  ssl_handshake:key_exchange(client, ssl:tls_version(Version), {dh, DhPubKey}),
     Connection:queue_handshake(Msg, State0);
 
 key_exchange(#state{static_env = #static_env{role = client},
-		    key_algorithm = Algorithm,
-		    negotiated_version = Version,
-                    session = Session,
-		    diffie_hellman_keys = #'ECPrivateKey'{parameters = ECCurve} = Key} = State0, Connection)
-  when Algorithm == ecdhe_ecdsa; Algorithm == ecdhe_rsa;
-       Algorithm == ecdh_ecdsa; Algorithm == ecdh_rsa;
-       Algorithm == ecdh_anon ->
+                    handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                                   kex_keys = #'ECPrivateKey'{parameters = ECCurve} = Key},
+                    connection_env = #connection_env{negotiated_version = Version},
+                    session = Session
+		   } = State0, Connection)
+  when KexAlg == ecdhe_ecdsa; 
+       KexAlg == ecdhe_rsa;
+       KexAlg == ecdh_ecdsa; 
+       KexAlg == ecdh_rsa;
+       KexAlg == ecdh_anon ->
     Msg = ssl_handshake:key_exchange(client, ssl:tls_version(Version), {ecdh, Key}),
     Connection:queue_handshake(Msg, State0#state{session = Session#session{ecc = ECCurve}});
 key_exchange(#state{static_env = #static_env{role = client},
-		    ssl_options = SslOpts,
-		    key_algorithm = psk,
-		    negotiated_version = Version} = State0, Connection) ->
+                    handshake_env = #handshake_env{kex_algorithm = psk},
+                    connection_env = #connection_env{negotiated_version = Version},
+		    ssl_options = #{psk_identity := PSKIdentity}} = State0, Connection) ->
     Msg =  ssl_handshake:key_exchange(client, ssl:tls_version(Version), 
-				      {psk, SslOpts#ssl_options.psk_identity}),
+				      {psk, PSKIdentity}),
     Connection:queue_handshake(Msg, State0);
 key_exchange(#state{static_env = #static_env{role = client},
-		    ssl_options = SslOpts,
-		    key_algorithm = dhe_psk,
-		    negotiated_version = Version,
-		    diffie_hellman_keys = {DhPubKey, _}} = State0, Connection) ->
+                    handshake_env = #handshake_env{kex_algorithm = dhe_psk,
+                                                   kex_keys = {DhPubKey, _}},
+                    connection_env = #connection_env{negotiated_version = Version},
+		    ssl_options = #{psk_identity := PSKIdentity}} = State0, Connection) ->
     Msg =  ssl_handshake:key_exchange(client, ssl:tls_version(Version),
 				      {dhe_psk, 
-				       SslOpts#ssl_options.psk_identity, DhPubKey}),
+				       PSKIdentity, DhPubKey}),
     Connection:queue_handshake(Msg, State0);
 
 key_exchange(#state{static_env = #static_env{role = client},
-		    ssl_options = SslOpts,
-		    key_algorithm = ecdhe_psk,
-		    negotiated_version = Version,
-		    diffie_hellman_keys = ECDHKeys} = State0, Connection) ->
+                    handshake_env = #handshake_env{kex_algorithm = ecdhe_psk,
+                                                   kex_keys = ECDHKeys},
+                    connection_env = #connection_env{negotiated_version = Version},
+		    ssl_options = #{psk_identity := PSKIdentity}} = State0, Connection) ->
     Msg =  ssl_handshake:key_exchange(client, ssl:tls_version(Version),
 				      {ecdhe_psk,
-				       SslOpts#ssl_options.psk_identity, ECDHKeys}),
+				       PSKIdentity, ECDHKeys}),
     Connection:queue_handshake(Msg, State0);
 
 key_exchange(#state{static_env = #static_env{role = client},
-		    ssl_options = SslOpts,
-		    key_algorithm = rsa_psk,
-		    public_key_info = PublicKeyInfo,
-		    negotiated_version = Version,
-		    premaster_secret = PremasterSecret}
+                    handshake_env = #handshake_env{kex_algorithm = rsa_psk,
+                                                   public_key_info = PublicKeyInfo,
+                                                   premaster_secret = PremasterSecret},
+                    connection_env = #connection_env{negotiated_version = Version},
+		    ssl_options = #{psk_identity := PSKIdentity}}
 	     = State0, Connection) ->
-    Msg = rsa_psk_key_exchange(ssl:tls_version(Version), SslOpts#ssl_options.psk_identity,
+    Msg = rsa_psk_key_exchange(ssl:tls_version(Version), PSKIdentity,
 			       PremasterSecret, PublicKeyInfo),
     Connection:queue_handshake(Msg, State0);
 key_exchange(#state{static_env = #static_env{role = client},
-		    key_algorithm = Algorithm,
-		    negotiated_version = Version,
-		    srp_keys = {ClientPubKey, _}}
+                    handshake_env = #handshake_env{kex_algorithm = KexAlg,
+                                                   kex_keys = {ClientPubKey, _}},
+                    connection_env = #connection_env{negotiated_version = Version}}
 	     = State0, Connection)
-  when Algorithm == srp_dss;
-       Algorithm == srp_rsa;
-       Algorithm == srp_anon ->
+  when KexAlg == srp_dss;
+       KexAlg == srp_rsa;
+       KexAlg == srp_anon ->
     Msg =  ssl_handshake:key_exchange(client, ssl:tls_version(Version), {srp, ClientPubKey}),
     Connection:queue_handshake(Msg, State0).
 
@@ -2030,18 +2224,24 @@ rsa_psk_key_exchange(Version, PskIdentity, PremasterSecret,
 rsa_psk_key_exchange(_, _, _, _) ->
     throw (?ALERT_REC(?FATAL,?HANDSHAKE_FAILURE, pub_key_is_not_rsa)).
 
-request_client_cert(#state{key_algorithm = Alg} = State, _)
-  when Alg == dh_anon; Alg == ecdh_anon;
-       Alg == psk; Alg == dhe_psk; Alg == ecdhe_psk; Alg == rsa_psk;
-       Alg == srp_dss; Alg == srp_rsa; Alg == srp_anon ->
+request_client_cert(#state{handshake_env = #handshake_env{kex_algorithm = Alg}} = State, _)
+  when Alg == dh_anon; 
+       Alg == ecdh_anon;
+       Alg == psk; 
+       Alg == dhe_psk; 
+       Alg == ecdhe_psk; 
+       Alg == rsa_psk;
+       Alg == srp_dss; 
+       Alg == srp_rsa; 
+       Alg == srp_anon ->
     State;
 
 request_client_cert(#state{static_env = #static_env{cert_db = CertDbHandle,
                                                     cert_db_ref = CertDbRef},
-                           ssl_options = #ssl_options{verify = verify_peer,
-                                                      signature_algs = SupportedHashSigns},
-                           connection_states = ConnectionStates0,
-			   negotiated_version = Version} = State0, Connection) ->
+                           connection_env = #connection_env{negotiated_version = Version},
+                           ssl_options = #{verify := verify_peer,
+                                           signature_algs := SupportedHashSigns},
+                           connection_states = ConnectionStates0} = State0, Connection) ->
     #{security_parameters :=
 	  #security_parameters{cipher_suite = CipherSuite}} =
 	ssl_record:pending_connection_state(ConnectionStates0, read),
@@ -2053,12 +2253,12 @@ request_client_cert(#state{static_env = #static_env{cert_db = CertDbHandle,
     State = Connection:queue_handshake(Msg, State0),
     State#state{client_certificate_requested = true};
 
-request_client_cert(#state{ssl_options = #ssl_options{verify = verify_none}} =
+request_client_cert(#state{ssl_options = #{verify := verify_none}} =
 		    State, _) ->
     State.
 
 calculate_master_secret(PremasterSecret, 
-			#state{negotiated_version = Version,
+			#state{connection_env = #connection_env{negotiated_version = Version},
 			       connection_states = ConnectionStates0,
 			       session = Session0} = State0, Connection,
 			_Current, Next) ->
@@ -2087,11 +2287,11 @@ finalize_handshake(State0, StateName, Connection) ->
 
 next_protocol(#state{static_env = #static_env{role = server}} = State, _) ->
     State;
-next_protocol(#state{negotiated_protocol = undefined} = State, _) ->
+next_protocol(#state{handshake_env = #handshake_env{negotiated_protocol = undefined}} = State, _) ->
     State;
-next_protocol(#state{expecting_next_protocol_negotiation = false} = State, _) ->
+next_protocol(#state{handshake_env = #handshake_env{expecting_next_protocol_negotiation = false}} = State, _) ->
     State;
-next_protocol(#state{negotiated_protocol = NextProtocol} = State0, Connection) ->
+next_protocol(#state{handshake_env = #handshake_env{negotiated_protocol = NextProtocol}} = State0, Connection) ->
     NextProtocolMessage = ssl_handshake:next_protocol(NextProtocol),
     Connection:queue_handshake(NextProtocolMessage, State0).
 
@@ -2099,14 +2299,15 @@ cipher_protocol(State, Connection) ->
     Connection:queue_change_cipher(#change_cipher_spec{}, State).
 
 finished(#state{static_env = #static_env{role = Role},
-                negotiated_version = Version,
+                handshake_env = #handshake_env{tls_handshake_history = Hist},
+                connection_env = #connection_env{negotiated_version = Version},
 		session = Session,
-                connection_states = ConnectionStates0,
-                tls_handshake_history = Handshake0} = State0, StateName, Connection) ->
+                connection_states = ConnectionStates0} = State0, 
+         StateName, Connection) ->
     MasterSecret = Session#session.master_secret,
     Finished = ssl_handshake:finished(ssl:tls_version(Version), Role,
 				       get_current_prf(ConnectionStates0, write),
-				       MasterSecret, Handshake0),
+				       MasterSecret, Hist),
     ConnectionStates = save_verify_data(Role, Finished, ConnectionStates0, StateName),
     Connection:send_handshake(Finished, State0#state{connection_states =
 								 ConnectionStates}).
@@ -2122,65 +2323,71 @@ save_verify_data(server, #finished{verify_data = Data}, ConnectionStates, abbrev
 
 calculate_secret(#server_dh_params{dh_p = Prime, dh_g = Base, 
 				   dh_y = ServerPublicDhKey} = Params,
-		 State, Connection) ->
+		 #state{handshake_env = HsEnv} = State, Connection) ->
     Keys = {_, PrivateDhKey} = crypto:generate_key(dh, [Prime, Base]),
     PremasterSecret =
 	ssl_handshake:premaster_secret(ServerPublicDhKey, PrivateDhKey, Params),
     calculate_master_secret(PremasterSecret,
-			    State#state{diffie_hellman_keys = Keys}, 
+			    State#state{handshake_env = HsEnv#handshake_env{kex_keys = Keys}}, 
 			    Connection, certify, certify);
 
 calculate_secret(#server_ecdh_params{curve = ECCurve, public = ECServerPubKey},
-		     State=#state{session=Session}, Connection) ->
+		     #state{handshake_env = HsEnv,
+                            session = Session} = State, Connection) ->
     ECDHKeys = public_key:generate_key(ECCurve),
     PremasterSecret = 
 	ssl_handshake:premaster_secret(#'ECPoint'{point = ECServerPubKey}, ECDHKeys),
     calculate_master_secret(PremasterSecret,
-			    State#state{diffie_hellman_keys = ECDHKeys,
+			    State#state{handshake_env = HsEnv#handshake_env{kex_keys = ECDHKeys},
 					session = Session#session{ecc = ECCurve}},
 			    Connection, certify, certify);
 
 calculate_secret(#server_psk_params{
 		    hint = IdentityHint},
-		 State, Connection) ->
+		 #state{handshake_env = HsEnv} = State, Connection) ->
     %% store for later use
-    Connection:next_event(certify, no_record, State#state{psk_identity = IdentityHint});
+    Connection:next_event(certify, no_record, 
+                          State#state{handshake_env = 
+                                          HsEnv#handshake_env{server_psk_identity = IdentityHint}});
 
 calculate_secret(#server_dhe_psk_params{
 		    dh_params = #server_dh_params{dh_p = Prime, dh_g = Base}} = ServerKey,
-		    #state{ssl_options = #ssl_options{user_lookup_fun = PSKLookup}} = 
+		    #state{handshake_env = HsEnv,
+                           ssl_options = #{user_lookup_fun := PSKLookup}} =
 		     State, Connection) ->
     Keys = {_, PrivateDhKey} =
 	crypto:generate_key(dh, [Prime, Base]),
     PremasterSecret = ssl_handshake:premaster_secret(ServerKey, PrivateDhKey, PSKLookup),
-    calculate_master_secret(PremasterSecret, State#state{diffie_hellman_keys = Keys},
+    calculate_master_secret(PremasterSecret, State#state{handshake_env = HsEnv#handshake_env{kex_keys = Keys}},
 			    Connection, certify, certify);
 
 calculate_secret(#server_ecdhe_psk_params{
                     dh_params = #server_ecdh_params{curve = ECCurve}} = ServerKey,
-                 #state{ssl_options = #ssl_options{user_lookup_fun = PSKLookup}} = 
-		     State=#state{session=Session}, Connection) ->
+                 #state{ssl_options = #{user_lookup_fun := PSKLookup}} =
+		     #state{handshake_env = HsEnv,
+                            session = Session} = State, Connection) ->
     ECDHKeys = public_key:generate_key(ECCurve),
 
     PremasterSecret = ssl_handshake:premaster_secret(ServerKey, ECDHKeys, PSKLookup),
     calculate_master_secret(PremasterSecret,
-			    State#state{diffie_hellman_keys = ECDHKeys,
+			    State#state{handshake_env = HsEnv#handshake_env{kex_keys = ECDHKeys},
 					session = Session#session{ecc = ECCurve}},
 			    Connection, certify, certify);
 
 calculate_secret(#server_srp_params{srp_n = Prime, srp_g = Generator} = ServerKey,
-		 #state{ssl_options = #ssl_options{srp_identity = SRPId}} = State, 
+		 #state{handshake_env = HsEnv,
+                        ssl_options = #{srp_identity := SRPId}} = State,
 		 Connection) ->
     Keys = generate_srp_client_keys(Generator, Prime, 0),
     PremasterSecret = ssl_handshake:premaster_secret(ServerKey, Keys, SRPId),
-    calculate_master_secret(PremasterSecret, State#state{srp_keys = Keys}, Connection, 
+    calculate_master_secret(PremasterSecret, State#state{handshake_env = HsEnv#handshake_env{kex_keys = Keys}}, Connection, 
 			    certify, certify).
 
 master_secret(#alert{} = Alert, _) ->
     Alert;
 master_secret(PremasterSecret, #state{static_env = #static_env{role = Role},
+                                      connection_env = #connection_env{negotiated_version = Version},
                                       session = Session,
-				      negotiated_version = Version,
 				      connection_states = ConnectionStates0} = State) ->
     case ssl_handshake:master_secret(ssl:tls_version(Version), PremasterSecret,
 				     ConnectionStates0, Role) of
@@ -2240,7 +2447,7 @@ cipher_role(client, Data, Session, #state{connection_states = ConnectionStates0}
      {Record, State} = prepare_connection(State0#state{session = Session,
 						       connection_states = ConnectionStates},
 					 Connection),
-    Connection:next_event(connection, Record, State);
+    Connection:next_event(connection, Record, State, [{{timeout, handshake}, infinity, close}]);
 cipher_role(server, Data, Session,  #state{connection_states = ConnectionStates0} = State0,
 	    Connection) ->
     ConnectionStates1 = ssl_record:set_client_verify_data(current_read, Data, 
@@ -2249,15 +2456,15 @@ cipher_role(server, Data, Session,  #state{connection_states = ConnectionStates0
 	finalize_handshake(State0#state{connection_states = ConnectionStates1,
 					session = Session}, cipher, Connection),
     {Record, State} = prepare_connection(State1, Connection),
-    Connection:next_event(connection, Record, State, Actions).
+    Connection:next_event(connection, Record, State, [{{timeout, handshake}, infinity, close} | Actions]).
 
-is_anonymous(Algo) when Algo == dh_anon;
-			Algo == ecdh_anon;
-			Algo == psk;
-			Algo == dhe_psk;
-			Algo == ecdhe_psk;
-			Algo == rsa_psk;
-			Algo == srp_anon ->
+is_anonymous(KexAlg) when KexAlg == dh_anon;
+                          KexAlg == ecdh_anon;
+                          KexAlg == psk;
+                          KexAlg == dhe_psk;
+                          KexAlg == ecdhe_psk;
+                          KexAlg == rsa_psk;
+                          KexAlg == srp_anon ->
     true;
 is_anonymous(_) ->
     false.
@@ -2371,6 +2578,30 @@ set_socket_opts(ConnectionCb, Transport, Socket, [{active, Active}| Opts], SockO
        Active == false ->
     set_socket_opts(ConnectionCb, Transport, Socket, Opts, 
 		    SockOpts#socket_options{active = Active}, Other);
+set_socket_opts(ConnectionCb, Transport, Socket, [{active, Active1} = Opt| Opts],
+                SockOpts=#socket_options{active = Active0}, Other)
+  when Active1 >= -32768, Active1 =< 32767 ->
+    Active = if
+        is_integer(Active0), Active0 + Active1 < -32768 ->
+            error;
+        is_integer(Active0), Active0 + Active1 =< 0 ->
+            false;
+        is_integer(Active0), Active0 + Active1 > 32767 ->
+            error;
+        Active1 =< 0 ->
+            false;
+        is_integer(Active0) ->
+            Active0 + Active1;
+        true ->
+            Active1
+    end,
+    case Active of
+        error ->
+            {{error, {options, {socket_options, Opt}} }, SockOpts};
+        _ ->
+            set_socket_opts(ConnectionCb, Transport, Socket, Opts,
+                            SockOpts#socket_options{active = Active}, Other)
+    end;
 set_socket_opts(_,_, _, [{active, _} = Opt| _], SockOpts, _) ->
     {{error, {options, {socket_options, Opt}} }, SockOpts};
 set_socket_opts(ConnectionCb, Transport, Socket, [Opt | Opts], SockOpts, Other) ->
@@ -2379,7 +2610,7 @@ set_socket_opts(ConnectionCb, Transport, Socket, [Opt | Opts], SockOpts, Other) 
 
 
 hibernate_after(connection = StateName, 
-		#state{ssl_options=#ssl_options{hibernate_after = HibernateAfter}} = State,
+		#state{ssl_options= #{hibernate_after := HibernateAfter}} = State,
 		Actions) ->
     {next_state, StateName, State, [{timeout, HibernateAfter, hibernate} | Actions]};
 hibernate_after(StateName, State, Actions) ->
@@ -2395,12 +2626,12 @@ terminate_alert(_) ->
     ?ALERT_REC(?FATAL, ?INTERNAL_ERROR).
 
 handle_trusted_certs_db(#state{ssl_options = 
-				   #ssl_options{cacertfile = <<>>, cacerts = []}}) ->
+				   #{cacertfile := <<>>, cacerts := []}}) ->
     %% No trusted certs specified
     ok;
 handle_trusted_certs_db(#state{static_env = #static_env{cert_db_ref = Ref,
                                                         cert_db = CertDb},
-                               ssl_options = #ssl_options{cacertfile = <<>>}}) when CertDb =/= undefined ->
+                               ssl_options = #{cacertfile := <<>>}}) when CertDb =/= undefined ->
     %% Certs provided as DER directly can not be shared
     %% with other connections and it is safe to delete them when the connection ends.
     ssl_pkix_db:remove_trusted_certs(Ref, CertDb);
@@ -2410,7 +2641,7 @@ handle_trusted_certs_db(#state{static_env = #static_env{file_ref_db = undefined}
     ok;
 handle_trusted_certs_db(#state{static_env = #static_env{cert_db_ref = Ref,
                                                         file_ref_db = RefDb},
-			       ssl_options = #ssl_options{cacertfile = File}}) ->
+			       ssl_options = #{cacertfile := File}}) ->
     case ssl_pkix_db:ref_count(Ref, RefDb, -1) of
 	0 ->
 	    ssl_manager:clean_cert_db(Ref, File);
@@ -2418,7 +2649,7 @@ handle_trusted_certs_db(#state{static_env = #static_env{cert_db_ref = Ref,
 	    ok
     end.
 
-prepare_connection(#state{renegotiation = Renegotiate, 
+prepare_connection(#state{handshake_env = #handshake_env{renegotiation = Renegotiate}, 
 			  start_or_recv_from = RecvFrom} = State0, Connection) 
   when Renegotiate =/= {false, first}, 
        RecvFrom =/= undefined ->
@@ -2428,45 +2659,57 @@ prepare_connection(State0, Connection) ->
     State = Connection:reinit(State0),
     {no_record, ack_connection(State)}.
 
-ack_connection(#state{renegotiation = {true, Initiater}} = State) when Initiater == peer;
-                                                                       Initiater == internal ->
-    State#state{renegotiation = undefined};
-ack_connection(#state{renegotiation = {true, From}} = State) ->    
+ack_connection(#state{handshake_env = #handshake_env{renegotiation = {true, Initiater}} = HsEnv} = State) when Initiater == peer;
+                                                                                                               Initiater == internal ->
+    State#state{handshake_env = HsEnv#handshake_env{renegotiation = undefined}};
+ack_connection(#state{handshake_env = #handshake_env{renegotiation = {true, From}} = HsEnv} = State) ->    
     gen_statem:reply(From, ok),
-    State#state{renegotiation = undefined};
-ack_connection(#state{renegotiation = {false, first}, 
-		      start_or_recv_from = StartFrom,
-		      timer = Timer} = State) when StartFrom =/= undefined ->
+    State#state{handshake_env = HsEnv#handshake_env{renegotiation = undefined}};
+ack_connection(#state{handshake_env = #handshake_env{renegotiation = {false, first}} = HsEnv, 
+		      start_or_recv_from = StartFrom} = State) when StartFrom =/= undefined ->
     gen_statem:reply(StartFrom, connected),
-    cancel_timer(Timer),
-    State#state{renegotiation = undefined, 
-		start_or_recv_from = undefined, timer = undefined};
+    State#state{handshake_env = HsEnv#handshake_env{renegotiation = undefined}, 
+		start_or_recv_from = undefined};
 ack_connection(State) ->
     State.
-
-cancel_timer(undefined) ->
-    ok;
-cancel_timer(Timer) ->
-    erlang:cancel_timer(Timer),
-    ok.
 
 session_handle_params(#server_ecdh_params{curve = ECCurve}, Session) ->
     Session#session{ecc = ECCurve};
 session_handle_params(_, Session) ->
     Session.
 
-register_session(client, Host, Port, #session{is_resumable = new} = Session0) ->
-    Session = Session0#session{is_resumable = true},
-    ssl_manager:register_session(Host, Port, Session),
+handle_session(Role = server, #{reuse_sessions := true} = SslOpts,
+               Host, Port, Session0) ->
+    register_session(Role, host_id(Role, Host, SslOpts), Port, Session0, true);
+handle_session(Role = client, #{verify := verify_peer,
+                                reuse_sessions := Reuse} = SslOpts,
+               Host, Port, Session0) when Reuse =/= false ->
+    register_session(Role, host_id(Role, Host, SslOpts), Port, Session0, reg_type(Reuse));
+handle_session(server, _, Host, Port, Session) ->
+    %% Remove "session of type new" entry from session DB 
+    ssl_manager:invalidate_session(Host, Port, Session),
     Session;
-register_session(server, _, Port, #session{is_resumable = new} = Session0) ->
+handle_session(client, _,_,_, Session) ->
+    %% In client case there is no entry yet, so nothing to remove
+    Session.
+
+reg_type(save) ->
+    true;
+reg_type(true) ->
+    unique.
+
+register_session(client, Host, Port, #session{is_resumable = new} = Session0, Save) ->
+    Session = Session0#session{is_resumable = true},
+    ssl_manager:register_session(Host, Port, Session, Save),
+    Session;
+register_session(server, _, Port, #session{is_resumable = new} = Session0, _) ->
     Session = Session0#session{is_resumable = true},
     ssl_manager:register_session(Port, Session),
     Session;
-register_session(_, _, _, Session) ->
+register_session(_, _, _, Session, _) ->
     Session. %% Already registered
 
-host_id(client, _Host, #ssl_options{server_name_indication = Hostname}) when is_list(Hostname) ->
+host_id(client, _Host, #{server_name_indication := Hostname}) when is_list(Hostname) ->
     Hostname;
 host_id(_, Host, _) ->
     Host.
@@ -2485,9 +2728,8 @@ handle_resumed_session(SessId, #state{static_env = #static_env{host = Host,
                                                                protocol_cb = Connection,
                                                                session_cache = Cache,
                                                                session_cache_cb = CacheCb},
-                                      connection_states = ConnectionStates0,
-				      negotiated_version = Version
-                                     } = State) ->
+                                      connection_env = #connection_env{negotiated_version = Version},
+                                      connection_states = ConnectionStates0} = State) ->
     Session = CacheCb:lookup(Cache, {{Host, Port}, SessId}),
     case ssl_handshake:master_secret(ssl:tls_version(Version), Session,
 				     ConnectionStates0, client) of
@@ -2518,34 +2760,38 @@ negotiated_hashsign(HashSign = {_, _}, _, _, _) ->
     HashSign.
 
 ssl_options_list(SslOptions) ->
-    Fileds = record_info(fields, ssl_options),
-    Values = tl(tuple_to_list(SslOptions)),
-    ssl_options_list(Fileds, Values, []).
+    L = maps:to_list(SslOptions),
+    ssl_options_list(L, []).
 
-ssl_options_list([],[], Acc) ->
+ssl_options_list([], Acc) ->
     lists:reverse(Acc);
 %% Skip internal options, only return user options
-ssl_options_list([protocol | Keys], [_ | Values], Acc) ->
-    ssl_options_list(Keys, Values, Acc);
-ssl_options_list([erl_dist | Keys], [_ | Values], Acc) ->
-    ssl_options_list(Keys, Values, Acc);
-ssl_options_list([renegotiate_at | Keys], [_ | Values], Acc) ->
-    ssl_options_list(Keys, Values, Acc);
-ssl_options_list([ciphers = Key | Keys], [Value | Values], Acc) ->
-   ssl_options_list(Keys, Values, 
+ssl_options_list([{protocol, _}| T], Acc) ->
+    ssl_options_list(T, Acc);
+ssl_options_list([{erl_dist, _}|T], Acc) ->
+    ssl_options_list(T, Acc);
+ssl_options_list([{renegotiate_at, _}|T], Acc) ->
+    ssl_options_list(T, Acc);
+ssl_options_list([{ciphers = Key, Value}|T], Acc) ->
+   ssl_options_list(T,
 		    [{Key, lists:map(
 			     fun(Suite) -> 
-				     ssl_cipher_format:suite_definition(Suite) 
+				     ssl_cipher_format:suite_bin_to_map(Suite) 
 			     end, Value)} 
 		     | Acc]);
-ssl_options_list([Key | Keys], [Value | Values], Acc) ->
-   ssl_options_list(Keys, Values, [{Key, Value} | Acc]).
+ssl_options_list([{Key, Value}|T], Acc) ->
+   ssl_options_list(T, [{Key, Value} | Acc]).
 
 handle_active_option(false, connection = StateName, To, Reply, State) ->
     hibernate_after(StateName, State, [{reply, To, Reply}]);
 
+handle_active_option(_, connection = StateName, To, _Reply, #state{connection_env = #connection_env{terminated = true},
+                                                                   user_data_buffer = {_,0,_}} = State) ->
+    handle_normal_shutdown(?ALERT_REC(?FATAL, ?CLOSE_NOTIFY, all_data_deliverd), StateName, 
+                           State#state{start_or_recv_from = To}),
+    {stop,{shutdown, peer_close}, State};
 handle_active_option(_, connection = StateName0, To, Reply, #state{static_env = #static_env{protocol_cb = Connection},
-                                                                   user_data_buffer = <<>>} = State0) ->
+                                                                   user_data_buffer = {_,0,_}} = State0) ->
     case Connection:next_event(StateName0, no_record, State0) of
 	{next_state, StateName, State} ->
 	    hibernate_after(StateName, State, [{reply, To, Reply}]);
@@ -2554,11 +2800,11 @@ handle_active_option(_, connection = StateName0, To, Reply, #state{static_env = 
 	{stop, _, _} = Stop ->
 	    Stop
     end;
-handle_active_option(_, StateName, To, Reply, #state{user_data_buffer = <<>>} = State) ->
+handle_active_option(_, StateName, To, Reply, #state{user_data_buffer = {_,0,_}} = State) ->
     %% Active once already set 
     {next_state, StateName, State, [{reply, To, Reply}]};
 
-%% user_data_buffer =/= <<>>
+%% user_data_buffer nonempty
 handle_active_option(_, StateName0, To, Reply,
                      #state{static_env = #static_env{protocol_cb = Connection}} = State0) ->
     case read_application_data(<<>>, State0) of
@@ -2578,33 +2824,25 @@ handle_active_option(_, StateName0, To, Reply,
 
 
 %% Picks ClientData 
-get_data(_, _, <<>>) ->
-    {more, <<>>};
-%% Recv timed out save buffer data until next recv
-get_data(#socket_options{active=false}, undefined, Buffer) ->
-    {passive, Buffer};
-get_data(#socket_options{active=Active, packet=Raw}, BytesToRead, Buffer) 
+get_data(#socket_options{active=false}, undefined, _Bin) ->
+    %% Recv timed out save buffer data until next recv
+    passive;
+get_data(#socket_options{active=Active, packet=Raw}, BytesToRead, Bin)
   when Raw =:= raw; Raw =:= 0 ->   %% Raw Mode
-    if 
-	Active =/= false orelse BytesToRead =:= 0  ->
+    case Bin of
+        <<_/binary>> when Active =/= false orelse BytesToRead =:= 0 ->
 	    %% Active true or once, or passive mode recv(0)  
-	    {ok, Buffer, <<>>};
-	byte_size(Buffer) >= BytesToRead ->  
+	    {ok, Bin, <<>>};
+        <<Data:BytesToRead/binary, Rest/binary>> ->
 	    %% Passive Mode, recv(Bytes) 
-	    <<Data:BytesToRead/binary, Rest/binary>> = Buffer,
-	    {ok, Data, Rest};
-	true ->
+            {ok, Data, Rest};
+        <<_/binary>> ->
 	    %% Passive Mode not enough data
-	    {more, Buffer}
+            {more, BytesToRead}
     end;
-get_data(#socket_options{packet=Type, packet_size=Size}, _, Buffer) ->
+get_data(#socket_options{packet=Type, packet_size=Size}, _, Bin) ->
     PacketOpts = [{packet_size, Size}], 
-    case decode_packet(Type, Buffer, PacketOpts) of
-	{more, _} ->
-	    {more, Buffer};
-	Decoded ->
-	    Decoded
-    end.
+    decode_packet(Type, Bin, PacketOpts).
 
 decode_packet({http, headers}, Buffer, PacketOpts) ->
     decode_packet(httph, Buffer, PacketOpts);
@@ -2647,6 +2885,14 @@ deliver_app_data(
     case Active of
         once ->
             SO#socket_options{active=false};
+        1 ->
+            send_user(
+              Pid,
+              format_passive(
+                CPids, Transport, Socket, Tracker, Connection)),
+            SO#socket_options{active=false};
+        N when is_integer(N) ->
+            SO#socket_options{active=N - 1};
 	_ ->
 	    SO
     end.
@@ -2656,7 +2902,7 @@ format_reply(_, _, _,#socket_options{active = false, mode = Mode, packet = Packe
     {ok, do_format_reply(Mode, Packet, Header, Data)};
 format_reply(CPids, Transport, Socket, #socket_options{active = _, mode = Mode, packet = Packet,
 						header = Header}, Data, Tracker, Connection) ->
-    {ssl, Connection:socket(CPids, Transport, Socket, Connection, Tracker), 
+    {ssl, Connection:socket(CPids, Transport, Socket, Tracker),
      do_format_reply(Mode, Packet, Header, Data)}.
 
 deliver_packet_error(CPids, Transport, Socket, 
@@ -2668,7 +2914,7 @@ format_packet_error(_, _, _,#socket_options{active = false, mode = Mode}, Data, 
     {error, {invalid_packet, do_format_reply(Mode, raw, 0, Data)}};
 format_packet_error(CPids, Transport, Socket, #socket_options{active = _, mode = Mode}, 
                     Data, Tracker, Connection) ->
-    {ssl_error, Connection:socket(CPids, Transport, Socket, Connection, Tracker), 
+    {ssl_error, Connection:socket(CPids, Transport, Socket, Tracker),
      {invalid_packet, do_format_reply(Mode, raw, 0, Data)}}.
 
 do_format_reply(binary, _, N, Data) when N > 0 ->  % Header mode
@@ -2682,6 +2928,9 @@ do_format_reply(list, Packet, _, Data)
     Data;
 do_format_reply(list, _,_, Data) ->
     binary_to_list(Data).
+
+format_passive(CPids, Transport, Socket, Tracker, Connection) ->
+    {ssl_passive, Connection:socket(CPids, Transport, Socket, Tracker)}.
 
 header(0, <<>>) ->
     <<>>;
@@ -2706,39 +2955,37 @@ send_user(Pid, Msg) ->
     Pid ! Msg,
     ok.
 
-alert_user(Pids, Transport, Tracker, Socket, connection, Opts, Pid, From, Alert, Role, Connection) ->
-    alert_user(Pids, Transport, Tracker, Socket, Opts#socket_options.active, Pid, From, Alert, Role, Connection);
-alert_user(Pids, Transport, Tracker, Socket,_, _, _, From, Alert, Role, Connection) ->
-    alert_user(Pids, Transport, Tracker, Socket, From, Alert, Role, Connection).
+alert_user(Pids, Transport, Tracker, Socket, connection, Opts, Pid, From, Alert, Role, StateName, Connection) ->
+    alert_user(Pids, Transport, Tracker, Socket, Opts#socket_options.active, Pid, From, Alert, Role, StateName, Connection);
+alert_user(Pids, Transport, Tracker, Socket,_, _, _, From, Alert, Role, StateName, Connection) ->
+    alert_user(Pids, Transport, Tracker, Socket, From, Alert, Role, StateName, Connection).
 
-alert_user(Pids, Transport, Tracker, Socket, From, Alert, Role, Connection) ->
-    alert_user(Pids, Transport, Tracker, Socket, false, no_pid, From, Alert, Role, Connection).
+alert_user(Pids, Transport, Tracker, Socket, From, Alert, Role, StateName, Connection) ->
+    alert_user(Pids, Transport, Tracker, Socket, false, no_pid, From, Alert, Role, StateName, Connection).
 
-alert_user(_, _, _, _, false = Active, Pid, From,  Alert, Role, _) when From =/= undefined ->
+alert_user(_, _, _, _, false = Active, Pid, From,  Alert, Role, StateName, Connection) when From =/= undefined ->
     %% If there is an outstanding ssl_accept | recv
     %% From will be defined and send_or_reply will
     %% send the appropriate error message.
-    ReasonCode = ssl_alert:reason_code(Alert, Role),
+    ReasonCode = ssl_alert:reason_code(Alert, Role, Connection:protocol_name(), StateName),
     send_or_reply(Active, Pid, From, {error, ReasonCode});
-alert_user(Pids, Transport, Tracker, Socket, Active, Pid, From, Alert, Role, Connection) ->
-    case ssl_alert:reason_code(Alert, Role) of
+alert_user(Pids, Transport, Tracker, Socket, Active, Pid, From, Alert, Role, StateName, Connection) ->
+    case ssl_alert:reason_code(Alert, Role, Connection:protocol_name(), StateName) of
 	closed ->
 	    send_or_reply(Active, Pid, From,
-			  {ssl_closed, Connection:socket(Pids, 
-							 Transport, Socket, Connection, Tracker)});
+			  {ssl_closed, Connection:socket(Pids, Transport, Socket, Tracker)});
 	ReasonCode ->
 	    send_or_reply(Active, Pid, From,
-			  {ssl_error, Connection:socket(Pids, 
-							Transport, Socket, Connection, Tracker), ReasonCode})
+			  {ssl_error, Connection:socket(Pids, Transport, Socket, Tracker), ReasonCode})
     end.
 
 log_alert(Level, Role, ProtocolName, StateName, #alert{role = Role} = Alert) ->
     Txt = ssl_alert:own_alert_txt(Alert),
-    Report = io_lib:format("~s ~p: In state ~p ~s\n", [ProtocolName, Role, StateName, Txt]),
+    Report = ssl_alert:alert_txt(ProtocolName, Role, StateName, Txt),
     ssl_logger:notice(Level, Report);
 log_alert(Level, Role, ProtocolName, StateName, Alert) ->
     Txt = ssl_alert:alert_txt(Alert),
-    Report = io_lib:format("~s ~p: In state ~p ~s\n", [ProtocolName, Role, StateName, Txt]),
+    Report = ssl_alert:alert_txt(ProtocolName, Role, StateName, Txt),
     ssl_logger:notice(Level, Report).
 
 invalidate_session(client, Host, Port, Session) ->
@@ -2748,7 +2995,9 @@ invalidate_session(server, _, Port, Session) ->
 
 handle_sni_extension(undefined, State) ->
     State;
-handle_sni_extension(#sni{hostname = Hostname}, #state{static_env = #static_env{role = Role} = InitStatEnv0} = State0) ->
+handle_sni_extension(#sni{hostname = Hostname}, #state{static_env = #static_env{role = Role} = InitStatEnv0,
+                                                       handshake_env = HsEnv,
+                                                       connection_env = CEnv} = State0) ->
     NewOptions = update_ssl_options_from_sni(State0#state.ssl_options, Hostname),
     case NewOptions of
 	undefined ->
@@ -2771,20 +3020,21 @@ handle_sni_extension(#sni{hostname = Hostname}, #state{static_env = #static_env{
                                         cert_db = CertDbHandle,
                                         crl_db = CRLDbHandle,
                                         session_cache = CacheHandle
-                                       },
-               private_key = Key,
-	      diffie_hellman_params = DHParams,
-	      ssl_options = NewOptions,
-	      sni_hostname = Hostname
-	     }
+                             },
+               connection_env = CEnv#connection_env{private_key = Key},
+               ssl_options = NewOptions,
+               handshake_env = HsEnv#handshake_env{sni_hostname = Hostname,
+                                                   diffie_hellman_params = DHParams}
+              }
     end.
 
-update_ssl_options_from_sni(OrigSSLOptions, SNIHostname) ->
+update_ssl_options_from_sni(#{sni_fun := SNIFun,
+                              sni_hosts := SNIHosts} = OrigSSLOptions, SNIHostname) ->
     SSLOption = 
-	case OrigSSLOptions#ssl_options.sni_fun of
+	case SNIFun of
 	    undefined ->
 		proplists:get_value(SNIHostname, 
-				    OrigSSLOptions#ssl_options.sni_hosts);
+				    SNIHosts);
 	    SNIFun ->
 		SNIFun(SNIHostname)
 	end,
@@ -2800,10 +3050,7 @@ new_emulated([], EmOpts) ->
 new_emulated(NewEmOpts, _) ->
     NewEmOpts.
 
--compile({inline, [bincat/2]}).
-bincat(<<>>, B) ->
-    B;
-bincat(A, <<>>) ->
-    A;
-bincat(A, B) ->
-    <<A/binary, B/binary>>.
+no_records(Extensions) ->
+    maps:map(fun(_, Value) ->
+                     ssl_handshake:extension_value(Value)
+             end, Extensions).  

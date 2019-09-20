@@ -40,6 +40,7 @@
 
 -type lambda_info() :: {label(),{index(),label(),non_neg_integer()}}.
 -type lambda_tab() :: {non_neg_integer(),[lambda_info()]}.
+-type wrapper() :: #{label() => index()}.
 
 -record(asm,
 	{atoms = #{}                :: atom_tab(),
@@ -48,6 +49,7 @@
 	 imports = gb_trees:empty() :: import_tab(),
 	 strings = <<>>		    :: binary(),	%String pool
 	 lambdas = {0,[]}           :: lambda_tab(),
+         wrappers = #{}             :: wrapper(),
 	 literals = dict:new()	    :: literal_tab(),
 	 fnames = #{}               :: fname_tab(),
 	 lines = #{}                :: line_tab(),
@@ -126,18 +128,17 @@ import(Mod0, Name0, Arity, #asm{imports=Imp0,next_import=NextIndex}=D0)
 	    {NextIndex,D2#asm{imports=Imp,next_import=NextIndex+1}}
     end.
 
-%% Returns the index for a string in the string table (adding the string to the
-%% table if necessary).
+%% Returns the index for a binary string in the string table (adding
+%% the string to the table if necessary).
 %%    string(String, Dict) -> {Offset, Dict'}
--spec string(string(), bdict()) -> {non_neg_integer(), bdict()}.
+-spec string(binary(), bdict()) -> {non_neg_integer(), bdict()}.
 
-string(Str, Dict) when is_list(Str) ->
+string(BinString, Dict) when is_binary(BinString) ->
     #asm{strings=Strings,string_offset=NextOffset} = Dict,
-    StrBin = list_to_binary(Str),
-    case old_string(StrBin, Strings) of
+    case old_string(BinString, Strings) of
 	none ->
-	    NewDict = Dict#asm{strings = <<Strings/binary,StrBin/binary>>,
-			       string_offset=NextOffset+byte_size(StrBin)},
+	    NewDict = Dict#asm{strings = <<Strings/binary,BinString/binary>>,
+			       string_offset=NextOffset+byte_size(BinString)},
 	    {NextOffset,NewDict};
 	Offset when is_integer(Offset) ->
 	    {NextOffset-Offset,Dict}
@@ -148,11 +149,21 @@ string(Str, Dict) when is_list(Str) ->
 -spec lambda(label(), non_neg_integer(), bdict()) ->
         {non_neg_integer(), bdict()}.
 
-lambda(Lbl, NumFree, #asm{lambdas={OldIndex,Lambdas0}}=Dict) ->
-    %% Set Index the same as OldIndex.
-    Index = OldIndex,
-    Lambdas = [{Lbl,{Index,Lbl,NumFree}}|Lambdas0],
-    {OldIndex,Dict#asm{lambdas={OldIndex+1,Lambdas}}}.
+lambda(Lbl, NumFree, #asm{wrappers=Wrappers0,
+                          lambdas={OldIndex,Lambdas0}}=Dict) ->
+    case Wrappers0 of
+        #{Lbl:=Index} ->
+            %% OTP 23: There old is a fun entry for this wrapper function.
+            %% Share the fun entry.
+            {Index,Dict};
+        #{} ->
+            %% Set Index the same as OldIndex.
+            Index = OldIndex,
+            Wrappers = Wrappers0#{Lbl=>Index},
+            Lambdas = [{Lbl,{Index,Lbl,NumFree}}|Lambdas0],
+            {OldIndex,Dict#asm{wrappers=Wrappers,
+                               lambdas={OldIndex+1,Lambdas}}}
+    end.
 
 %% Returns the index for a literal (adding it to the literal table if necessary).
 %%    literal(Literal, Dict) -> {Index,Dict'}

@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>1996</year><year>2018</year>
+      <year>1996</year><year>2019</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -239,6 +239,34 @@
 	  </item>
 	  <tag>
 	    <c>
+	      {start_timer,<anno>Action</anno>,<anno>State</anno>}
+	    </c>
+	  </tag>
+	  <item>
+	    <p>
+	      Is produced by <c>gen_statem</c>
+	      when the action <c><anno>Action</anno></c>
+	      starts a timer in state <c><anno>State</anno></c>.
+	    </p>
+	  </item>
+	  <tag>
+	    <c>
+	      {insert_timeout,<anno>Event</anno>,<anno>State</anno>}
+	    </c>
+	  </tag>
+	  <item>
+	    <p>
+	      Is produced by <c>gen_statem</c> when a timeout zero action
+	      inserts event <c><anno>Event</anno></c>
+	      in state <c><anno>State</anno></c>.
+	    </p>
+	    <p>
+	      <c><anno>Event</anno></c> is
+	      an <c>{EventType,EventContent}</c> tuple.
+	    </p>
+	  </item>
+	  <tag>
+	    <c>
 	      {enter,<anno>State</anno>}
 	    </c>
 	  </tag>
@@ -269,6 +297,9 @@
     </datatype>
     <datatype>
       <name name="dbg_fun"/>
+    </datatype>
+    <datatype>
+      <name name="debug_option"/>
     </datatype>
     <datatype>
       <name name="format_fun"/>

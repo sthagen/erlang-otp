@@ -245,7 +245,6 @@ int main(int argc, char **argv)
     tty_smode.c_iflag =
 	1*BRKINT |/*Signal interrupt on break.*/
 	    1*IGNPAR |/*Ignore characters with parity errors.*/
-		1*ISTRIP |/*Strip character.*/
 		    0;
     
 #if 0
@@ -416,7 +415,7 @@ int main(int argc, char **argv)
 
 	if (len) {
 #ifdef DEBUG
-	    (void)write(1, buf, len);
+	    write_all(1, buf, len);
 #endif
 	    if (write_all(wfd, buf, len) != len) {
 		fprintf(stderr, "Error in writing to FIFO.\n");

@@ -173,8 +173,6 @@ extern int erts_dio_sched_thread_suggested_stack_size;
   (((Uint32) 1) << (ERTS_RUNQ_FLG_BASE2 + 9))
 #define ERTS_RUNQ_FLG_HALTING \
   (((Uint32) 1) << (ERTS_RUNQ_FLG_BASE2 + 10))
-#define ERTS_RUNQ_FLG_CHECKIO \
-  (((Uint32) 1) << (ERTS_RUNQ_FLG_BASE2 + 11))
 
 #define ERTS_RUNQ_FLG_MAX (ERTS_RUNQ_FLG_BASE2 + 12)
 
@@ -359,7 +357,7 @@ typedef struct ErtsSchedulerSleepInfo_ ErtsSchedulerSleepInfo;
 
 typedef struct {
     erts_spinlock_t lock;
-    ErtsSchedulerSleepInfo *list;
+    ErtsSchedulerSleepInfo *list; /* circular lifo list; points to last out */
 } ErtsSchedulerSleepList;
 
 struct ErtsSchedulerSleepInfo_ {
@@ -383,7 +381,10 @@ struct ErtsSchedulerSleepInfo_ {
 
 typedef struct ErtsProcList_ ErtsProcList;
 struct ErtsProcList_ {
-    Eterm pid;
+    union {
+        Eterm pid;
+        Process *p;
+    } u;
     Uint64 started_interval;
     ErtsProcList* next;
     ErtsProcList* prev;
@@ -640,6 +641,7 @@ struct ErtsSchedulerData_ {
     ErtsSchedType type;
     Uint no;			/* Scheduler number for normal schedulers */
     Uint dirty_no;  /* Scheduler number for dirty schedulers */
+    int flxctr_slot_no; /* slot nr when a flxctr is used */
     struct enif_environment_t *current_nif;
     Process *dirty_shadow_process;
     Port *current_port;
@@ -699,6 +701,13 @@ void
 erts_debug_later_op_foreach(void (*callback)(void*),
                             void (*func)(void *, ErtsThrPrgrVal, void *),
                             void *arg);
+void
+erts_debug_free_process_foreach(void (*func)(Process *, void *), void *arg);
+void
+erts_debug_proc_monitor_link_foreach(Process *proc,
+                                     int (*monitor_func)(ErtsMonitor *, void *, Sint ),
+                                     int (*link_func)(ErtsLink *, void *, Sint ),
+                                     void *arg);
 
 #ifdef ERTS_INCLUDE_SCHEDULER_INTERNALS
 
@@ -803,7 +812,7 @@ erts_reset_max_len(ErtsRunQueue *rq, ErtsRunQueueInfo *rqi)
 #define ERTS_PSD_SCHED_ID			2
 #define ERTS_PSD_CALL_TIME_BP			3
 #define ERTS_PSD_DELAYED_GC_TASK_QS		4
-#define ERTS_PSD_NIF_TRAP_EXPORT		5
+#define ERTS_PSD_NFUNC_TRAP_WRAPPER		5
 #define ERTS_PSD_ETS_OWNED_TABLES               6
 #define ERTS_PSD_ETS_FIXED_TABLES               7
 #define ERTS_PSD_DIST_ENTRY	                8
@@ -840,8 +849,8 @@ typedef struct {
 #define ERTS_PSD_DELAYED_GC_TASK_QS_GET_LOCKS ERTS_PROC_LOCK_MAIN
 #define ERTS_PSD_DELAYED_GC_TASK_QS_SET_LOCKS ERTS_PROC_LOCK_MAIN
 
-#define ERTS_PSD_NIF_TRAP_EXPORT_GET_LOCKS ERTS_PROC_LOCK_MAIN
-#define ERTS_PSD_NIF_TRAP_EXPORT_SET_LOCKS ERTS_PROC_LOCK_MAIN
+#define ERTS_PSD_NFUNC_TRAP_WRAPPER_GET_LOCKS ERTS_PROC_LOCK_MAIN
+#define ERTS_PSD_NFUNC_TRAP_WRAPPER_SET_LOCKS ERTS_PROC_LOCK_MAIN
 
 #define ERTS_PSD_ETS_OWNED_TABLES_GET_LOCKS ERTS_PROC_LOCK_STATUS
 #define ERTS_PSD_ETS_OWNED_TABLES_SET_LOCKS ERTS_PROC_LOCK_STATUS
@@ -966,7 +975,6 @@ struct process {
     unsigned max_arg_reg;	/* Maximum number of argument registers available. */
     Eterm def_arg_reg[6];	/* Default array for argument registers. */
 
-    BeamInstr* cp;		/* (untagged) Continuation pointer (for threaded code). */
     BeamInstr* i;		/* Program counter for threaded code. */
     Sint catches;		/* Number of catches on stack */
     Sint fcalls;		/* 
@@ -1228,9 +1236,10 @@ void erts_check_for_holes(Process* p);
 
 /* The sequential tracing token is a tuple of size 5:
  *
- *    {Flags, Label, Serial, Sender}
+ *    {Flags, Label, Serial, Sender, LastCnt}
+ *
+ *  WARNING: The top 5-tuple is *MUTABLE* and thus INTERNAL ONLY.
  */
-
 #define SEQ_TRACE_TOKEN_ARITY(p)    (arityval(*(tuple_val(SEQ_TRACE_TOKEN(p)))))
 #define SEQ_TRACE_TOKEN_FLAGS(p)    (*(tuple_val(SEQ_TRACE_TOKEN(p)) + 1))
 #define SEQ_TRACE_TOKEN_LABEL(p)    (*(tuple_val(SEQ_TRACE_TOKEN(p)) + 2))
@@ -1321,9 +1330,6 @@ ERTS_GLB_INLINE void erts_heap_frag_shrink(Process* p, Eterm* hp)
 #endif /* inline */
 
 Eterm* erts_heap_alloc(Process* p, Uint need, Uint xtra);
-#ifdef CHECK_FOR_HOLES
-Eterm* erts_set_hole_marker(Eterm* ptr, Uint sz);
-#endif
 
 extern erts_rwmtx_t erts_cpu_bind_rwmtx;
 /* If any of the erts_system_monitor_* variables are set (enabled),
@@ -1364,7 +1370,7 @@ extern int erts_system_profile_ts_type;
 #define F_DISTRIBUTION       (1 <<  6) /* Process used in distribution */
 #define F_USING_DDLL         (1 <<  7) /* Process has used the DDLL interface */
 #define F_HAVE_BLCKD_MSCHED  (1 <<  8) /* Process has blocked multi-scheduling */
-#define F_UNUSED             (1 <<  9)
+#define F_ETS_SUPER_USER     (1 <<  9) /* Process is ETS super user */
 #define F_FORCE_GC           (1 << 10) /* Force gc at process in-scheduling */
 #define F_DISABLE_GC         (1 << 11) /* Disable GC (see below) */
 #define F_OFF_HEAP_MSGQ      (1 << 12) /* Off heap msg queue */
@@ -1482,6 +1488,8 @@ extern int erts_system_profile_ts_type;
 #define SEQ_TRACE_SEND     (1 << 0)
 #define SEQ_TRACE_RECEIVE  (1 << 1)
 #define SEQ_TRACE_PRINT    (1 << 2)
+/* (This three-bit gap contains the timestamp.) */
+#define SEQ_TRACE_SPAWN    (1 << 6)
 
 #define ERTS_SEQ_TRACE_FLAGS_TS_TYPE_SHIFT 3
 
@@ -1582,7 +1590,7 @@ ERTS_GLB_INLINE int erts_proclist_is_last(ErtsProcList *, ErtsProcList *);
 ERTS_GLB_INLINE int
 erts_proclist_same(ErtsProcList *plp, Process *p)
 {
-    return (plp->pid == p->common.id
+    return ((plp->u.pid == p->common.id || plp->u.p == p)
 	    && (plp->started_interval
 		== p->common.u.alive.started_interval));
 }
@@ -1821,9 +1829,13 @@ Eterm erts_process_info(Process *c_p, ErtsHeapFactory *hfact,
 typedef struct {
     Process *c_p;
     Eterm reason;
+    ErtsLink *dist_links;
+    ErtsMonitor *dist_monitors;
+    Eterm dist_state;
+    int yield;
 } ErtsProcExitContext;
-void erts_proc_exit_handle_monitor(ErtsMonitor *mon, void *vctxt);
-void erts_proc_exit_handle_link(ErtsLink *lnk, void *vctxt);
+int erts_proc_exit_handle_monitor(ErtsMonitor *mon, void *vctxt, Sint reds);
+int erts_proc_exit_handle_link(ErtsLink *lnk, void *vctxt, Sint reds);
 
 Eterm erts_get_process_priority(erts_aint32_t state);
 Eterm erts_set_process_priority(Process *p, Eterm prio);
@@ -1846,12 +1858,14 @@ int erts_resume_processes(ErtsProcList *);
 void erts_deep_process_dump(fmtfn_t, void *);
 
 Eterm erts_get_reader_groups_map(Process *c_p);
+Eterm erts_get_decentralized_counter_groups_map(Process *c_p);
 Eterm erts_debug_reader_groups_map(Process *c_p, int groups);
 
 Uint erts_debug_nbalance(void);
 
 #define ERTS_DEBUG_WAIT_COMPLETED_DEALLOCATIONS		(1 << 0)
 #define ERTS_DEBUG_WAIT_COMPLETED_TIMER_CANCELLATIONS	(1 << 1)
+#define ERTS_DEBUG_WAIT_COMPLETED_AUX_WORK		(1 << 2)
 
 int erts_debug_wait_completed(Process *c_p, int flags);
 
@@ -2024,10 +2038,10 @@ erts_psd_set(Process *p, int ix, void *data)
 #define ERTS_PROC_SET_DELAYED_GC_TASK_QS(P, PBT) \
     ((ErtsProcSysTaskQs *) erts_psd_set((P), ERTS_PSD_DELAYED_GC_TASK_QS, (void *) (PBT)))
 
-#define ERTS_PROC_GET_NIF_TRAP_EXPORT(P) \
-    erts_psd_get((P), ERTS_PSD_NIF_TRAP_EXPORT)
-#define ERTS_PROC_SET_NIF_TRAP_EXPORT(P, NTE) \
-    erts_psd_set((P), ERTS_PSD_NIF_TRAP_EXPORT, (void *) (NTE))
+#define ERTS_PROC_GET_NFUNC_TRAP_WRAPPER(P) \
+    erts_psd_get((P), ERTS_PSD_NFUNC_TRAP_WRAPPER)
+#define ERTS_PROC_SET_NFUNC_TRAP_WRAPPER(P, NTE) \
+    erts_psd_set((P), ERTS_PSD_NFUNC_TRAP_WRAPPER, (void *) (NTE))
 
 #define ERTS_PROC_GET_DIST_ENTRY(P) \
     ((DistEntry *) erts_psd_get((P), ERTS_PSD_DIST_ENTRY))
@@ -2348,6 +2362,8 @@ erts_try_change_runq_proc(Process *p, ErtsRunQueue *rq)
                                             old_rqint);
         if (act_rqint == old_rqint)
             return !0;
+
+        old_rqint = act_rqint;
     }
 }
 
@@ -2627,6 +2643,9 @@ void erts_notify_inc_runq(ErtsRunQueue *runq);
 void erts_sched_finish_poke(ErtsSchedulerSleepInfo *, erts_aint32_t);
 ERTS_GLB_INLINE void erts_sched_poke(ErtsSchedulerSleepInfo *ssi);
 void erts_aux_thread_poke(void);
+ERTS_GLB_INLINE Uint32 erts_sched_local_random_hash_64_to_32_shift(Uint64 key);
+ERTS_GLB_INLINE Uint32 erts_sched_local_random(Uint additional_seed);
+
 
 #if ERTS_GLB_INLINE_INCL_FUNC_DEF
 
@@ -2642,6 +2661,39 @@ erts_sched_poke(ErtsSchedulerSleepInfo *ssi)
     }
 }
 
+
+/*
+ * Source: https://gist.github.com/badboy/6267743
+ *         http://web.archive.org/web/20071223173210/http://www.concentric.net/~Ttwang/tech/inthash.htm
+ */
+ERTS_GLB_INLINE
+Uint32 erts_sched_local_random_hash_64_to_32_shift(Uint64 key)
+{
+    key = (~key) + (key << 18); /* key = (key << 18) - key - 1; */
+    key = key ^ (key >> 31);
+    key = (key + (key << 2)) + (key << 4);
+    key = key ^ (key >> 11);
+    key = key + (key << 6);
+    key = key ^ (key >> 22);
+    return (Uint32) key;
+}
+
+/*
+ * This function attempts to return a random number based on the state
+ * of the scheduler, the current process and the additional_seed
+ * parameter.
+ */
+ERTS_GLB_INLINE
+Uint32 erts_sched_local_random(Uint additional_seed)
+{
+    ErtsSchedulerData *esdp = erts_get_scheduler_data();
+    Uint64 seed =
+        additional_seed +
+        esdp->reductions +
+        esdp->current_process->fcalls +
+        (((Uint64)esdp->no) << 32);
+    return erts_sched_local_random_hash_64_to_32_shift(seed);
+}
 
 #endif /* #if ERTS_GLB_INLINE_INCL_FUNC_DEF */
 

@@ -35,6 +35,9 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <winbase.h>
+typedef LONG_PTR ssize_t; /* Sigh... */
+#else
+#include <sys/types.h>          /* ssize_t */
 #endif
 
 #include <stdio.h>		/* Need type FILE */
@@ -44,6 +47,25 @@
 # include <netdb.h>
 #endif
 
+#ifdef __has_attribute
+#if __has_attribute(deprecated)
+#define EI_HAVE_DEPRECATED_ATTR__ 1
+#else
+#undef EI_HAVE_DEPRECATED_ATTR__
+#endif
+#endif
+
+#ifdef EI_NO_DEPR_WARN
+#undef EI_HAVE_DEPRECATED_ATTR__
+#endif
+
+#ifdef EI_HAVE_DEPRECATED_ATTR__
+#define EI_DEPRECATED_ATTR_NAME deprecated
+#define EI_DEPRECATED_ATTR __attribute__((EI_DEPRECATED_ATTR_NAME))
+#else
+#define EI_DEPRECATED_ATTR_NAME
+#define EI_DEPRECATED_ATTR
+#endif
 
 /* -------------------------------------------------------------------- */
 /*                      Defines part of API                             */
@@ -132,11 +154,14 @@
 #define ERL_STRING_EXT        'k'
 #define ERL_LIST_EXT          'l'
 #define ERL_BINARY_EXT        'm'
+#define ERL_BIT_BINARY_EXT    'M'
 #define ERL_SMALL_BIG_EXT     'n'
 #define ERL_LARGE_BIG_EXT     'o'
 #define ERL_NEW_FUN_EXT	      'p'
 #define ERL_MAP_EXT           't'
 #define ERL_FUN_EXT	      'u'
+#define ERL_EXPORT_EXT        'q'
+
  
 #define ERL_NEW_CACHE         'N' /* c nodes don't know these two */
 #define ERL_CACHED_ATOM       'C'
@@ -188,12 +213,12 @@ extern volatile int __erl_errno;
  * library and when using the library we set a value that we use
  */
 
-#define EI_MAXHOSTNAMELEN 64
-#define EI_MAXALIVELEN 63
 #define EI_MAX_COOKIE_SIZE 512
 #define MAXATOMLEN (255 + 1)
 #define MAXATOMLEN_UTF8 (255*4 + 1)
-#define MAXNODELEN EI_MAXALIVELEN+1+EI_MAXHOSTNAMELEN
+#define EI_MAXHOSTNAMELEN (MAXATOMLEN - 2)
+#define EI_MAXALIVELEN (MAXATOMLEN - 2)
+#define MAXNODELEN MAXATOMLEN
 
 typedef enum { 
     ERLANG_ASCII = 1,
@@ -247,15 +272,23 @@ typedef struct {
 typedef struct {
     long arity;
     char module[MAXATOMLEN_UTF8];
-    erlang_char_encoding module_org_enc;
-    char md5[16];
-    long index;
-    long old_index;
-    long uniq;
-    long n_free_vars;
-    erlang_pid pid;
-    long free_var_len;
-    char* free_vars;
+    enum { EI_FUN_CLOSURE, EI_FUN_EXPORT } type;
+    union {
+        struct {
+            char md5[16];
+            long index;
+            long old_index;
+            long uniq;
+            long n_free_vars;
+            erlang_pid pid;
+            long free_var_len;
+            char* free_vars;
+        } closure;
+        struct {
+            char* func;
+            int func_allocated;
+        } exprt;
+    } u;
 } erlang_fun;
 
 /* a big */
@@ -286,6 +319,42 @@ typedef struct {
   char nodename[MAXNODELEN+1];
 } ErlConnect;
 
+#define EI_SCLBK_INF_TMO (~((unsigned) 0))
+
+#define EI_SCLBK_FLG_FULL_IMPL (1 << 0)
+
+/*
+ * HACK: AIX defines many socket functions like accept to be naccept, which
+ * pollutes the global namespace. Set up an ugly ifdef for consumers of this
+ * API here so they get a mangled name for AIX and the sane name elsewhere.
+ */
+#ifdef _AIX
+#define EI_ACCEPT_NAME accept_ei
+#else
+#define EI_ACCEPT_NAME accept
+#endif
+
+typedef struct {
+    int flags;
+
+    int (*socket)(void **ctx, void *setup_ctx);
+    int	(*close)(void *ctx);
+    int (*listen)(void *ctx, void *addr, int *len, int backlog);
+    int (*EI_ACCEPT_NAME)(void **ctx, void *addr, int *len, unsigned tmo);
+    int (*connect)(void *ctx, void *addr, int len, unsigned tmo);
+    int (*writev)(void *ctx, const void *iov, int iovcnt, ssize_t *len, unsigned tmo);
+    int (*write)(void *ctx, const char *buf, ssize_t *len, unsigned tmo);
+    int (*read)(void *ctx, char *buf, ssize_t *len, unsigned tmo);
+
+    int (*handshake_packet_header_size)(void *ctx, int *sz);
+    int (*connect_handshake_complete)(void *ctx);
+    int (*accept_handshake_complete)(void *ctx);
+    int (*get_fd)(void *ctx, int *fd);
+
+    /* end of version 1 */
+    
+} ei_socket_callbacks;
+
 typedef struct ei_cnode_s {
     char thishostname[EI_MAXHOSTNAMELEN+1];
     char thisnodename[MAXNODELEN+1];
@@ -295,6 +364,8 @@ typedef struct ei_cnode_s {
     char ei_connect_cookie[EI_MAX_COOKIE_SIZE+1];
     short creation;
     erlang_pid self;
+    ei_socket_callbacks *cbs;
+    void *setup_context;
 } ei_cnode;
 
 typedef struct in_addr *Erl_IpAddr; 
@@ -308,7 +379,6 @@ typedef struct ei_x_buff_TAG {
     int index;
 } ei_x_buff;
 
-
 /* -------------------------------------------------------------------- */
 /*    Function definitions (listed in same order as documentation)      */
 /* -------------------------------------------------------------------- */
@@ -321,6 +391,16 @@ int ei_connect_xinit (ei_cnode* ec, const char *thishostname,
 		      const char *thisalivename, const char *thisnodename,
 		      Erl_IpAddr thisipaddr, const char *cookie,
 		      const short creation);
+
+int ei_connect_init_ussi(ei_cnode* ec, const char* this_node_name,
+                         const char *cookie, short creation,
+                         ei_socket_callbacks *cbs, int cbs_sz,
+                         void *setup_context);
+int ei_connect_xinit_ussi(ei_cnode* ec, const char *thishostname,
+                          const char *thisalivename, const char *thisnodename,
+                          Erl_IpAddr thisipaddr, const char *cookie,
+                          const short creation, ei_socket_callbacks *cbs,
+                          int cbs_sz, void *setup_context);
 
 int ei_connect(ei_cnode* ec, char *nodename);
 int ei_connect_tmo(ei_cnode* ec, char *nodename, unsigned ms);
@@ -348,10 +428,14 @@ int ei_rpc_from(ei_cnode* ec, int fd, int timeout, erlang_msg* msg,
 
 int ei_publish(ei_cnode* ec, int port);
 int ei_publish_tmo(ei_cnode* ec, int port, unsigned ms);
+int ei_listen(ei_cnode *ec, int *port, int backlog);
+int ei_xlisten(ei_cnode *ec, Erl_IpAddr adr, int *port, int backlog);    
 int ei_accept(ei_cnode* ec, int lfd, ErlConnect *conp);
 int ei_accept_tmo(ei_cnode* ec, int lfd, ErlConnect *conp, unsigned ms);
 int ei_unpublish(ei_cnode* ec);
 int ei_unpublish_tmo(const char *alive, unsigned ms);
+
+int ei_close_connection(int fd);
 
 const char *ei_thisnodename(const ei_cnode* ec);
 const char *ei_thishostname(const ei_cnode* ec);
@@ -453,7 +537,9 @@ int ei_x_encode_atom_len(ei_x_buff* x, const char* s, int len);
 int ei_x_encode_atom_len_as(ei_x_buff* x, const char* s, int len,
 			  erlang_char_encoding from, erlang_char_encoding to);
 int ei_encode_binary(char *buf, int *index, const void *p, long len);
+int ei_encode_bitstring(char *buf, int *index, const char *p, size_t bitoffs, size_t bits);
 int ei_x_encode_binary(ei_x_buff* x, const void* s, int len);
+int ei_x_encode_bitstring(ei_x_buff* x, const char* p, size_t bitoffs, size_t bits);
 int ei_encode_pid(char *buf, int *index, const erlang_pid *p);
 int ei_x_encode_pid(ei_x_buff* x, const erlang_pid* pid);
 int ei_encode_fun(char* buf, int* index, const erlang_fun* p);
@@ -462,8 +548,8 @@ int ei_encode_port(char *buf, int *index, const erlang_port *p);
 int ei_x_encode_port(ei_x_buff* x, const erlang_port *p);
 int ei_encode_ref(char *buf, int *index, const erlang_ref *p);
 int ei_x_encode_ref(ei_x_buff* x, const erlang_ref *p);
-int ei_encode_term(char *buf, int *index, void *t); /* ETERM* actually */
-int ei_x_encode_term(ei_x_buff* x, void* t);
+int ei_encode_term(char *buf, int *index, void *t) EI_DEPRECATED_ATTR;
+int ei_x_encode_term(ei_x_buff* x, void* t) EI_DEPRECATED_ATTR;
 int ei_encode_trace(char *buf, int *index, const erlang_trace *p);
 int ei_x_encode_trace(ei_x_buff* x, const erlang_trace *p);
 int ei_encode_tuple_header(char *buf, int *index, int arity);
@@ -485,8 +571,6 @@ int ei_x_encode_map_header(ei_x_buff* x, long n);
  */
 
 int ei_get_type(const char *buf, const int *index, int *type, int *size);
-int ei_get_type_internal(const char *buf, const int *index, int *type,
-			 int *size);
 
 /* Step through buffer, decoding the given type into the buffer
  * provided. On success, 0 is returned and index is updated to point
@@ -505,12 +589,15 @@ int ei_decode_string(const char *buf, int *index, char *p);
 int ei_decode_atom(const char *buf, int *index, char *p);
 int ei_decode_atom_as(const char *buf, int *index, char *p, int destlen, erlang_char_encoding want, erlang_char_encoding* was, erlang_char_encoding* result);
 int ei_decode_binary(const char *buf, int *index, void *p, long *len);
+int ei_decode_bitstring(const char *buf, int *index, const char** pp,
+                        unsigned int* bitoffsp, size_t *nbitsp);
+
 int ei_decode_fun(const char* buf, int* index, erlang_fun* p);
 void free_fun(erlang_fun* f);
 int ei_decode_pid(const char *buf, int *index, erlang_pid *p);
 int ei_decode_port(const char *buf, int *index, erlang_port *p);
 int ei_decode_ref(const char *buf, int *index, erlang_ref *p);
-int ei_decode_term(const char *buf, int *index, void *t); /* ETERM** actually */
+int ei_decode_term(const char *buf, int *index, void *t) EI_DEPRECATED_ATTR;
 int ei_decode_trace(const char *buf, int *index, erlang_trace *p);
 int ei_decode_tuple_header(const char *buf, int *index, int *arity);
 int ei_decode_list_header(const char *buf, int *index, int *arity);
@@ -625,6 +712,8 @@ struct ei_reg_tabstat {
   int collisions; /* number of positions with more than one element */
 };
 
+
+int ei_init(void);
 
 /* -------------------------------------------------------------------- */
 /*                               XXXXXXXXXXX                            */

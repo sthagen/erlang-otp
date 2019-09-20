@@ -26,7 +26,7 @@
 -include_lib("ssh/src/ssh.hrl").
 -include_lib("ssh/src/ssh_transport.hrl").
 -include_lib("ssh/src/ssh_connect.hrl").
--include_lib("ssh/src/ssh_userauth.hrl").
+-include_lib("ssh/src/ssh_auth.hrl").
 
 %%%================================================================
 %%%
@@ -109,11 +109,10 @@ connect(Config) ->
     lists:foreach(
       fun(KexAlg) ->
               PrefAlgs = preferred_algorithms(KexAlg),
-              report([{value, measure_connect(Config,
-                                              [{preferred_algorithms,PrefAlgs}])},
-                      {suite, ?MODULE},
-                      {name, mk_name(["Connect erlc erld ",KexAlg," [µs]"])}
-                     ])
+              TimeMicroSec =  measure_connect(Config,
+                                              [{preferred_algorithms,PrefAlgs}]),
+              report(["Connect erlc erld ",KexAlg," [connects per sec]"],
+                     1000000 / TimeMicroSec)
       end, KexAlgs).
 
 
@@ -130,7 +129,7 @@ measure_connect(Config, Opts) ->
       [begin
            {Time, {ok,Pid}} = timer:tc(ssh,connect,["localhost", Port, ConnectOptions]),
            ssh:close(Pid),
-           Time
+           Time % in µs
        end || _ <- lists:seq(1,?Nruns)]).
 
 %%%----------------------------------------------------------------
@@ -178,12 +177,8 @@ gen_data(DataSz) ->
     <<Data0/binary, Data1/binary>>.
 
 
-%% connect_measure(Port, Cipher, Mac, Data, Options) ->
-%%     report([{value, 1},
-%%              {suite, ?MODULE},
-%%              {name, mk_name(["Transfer 1M bytes ",Cipher,"/",Mac," [µs]"])}]);
 connect_measure(Port, Cipher, Mac, Data, Options) ->
-    AES_GCM = {cipher,
+    _AES_GCM = {cipher,
                []},
                %% ['aes256-gcm@openssh.com',
                %%  'aes128-gcm@openssh.com']},
@@ -192,22 +187,22 @@ connect_measure(Port, Cipher, Mac, Data, Options) ->
                  {none,none} ->
                      [{modify_algorithms,[{prepend, [{cipher,[Cipher]},
                                                      {mac,[Mac]}]}
-%%%                                          ,{rm,[AES_GCM]}
+%%%                                          ,{rm,[_AES_GCM]}
                                          ]}];
                  {none,_} ->
                      [{modify_algorithms,[{prepend, [{cipher,[Cipher]}]}
-%%%                                          ,{rm,[AES_GCM]}
+%%%                                          ,{rm,[_AES_GCM]}
                                          ]},
                       {preferred_algorithms, [{mac,[Mac]}]}];
                  {_,none} ->
                      [{modify_algorithms,[{prepend, [{mac,[Mac]}]}
-%%%                                          ,{rm,[AES_GCM]}
+%%%                                          ,{rm,[_AES_GCM]}
                                          ]},
                       {preferred_algorithms, [{cipher,[Cipher]}]}];
                  _ ->
                      [{preferred_algorithms, [{cipher,[Cipher]},
                                               {mac,[Mac]}]}
-%%%                      ,{modify_algorithms, [{rm,[AES_GCM]}]}
+%%%                      ,{modify_algorithms, [{rm,[_AES_GCM]}]}
                      ]
              end,
     Times =
@@ -220,10 +215,8 @@ connect_measure(Port, Cipher, Mac, Data, Options) ->
              ssh:close(C),
              Time
          end || _ <- lists:seq(1,?Nruns)],
-    
-    report([{value, median(Times)},
-            {suite, ?MODULE},
-            {name, mk_name(["Transfer 1M bytes ",Cipher,"/",Mac," [µs]"])}]).
+    report(["Transfer ",Cipher,"/",Mac," [Mbyte per sec]"],
+           1000000 / median(Times)).
 
 send_wait_acc(C, Ch, Data) ->
     ssh_connection:send(C, Ch, Data),
@@ -236,12 +229,6 @@ send_wait_acc(C, Ch, Data) ->
 %%%
 %%% Private
 %%% 
-
-%%%----------------------------------------------------------------
-mk_name(Name) -> [char(C) || C <- lists:concat(Name)].
-
-char($-) -> $_;
-char(C) -> C.
 
 %%%----------------------------------------------------------------
 preferred_algorithms(KexAlg) ->
@@ -265,11 +252,22 @@ median(Data) when is_list(Data) ->
             1 ->
                 lists:nth(N div 2 + 1, SortedData)
         end,
-    ct:log("median(~p) = ~p",[SortedData,Median]),
+    ct:pal("median(~p) = ~p",[SortedData,Median]),
     Median.
 
+%%%----------------------------------------------------------------
+report(LabelList, Value) ->
+    Label = report_chars(lists:concat(LabelList)),
+    ct:pal("ct_event:notify ~p: ~p", [Label, Value]),
+    ct_event:notify(
+      #event{name = benchmark_data,
+             data = [{suite, ?MODULE},
+                     {name,  Label},
+                     {value, Value}]}).
 
-report(Data) ->
-    ct:log("EventData = ~p",[Data]),
-    ct_event:notify(#event{name = benchmark_data,
-                           data = Data}).
+report_chars(Cs) ->
+    [case C of
+         $- -> $_;
+         _ -> C
+     end || C <- Cs].
+

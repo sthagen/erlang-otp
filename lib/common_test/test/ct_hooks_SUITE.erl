@@ -73,18 +73,22 @@ all() ->
 all(suite) ->
     lists:reverse(
       [
+       crash_groups, crash_all, bad_return_groups, bad_return_all,
+       illegal_values_groups, illegal_values_all, alter_groups, alter_all,
+       alter_all_to_skip, alter_all_from_skip,
        one_cth, two_cth, faulty_cth_no_init, faulty_cth_id_no_init,
        faulty_cth_exit_in_init, faulty_cth_exit_in_id,
        faulty_cth_exit_in_init_scope_suite, minimal_cth,
        minimal_and_maximal_cth, faulty_cth_undef,
        scope_per_suite_cth, scope_per_group_cth, scope_suite_cth,
+       scope_suite_group_only_cth,
        scope_per_suite_state_cth, scope_per_group_state_cth,
        scope_suite_state_cth,
        fail_pre_suite_cth, double_fail_pre_suite_cth,
        fail_post_suite_cth, skip_pre_suite_cth, skip_pre_end_cth,
-       skip_pre_init_tc_cth,
+       skip_pre_init_tc_cth, fail_post_init_tc_cth,
        skip_post_suite_cth, recover_post_suite_cth, update_config_cth,
-       state_update_cth, options_cth, same_id_cth,
+       state_update_cth, update_result_cth, options_cth, same_id_cth,
        fail_n_skip_with_minimal_cth, prio_cth, no_config,
        no_init_suite_config, no_init_config, no_end_config,
        failed_sequence, repeat_force_stop, config_clash,
@@ -152,6 +156,11 @@ scope_suite_cth(Config) when is_list(Config) ->
     do_test(scope_suite_cth, "ct_scope_suite_cth_SUITE.erl",
 	    [],Config).
 
+scope_suite_group_only_cth(Config) when is_list(Config) ->
+    do_test(scope_suite_group_only_cth,
+            "ct_scope_suite_group_only_cth_SUITE.erl",
+	    [],Config,ok,2,[{group,g1}]).
+
 scope_per_group_cth(Config) when is_list(Config) ->
     do_test(scope_per_group_cth, "ct_scope_per_group_cth_SUITE.erl",
 	    [],Config).
@@ -197,6 +206,10 @@ skip_pre_init_tc_cth(Config) ->
     do_test(skip_pre_init_tc_cth, "ct_cth_empty_SUITE.erl",
 	    [skip_pre_init_tc_cth],Config).
 
+fail_post_init_tc_cth(Config) ->
+    do_test(fail_post_init_tc_cth, "ct_fail_init_tc_SUITE.erl",
+	    [fail_post_init_tc_cth],Config).
+
 recover_post_suite_cth(Config) when is_list(Config) ->
     do_test(recover_post_suite_cth, "ct_cth_fail_per_suite_SUITE.erl",
 	    [recover_post_suite_cth],Config).
@@ -208,6 +221,10 @@ update_config_cth(Config) when is_list(Config) ->
 state_update_cth(Config) when is_list(Config) ->
     do_test(state_update_cth, "ct_cth_fail_one_skip_one_SUITE.erl",
 	    [state_update_cth,state_update_cth],Config).
+
+update_result_cth(Config) ->
+    do_test(update_result_cth, "ct_cth_update_result_post_end_tc_SUITE.erl",
+            [update_result_post_end_tc_cth],Config).
 
 options_cth(Config) when is_list(Config) ->
     do_test(options_cth, "ct_cth_empty_SUITE.erl",
@@ -300,9 +317,73 @@ repeat_force_stop(Config) ->
             [{force_stop,skip_rest},{duration,"000009"}]).
 
 %% Test that expected callbacks, and only those, are called when a test
-%% are fails due to clash in config alias names
+%% fails due to clash in config alias names
 config_clash(Config) ->
     do_test(config_clash, "config_clash_SUITE.erl", [skip_cth], Config).
+
+%% Test post_groups and post_all hook callbacks, introduced by OTP-14746
+alter_groups(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,
+                         [{post_groups_return,[{new_group,[tc1,tc2]}]},
+                          {post_all_return,[{group,new_group}]}],Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+alter_all(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,[{post_all_return,[tc2]}],Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+alter_all_from_skip(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,[{all_return,{skip,"skipped by all/0"}},
+                                         {post_all_return,[tc2]}],Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+alter_all_to_skip(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,
+                         [{post_all_return,{skip,"skipped by post_all/3"}}],
+                         Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+bad_return_groups(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,[{post_groups_return,not_a_list}],
+                         Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+bad_return_all(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,[{post_all_return,not_a_list}],
+                         Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+illegal_values_groups(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,
+                         [{post_groups_return,[{new_group,[this_test_does_not_exist]},
+                                          this_is_not_a_group_def]}],
+                         Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+illegal_values_all(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,
+                         [{post_all_return,[{group,this_group_does_not_exist},
+                                       {this_is_not_a_valid_term}]}],
+                         Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+crash_groups(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,[{post_groups_return,crash}],Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
+
+crash_all(Config) ->
+    CfgFile = gen_config(?FUNCTION_NAME,[{post_all_return,crash}],Config),
+    do_test(?FUNCTION_NAME, "all_and_groups_SUITE.erl", [all_and_groups_cth],
+            Config, ok, 2, [{config,CfgFile}]).
 
 %%%-----------------------------------------------------------------
 %%% HELP FUNCTIONS
@@ -323,6 +404,7 @@ do_test(Tag, {WhatTag,Wildcard}, CTHs, Config, Res, EC, ExtraOpts) ->
                filename:join([DataDir,"cth/tests",Wildcard])),
     {Opts,ERPid} =
         setup([{WhatTag,Files},{ct_hooks,CTHs},{label,Tag}|ExtraOpts], Config),
+
     Res = ct_test_support:run(Opts, Config),
     Events = ct_test_support:get_events(ERPid, Config),
 
@@ -348,6 +430,13 @@ reformat(Events, EH) ->
 %reformat(Events, _EH) ->
 %    Events.
 
+gen_config(Name,KeyVals,Config) ->
+    PrivDir = ?config(priv_dir,Config),
+    File = filename:join(PrivDir,atom_to_list(Name)++".cfg"),
+    ok = file:write_file(File,[io_lib:format("~p.~n",[{Key,Value}])
+                               || {Key,Value} <- KeyVals]),
+    File.
+
 %%%-----------------------------------------------------------------
 %%% TEST EVENTS
 %%%-----------------------------------------------------------------
@@ -366,13 +455,16 @@ test_events(one_empty_cth) ->
      {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
      {?eh,cth,{empty_cth,id,[[]]}},
      {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     %% check that post_groups and post_all comes after init when hook
+     %% is installed with start flag/option.
+     {?eh,cth,{empty_cth,post_groups,[ct_cth_empty_SUITE,[]]}},
+     {?eh,cth,{empty_cth,post_all,[ct_cth_empty_SUITE,[test_case],[]]}},
      {?eh,tc_start,{ct_cth_empty_SUITE,init_per_suite}},
      {?eh,cth,{empty_cth,pre_init_per_suite,
 	       [ct_cth_empty_SUITE,'$proplist',[]]}},
      {?eh,cth,{empty_cth,post_init_per_suite,
 	       [ct_cth_empty_SUITE,'$proplist','$proplist',[]]}},
      {?eh,tc_done,{ct_cth_empty_SUITE,init_per_suite,ok}},
-
      {?eh,tc_start,{ct_cth_empty_SUITE,test_case}},
      {?eh,cth,{empty_cth,pre_init_per_testcase,[ct_cth_empty_SUITE,test_case,'$proplist',[]]}},
      {?eh,cth,{empty_cth,post_init_per_testcase,[ct_cth_empty_SUITE,test_case,'$proplist','_',[]]}},
@@ -581,7 +673,17 @@ test_events(scope_suite_cth) ->
     [
      {?eh,start_logging,{'DEF','RUNDIR'}},
      {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
-     {?eh,tc_start,{ct_scope_suite_cth_SUITE,init_per_suite}},
+     %% check that post_groups and post_all comes before init when hook
+     %% is installed in suite/0
+     %% And there should be no terminate after these, since init is
+     %% not yet called.
+     {?eh,cth,{'_',post_groups,['_',[]]}},
+     {negative,
+      {?eh,cth,{'_',terminate,['_']}},
+      {?eh,cth,{'_',post_all,['_','_',[]]}}},
+     {negative,
+      {?eh,cth,{'_',terminate,['_']}},
+      {?eh,tc_start,{ct_scope_suite_cth_SUITE,init_per_suite}}},
      {?eh,cth,{'_',id,[[]]}},
      {?eh,cth,{'_',init,['_',[]]}},
      {?eh,cth,{'_',pre_init_per_suite,[ct_scope_suite_cth_SUITE,'$proplist',[]]}},
@@ -598,6 +700,34 @@ test_events(scope_suite_cth) ->
      {?eh,cth,{'_',post_end_per_suite,[ct_scope_suite_cth_SUITE,'$proplist','_',[]]}},
      {?eh,cth,{'_',terminate,[[]]}},
      {?eh,tc_done,{ct_scope_suite_cth_SUITE,end_per_suite,ok}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(scope_suite_group_only_cth) ->
+    Suite = ct_scope_suite_group_only_cth_SUITE,
+    CTH = empty_cth,
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,start_info,{1,1,1}},
+     %% check that post_groups and post_all comes before init when hook
+     %% is installed in suite/0
+     {?eh,cth,{CTH,post_groups,['_',['_']]}},
+     {negative,
+      {?eh,cth,{CTH,post_all,['_','_','_']}},
+      {?eh,tc_start,{Suite,init_per_suite}}},
+     {?eh,cth,{CTH,id,[[]]}},
+     {?eh,cth,{CTH,init,['_',[]]}},
+     {?eh,cth,{CTH,pre_init_per_suite,[Suite,'$proplist',mystate]}},
+     {?eh,cth,{CTH,post_init_per_suite,[Suite,'$proplist','$proplist',mystate]}},
+     {?eh,tc_done,{Suite,init_per_suite,ok}},
+
+     {?eh,tc_start,{Suite,end_per_suite}},
+     {?eh,cth,{CTH,pre_end_per_suite,[Suite,'$proplist',mystate]}},
+     {?eh,cth,{CTH,post_end_per_suite,[Suite,'$proplist','_',mystate]}},
+     {?eh,cth,{CTH,terminate,[mystate]}},
+     {?eh,tc_done,{Suite,end_per_suite,ok}},
      {?eh,test_done,{'DEF','STOP_TIME'}},
      {?eh,stop_logging,[]}
     ];
@@ -661,6 +791,8 @@ test_events(scope_suite_state_cth) ->
     [
      {?eh,start_logging,{'DEF','RUNDIR'}},
      {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{'_',post_groups,['_',[]]}},
+     {?eh,cth,{'_',post_all,['_','_',[]]}},
      {?eh,tc_start,{ct_scope_suite_state_cth_SUITE,init_per_suite}},
      {?eh,cth,{'_',id,[[test]]}},
      {?eh,cth,{'_',init,['_',[test]]}},
@@ -914,6 +1046,44 @@ test_events(skip_pre_init_tc_cth) ->
      {?eh,stop_logging,[]}
     ];
 
+test_events(fail_post_init_tc_cth) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,init,['_',[]]}},
+     {?eh,start_info,{1,1,1}},
+     {?eh,tc_start,{ct_fail_init_tc_SUITE,init_per_suite}},
+     {?eh,cth,{empty_cth,pre_init_per_suite,[ct_fail_init_tc_SUITE,'$proplist',[]]}},
+     {?eh,cth,{empty_cth,post_init_per_suite,
+               [ct_fail_init_tc_SUITE,'$proplist','$proplist',[]]}},
+     {?eh,tc_done,{ct_fail_init_tc_SUITE,init_per_suite,ok}},
+     {?eh,tc_start,{ct_fail_init_tc_SUITE,test_case}},
+     {?eh,cth,{empty_cth,pre_init_per_testcase,
+               [ct_fail_init_tc_SUITE,test_case,'$proplist',[]]}},
+     {?eh,cth,{empty_cth,post_init_per_testcase,
+               [ct_fail_init_tc_SUITE,test_case,'$proplist',
+                {skip,
+                 {failed,
+                  {ct_fail_init_tc_SUITE,init_per_testcase,
+                   {{test_case_failed,"Failed in init_per_testcase"},'_'}}}},
+                []]}},
+     {?eh,tc_done,{ct_fail_init_tc_SUITE,test_case,
+                   {failed,"Changed skip to fail in post_init_per_testcase"}}},
+     {?eh,cth,{empty_cth,on_tc_fail,
+               [ct_fail_init_tc_SUITE,test_case,
+                "Changed skip to fail in post_init_per_testcase",
+                []]}},
+     {?eh,test_stats,{0,1,{0,0}}},
+     {?eh,tc_start,{ct_fail_init_tc_SUITE,end_per_suite}},
+     {?eh,cth,{empty_cth,pre_end_per_suite,[ct_fail_init_tc_SUITE,'$proplist',[]]}},
+     {?eh,cth,{empty_cth,post_end_per_suite,
+               [ct_fail_init_tc_SUITE,'$proplist',ok,[]]}},
+     {?eh,tc_done,{ct_fail_init_tc_SUITE,end_per_suite,ok}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
 test_events(recover_post_suite_cth) ->
     Suite = ct_cth_fail_per_suite_SUITE,
     [
@@ -1096,6 +1266,106 @@ test_events(state_update_cth) ->
 				 post_init_per_suite,pre_init_per_suite,
 				 init]
 			       )]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(update_result_cth) ->
+    Suite = ct_cth_update_result_post_end_tc_SUITE,
+    [
+     {?eh,start_logging,'_'},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{'_',init,['_',[]]}},
+     {?eh,tc_start,{Suite,init_per_suite}},
+     {?eh,tc_done,{Suite,init_per_suite,ok}},
+
+     {?eh,tc_start,{Suite,tc_ok_to_fail}},
+     {?eh,cth,{'_',post_end_per_testcase,[Suite,tc_ok_to_fail,'_',ok,[]]}},
+     {?eh,tc_done,{Suite,tc_ok_to_fail,{failed,{error,"Test failure"}}}},
+     {?eh,cth,{'_',on_tc_fail,'_'}},
+     {?eh,test_stats,{0,1,{0,0}}},
+
+     {?eh,tc_start,{Suite,tc_ok_to_skip}},
+     {?eh,cth,{'_',post_end_per_testcase,[Suite,tc_ok_to_skip,'_',ok,[]]}},
+     {?eh,tc_done,{Suite,tc_ok_to_skip,{skipped,"Test skipped"}}},
+     {?eh,cth,{'_',on_tc_skip,'_'}},
+     {?eh,test_stats,{0,1,{1,0}}},
+
+     {?eh,tc_start,{Suite,tc_fail_to_ok}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,tc_fail_to_ok,'_',
+                {error,{test_case_failed,"should be changed to ok"}},[]]}},
+     {?eh,tc_done,{Suite,tc_fail_to_ok,ok}},
+     {?eh,test_stats,{1,1,{1,0}}},
+
+     {?eh,tc_start,{Suite,tc_fail_to_skip}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,tc_fail_to_skip,'_',
+                {error,{test_case_failed,"should be changed to skip"}},[]]}},
+     {?eh,tc_done,{Suite,tc_fail_to_skip,{skipped,"Test skipped"}}},
+     {?eh,cth,{'_',on_tc_skip,'_'}},
+     {?eh,test_stats,{1,1,{2,0}}},
+
+     {?eh,tc_start,{Suite,tc_timetrap_to_ok}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,tc_timetrap_to_ok,'_',{timetrap_timeout,3000},[]]}},
+     {?eh,tc_done,{Suite,tc_timetrap_to_ok,ok}},
+     {?eh,test_stats,{2,1,{2,0}}},
+
+     {?eh,tc_start,{Suite,tc_timetrap_to_skip}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,tc_timetrap_to_skip,'_',{timetrap_timeout,3000},[]]}},
+     {?eh,tc_done,{Suite,tc_timetrap_to_skip,{skipped,"Test skipped"}}},
+     {?eh,cth,{'_',on_tc_skip,'_'}},
+     {?eh,test_stats,{2,1,{3,0}}},
+
+     {?eh,tc_start,{Suite,tc_skip_to_fail}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,tc_skip_to_fail,'_',
+                {skip,"should be changed to fail"},[]]}},
+     {?eh,tc_done,{Suite,tc_skip_to_fail,{failed,{error,"Test failure"}}}},
+     {?eh,cth,{'_',on_tc_fail,'_'}},
+     {?eh,test_stats,{2,2,{3,0}}},
+
+     {?eh,tc_start,{Suite,end_fail_to_fail}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,end_fail_to_fail,'_',
+                {failed,
+                 {Suite,end_per_testcase,
+                  {'EXIT',{test_case_failed,"change result when end fails"}}}},[]]}},
+     {?eh,tc_done,{Suite,end_fail_to_fail,{failed,{error,"Test failure"}}}},
+     {?eh,cth,{'_',on_tc_fail,'_'}},
+     {?eh,test_stats,{2,3,{3,0}}},
+
+     {?eh,tc_start,{Suite,end_fail_to_skip}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,end_fail_to_skip,'_',
+                {failed,
+                 {Suite,end_per_testcase,
+                  {'EXIT',{test_case_failed,"change result when end fails"}}}},[]]}},
+     {?eh,tc_done,{Suite,end_fail_to_skip,{skipped,"Test skipped"}}},
+     {?eh,cth,{'_',on_tc_skip,'_'}},
+     {?eh,test_stats,{2,3,{4,0}}},
+
+     {?eh,tc_start,{Suite,end_timetrap_to_fail}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,end_timetrap_to_fail,'_',
+                {failed,{Suite,end_per_testcase,{timetrap_timeout,3000}}},[]]}},
+     {?eh,tc_done,{Suite,end_timetrap_to_fail,{failed,{error,"Test failure"}}}},
+     {?eh,cth,{'_',on_tc_fail,'_'}},
+     {?eh,test_stats,{2,4,{4,0}}},
+
+     {?eh,tc_start,{Suite,end_timetrap_to_skip}},
+     {?eh,cth,{'_',post_end_per_testcase,
+               [Suite,end_timetrap_to_skip,'_',
+                {failed,{Suite,end_per_testcase,{timetrap_timeout,3000}}},[]]}},
+     {?eh,tc_done,{Suite,end_timetrap_to_skip,{skipped,"Test skipped"}}},
+     {?eh,cth,{'_',on_tc_skip,'_'}},
+     {?eh,test_stats,{2,4,{5,0}}},
+
+     {?eh,tc_start,{Suite,end_per_suite}},
+     {?eh,tc_done,{Suite,end_per_suite,ok}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{'_',terminate,[[]]}},
      {?eh,stop_logging,[]}
     ];
 
@@ -2208,6 +2478,229 @@ test_events(config_clash) ->
     ],
     %% Make sure no 'cth_error' events are received!
     [{negative,{?eh,cth_error,'_'},E} || E <- Events];
+
+test_events(alter_groups) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,
+                                      [{new_group,[tc1,tc2]}]]}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,[{group,new_group}],
+                                   [{new_group,[tc1,tc2]}]]}},
+     {?eh,start_info,{1,1,2}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,
+                                      [{new_group,[tc1,tc2]}]]}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,[{group,new_group}],
+                                   [{new_group,[tc1,tc2]}]]}},
+     {?eh,tc_start,{all_and_groups_SUITE,{init_per_group,new_group,[]}}},
+     {?eh,tc_done,{all_and_groups_SUITE,
+                   {init_per_group,new_group,'$proplist'},ok}},
+     {?eh,tc_start,{all_and_groups_SUITE,tc1}},
+     {?eh,tc_done,{all_and_groups_SUITE,tc1,ok}},
+     {?eh,tc_start,{all_and_groups_SUITE,tc2}},
+     {?eh,tc_done,{all_and_groups_SUITE,tc2,ok}},
+     {?eh,tc_start,{all_and_groups_SUITE,{end_per_group,new_group,[]}}},
+     {?eh,tc_done,{all_and_groups_SUITE,
+                   {end_per_group,new_group,'$proplist'},ok}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(alter_all) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,
+                                      [{test_group,[tc1]}]]}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,[tc2],
+                                   [{test_group,[tc1]}]]}},
+     {?eh,start_info,{1,1,1}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,[tc2],'_']}},
+     {?eh,tc_start,{all_and_groups_SUITE,tc2}},
+     {?eh,tc_done,{all_and_groups_SUITE,tc2,ok}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(alter_all_from_skip) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,
+                                      [{test_group,[tc1]}]]}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,[tc2],
+                                   [{test_group,[tc1]}]]}},
+     {?eh,start_info,{1,1,1}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,[tc2],'_']}},
+     {?eh,tc_start,{all_and_groups_SUITE,tc2}},
+     {?eh,tc_done,{all_and_groups_SUITE,tc2,ok}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(alter_all_to_skip) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,
+                                      [{test_group,[tc1]}]]}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,
+                                   {skip,"skipped by post_all/3"},
+                                   [{test_group,[tc1]}]]}},
+     {?eh,start_info,{1,1,0}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,
+                                   {skip,"skipped by post_all/3"},
+                                   '_']}},
+     {?eh,tc_user_skip,{all_and_groups_SUITE,all,"skipped by post_all/3"}},
+     {?eh,cth,{'_',on_tc_skip,[all_and_groups_SUITE,all,
+                               {tc_user_skip,"skipped by post_all/3"},
+                               []]}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(illegal_values_groups) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,
+               [all_and_groups_SUITE,
+                [{new_group,[this_test_does_not_exist]},
+                 this_is_not_a_group_def]]}},
+     {?eh,start_info,{1,0,0}},
+     {?eh,cth,{empty_cth,post_groups,
+               [all_and_groups_SUITE,
+                [{new_group,[this_test_does_not_exist]},
+                 this_is_not_a_group_def]]}},
+     {?eh,tc_start,{ct_framework,error_in_suite}},
+     {?eh,tc_done,{ct_framework,error_in_suite,{failed,{error,'_'}}}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(illegal_values_all) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,
+               [all_and_groups_SUITE,
+                [{group,this_group_does_not_exist},
+                 {this_is_not_a_valid_term}],'_']}},
+     {?eh,start_info,{1,0,0}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,
+               [all_and_groups_SUITE,
+                [{group,this_group_does_not_exist},
+                 {this_is_not_a_valid_term}],'_']}},
+     {?eh,tc_start,{ct_framework,error_in_suite}},
+     {?eh,tc_done,
+      {ct_framework,error_in_suite,
+       {failed,
+        {error,'Invalid reference to group this_group_does_not_exist in all_and_groups_SUITE:all/0'}}}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(bad_return_groups) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,not_a_list]}},
+     {?eh,start_info,{1,0,0}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,not_a_list]}},
+     {?eh,tc_start,{ct_framework,error_in_suite}},
+     {?eh,tc_done,
+      {ct_framework,error_in_suite,
+       {failed,
+        {error,
+         {'Bad return value from post_groups/2 hook function',not_a_list}}}}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(bad_return_all) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,not_a_list,'_']}},
+     {?eh,start_info,{1,0,0}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,not_a_list,'_']}},
+     {?eh,tc_start,{ct_framework,error_in_suite}},
+     {?eh,tc_done,
+      {ct_framework,error_in_suite,
+       {failed,
+        {error,{'Bad return value from post_all/3 hook function',not_a_list}}}}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(crash_groups) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,crash]}},
+     {?eh,start_info,{1,0,0}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,crash]}},
+     {?eh,tc_start,{ct_framework,error_in_suite}},
+     {?eh,tc_done,{ct_framework,error_in_suite,
+                   {failed,
+                    {error,"all_and_groups_cth:post_groups/2 CTH call failed"}}}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
+
+test_events(crash_all) ->
+    [
+     {?eh,start_logging,{'DEF','RUNDIR'}},
+     {?eh,test_start,{'DEF',{'START_TIME','LOGDIR'}}},
+     {?eh,cth,{empty_cth,id,[[]]}},
+     {?eh,cth,{empty_cth,init,[{'_','_','_'},[]]}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,crash,'_']}},
+     {?eh,start_info,{1,0,0}},
+     {?eh,cth,{empty_cth,post_groups,[all_and_groups_SUITE,'_']}},
+     {?eh,cth,{empty_cth,post_all,[all_and_groups_SUITE,crash,'_']}},
+     {?eh,tc_start,{ct_framework,error_in_suite}},
+     {?eh,tc_done,{ct_framework,error_in_suite,
+                   {failed,
+                    {error,"all_and_groups_cth:post_all/3 CTH call failed"}}}},
+     {?eh,test_done,{'DEF','STOP_TIME'}},
+     {?eh,cth,{empty_cth,terminate,[[]]}},
+     {?eh,stop_logging,[]}
+    ];
 
 test_events(ok) ->
     ok.

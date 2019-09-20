@@ -30,6 +30,8 @@ enum efile_modes_t {
     EFILE_MODE_SKIP_TYPE_CHECK = (1 << 5), /* Special for device files on Unix. */
     EFILE_MODE_NO_TRUNCATE = (1 << 6), /* Special for reopening on VxWorks. */
 
+    EFILE_MODE_DIRECTORY = (1 << 7),
+
     EFILE_MODE_READ_WRITE = EFILE_MODE_READ | EFILE_MODE_WRITE
 };
 
@@ -168,6 +170,7 @@ int efile_close(efile_data_t *d, posix_errno_t *error);
 /* **** **** **** **** **** **** **** **** **** **** **** **** **** **** **** */
 
 posix_errno_t efile_read_info(const efile_path_t *path, int follow_link, efile_fileinfo_t *result);
+posix_errno_t efile_read_handle_info(efile_data_t *d, efile_fileinfo_t *result);
 
 /** @brief Sets the file times to the given values. Refer to efile_fileinfo_t
  * for a description of each. */

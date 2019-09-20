@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2016. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -35,6 +35,8 @@ start(Mod, BootArgs) ->
     erl_tracer:on_load(),
     prim_buffer:on_load(),
     prim_file:on_load(),
+    %% socket:on_load(), prim_net:on_load(),
+    conditional_load(socket, [socket, prim_net]),
     %% Proceed to the specified boot module
     run(Mod, boot, BootArgs).
 
@@ -46,3 +48,26 @@ run(M, F, A) ->
 	true ->
             M:F(A)
     end.
+
+conditional_load(CondMod, Mods2Load) ->
+    Loaded = erlang:loaded(),
+    %% erlang:display({?MODULE, conditional_load, Loaded}),
+    conditional_load(CondMod, Loaded, Mods2Load).
+
+conditional_load(_CondMod, [], _Mods2LOad) ->
+    ok;
+conditional_load(CondMod, [CondMod|_], Mods2Load) ->
+    on_load(Mods2Load);
+conditional_load(CondMod, [_|T], Mods2Load) ->
+    conditional_load(CondMod, T, Mods2Load).
+
+on_load([]) ->
+    ok;
+on_load([Mod|Mods]) ->
+    Mod:on_load(),
+    on_load(Mods).
+
+
+    
+
+

@@ -27,6 +27,7 @@
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
 	 init_per_group/2,end_per_group/2,
 	 init_per_testcase/2,end_per_testcase/2,
+         verify_highest_opcode/1,
 	 two/1,test1/1,fail/1,float_bin/1,in_guard/1,in_catch/1,
 	 nasty_literals/1,coerce_to_float/1,side_effect/1,
 	 opt/1,otp_7556/1,float_arith/1,otp_8054/1,
@@ -43,7 +44,8 @@ all() ->
 
 groups() ->
     [{p,[parallel],
-      [two,test1,fail,float_bin,in_guard,in_catch,
+      [verify_highest_opcode,
+       two,test1,fail,float_bin,in_guard,in_catch,
        nasty_literals,side_effect,opt,otp_7556,float_arith,
        otp_8054,cover]}].
 
@@ -67,6 +69,20 @@ init_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
 
 end_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
     ok.
+
+verify_highest_opcode(_Config) ->
+    case ?MODULE of
+        bs_construct_r21_SUITE ->
+            {ok,Beam} = file:read_file(code:which(?MODULE)),
+            case test_lib:highest_opcode(Beam) of
+                Highest when Highest =< 163 ->
+                    ok;
+                TooHigh ->
+                    ct:fail({too_high_opcode_for_21,TooHigh})
+            end;
+        _ ->
+            ok
+    end.
 
 two(Config) when is_list(Config) ->
     <<0,1,2,3,4,6,7,8,9>> = two_1([0], [<<1,2,3,4>>,<<6,7,8,9>>]),
@@ -153,6 +169,8 @@ l(I_13, I_big1, I_16, Bin) ->
 	[0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
 	 16#77,16#FF,16#FF,16#FF,16#FF,16#FF,16#FF,16#FF,16#FF,16#FF,16#FF,
 	 16#FF,16#FF,16#FF,16#FF,16#FF,16#FF]),
+     ?T(<< (<<"abc",7:3>>):3/binary >>,
+        [$a,$b,$c]),
 
      %% Mix different units.
      ?T(<<37558955:(I_16-12)/unit:8,1:1>>,
@@ -310,6 +328,9 @@ fail(Config) when is_list(Config) ->
     {'EXIT',{badarg,_}} = (catch <<Bin/binary,0:(-1)>>),
     {'EXIT',{badarg,_}} = (catch <<0:(-(1 bsl 100))>>),
     {'EXIT',{badarg,_}} = (catch <<Bin/binary,0:(-(1 bsl 100))>>),
+
+    %% Unaligned sizes with literal binaries.
+    {'EXIT',{badarg,_}} = (catch <<0,(<<7777:17>>)/binary>>),
 
     ok.
 

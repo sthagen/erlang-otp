@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@
 	 match_in_call/1,untuplify/1,shortcut_boolean/1,letify_guard/1,
 	 selectify/1,deselectify/1,underscore/1,match_map/1,map_vars_used/1,
 	 coverage/1,grab_bag/1,literal_binary/1,
-         unary_op/1]).
+         unary_op/1,eq_types/1,match_after_return/1,match_right_tuple/1,
+         tuple_size_in_try/1]).
 	 
 -include_lib("common_test/include/ct.hrl").
 
@@ -40,7 +41,9 @@ groups() ->
        match_in_call,untuplify,
        shortcut_boolean,letify_guard,selectify,deselectify,
        underscore,match_map,map_vars_used,coverage,
-       grab_bag,literal_binary,unary_op]}].
+       grab_bag,literal_binary,unary_op,eq_types,
+       match_after_return,match_right_tuple,
+       tuple_size_in_try]}].
 
 
 init_per_suite(Config) ->
@@ -390,6 +393,13 @@ untuplify(Config) when is_list(Config) ->
     %% We do this to cover sys_core_fold:unalias_pat/1.
     {1,2,3,4,alias,{[1,2],{3,4},alias}} = untuplify_1([1,2], {3,4}, alias),
     error = untuplify_1([1,2], {3,4}, 42),
+
+    %% Test that a previous bug in v3_codegen is gone. (The sinking of
+    %% stack frames into only the case arms that needed them was not always
+    %% safe.)
+    [33, -1, -33, 1] = untuplify_2(32, 65),
+    {33, 1, -33, -1} = untuplify_2(65, 32),
+
     ok.
 
 untuplify_1(A, B, C) ->
@@ -400,6 +410,21 @@ untuplify_1(A, B, C) ->
 	    CantMatch;
 	_ ->
 	    error
+    end.
+
+untuplify_2(V1, V2) ->
+    {D1,D2,D3,D4} =
+        if V1 > V2 ->
+                %% The 1 value was overwritten by the value of V2-V1.
+                {V1-V2,  1,  V2-V1, -1};
+           true ->
+                {V2-V1, -1, V1-V2,  1}
+        end,
+    if
+        D2 > D4 ->
+            {D1, D2, D3, D4};
+        true ->
+            [D1, D2, D3, D4]
     end.
 
 %% Coverage of beam_dead:shortcut_boolean_label/4.
@@ -848,5 +873,70 @@ unary_op_1(Vop@1) ->
             end
     end.
 
+eq_types(_Config) ->
+    Ref = make_ref(),
+    Ref = eq_types(Ref, any),
+    ok.
+
+eq_types(A, B) ->
+    %% {put_tuple2,{y,0},{list,[{x,0},{x,1}]}}.
+    Term0 = {A, B},
+    Term = id(Term0),
+
+    %% {test,is_eq_exact,{f,3},[{y,0},{x,0}]}.
+    %% Here beam_validator must infer that {x,0} has the
+    %% same type as {y,0}.
+    Term = Term0,
+
+    %% {get_tuple_element,{x,0},0,{x,0}}.
+    {Ref22,_} = Term,
+
+    Ref22.
+
+match_after_return(Config) when is_list(Config) ->
+    %% The return type of the following call will never match the 'wont_happen'
+    %% clauses below, and the beam_ssa_type was clever enough to see that but
+    %% didn't remove the blocks, so it crashed when trying to extract A.
+    ok = case mar_test_tuple(erlang:unique_integer()) of
+            {gurka, never_matches, A} -> {wont_happen, A};
+            _ -> ok
+         end.
+
+mar_test_tuple(I) -> {gurka, I}.
+
+match_right_tuple(Config) when is_list(Config) ->
+    %% The loader wrongly coalesced certain get_tuple_element sequences, fusing
+    %% the code below into a single i_get_tuple_element2 operating on {x,0}
+    %% even though the first one overwrites it.
+    %%
+    %%    {get_tuple_element,{x,0},0,{x,0}}.
+    %%    {get_tuple_element,{x,0},1,{x,1}}.
+
+    Inner = {id(wrong_element), id(ok)},
+    Outer = {Inner, id(wrong_tuple)},
+    ok = match_right_tuple_1(Outer).
+
+match_right_tuple_1(T) ->
+    {A, _} = T,
+    {_, B} = A,
+    %% The call ensures that A is in {x,0} and B is in {x,1}
+    id(force_succ_regs(A, B)).
+
+force_succ_regs(_A, B) -> B.
+
+tuple_size_in_try(Config) when is_list(Config) ->
+    %% The tuple_size optimization was applied outside of guards, causing
+    %% either the emulator or compiler to crash.
+    ok = tsit(gurka),
+    ok = tsit(gaffel).
+
+tsit(A) ->
+    try
+        id(ignored),
+        1 = tuple_size(A),
+        error
+    catch
+        _:_ -> ok
+    end.
 
 id(I) -> I.

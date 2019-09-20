@@ -25,6 +25,8 @@
 ** Internal functions and macros used by both the CA tree and the AVL tree
 */
 
+
+#if defined(ARCH_32)
 /*
 ** A stack of this size is enough for an AVL tree with more than
 ** 0xFFFFFFFF elements. May be subject to change if
@@ -34,8 +36,19 @@
 ** Where n denotes the number of nodes, h(n) the height of the tree
 ** with n nodes and log is the binary logarithm.
 */
-  
 #define STACK_NEED 50
+#elif defined(ARCH_64)
+/*
+** A stack of this size is enough for an AVL tree with more than
+** 2^61 elements. 
+** The Maximal height of an AVL tree is calculated as above.
+*/
+#define STACK_NEED 90
+#else
+#error "Unsported architecture"
+#endif
+
+
 
 #define PUSH_NODE(Dtt, Tdt)                     \
     ((Dtt)->array[(Dtt)->pos++] = Tdt)
@@ -49,6 +62,9 @@
       (Dtt)->array[(Dtt)->pos - 1] : NULL)
 
 #define EMPTY_NODE(Dtt) (TOP_NODE(Dtt) == NULL)
+
+#define DEC_NITEMS(DB)                                                  \
+    erts_flxctr_dec(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID)
 
 static ERTS_INLINE void free_term(DbTable *tb, TreeDbTerm* p)
 {
@@ -154,5 +170,9 @@ int db_lookup_dbterm_tree_common(Process *p, DbTable *tbl, TreeDbTerm **root,
 void db_finalize_dbterm_tree_common(int cret, DbUpdateHandle *handle,
                                     DbTableTree *stack_container);
 Sint cmp_partly_bound(Eterm partly_bound_key, Eterm bound_key);
+
+TreeDbTerm *db_find_tree_node_common(DbTableCommon*, TreeDbTerm *root,
+                                     Eterm key);
+Eterm db_binary_info_tree_common(Process*, TreeDbTerm*);
 
 #endif /* _DB_TREE_UTIL_H */

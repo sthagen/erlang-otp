@@ -55,6 +55,7 @@
 
 #define WANT_NONBLOCKING    /* must define this to pull in defs from sys.h */
 #include "sys.h"
+#include "erl_osenv.h"
 
 #include "erl_threads.h"
 
@@ -732,7 +733,8 @@ static ErlDrvData spawn_start(ErlDrvPort port_num, char* name,
         proto->u.start.fds[1] = ifd[1];
         proto->u.start.fds[2] = stderrfd;
         proto->u.start.port_id = opts->exit_status ? erts_drvport2id(port_num) : THE_NON_VALUE;
-        if (erl_drv_port_control(forker_port, 'S', (char*)proto, sizeof(*proto))) {
+        if (erl_drv_port_control(forker_port, ERTS_FORKER_DRV_CONTROL_MAGIC_NUMBER,
+                                 (char*)proto, sizeof(*proto))) {
             /* The forker port has been killed, we close both fd's which will
                make open_port throw an epipe error */
             close(ofd[0]);
@@ -759,6 +761,9 @@ static ErlDrvSSizeT spawn_control(ErlDrvData e, unsigned int cmd, char *buf,
     ErtsSysDriverData *dd = (ErtsSysDriverData*)e;
     ErtsSysForkerProto *proto = (ErtsSysForkerProto *)buf;
 
+    if (cmd != ERTS_SPAWN_DRV_CONTROL_MAGIC_NUMBER)
+        return -1;
+
     ASSERT(len == sizeof(*proto));
     ASSERT(proto->action == ErtsSysForkerProtoAction_SigChld);
 
@@ -781,15 +786,15 @@ static ErlDrvSSizeT spawn_control(ErlDrvData e, unsigned int cmd, char *buf,
 
 static int fd_get_window_size(int fd, Uint32 *width, Uint32 *height)
 {
-#ifdef TIOCGWINSZ 
+#ifdef TIOCGWINSZ
     struct winsize ws;
     if (ioctl(fd,TIOCGWINSZ,&ws) == 0) {
 	*width = (Uint32) ws.ws_col;
 	*height = (Uint32) ws.ws_row;
-	return 0;
+	return 1;
     }
 #endif
-    return -1;
+    return 0;
 }
 
 static ErlDrvSSizeT fd_control(ErlDrvData drv_data,
@@ -797,20 +802,34 @@ static ErlDrvSSizeT fd_control(ErlDrvData drv_data,
 			       char *buf, ErlDrvSizeT len,
 			       char **rbuf, ErlDrvSizeT rlen)
 {
-    int fd = (int)(long)drv_data;
     char resbuff[2*sizeof(Uint32)];
+    ErtsSysDriverData* dd = (ErtsSysDriverData*)drv_data;
+    command -= ERTS_TTYSL_DRV_CONTROL_MAGIC_NUMBER;
     switch (command) {
     case FD_CTRL_OP_GET_WINSIZE:
 	{
 	    Uint32 w,h;
-	    if (fd_get_window_size(fd,&w,&h)) 
-		return 0;
+            int success = 0;
+            if (dd->ofd != NULL) {
+                /* Try with output file descriptor */
+                int out_fd = dd->ofd->fd;
+                success = fd_get_window_size(out_fd,&w,&h);
+            }
+            if (!success && dd->ifd != NULL) {
+                /* Try with input file descriptor */
+                int in_fd = dd->ifd->fd;
+                success = fd_get_window_size(in_fd,&w,&h);
+            }
+            if (!success) {
+                return -1;
+            }
+            /* Succeeded */
 	    memcpy(resbuff,&w,sizeof(Uint32));
 	    memcpy(resbuff+sizeof(Uint32),&h,sizeof(Uint32));
 	}
 	break;
     default:
-	return 0;
+	return -1;
     }
     if (rlen < 2*sizeof(Uint32)) {
 	*rbuf = driver_alloc(2*sizeof(Uint32));
@@ -998,12 +1017,10 @@ static void clear_fd_data(ErtsSysFdData *fdd)
     fdd->psz = 0;
 }
 
-static void nbio_stop_fd(ErlDrvPort prt, ErtsSysFdData *fdd)
+static void nbio_stop_fd(ErlDrvPort prt, ErtsSysFdData *fdd, int use)
 {
-    driver_select(prt, abs(fdd->fd), ERL_DRV_USE_NO_CALLBACK|DO_READ|DO_WRITE, 0);
     clear_fd_data(fdd);
     SET_BLOCKING(abs(fdd->fd));
-
 }
 
 static void fd_stop(ErlDrvData ev)  /* Does not close the fds */
@@ -1020,11 +1037,13 @@ static void fd_stop(ErlDrvData ev)  /* Does not close the fds */
 
     if (dd->ifd) {
         sz += sizeof(ErtsSysFdData);
-        nbio_stop_fd(prt, dd->ifd);
+        driver_select(prt, abs(dd->ifd->fd), ERL_DRV_USE_NO_CALLBACK|DO_READ|DO_WRITE, 0);
+        nbio_stop_fd(prt, dd->ifd, 1);
     }
     if (dd->ofd && dd->ofd != dd->ifd) {
         sz += sizeof(ErtsSysFdData);
-        nbio_stop_fd(prt, dd->ofd);
+        driver_select(prt, abs(dd->ofd->fd), ERL_DRV_USE_NO_CALLBACK|DO_WRITE, 0);
+        nbio_stop_fd(prt, dd->ofd, 1);
     }
 
      erts_free(ERTS_ALC_T_DRV_TAB, dd);
@@ -1070,12 +1089,12 @@ static void stop(ErlDrvData ev)
     ErlDrvPort prt = dd->port_num;
 
     if (dd->ifd) {
-        nbio_stop_fd(prt, dd->ifd);
+        nbio_stop_fd(prt, dd->ifd, 0);
         driver_select(prt, abs(dd->ifd->fd), ERL_DRV_USE, 0);  /* close(ifd); */
     }
 
     if (dd->ofd && dd->ofd != dd->ifd) {
-	nbio_stop_fd(prt, dd->ofd);
+	nbio_stop_fd(prt, dd->ofd, 0);
 	driver_select(prt, abs(dd->ofd->fd), ERL_DRV_USE, 0);  /* close(ofd); */
     }
 
@@ -1693,7 +1712,8 @@ static void forker_sigchld(Eterm port_id, int error)
        already used by the spawn_driver, we use control instead.
        Note that when using erl_drv_port_control it is an asynchronous
        control. */
-    erl_drv_port_control(port_id, 'S', (char*)proto, sizeof(*proto));
+    erl_drv_port_control(port_id, ERTS_SPAWN_DRV_CONTROL_MAGIC_NUMBER,
+                         (char*)proto, sizeof(*proto));
 }
 
 static void forker_ready_input(ErlDrvData e, ErlDrvEvent fd)
@@ -1777,6 +1797,9 @@ static ErlDrvSSizeT forker_control(ErlDrvData e, unsigned int cmd, char *buf,
     ErtsSysForkerProto *proto = (ErtsSysForkerProto *)buf;
     ErlDrvPort port_num = (ErlDrvPort)e;
     int res;
+
+    if (cmd != ERTS_FORKER_DRV_CONTROL_MAGIC_NUMBER)
+        return -1;
 
     if (first_call) {
         /*

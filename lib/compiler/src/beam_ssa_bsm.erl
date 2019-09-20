@@ -57,6 +57,7 @@
 -export([module/2, format_error/1]).
 
 -include("beam_ssa.hrl").
+-include("beam_types.hrl").
 
 -import(lists, [member/2, reverse/1, splitwith/2, map/2, foldl/3, mapfoldl/3,
                 nth/2, max/1, unzip/1]).
@@ -300,7 +301,8 @@ get_fa(#b_function{ anno = Anno }) ->
                promotions = #{} :: promotion_map() }).
 
 alias_matched_binaries(Blocks0, Counter, AliasMap) when AliasMap =/= #{} ->
-    State0 = #amb{ dominators = beam_ssa:dominators(Blocks0),
+    {Dominators, _} = beam_ssa:dominators(Blocks0),
+    State0 = #amb{ dominators = Dominators,
                    match_aliases = AliasMap,
                    cnt = Counter },
     {Blocks, State} = beam_ssa:mapfold_blocks_rpo(fun amb_1/3, [0], State0,
@@ -347,7 +349,7 @@ amb_get_alias(#b_var{}=Arg, Lbl, State) ->
             %% Our context may not have been created yet, so we skip assigning
             %% an alias unless the given block is among our dominators.
             Dominators = maps:get(Lbl, State#amb.dominators),
-            case ordsets:is_element(AliasAfter, Dominators) of
+            case member(AliasAfter, Dominators) of
                 true -> amb_create_alias(Arg, Context, Lbl, State);
                 false -> {Arg, State}
             end;
@@ -444,6 +446,7 @@ combine_matches({Fs0, ModInfo}) ->
 combine_matches(#b_function{bs=Blocks0,cnt=Counter0}=F, ModInfo) ->
     case funcinfo_get(F, has_bsm_ops, ModInfo) of
         true ->
+            {Dominators, _} = beam_ssa:dominators(Blocks0),
             {Blocks1, State} =
                 beam_ssa:mapfold_blocks_rpo(
                   fun(Lbl, #b_blk{is=Is0}=Block0, State0) ->
@@ -451,7 +454,7 @@ combine_matches(#b_function{bs=Blocks0,cnt=Counter0}=F, ModInfo) ->
                           {Block0#b_blk{is=Is}, State}
                   end, [0],
                   #cm{ definitions = beam_ssa:definitions(Blocks0),
-                       dominators = beam_ssa:dominators(Blocks0),
+                       dominators = Dominators,
                        blocks = Blocks0 },
                   Blocks0),
 
@@ -491,7 +494,7 @@ cm_handle_priors(Src, DstCtx, Bool, Acc, MatchSeq, Lbl, State0) ->
                         %% dominate us.
                         Dominators = maps:get(Lbl, State0#cm.dominators, []),
                         [Ctx || {ValidAfter, Ctx} <- Priors,
-                                ordsets:is_element(ValidAfter, Dominators)];
+                                member(ValidAfter, Dominators)];
                     error ->
                         []
                 end,
@@ -681,8 +684,12 @@ aca_copy_successors(Lbl0, Blocks0, Counter0) ->
     Lbl = maps:get(Lbl0, BRs),
     {Lbl, Blocks, Counter}.
 
+aca_cs_build_brs([?EXCEPTION_BLOCK=Lbl | Path], Counter, Acc) ->
+    %% ?EXCEPTION_BLOCK is a marker and not an actual block, so renaming it
+    %% will break exception handling.
+    aca_cs_build_brs(Path, Counter, Acc#{ Lbl => Lbl });
 aca_cs_build_brs([Lbl | Path], Counter0, Acc) ->
-    aca_cs_build_brs(Path, Counter0 + 1, maps:put(Lbl, Counter0, Acc));
+    aca_cs_build_brs(Path, Counter0 + 1, Acc#{ Lbl => Counter0 });
 aca_cs_build_brs([], Counter, Acc) ->
     {Acc, Counter}.
 
@@ -877,7 +884,7 @@ annotate_context_parameters(F, ModInfo) ->
                                  %% Assertion.
                                  error(conflicting_parameter_types);
                             (K, suitable_for_reuse, Acc) ->
-                                 Acc#{ K => match_context };
+                                 Acc#{ K => #t_bs_context{} };
                             (_K, _V, Acc) ->
                                  Acc
                          end, TypeAnno0, ParamInfo),

@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2002-2015. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -23,9 +23,12 @@
 -include_lib("kernel/include/file.hrl").
 
 
+-export([tc_try/2, tc_try/3]).
 -export([hostname/0, hostname/1, localhost/0, localhost/1, os_type/0, sz/1,
 	 display_suite_info/1]).
--export([non_pc_tc_maybe_skip/4, os_based_skip/1]).
+-export([non_pc_tc_maybe_skip/4, os_based_skip/1,
+         has_support_ipv6/0, has_support_ipv6/1,
+         is_ipv6_host/0, is_ipv6_host/1]).
 -export([fix_data_dir/1, 
 	 init_suite_top_dir/2, init_group_top_dir/2, init_testcase_top_dir/2, 
 	 lookup/2, 
@@ -34,15 +37,132 @@
 -export([hours/1, minutes/1, seconds/1, sleep/1]).
 -export([flush_mqueue/0, trap_exit/0, trap_exit/1]).
 -export([ping/1, local_nodes/0, nodes_on/1]).
--export([start_node/2]).
+-export([start_node/2, stop_node/1]).
 -export([is_app_running/1, 
 	 is_crypto_running/0, is_mnesia_running/0, is_snmp_running/0]).
 -export([crypto_start/0, crypto_support/0]).
 -export([watchdog/3, watchdog_start/1, watchdog_start/2, watchdog_stop/1]).
 -export([del_dir/1]).
 -export([cover/1]).
--export([p/2, print/5, formated_timestamp/0]).
+-export([f/2, p/2, print1/2, print2/2, print/5, formated_timestamp/0]).
 
+
+%% ----------------------------------------------------------------------
+%% Run test-case
+%%
+
+%% *** tc_try/2,3 ***
+%% Case:      Basically the test case name
+%% TCCondFun: A fun that is evaluated before the actual test case
+%%            The point of this is that it can performs checks to
+%%            see if we shall run the test case at all.
+%%            For instance, the test case may only work in specific
+%%            conditions.
+%% FCFun:     The test case fun
+tc_try(Case, TCFun) ->
+    tc_try(Case, fun() -> ok end, TCFun).
+                        
+tc_try(Case, TCCondFun, TCFun)
+  when is_atom(Case) andalso 
+       is_function(TCCondFun, 0) andalso 
+       is_function(TCFun, 0) ->
+    tc_begin(Case),
+    try TCCondFun() of
+        ok ->
+            try 
+                begin
+                    TCFun(),
+                    sleep(seconds(1)),
+                    tc_end("ok")
+                end
+            catch
+                C:{skip, _} = SKIP when ((C =:= throw) orelse (C =:= exit)) ->
+                    tc_end( f("skipping(catched,~w,tc)", [C]) ),
+                    SKIP;
+                C:E:S ->
+                    %% We always check the system events before we accept a failure
+                    case snmp_test_global_sys_monitor:events() of
+                        [] ->
+                            tc_end( f("failed(catched,~w,tc)", [C]) ),
+                            erlang:raise(C, E, S);
+                        SysEvs ->
+                            tc_print("System Events received: "
+                                     "~n   ~p", [SysEvs], "", ""),
+                            tc_end( f("skipping(catched-sysevs,~w,tc)", [C]) ),
+                            SKIP = {skip, "TC failure with system events"},
+                            SKIP
+                    end
+            end;
+        {skip, _} = SKIP ->
+            tc_end("skipping(cond)"),
+            SKIP;
+        {error, Reason} ->
+            tc_end("failed(cond)"),
+            exit({tc_cond_failed, Reason})
+    catch
+        C:{skip, _} = SKIP when ((C =:= throw) orelse (C =:= exit)) ->
+            tc_end( f("skipping(catched,~w,cond)", [C]) ),
+            SKIP;
+        C:E:S ->
+            %% We always check the system events before we accept a failure
+            case snmp_test_global_sys_monitor:events() of
+                [] ->
+                    tc_end( f("failed(catched,~w,cond)", [C]) ),
+                    erlang:raise(C, E, S);
+                SysEvs ->
+                    tc_print("System Events received: "
+                             "~n   ~p", [SysEvs], "", ""),
+                    tc_end( f("skipping(catched-sysevs,~w,cond)", [C]) ),
+                    SKIP = {skip, "TC cond failure with system events"},
+                    SKIP
+            end
+    end.
+
+
+tc_set_name(N) when is_atom(N) ->
+    tc_set_name(atom_to_list(N));
+tc_set_name(N) when is_list(N) ->
+    put(tc_name, N).
+
+tc_get_name() ->
+    get(tc_name).
+
+tc_begin(TC) ->
+    OldVal = process_flag(trap_exit, true),
+    put(old_trap_exit, OldVal),
+    tc_set_name(TC),
+    tc_print("begin ***",
+             "~n----------------------------------------------------~n", "").
+
+tc_end(Result) when is_list(Result) ->
+    OldVal = erase(old_trap_exit),
+    process_flag(trap_exit, OldVal),
+    tc_print("done: ~s", [Result], 
+             "", "----------------------------------------------------~n~n"),
+    ok.
+
+tc_print(F, Before, After) ->
+    tc_print(F, [], Before, After).
+
+tc_print(F, A, Before, After) ->
+    Name = tc_which_name(),
+    FStr = f("*** [~s][~s][~p] " ++ F ++ "~n", 
+             [formated_timestamp(),Name,self()|A]),
+    io:format(user, Before ++ FStr ++ After, []).
+
+tc_which_name() ->
+    case tc_get_name() of
+        undefined ->
+            case get(sname) of
+                undefined ->
+                    "";
+                SName when is_list(SName) ->
+                    SName
+            end;
+        Name when is_list(Name) ->
+            Name
+    end.
+    
 
 %% ----------------------------------------------------------------------
 %% Misc functions
@@ -52,18 +172,76 @@ hostname() ->
     hostname(node()).
 
 hostname(Node) ->
-    from($@, atom_to_list(Node)).
+    case string:tokens(atom_to_list(Node), [$@]) of
+        [_, Host] ->
+            Host;
+        _ ->
+            []
+    end.
 
-from(H, [H | T]) -> T;
-from(H, [_ | T]) -> from(H, T);
-from(_H, []) -> [].
+%% localhost() ->
+%%     {ok, Ip} = snmp_misc:ip(net_adm:localhost()),
+%%     Ip.
+%% localhost(Family) ->
+%%     {ok, Ip} = snmp_misc:ip(net_adm:localhost(), Family),
+%%     Ip.
 
 localhost() ->
-    {ok, Ip} = snmp_misc:ip(net_adm:localhost()),
-    Ip.
+    localhost(inet).
+
 localhost(Family) ->
-    {ok, Ip} = snmp_misc:ip(net_adm:localhost(), Family),
-    Ip.
+    case inet:getaddr(net_adm:localhost(), Family) of
+        {ok, {127, _, _, _}} when (Family =:= inet) ->
+            %% Ouch, we need to use something else
+            case inet:getifaddrs() of
+                {ok, IfList} ->
+                    which_addr(Family, IfList);
+                {error, Reason1} ->
+                    fail({getifaddrs, Reason1}, ?MODULE, ?LINE)
+            end;
+        {ok, {A1, _, _, _, _, _, _, _}} when (Family =:= inet6) andalso
+                                             ((A1 =:= 0) orelse
+                                              (A1 =:= 16#fe80)) ->
+            %% Ouch, we need to use something else
+            case inet:getifaddrs() of
+                {ok, IfList} ->
+                    which_addr(Family, IfList);
+                {error, Reason1} ->
+                    fail({getifaddrs, Reason1}, ?MODULE, ?LINE)
+            end;
+        {ok, Addr} ->
+            Addr;
+        {error, Reason2} ->
+            fail({getaddr, Reason2}, ?MODULE, ?LINE)
+    end.
+
+which_addr(_Family, []) ->
+    fail(no_valid_addr, ?MODULE, ?LINE);
+which_addr(Family, [{"lo", _} | IfList]) ->
+    which_addr(Family, IfList);
+which_addr(Family, [{"docker" ++ _, _} | IfList]) ->
+    which_addr(Family, IfList);
+which_addr(Family, [{"br-" ++ _, _} | IfList]) ->
+    which_addr(Family, IfList);
+which_addr(Family, [{_Name, IfOpts} | IfList]) ->
+    case which_addr2(Family, IfOpts) of
+        {ok, Addr} ->
+            Addr;
+        {error, _} ->
+            which_addr(Family, IfList)
+    end.
+
+which_addr2(_Family, []) ->
+    {error, not_found};
+which_addr2(Family, [{addr, Addr}|_]) 
+  when (Family =:= inet) andalso (size(Addr) =:= 4) ->
+    {ok, Addr};
+which_addr2(Family, [{addr, Addr}|_]) 
+  when (Family =:= inet6) andalso (size(Addr) =:= 8) ->
+    {ok, Addr};
+which_addr2(Family, [_|IfOpts]) ->
+    which_addr2(Family, IfOpts).
+
 
 sz(L) when is_list(L) ->
     length(L);
@@ -142,63 +320,121 @@ non_pc_tc_maybe_skip(Config, Condition, File, Line)
 		    %% test-server...
 		    ok;
 		_ ->
-		    case Condition() of
+		    try Condition() of
 			true ->
 			    skip(non_pc_testcase, File, Line);
 			false ->
 			    ok
+                    catch
+                        C:E:S ->
+                            skip({condition, C, E, S}, File, Line)
 		    end
 	    end
     end.
 
 
+%% The type and spec'ing is just to increase readability
+-type os_family()  :: win32 | unix.
+-type os_name()    :: atom().
+-type os_version() :: string() | {non_neg_integer(),
+				  non_neg_integer(),
+				  non_neg_integer()}.
+-type os_skip_check() :: fun(() -> boolean()) | 
+			    fun((os_version()) -> boolean()).
+-type skippable() :: any | [os_family() | 
+			    {os_family(), os_name() |
+			                  [os_name() | {os_name(), 
+							os_skip_check()}]}].
+
+-spec os_based_skip(skippable()) -> boolean().
+
 os_based_skip(any) ->
-    io:format("os_based_skip(any) -> entry"
-	      "~n", []), 
     true;
 os_based_skip(Skippable) when is_list(Skippable) ->
-    io:format("os_based_skip -> entry with"
-	      "~n   Skippable: ~p"
-	      "~n", [Skippable]), 
-    {OsFam, OsName} =
-        case os:type() of
-            {_Fam, _Name} = FamAndName ->
-                FamAndName;
-            Fam ->
-                {Fam, undefined}
-        end,
-    io:format("os_based_skip -> os-type: "
-	      "~n   OsFam: ~p"
-	      "~n   OsName: ~p"
-	      "~n", [OsFam, OsName]), 
+    os_base_skip(Skippable, os:type());
+os_based_skip(_Crap) ->
+    false.
+
+os_base_skip(Skippable, {OsFam, OsName}) ->
+    os_base_skip(Skippable, OsFam, OsName);
+os_base_skip(Skippable, OsFam) ->
+    os_base_skip(Skippable, OsFam, undefined).
+
+os_base_skip(Skippable, OsFam, OsName) -> 
+    %% Check if the entire family is to be skipped
+    %% Example: [win32, unix]
     case lists:member(OsFam, Skippable) of
         true ->
             true;
         false ->
-            case lists:keysearch(OsFam, 1, Skippable) of
-                {value, {OsFam, OsName}} ->
-                    true;
-                {value, {OsFam, OsNames}} when is_list(OsNames) ->
+	    %% Example: [{unix, freebsd}] | [{unix, [freebsd, darwin]}]
+	    case lists:keysearch(OsFam, 1, Skippable) of
+		{value, {OsFam, OsName}} ->
+		    true;
+		{value, {OsFam, OsNames}} when is_list(OsNames) ->
+		    %% OsNames is a list of: 
+		    %%    [atom()|{atom(), function/0 | function/1}]
                     case lists:member(OsName, OsNames) of
 			true ->
 			    true;
 			false ->
-			    case lists:keymember(OsName, 1, OsNames) of
-				{value, {OsName, Check}} when is_function(Check) ->
-				    Check();
-				_ ->
-				    false
-			    end
+			    os_based_skip_check(OsName, OsNames)
 		    end;
-                _ ->
-                    false
-            end
-    end;
-os_based_skip(_Crap) ->
-    io:format("os_based_skip -> entry with"
-	      "~n   _Crap: ~p"
-	      "~n", [_Crap]), 
-    false.
+		_ ->
+		    false
+	    end
+    end.
+
+%% Performs a check via a provided fun with arity 0 or 1.
+%% The argument is the result of os:version().
+os_based_skip_check(OsName, OsNames) ->
+    case lists:keysearch(OsName, 1, OsNames) of
+	{value, {OsName, Check}} when is_function(Check, 0) ->
+	    Check();
+	{value, {OsName, Check}} when is_function(Check, 1) ->
+	    Check(os:version());
+	_ ->
+	    false
+    end.
+
+
+%% A basic test to check if current host supports IPv6
+has_support_ipv6() ->
+    case inet:gethostname() of
+        {ok, Hostname} ->
+            has_support_ipv6(Hostname);
+        _ ->
+            false
+    end.
+
+has_support_ipv6(Hostname) ->
+    case inet:getaddr(Hostname, inet6) of
+        {ok, Addr} when (size(Addr) =:= 8) andalso
+                        (element(1, Addr) =/= 0) andalso
+                        (element(1, Addr) =/= 16#fe80) ->
+            true;
+        {ok, _} ->
+            false;
+        {error, _} ->
+            false
+    end.
+		
+
+is_ipv6_host() ->
+    case inet:gethostname() of
+        {ok, Hostname} ->
+            is_ipv6_host(Hostname);
+        {error, _} ->
+            false
+    end.
+
+is_ipv6_host(Hostname) ->
+    case ct:require(ipv6_hosts) of
+        ok ->
+            lists:member(list_to_atom(Hostname), ct:get_config(ipv6_hosts));
+        _ ->
+            false
+    end.
 
 
 %% ----------------------------------------------------------------
@@ -397,8 +633,12 @@ nodes_on(Host) when is_list(Host) ->
 
 
 start_node(Name, Args) ->
-    Opts = [{cleanup,false}, {args,Args}],
+    Opts = [{cleanup, false}, {args, Args}],
     test_server:start_node(Name, slave, Opts).
+
+
+stop_node(Node) ->
+    test_server:stop_node(Node).
 
 
 %% ----------------------------------------------------------------
@@ -593,6 +833,9 @@ cover([Suite, Case] = Args) when is_atom(Suite) andalso is_atom(Case) ->
 %% (debug) Print functions
 %%
 
+f(F, A) ->
+    lists:flatten(io_lib:format(F, A)).
+
 p(Mod, Case) when is_atom(Mod) andalso is_atom(Case) ->
     case get(test_case) of
 	undefined ->
@@ -605,19 +848,30 @@ p(Mod, Case) when is_atom(Mod) andalso is_atom(Case) ->
 p(F, A) when is_list(F) andalso is_list(A) ->
     io:format(user, F ++ "~n", A).
 
+%% This is just a bog standard printout, with a (formatted) timestamp
+%% prefix and a newline after.
+%% print1 - prints to both standard_io and user.
+%% print2 - prints to just standard_io.
+
+print_format(F, A) ->
+    FTS = snmp_test_lib:formated_timestamp(),
+    io_lib:format("[~s] " ++ F ++ "~n", [FTS | A]).
+
+print1(F, A) ->
+    S = print_format(F, A),
+    io:format("~s", [S]),
+    io:format(user, "~s", [S]).
+
+print2(F, A) ->
+    S = print_format(F, A),
+    io:format("~s", [S]).
+
+
 print(Prefix, Module, Line, Format, Args) ->
     io:format("*** [~s] ~s ~p ~p ~p:~p *** " ++ Format ++ "~n", 
 	      [formated_timestamp(), 
 	       Prefix, node(), self(), Module, Line|Args]).
 
 formated_timestamp() ->
-    format_timestamp(os:timestamp()).
+    snmp_misc:formated_timestamp().
 
-format_timestamp({_N1, _N2, N3} = Now) ->
-    {Date, Time}   = calendar:now_to_datetime(Now),
-    {YYYY,MM,DD}   = Date,
-    {Hour,Min,Sec} = Time,
-    FormatDate =
-        io_lib:format("~.4w:~.2.0w:~.2.0w ~.2.0w:~.2.0w:~.2.0w ~w",
-                      [YYYY,MM,DD,Hour,Min,Sec,round(N3/1000)]),
-    lists:flatten(FormatDate).

@@ -28,6 +28,24 @@ EBIN = .
 # Target Specs
 # ----------------------------------------------------
 
+SOCKET_MODULES = \
+	socket_test_lib \
+	socket_test_logger \
+	socket_test_evaluator \
+	socket_test_ttest_lib \
+	socket_test_ttest_tcp_gen \
+	socket_test_ttest_tcp_socket \
+	socket_test_ttest_tcp_client \
+	socket_test_ttest_tcp_client_gen \
+	socket_test_ttest_tcp_client_socket \
+	socket_test_ttest_tcp_server \
+	socket_test_ttest_tcp_server_gen \
+	socket_test_ttest_tcp_server_socket \
+	socket_SUITE
+
+NET_MODULES = \
+	net_SUITE
+
 MODULES= \
 	a_SUITE \
 	after_SUITE \
@@ -72,6 +90,7 @@ MODULES= \
 	gc_SUITE \
 	guard_SUITE \
 	hash_SUITE \
+	hash_property_test_SUITE \
 	hibernate_SUITE \
 	hipe_SUITE \
 	iovec_SUITE \
@@ -84,6 +103,7 @@ MODULES= \
 	monitor_SUITE \
 	multi_load_SUITE \
 	nested_SUITE \
+	$(NET_MODULES) \
 	nif_SUITE \
 	node_container_SUITE \
 	nofrag_SUITE \
@@ -105,7 +125,9 @@ MODULES= \
 	send_term_SUITE \
 	sensitive_SUITE \
 	signal_SUITE \
+	small_SUITE \
 	smoke_test_SUITE \
+	$(SOCKET_MODULES) \
 	statistics_SUITE \
 	system_info_SUITE \
 	system_profile_SUITE \
@@ -153,8 +175,14 @@ NATIVE_MODULES= $(NATIVE:%=%_native_SUITE)
 NATIVE_ERL_FILES= $(NATIVE_MODULES:%=%.erl)
 
 ERL_FILES= $(MODULES:%=%.erl)
+HRL_FILES= \
+	socket_test_evaluator.hrl \
+	socket_test_ttest.hrl \
+	socket_test_ttest_client.hrl
 
 TARGET_FILES = $(MODULES:%=$(EBIN)/%.$(EMULATOR))
+NET_TARGETS = $(NET_MODULES:%=$(EBIN)/%.$(EMULATOR))
+SOCKET_TARGETS = $(SOCKET_MODULES:%=$(EBIN)/%.$(EMULATOR))
 
 EMAKEFILE=Emakefile
 
@@ -180,14 +208,10 @@ ERL_COMPILE_FLAGS +=
 # ----------------------------------------------------
 
 make_emakefile: $(NO_OPT_ERL_FILES) $(NATIVE_ERL_FILES)
-	# This special rule can be removed when communication with R7B nodes 
-	# is no longer supported.
-	$(ERL_TOP)/make/make_emakefile $(ERL_COMPILE_FLAGS) +compressed -o$(EBIN) \
-	'*_SUITE_make' > $(EMAKEFILE)
 	$(ERL_TOP)/make/make_emakefile $(ERL_COMPILE_FLAGS) +compressed -o$(EBIN) \
 	$(MODULES) >> $(EMAKEFILE)
-	$(ERL_TOP)/make/make_emakefile +no_copt +no_postopt $(ERL_COMPILE_FLAGS) \
-	-o$(EBIN) $(NO_OPT_MODULES) >> $(EMAKEFILE)
+	$(ERL_TOP)/make/make_emakefile +no_copt +no_postopt +no_ssa_opt +no_bsm_opt \
+        $(ERL_COMPILE_FLAGS) -o$(EBIN) $(NO_OPT_MODULES) >> $(EMAKEFILE)
 	$(ERL_TOP)/make/make_emakefile +native $(ERL_COMPILE_FLAGS) \
 	-o$(EBIN) $(NATIVE_MODULES) >> $(EMAKEFILE)
 
@@ -200,6 +224,10 @@ clean:
 	rm -f core *~
 
 docs:
+
+targets: $(TARGET_FILES)
+socket_targets: $(SOCKET_TARGETS)
+net_targets: $(NET_TARGETS)
 
 # ----------------------------------------------------
 # Special targets
@@ -221,11 +249,11 @@ release_spec:
 release_tests_spec: make_emakefile
 	$(INSTALL_DIR) "$(RELSYSDIR)"
 	$(INSTALL_DATA) $(EMAKEFILE) $(TEST_SPEC_FILES) \
-		$(ERL_FILES) "$(RELSYSDIR)"
+		$(ERL_FILES) $(HRL_FILES) "$(RELSYSDIR)"
 	$(INSTALL_DATA) $(NO_OPT_ERL_FILES) "$(RELSYSDIR)"
 	$(INSTALL_DATA) $(NATIVE_ERL_FILES) "$(RELSYSDIR)"
 	chmod -R u+w "$(RELSYSDIR)"
-	tar cf - *_SUITE_data | (cd "$(RELSYSDIR)"; tar xf -)
+	tar cf - *_SUITE_data property_test | (cd "$(RELSYSDIR)"; tar xf -)
 
 release_docs_spec:
 

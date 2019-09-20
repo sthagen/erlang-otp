@@ -126,7 +126,7 @@
               instance.</p>
             <p>One can get an approximation of the <c>native</c>
               time unit by calling
-              <seealso marker="erlang:convert_time_unit/3">
+              <seealso marker="#convert_time_unit/3">
               <c>erlang:convert_time_unit(1, second, native)</c></seealso>.
               The result equals the number
               of whole <c>native</c> time units per second. If
@@ -337,6 +337,16 @@ Z = erlang:adler32_combine(X,Y,iolist_size(Data2)).</code>
     </func>
 
     <func>
+      <name name="atom_to_binary" arity="1" since="OTP @OTP-15995@"/>
+      <fsummary>Return the binary representation of an atom.</fsummary>
+      <desc>
+	<p>
+	  The same as <seealso marker="#atom_to_binary/2"><c>atom_to_binary</c>
+	  </seealso><c>(<anno>Atom</anno>, utf8)</c>.</p>
+      </desc>
+    </func>
+
+    <func>
       <name name="atom_to_binary" arity="2" since=""/>
       <fsummary>Return the binary representation of an atom.</fsummary>
       <desc>
@@ -409,14 +419,21 @@ Z = erlang:adler32_combine(X,Y,iolist_size(Data2)).</code>
     </func>
 
     <func>
+      <name name="binary_to_atom" arity="1" since="OTP @OTP-15995@"/>
+      <fsummary>Convert from text representation to an atom.</fsummary>
+      <desc>
+	<p>
+	  The same as <seealso marker="#binary_to_atom/2"><c>binary_to_atom</c>
+	  </seealso><c>(<anno>Binary</anno>, utf8)</c>.</p>
+      </desc>
+    </func>
+
+    <func>
       <name name="binary_to_atom" arity="2" since=""/>
       <fsummary>Convert from text representation to an atom.</fsummary>
       <desc>
         <p>Returns the atom whose text representation is
-          <c><anno>Binary</anno></c>.
-          If <c><anno>Encoding</anno></c> is <c>latin1</c>, no
-          translation of bytes in the binary is done.
-          If <c><anno>Encoding</anno></c>
+          <c><anno>Binary</anno></c>. If <c><anno>Encoding</anno></c>
           is <c>utf8</c> or <c>unicode</c>, the binary must contain
           valid UTF-8 sequences.</p>
         <note>
@@ -434,6 +451,17 @@ Z = erlang:adler32_combine(X,Y,iolist_size(Data2)).</code>
 'Erlang'
 > <input>binary_to_atom(&lt;&lt;1024/utf8&gt;&gt;, utf8).</input>
 'Ѐ'</pre>
+      </desc>
+    </func>
+
+    <func>
+      <name name="binary_to_existing_atom" arity="1" since="OTP @OTP-15995@"/>
+      <fsummary>Convert from text representation to an atom.</fsummary>
+      <desc>
+	<p>
+	  The same as <seealso marker="#binary_to_existing_atom/2">
+	  <c>binary_to_existing_atom</c></seealso>
+	  <c>(<anno>Binary</anno>, utf8)</c>.</p>
       </desc>
     </func>
 
@@ -1269,6 +1297,42 @@ end</code>
 	  data is available by calling
 	  <seealso marker="erlang#dist_ctrl_get_data_notification/1"><c>erlang:dist_ctrl_get_data_notification(DHandle)</c></seealso>.
 	</p>
+	<p>The returned value when there are data available depends
+	on the value of the <c>get_size</c> option configured on the
+	distribution channel identified by <c><anno>DHandle</anno></c>.
+	For more information see the documentation of the <c>get_size</c>
+	option for the
+	<seealso marker="#dist_ctrl_set_opt/3"><c>erlang:dist_ctrl_set_opt/3</c></seealso>
+	function.</p>
+	<note><p>
+	  Only the process registered as distribution
+	  controller for the distribution channel identified by
+	  <c><anno>DHandle</anno></c> is allowed to call this
+	  function.
+	</p></note>
+	<p>
+	  This function is used when implementing an alternative
+	  distribution carrier using processes as distribution
+	  controllers. <c><anno>DHandle</anno></c> is retrived
+	  via the callback
+	  <seealso marker="erts:alt_dist#hs_data_f_handshake_complete"><c>f_handshake_complete</c></seealso>.
+	  More information can be found in the documentation of
+	  <seealso marker="erts:alt_dist#distribution_module">ERTS
+	  User's Guide ➜ How to implement an Alternative Carrier
+	  for the Erlang Distribution ➜ Distribution Module</seealso>.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="dist_ctrl_get_opt" arity="2" clause_i="1" since="OTP 22.0"/>
+      <fsummary>Get value of the get_size option on a distribution channel</fsummary>
+      <desc>
+	<p>Returns the value of the <c>get_size</c> option on the distribution channel
+	identified by <c><anno>DHandle</anno></c>. For more information see the
+	documentation of the <c>get_size</c> option for the
+	<seealso marker="#dist_ctrl_set_opt/3"><c>erlang:dist_ctrl_set_opt/3</c></seealso>
+	function.</p>
 	<note><p>
 	  Only the process registered as distribution
 	  controller for the distribution channel identified by
@@ -1391,6 +1455,55 @@ end</code>
       </desc>
     </func>
 
+    <func>
+      <name name="dist_ctrl_set_opt" arity="3" clause_i="1" since="OTP 22.0"/>
+      <fsummary>Set value of the get_size option on a distribution channel</fsummary>
+      <desc>
+        <p>Sets the value of the <c>get_size</c> option on the distribution channel
+	identified by <c><anno>DHandle</anno></c>. This option controls the return
+	value of calls to
+	<seealso marker="#dist_ctrl_get_data/1">erlang:dist_ctrl_get_data(<anno>DHandle</anno>)</seealso>
+	where <c><anno>DHandle</anno></c> equals <c><anno>DHandle</anno></c> used
+	when setting this option.
+	When the <c>get_size</c> option is:</p>
+	<taglist>
+	  <tag><c>false</c></tag>
+	  <item>
+	    and there are distribution data available, a call to
+	    <c>erlang:dist_ctrl_get_data(<anno>DHandle</anno>)</c>
+	    will just return <c>Data</c> to pass over the channel.
+	    This is the default value of the <c>get_size</c> option.
+	  </item>
+	  <tag><c>true</c></tag>
+	  <item>
+	    and there are distribution data available, a call to
+	    <c>erlang:dist_ctrl_get_data(<anno>DHandle</anno>)</c>
+	    will return <c>Data</c> to pass over the channel as well as
+	    the <c>Size</c> of <c>Data</c> in bytes. This is returned as
+	    a tuple on the form <c>{Size, Data}</c>.
+	  </item>
+	</taglist>
+	<p>All options are set to default when a channel is closed.</p>
+	<note><p>
+	  Only the process registered as distribution
+	  controller for the distribution channel identified by
+	  <c><anno>DHandle</anno></c> is allowed to call this
+	  function.
+	</p></note>
+	<p>
+	  This function is used when implementing an alternative
+	  distribution carrier using processes as distribution
+	  controllers. <c><anno>DHandle</anno></c> is retrived
+	  via the callback
+	  <seealso marker="erts:alt_dist#hs_data_f_handshake_complete"><c>f_handshake_complete</c></seealso>.
+	  More information can be found in the documentation of
+	  <seealso marker="erts:alt_dist#distribution_module">ERTS
+	  User's Guide ➜ How to implement an Alternative Carrier
+	  for the Erlang Distribution ➜ Distribution Module</seealso>.
+	</p>
+      </desc>
+    </func>
+    
     <func>
       <name name="element" arity="2" since=""/>
       <fsummary>Return the Nth element of a tuple.</fsummary>
@@ -2468,6 +2581,7 @@ os_prompt%</pre>
 true
 > is_map_key(value,Map).
 false</code>
+        <p>Allowed in guard tests.</p>
       </desc>
     </func>
 
@@ -3020,6 +3134,7 @@ false</code>
   Map = #{42 => value_two,1337 => "value one","a" => 1},
   map_get(Key,Map).
 "value one"</code>
+        <p>Allowed in guard tests.</p>
       </desc>
     </func>
 
@@ -3343,7 +3458,7 @@ RealSystem = system + MissedSystem</code>
 
     <func>
       <name name="monitor" arity="2" clause_i="1" since=""/>
-      <name name="monitor" arity="2" clause_i="2" since="?"/>
+      <name name="monitor" arity="2" clause_i="2" since="OTP 19.0"/>
       <name name="monitor" arity="2" clause_i="3" since="OTP 18.0"/>
       <fsummary>Start monitoring.</fsummary>
       <type name="registered_name"/>
@@ -4174,9 +4289,16 @@ RealSystem = system + MissedSystem</code>
           </item>
           <tag><c>badarg</c></tag>
           <item>
-            If the port driver so decides for any reason (probably
+            <p>If the port driver so decides for any reason (probably
             something wrong with <c><anno>Operation</anno></c>
-            or <c><anno>Data</anno></c>).
+            or <c><anno>Data</anno></c>).</p>
+	    <warning>
+	      <p>Do not call <c>port_call</c> with an unknown
+	      <c><anno>Port</anno></c> identifier and expect <c>badarg</c>
+	      exception. Any undefined behavior is possible (including node
+	      crash) depending on how the port driver interprets the supplied
+	      arguments.</p>
+	    </warning>
           </item>
         </taglist>
       </desc>
@@ -4266,6 +4388,11 @@ RealSystem = system + MissedSystem</code>
             <p>If <c><anno>Data</anno></c> is an invalid I/O list.</p>
           </item>
         </taglist>
+	<warning>
+	  <p>Do not send data to an unknown port. Any undefined behavior is
+	  possible (including node crash) depending on how the port driver
+	  interprets the data.</p>
+	</warning>
       </desc>
     </func>
 
@@ -4325,6 +4452,11 @@ RealSystem = system + MissedSystem</code>
             a busy port.
           </item>
         </taglist>
+	<warning>
+	  <p>Do not send data to an unknown port. Any undefined behavior is
+	  possible (including node crash) depending on how the port driver
+	  interprets the data.</p>
+	</warning>
       </desc>
     </func>
 
@@ -4429,6 +4561,13 @@ RealSystem = system + MissedSystem</code>
             If the port driver so decides for any reason (probably
             something wrong with <c><anno>Operation</anno></c> or
             <c><anno>Data</anno></c>).
+	    <warning>
+	      <p>Do not call <c>port_control/3</c> with an unknown
+	      <c><anno>Port</anno></c> identifier and expect <c>badarg</c>
+	      exception. Any undefined behavior is possible (including node
+	      crash) depending on how the port driver interprets the supplied
+	      arguments.</p>
+	    </warning>
           </item>
         </taglist>
       </desc>
@@ -4530,7 +4669,7 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="port_info" arity="2" clause_i="5" since="?"/>
+      <name name="port_info" arity="2" clause_i="5" since="OTP R16B"/>
       <fsummary>Information about the locking of a port.</fsummary>
       <desc>
         <p><c><anno>Locking</anno></c> is one of the following:</p>
@@ -4551,9 +4690,10 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="port_info" arity="2" clause_i="6" since="?"/>
+      <name name="port_info" arity="2" clause_i="6" since="OTP R16B"/>
       <fsummary>Information about the memory size of a port.</fsummary>
       <desc>
+        <marker id="port_info_memory"/>
         <p><c><anno>Bytes</anno></c> is the total number of
           bytes allocated for this port by the runtime system. The
           port itself can have allocated memory that is not
@@ -4569,7 +4709,7 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="port_info" arity="2" clause_i="7" since="?"/>
+      <name name="port_info" arity="2" clause_i="7" since="OTP R16B"/>
       <fsummary>Information about the monitors of a port.</fsummary>
       <desc>
         <p><c><anno>Monitors</anno></c> represent processes monitored by
@@ -4585,7 +4725,7 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="port_info" arity="2" clause_i="8" since="?"/>
+      <name name="port_info" arity="2" clause_i="8" since="OTP 19.0"/>
       <fsummary>Which processes are monitoring this port.</fsummary>
       <desc>
         <p>Returns list of pids that are monitoring given port at the
@@ -4617,7 +4757,7 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="port_info" arity="2" clause_i="10" since="?"/>
+      <name name="port_info" arity="2" clause_i="10" since="OTP R16B"/>
       <fsummary>Information about the OS pid of a port.</fsummary>
       <desc>
         <p><c><anno>OsPid</anno></c> is the process identifier (or equivalent)
@@ -4655,7 +4795,7 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="port_info" arity="2" clause_i="12" since="?"/>
+      <name name="port_info" arity="2" clause_i="12" since="OTP R16B"/>
       <fsummary>Information about the parallelism hint of a port.</fsummary>
       <desc>
         <p><c><anno>Boolean</anno></c> corresponds to the port parallelism
@@ -4666,7 +4806,7 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="port_info" arity="2" clause_i="13" since="?"/>
+      <name name="port_info" arity="2" clause_i="13" since="OTP R16B"/>
       <fsummary>Information about the queue size of a port.</fsummary>
       <desc>
         <p><c><anno>Bytes</anno></c> is the total number
@@ -4786,7 +4926,7 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="process_flag" arity="2" clause_i="4" since="?"/>
+      <name name="process_flag" arity="2" clause_i="4" since="OTP R13B04"/>
       <fsummary>Set process flag min_bin_vheap_size for the calling process.
       </fsummary>
       <desc>
@@ -4798,7 +4938,7 @@ RealSystem = system + MissedSystem</code>
 
     <func>
       <name name="process_flag" arity="2" clause_i="5"
-	    anchor="process_flag_max_heap_size" since="?"/>
+	    anchor="process_flag_max_heap_size" since="OTP 19.0"/>
       <fsummary>Set process flag max_heap_size for the calling process.
       </fsummary>
       <type name="max_heap_size"/>
@@ -4872,7 +5012,7 @@ RealSystem = system + MissedSystem</code>
 
     <func>
       <name name="process_flag" arity="2" clause_i="6"
-	    anchor="process_flag_message_queue_data" since="?"/>
+	    anchor="process_flag_message_queue_data" since="OTP 19.0"/>
       <fsummary>Set process flag message_queue_data for the calling process.
       </fsummary>
       <type name="message_queue_data"/>
@@ -5051,7 +5191,7 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
-      <name name="process_flag" arity="3" since="?"/>
+      <name name="process_flag" arity="3" since=""/>
       <fsummary>Set process flags for a process.</fsummary>
       <desc>
         <p>Sets certain flags for the process <c><anno>Pid</anno></c>,
@@ -5186,11 +5326,13 @@ RealSystem = system + MissedSystem</code>
               changed or removed without prior notice.</p>
           </item>
           <tag><c>{current_function, {<anno>Module</anno>,
-            <anno>Function</anno>, Arity}}</c></tag>
+            <anno>Function</anno>, Arity} | undefined}</c></tag>
           <item>
             <p><c><anno>Module</anno></c>, <c><anno>Function</anno></c>,
               <c><anno>Arity</anno></c> is
-              the current function call of the process.</p>
+              the current function call of the process. The value
+              <c>undefined</c> can be returned if the process is
+              currently executing native compiled code.</p>
           </item>
           <tag><c>{current_location, {<anno>Module</anno>,
             <anno>Function</anno>, <anno>Arity</anno>,
@@ -5276,6 +5418,7 @@ RealSystem = system + MissedSystem</code>
           </item>
           <tag><c>{memory, <anno>Size</anno>}</c></tag>
           <item>
+            <marker id="process_info_memory"/>
             <p><c><anno>Size</anno></c> is the size in bytes of the process.
               This includes call stack, heap, and internal structures.</p>
           </item>
@@ -6403,7 +6546,7 @@ true</pre>
 
     <func>
       <name name="statistics" arity="1" clause_i="1"
-	    anchor="statistics_active_tasks" since="?"/>
+	    anchor="statistics_active_tasks" since="OTP 18.3"/>
       <fsummary>Information about active processes and ports.</fsummary>
       <desc>
         <p>Returns the same as
@@ -6418,7 +6561,7 @@ true</pre>
 
     <func>
       <name name="statistics" arity="1" clause_i="2"
-	    anchor="statistics_active_tasks_all" since="?"/>
+	    anchor="statistics_active_tasks_all" since="OTP 20.0"/>
       <fsummary>Information about active processes and ports.</fsummary>
       <desc>
         <p>Returns a list where each element represents the amount
@@ -6507,7 +6650,7 @@ true</pre>
 
     <func>
       <name name="statistics" arity="1" clause_i="7"
-	    anchor="statistics_microstate_accounting" since="?"/>
+	    anchor="statistics_microstate_accounting" since="OTP 19.0"/>
       <fsummary>Information about microstate accounting.</fsummary>
       <desc>
         <p>Microstate accounting can be used to measure how much time the Erlang
@@ -6565,7 +6708,7 @@ lists:map(
           <tag><c>async</c></tag>
           <item>Async threads are used by various linked-in drivers (mainly the
             file drivers) do offload non-CPU intensive work. See
-            <seealso marker="erts:erl#+async_thread_pool_size">erl +A</seealso> for more details.</item>
+            <seealso marker="erts:erl#async_thread_pool_size">erl +A</seealso> for more details.</item>
           <tag><c>aux</c></tag>
           <item>Takes care of any work that is not
             specifically assigned to a scheduler.</item>
@@ -6686,7 +6829,7 @@ lists:map(
 
     <func>
       <name name="statistics" arity="1" clause_i="10"
-	    anchor="statistics_run_queue_lengths" since="?"/>
+	    anchor="statistics_run_queue_lengths" since="OTP 18.3"/>
       <fsummary>Information about the run-queue lengths.</fsummary>
       <desc>
         <p>Returns the same as
@@ -6701,7 +6844,7 @@ lists:map(
 
     <func>
       <name name="statistics" arity="1" clause_i="11"
-	    anchor="statistics_run_queue_lengths_all" since="?"/>
+	    anchor="statistics_run_queue_lengths_all" since="OTP 20.0"/>
       <fsummary>Information about the run-queue lengths.</fsummary>
       <desc>
         <p>Returns a list where each element represents the amount
@@ -6762,7 +6905,7 @@ lists:map(
 
     <func>
       <name name="statistics" arity="1" clause_i="13"
-	    anchor="statistics_scheduler_wall_time" since="?"/>
+	    anchor="statistics_scheduler_wall_time" since="OTP R15B01"/>
       <fsummary>Information about each schedulers work time.</fsummary>
       <desc>
         <p>Returns a list of tuples with
@@ -6886,7 +7029,7 @@ ok
 
     <func>
       <name name="statistics" arity="1" clause_i="14"
-	    anchor="statistics_scheduler_wall_time_all" since="?"/>
+	    anchor="statistics_scheduler_wall_time_all" since="OTP 20.0"/>
       <fsummary>Information about each schedulers work time.</fsummary>
       <desc>
 	<p>The same as
@@ -6914,7 +7057,7 @@ ok
     </func>
     <func>
       <name name="statistics" arity="1" clause_i="15"
-	    anchor="statistics_total_active_tasks" since="?"/>
+	    anchor="statistics_total_active_tasks" since="OTP 18.3"/>
       <fsummary>Information about active processes and ports.</fsummary>
       <desc>
         <p>The same as calling
@@ -6925,7 +7068,7 @@ ok
 
     <func>
       <name name="statistics" arity="1" clause_i="16"
-	    anchor="statistics_total_active_tasks_all" since="?"/>
+	    anchor="statistics_total_active_tasks_all" since="OTP 20.0"/>
       <fsummary>Information about active processes and ports.</fsummary>
       <desc>
         <p>The same as calling
@@ -6936,7 +7079,7 @@ ok
 
     <func>
       <name name="statistics" arity="1" clause_i="17"
-	    anchor="statistics_total_run_queue_lengths" since="?"/>
+	    anchor="statistics_total_run_queue_lengths" since="OTP 18.3"/>
       <fsummary>Information about the run-queue lengths.</fsummary>
       <desc>
         <p>The same as calling
@@ -6947,7 +7090,7 @@ ok
 
     <func>
       <name name="statistics" arity="1" clause_i="18"
-	    anchor="statistics_total_run_queue_lengths_all" since="?"/>
+	    anchor="statistics_total_run_queue_lengths_all" since="OTP 20.0"/>
       <fsummary>Information about the run-queue lengths.</fsummary>
       <desc>
         <p>The same as calling
@@ -7190,7 +7333,7 @@ ok
 
     <func>
       <name name="system_flag" arity="2" clause_i="3"
-	    anchor="system_flag_dirty_cpu_schedulers_online" since="?"/>
+	    anchor="system_flag_dirty_cpu_schedulers_online" since="OTP 17.0"/>
       <fsummary>Set system_flag_dirty_cpu_schedulers_online.</fsummary>
       <desc>
         <p>
@@ -7218,7 +7361,7 @@ ok
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="4" since="?"/>
+      <name name="system_flag" arity="2" clause_i="4" since="OTP 20.2.3"/>
       <fsummary>Set system flag for erts_alloc.</fsummary>
       <desc>
         <p>Sets system flags for
@@ -7255,7 +7398,7 @@ ok
 
     <func>
       <name name="system_flag" arity="2" clause_i="6"
-	    anchor="system_flag_microstate_accounting" since="?"/>
+	    anchor="system_flag_microstate_accounting" since="OTP 19.0"/>
       <fsummary>Set system flag microstate_accounting.</fsummary>
       <desc>
         <p>
@@ -7283,7 +7426,7 @@ ok
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="8" since="?"/>
+      <name name="system_flag" arity="2" clause_i="8" since="OTP R13B04"/>
       <fsummary>Set system flag min_bin_vheap_size.</fsummary>
       <desc>
         <p>Sets the default minimum binary virtual heap size for
@@ -7301,7 +7444,7 @@ ok
 
     <func>
       <name name="system_flag" arity="2" clause_i="9"
-	    anchor="system_flag_max_heap_size" since="?"/>
+	    anchor="system_flag_max_heap_size" since="OTP 19.0"/>
       <fsummary>Set system flag max_heap_size.</fsummary>
       <type name="max_heap_size"/>
       <desc>
@@ -7502,7 +7645,7 @@ ok
 
     <func>
       <name name="system_flag" arity="2" clause_i="12"
-	    anchor="system_flag_scheduler_wall_time" since="?"/>
+	    anchor="system_flag_scheduler_wall_time" since="OTP R15B01"/>
       <fsummary>Set system flag scheduler_wall_time.</fsummary>
       <desc>
         <p>
@@ -7543,7 +7686,39 @@ ok
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="14" since=""/>
+      <name name="system_flag" arity="2" clause_i="14" since="OTP 21.3"/>
+      <fsummary>Set system logger process.</fsummary>
+      <desc>
+        <p>Sets the process that will receive the logging
+        messages generated by ERTS. If set to <c>undefined</c>,
+        all logging messages generated by ERTS will be dropped.
+        The messages will be in the format:</p>
+        <code>
+{log,Level,Format,ArgList,Metadata} where
+
+Level = atom(),
+Format = string(),
+ArgList = list(term()),
+Metadata = #{ pid => pid(),
+   group_leader => pid(),
+   time := logger:timestamp(),
+   error_logger := #{ emulator := true, tag := atom() }
+        </code>
+        <p>If the <c>system_logger</c> process dies,
+        this flag will be reset to <c>logger</c>.</p>
+        <p>The default is the process named <c>logger</c>.</p>
+        <p>Returns the old value of the flag.</p>
+        <note><p>This function is designed to be used by the
+        KERNEL <seealso marker="kernel:logger"><c>logger</c></seealso>.
+        Be careful if you change it to something else as
+        log messages may be lost. If you want to intercept
+        emulator log messages, do it by adding a specialized handler
+        to the KERNEL logger.</p></note>
+      </desc>
+    </func>
+
+    <func>
+      <name name="system_flag" arity="2" clause_i="15" since=""/>
       <fsummary>Set system flag trace_control_word.</fsummary>
       <desc>
         <p>Sets the value of the node trace control word to
@@ -7557,8 +7732,8 @@ ok
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="15"
-	    anchor="system_flag_time_offset" since="?"/>
+      <name name="system_flag" arity="2" clause_i="16"
+	    anchor="system_flag_time_offset" since="OTP 18.0"/>
       <fsummary>Finalize the time offset.</fsummary>
       <desc>
         <p>
@@ -7707,8 +7882,9 @@ ok
               <seealso marker="#system_info_nif_version"><c>nif_version</c></seealso>,
               <seealso marker="#system_info_otp_release"><c>otp_release</c></seealso>,
               <seealso marker="#system_info_port_parallelism"><c>port_parallelism</c></seealso>,
-              <seealso marker="#system_info_system_version"><c>system_version</c></seealso>,
               <seealso marker="#system_info_system_architecture"><c>system_architecture</c></seealso>,
+              <seealso marker="#system_info_system_logger"><c>system_logger</c></seealso>,
+              <seealso marker="#system_info_system_version"><c>system_version</c></seealso>,
               <seealso marker="#system_info_trace_control_word"><c>trace_control_word</c></seealso>,
               <seealso marker="#system_info_version"><c>version</c></seealso>,
               <seealso marker="#system_info_wordsize"><c>wordsize</c></seealso>
@@ -7880,7 +8056,7 @@ ok
 	    anchor="system_info_cpu_topology" since=""/>           <!-- cpu_topology -->
       <name name="system_info" arity="1" clause_i="13" since=""/>  <!-- {cpu_topology, _} -->
       <name name="system_info" arity="1" clause_i="38" since=""/>  <!-- logical_processors -->
-      <name name="system_info" arity="1" clause_i="73" since="?"/>  <!-- update_cpu_info -->
+      <name name="system_info" arity="1" clause_i="74" since="OTP R14B"/>  <!-- update_cpu_info -->
       <fsummary>Information about the CPU topology of the system.</fsummary>
       <type name="cpu_topology"/>
       <type name="level_entry"/>
@@ -8032,14 +8208,14 @@ ok
 
     <func>
       <name name="system_info" arity="1" clause_i="31"
-	    anchor="system_info_process" since="?"/>  <!-- fullsweep_after -->
+	    anchor="system_info_process" since=""/>  <!-- fullsweep_after -->
       <name name="system_info" arity="1" clause_i="32" since=""/>  <!-- garbage_collection -->
       <name name="system_info" arity="1" clause_i="33" since=""/>  <!-- heap_sizes -->
       <name name="system_info" arity="1" clause_i="34" since=""/>  <!-- heap_type -->
-      <name name="system_info" arity="1" clause_i="40" since="?"/>  <!-- max_heap_size -->
-      <name name="system_info" arity="1" clause_i="41" since="?"/>  <!-- message_queue_data -->
-      <name name="system_info" arity="1" clause_i="42" since="?"/>  <!-- min_heap_size -->
-      <name name="system_info" arity="1" clause_i="43" since="?"/>  <!-- min_bin_vheap_size -->
+      <name name="system_info" arity="1" clause_i="40" since="OTP 19.0"/>  <!-- max_heap_size -->
+      <name name="system_info" arity="1" clause_i="41" since="OTP 19.0"/>  <!-- message_queue_data -->
+      <name name="system_info" arity="1" clause_i="42" since="OTP R13B04"/>  <!-- min_heap_size -->
+      <name name="system_info" arity="1" clause_i="43" since="OTP R13B04"/>  <!-- min_bin_vheap_size -->
       <name name="system_info" arity="1" clause_i="57" since=""/>  <!-- procs -->
       <fsummary>Information about the default process heap settings.</fsummary>
       <type name="message_queue_data"/>
@@ -8150,12 +8326,12 @@ ok
     </func>
 
     <func>
-      <name name="system_info" arity="1" clause_i="6" anchor="system_info_limits" since="?"/>   <!-- atom_count -->
-      <name name="system_info" arity="1" clause_i="7" since="?"/>   <!-- atom_limit -->
-      <name name="system_info" arity="1" clause_i="29" since="?"/>  <!-- ets_count -->
-      <name name="system_info" arity="1" clause_i="30" since="?"/>  <!-- ets_limit -->
-      <name name="system_info" arity="1" clause_i="53" since="?"/>  <!-- port_count -->
-      <name name="system_info" arity="1" clause_i="54" since="?"/>  <!-- port_limit -->
+      <name name="system_info" arity="1" clause_i="6" anchor="system_info_limits" since="OTP 20.0"/>   <!-- atom_count -->
+      <name name="system_info" arity="1" clause_i="7" since="OTP 20.0"/>   <!-- atom_limit -->
+      <name name="system_info" arity="1" clause_i="29" since="OTP 21.1"/>  <!-- ets_count -->
+      <name name="system_info" arity="1" clause_i="30" since="OTP R16B03"/>  <!-- ets_limit -->
+      <name name="system_info" arity="1" clause_i="53" since="OTP R16B"/>  <!-- port_count -->
+      <name name="system_info" arity="1" clause_i="54" since="OTP R16B"/>  <!-- port_limit -->
       <name name="system_info" arity="1" clause_i="55" since=""/>  <!-- process_count -->
       <name name="system_info" arity="1" clause_i="56" since=""/>  <!-- process_limit -->
       <fsummary>Information about various system limits.</fsummary>
@@ -8235,10 +8411,10 @@ ok
       <name name="system_info" arity="1" clause_i="50" since="OTP 18.0"/>  <!-- os_monotonic_time_source -->
       <name name="system_info" arity="1" clause_i="51" since="OTP 18.0"/>  <!-- os_system_time_source -->
       <name name="system_info" arity="1" clause_i="63" since="OTP 18.0"/>  <!-- start_time -->
-      <name name="system_info" arity="1" clause_i="68" since="OTP 18.0"/>  <!-- time_correction -->
-      <name name="system_info" arity="1" clause_i="69" since="OTP 18.0"/>  <!-- time_offset -->
-      <name name="system_info" arity="1" clause_i="70" since="OTP 18.0"/>  <!-- time_warp_mode -->
-      <name name="system_info" arity="1" clause_i="71" since="?"/>  <!-- tolerant_timeofday -->
+      <name name="system_info" arity="1" clause_i="69" since="OTP 18.0"/>  <!-- time_correction -->
+      <name name="system_info" arity="1" clause_i="70" since="OTP 18.0"/>  <!-- time_offset -->
+      <name name="system_info" arity="1" clause_i="71" since="OTP 18.0"/>  <!-- time_warp_mode -->
+      <name name="system_info" arity="1" clause_i="72" since="OTP 17.1"/>  <!-- tolerant_timeofday -->
       <fsummary>Information about system time.</fsummary>
       <desc>
         <marker id="system_info_time_tags"/>
@@ -8328,7 +8504,7 @@ ok
               system time</seealso> that is used by the runtime system.</p>
             <p>The list contains two-tuples with <c>Key</c>s
               as first element, and <c>Value</c>s as second element. The
-              order if these tuples is undefined. The following
+              order of these tuples is undefined. The following
               tuples can be part of the list, but more tuples can be
               introduced in the future:</p>
             <taglist>
@@ -8459,19 +8635,19 @@ ok
 
     <func>
       <name name="system_info" arity="1" clause_i="17"
-	    anchor="system_info_scheduler" since="?"/>  <!-- dirty_cpu_schedulers -->
-      <name name="system_info" arity="1" clause_i="18" since="?"/>  <!-- dirty_cpu_schedulers_online -->
-      <name name="system_info" arity="1" clause_i="19" since="?"/>  <!-- dirty_io_schedulers -->
+	    anchor="system_info_scheduler" since="OTP 17.0"/>  <!-- dirty_cpu_schedulers -->
+      <name name="system_info" arity="1" clause_i="18" since="OTP 17.0"/>  <!-- dirty_cpu_schedulers_online -->
+      <name name="system_info" arity="1" clause_i="19" since="OTP 17.0"/>  <!-- dirty_io_schedulers -->
       <name name="system_info" arity="1" clause_i="45" since=""/>  <!-- multi_scheduling -->
       <name name="system_info" arity="1" clause_i="46" since=""/>  <!-- multi_scheduling_blockers -->
-      <name name="system_info" arity="1" clause_i="49" since="?"/>  <!-- normal_multi_scheduling_blockers -->
+      <name name="system_info" arity="1" clause_i="49" since="OTP 19.0"/>  <!-- normal_multi_scheduling_blockers -->
       <name name="system_info" arity="1" clause_i="58" since=""/>  <!-- scheduler_bind_type -->
       <name name="system_info" arity="1" clause_i="59" since=""/>  <!-- scheduler_bindings -->
       <name name="system_info" arity="1" clause_i="60" since=""/>  <!-- scheduler_id -->
       <name name="system_info" arity="1" clause_i="61" since=""/>  <!-- schedulers -->
       <name name="system_info" arity="1" clause_i="62" since=""/>  <!-- smp_support -->
-      <name name="system_info" arity="1" clause_i="66" since=""/>  <!-- threads -->
-      <name name="system_info" arity="1" clause_i="67" since=""/>  <!-- thread_pool_size -->
+      <name name="system_info" arity="1" clause_i="67" since=""/>  <!-- threads -->
+      <name name="system_info" arity="1" clause_i="68" since=""/>  <!-- thread_pool_size -->
       <fsummary>Information about system schedulers.</fsummary>
       <desc>
         <marker id="system_info_scheduler_tags"/>
@@ -8760,9 +8936,9 @@ ok
     <func>
       <name name="system_info" arity="1" clause_i="14"
 	    anchor="system_info_dist" since=""/>  <!-- creation -->
-      <name name="system_info" arity="1" clause_i="16" since="?"/>  <!-- delayed_node_table_gc -->
+      <name name="system_info" arity="1" clause_i="16" since="OTP 18.0"/>  <!-- delayed_node_table_gc -->
       <name name="system_info" arity="1" clause_i="20" since=""/>  <!-- dist -->
-      <name name="system_info" arity="1" clause_i="21" since="?"/>  <!-- dist_buf_busy_limit -->
+      <name name="system_info" arity="1" clause_i="21" since="OTP R14B01"/>  <!-- dist_buf_busy_limit -->
       <name name="system_info" arity="1" clause_i="22" since=""/>  <!-- dist_ctrl -->
       <fsummary>Information about erlang distribution.</fsummary>
       <desc>
@@ -8837,7 +9013,7 @@ ok
       <!-- <name name="system_info" arity="1" clause_i="6"/>   atom_count -->
       <!-- <name name="system_info" arity="1" clause_i="7"/>   atom_limit -->
       <name name="system_info" arity="1" clause_i="8"
-	    anchor="system_info_misc" since="?"/>   <!-- build_type -->
+	    anchor="system_info_misc" since="OTP R14B"/>   <!-- build_type -->
       <name name="system_info" arity="1" clause_i="9" since=""/>   <!-- c_compiler_used -->
       <name name="system_info" arity="1" clause_i="10" since=""/>  <!-- check_io -->
       <name name="system_info" arity="1" clause_i="11" since=""/>  <!-- compat_rel -->
@@ -8853,8 +9029,8 @@ ok
       <!-- <name name="system_info" arity="1" clause_i="21"/>  dist_buf_busy_limit -->
       <!-- <name name="system_info" arity="1" clause_i="22"/>  dist_ctrl -->
       <name name="system_info" arity="1" clause_i="23" since=""/>  <!-- driver_version -->
-      <name name="system_info" arity="1" clause_i="24" since="?"/>  <!-- dynamic_trace -->
-      <name name="system_info" arity="1" clause_i="25" since="?"/>  <!-- dynamic_trace_probes -->
+      <name name="system_info" arity="1" clause_i="24" since="OTP R15B01"/>  <!-- dynamic_trace -->
+      <name name="system_info" arity="1" clause_i="25" since="OTP R15B01"/>  <!-- dynamic_trace_probes -->
       <!-- <name name="system_info" arity="1" clause_i="26"/>  end_time -->
       <!-- <name name="system_info" arity="1" clause_i="27"/>  elib_malloc -->
       <!-- <name name="system_info" arity="1" clause_i="28"/>  eager_check_io, removed -->
@@ -8876,12 +9052,12 @@ ok
       <name name="system_info" arity="1" clause_i="44" since=""/>  <!-- modified_timing_level -->
       <!-- <name name="system_info" arity="1" clause_i="45"/>  multi_scheduling -->
       <!-- <name name="system_info" arity="1" clause_i="46"/>  multi_scheduling_blockers -->
-      <name name="system_info" arity="1" clause_i="47" since="?"/>  <!-- nif_version -->
+      <name name="system_info" arity="1" clause_i="47" since="OTP 17.4"/>  <!-- nif_version -->
       <!-- n<name name="system_info" arity="1" clause_i="48"/>  ormal_multi_scheduling_blockers -->
       <name name="system_info" arity="1" clause_i="49" since=""/>  <!-- otp_release -->
       <!-- <name name="system_info" arity="1" clause_i="50"/>  os_monotonic_time_source -->
       <!-- <name name="system_info" arity="1" clause_i="51"/>  os_system_time_source -->
-      <name name="system_info" arity="1" clause_i="52" since="?"/>  <!-- port_parallelism -->
+      <name name="system_info" arity="1" clause_i="52" since="OTP R16B"/>  <!-- port_parallelism -->
       <!-- <name name="system_info" arity="1" clause_i="53"/>  port_count -->
       <!-- <name name="system_info" arity="1" clause_i="54"/>  port_limit -->
       <!-- <name name="system_info" arity="1" clause_i="55"/>  process_count -->
@@ -8893,19 +9069,20 @@ ok
       <!-- <name name="system_info" arity="1" clause_i="61"/>  schedulers -->
       <!-- <name name="system_info" arity="1" clause_i="62"/>  smp_support -->
       <!-- <name name="system_info" arity="1" clause_i="63"/>  start_time -->
-      <name name="system_info" arity="1" clause_i="64" since=""/>  <!-- system_version -->
-      <name name="system_info" arity="1" clause_i="65" since=""/>  <!-- system_architecture -->
-      <!-- <name name="system_info" arity="1" clause_i="66"/>  threads -->
-      <!-- <name name="system_info" arity="1" clause_i="67"/>  thread_pool_size -->
-      <!-- <name name="system_info" arity="1" clause_i="68"/>  time_correction -->
-      <!-- <name name="system_info" arity="1" clause_i="69"/>  time_offset -->
-      <!-- <name name="system_info" arity="1" clause_i="70"/>  time_warp_mode -->
-      <!-- <name name="system_info" arity="1" clause_i="71"/>  tolerant_timeofday -->
-      <name name="system_info" arity="1" clause_i="72" since=""/>  <!-- trace_control_word -->
-      <!-- <name name="system_info" arity="1" clause_i="73"/>  update_cpu_info -->
-      <name name="system_info" arity="1" clause_i="74" since=""/>  <!-- version -->
-      <name name="system_info" arity="1" clause_i="75" since=""/>  <!-- wordsize -->
-      <!-- <name name="system_info" arity="1" clause_i="76"/>  overview -->
+      <name name="system_info" arity="1" clause_i="64" since=""/>  <!-- system_architecture -->
+      <name name="system_info" arity="1" clause_i="65" since="OTP 21.3"/>  <!-- system_logger -->
+      <name name="system_info" arity="1" clause_i="66" since=""/>  <!-- system_version -->
+      <!-- <name name="system_info" arity="1" clause_i="67"/>  threads -->
+      <!-- <name name="system_info" arity="1" clause_i="68"/>  thread_pool_size -->
+      <!-- <name name="system_info" arity="1" clause_i="69"/>  time_correction -->
+      <!-- <name name="system_info" arity="1" clause_i="70"/>  time_offset -->
+      <!-- <name name="system_info" arity="1" clause_i="71"/>  time_warp_mode -->
+      <!-- <name name="system_info" arity="1" clause_i="72"/>  tolerant_timeofday -->
+      <name name="system_info" arity="1" clause_i="73" since=""/>  <!-- trace_control_word -->
+      <!-- <name name="system_info" arity="1" clause_i="74"/>  update_cpu_info -->
+      <name name="system_info" arity="1" clause_i="75" since=""/>  <!-- version -->
+      <name name="system_info" arity="1" clause_i="76" since=""/>  <!-- wordsize -->
+      <!-- <name name="system_info" arity="1" clause_i="77"/>  overview -->
       <fsummary>Information about the system.</fsummary>
       <desc>
         <marker id="system_info_misc_tags"/>
@@ -9061,17 +9238,23 @@ ok
               <seealso marker="erl#+spp"><c>+spp</c></seealso>
               in <c>erl(1)</c>.</p>
           </item>
-          <tag><marker id="system_info_system_version"/>
-            <c>system_version</c></tag>
-          <item>
-            <p>Returns a string containing version number and
-              some important properties, such as the number of schedulers.</p>
-          </item>
           <tag><marker id="system_info_system_architecture"/>
             <c>system_architecture</c></tag>
           <item>
             <p>Returns a string containing the processor and OS
               architecture the emulator is built for.</p>
+          </item>
+          <tag><marker id="system_info_system_logger"/>
+            <c>system_logger</c></tag>
+          <item>
+            <p>Returns the current <c>system_logger</c> as set by
+            <seealso marker="#system_flag/2"><c>erlang:system_flag(system_logger, _)</c></seealso>.</p>
+          </item>
+          <tag><marker id="system_info_system_version"/>
+            <c>system_version</c></tag>
+          <item>
+            <p>Returns a string containing version number and
+              some important properties, such as the number of schedulers.</p>
           </item>
           <tag><marker id="system_info_trace_control_word"/>
             <c>trace_control_word</c></tag>
@@ -9259,6 +9442,18 @@ ok
         <p>Returns the previous system monitor settings just like
           <seealso marker="#system_monitor/0">
           <c>erlang:system_monitor/0</c></seealso>.</p>
+	<p>The arguments to <c>system_monitor/2</c> specifies how all
+	  system monitoring on the node should be done, not how it should be
+	  changed. This means only one process at a time
+	  (<c><anno>MonitorPid</anno></c>) can be the receiver of system monitor
+	  messages. Also, the way to clear a specific monitor option
+	  is to not include it in the list <c><anno>Options</anno></c>. All
+	  system monitoring will, however, be cleared if the process identified by
+	  <c><anno>MonitorPid</anno></c> terminates.</p>
+	<p>There are no special option values (like zero) to clear an option.
+	  Some of the options have a unspecified minimum value. Lower values
+	  will be adjusted to the minimum value. For example, it is currently not
+	  possible to monitor all garbage collections with <c>{long_gc, 0}</c>.</p>
         <note>
           <p>If a monitoring process gets so large that it itself
             starts to cause system monitor messages when garbage
@@ -9963,6 +10158,11 @@ timestamp() ->
           time stamp flags are remembered, so if two are passed
           and the one with highest precedence later is disabled,
           the other one becomes active.</p>
+        <p>If a match specification (applicable only for <c>call</c>, <c>send</c>
+          and <c>'receive'</c> tracing) contains a <c>{message}</c> action
+          function with a non-boolean value, that value is added as an extra
+          element to the message tuple either in the last position or before
+          the timestamp (if it is present).</p>
         <p>Trace messages:</p>
         <marker id="trace_3_trace_messages"></marker>
         <taglist>
@@ -10501,7 +10701,7 @@ timestamp() ->
     </func>
 
     <func>
-      <name name="trace_pattern" arity="3" clause_i="1" since="?"/>
+      <name name="trace_pattern" arity="3" clause_i="1" since="OTP 19.0"/>
       <fsummary>Set trace pattern for message sending.</fsummary>
       <type name="trace_match_spec"/>
       <type name="match_variable"/>
@@ -10572,7 +10772,7 @@ timestamp() ->
     </func>
 
     <func>
-      <name name="trace_pattern" arity="3" clause_i="2" since="?"/>
+      <name name="trace_pattern" arity="3" clause_i="2" since="OTP 19.0"/>
       <fsummary>Set trace pattern for tracing of message receiving.</fsummary>
       <type name="trace_match_spec"/>
       <type name="match_variable"/>

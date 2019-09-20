@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -95,6 +95,9 @@
 	      dir/0, 
 	      snmp_timer/0, 
 
+              atl_type/0,
+              verbosity/0,
+
 	      engine_id/0, 
 	      tdomain/0, 
 	      community/0, 
@@ -116,7 +119,10 @@
 	      pdu/0, 
 	      trappdu/0, 
 	      mib/0, 
-	      mib_name/0, 
+	      mib_name/0,
+
+              error_status/0,
+              error_index/0,
  
 	      void/0
 	     ]).
@@ -185,6 +191,9 @@
 -type dir()           :: string().
 -type snmp_timer()    :: #snmp_incr_timer{}.
 
+-type atl_type()      :: read | write | read_write.
+-type verbosity()     :: info | log | debug | trace | silence.
+
 -type engine_id()     :: string().
 -type tdomain()       :: transportDomainUdpIpv4 | transportDomainUdpIpv6.
 -type community()     :: string().
@@ -207,6 +216,23 @@
 -type mib_name()      :: string().
 -type pdu()           :: #pdu{}.
 -type trappdu()       :: #trappdu{}.
+
+%% We should really specify all of these, but they are so numerous...
+%% See the validate_err/1 function in the snmpa_agent.
+%% Here are a number of them:
+%% badValue |
+%% commitFailed |
+%% genErr |
+%% inconsistentName | inconsistentValue |
+%% noAccess | noCreation |
+%% noSuchInstance | noSuchName | noSuchObject |
+%% notWritable |
+%% resourceUnavailable |
+%% undoFailed |
+%% wrongValue
+
+-type error_status()  :: atom().
+-type error_index()   :: pos_integer().
 
 -type void()          :: term().
 
@@ -570,15 +596,6 @@ print_mod_info(Prefix, {Module, Info}) ->
             _ ->
                 "Not found"
         end,
-    CompDate =
-        case key1search(compile_time, Info) of
-            {value, {Year, Month, Day, Hour, Min, Sec}} ->
-                io_lib:format(
-		  "~w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w",
-		  [Year, Month, Day, Hour, Min, Sec]);
-            _ ->
-                "Not found"
-        end,
     Digest =
         case key1search(md5, Info) of
             {value, MD5} when is_binary(MD5) ->
@@ -590,13 +607,11 @@ print_mod_info(Prefix, {Module, Info}) ->
               "~s      Vsn:          ~s~n"
               "~s      App vsn:      ~s~n"
               "~s      Compiler ver: ~s~n"
-	      "~s      Compile time: ~s~n"
               "~s      MD5 digest:   ~s~n",
               [Prefix, Module, 
 	       Prefix, Vsn, 
 	       Prefix, AppVsn, 
 	       Prefix, CompVer,
-	       Prefix, CompDate,
 	       Prefix, Digest]),
     ok.
 
@@ -691,13 +706,8 @@ sys_info() ->
     [{arch, SysArch}, {ver, SysVer}].
  
 os_info() ->
-    V = os:version(),
-    case os:type() of
-        {OsFam, OsName} ->
-            [{fam, OsFam}, {name, OsName}, {ver, V}];
-        OsFam ->
-            [{fam, OsFam}, {ver, V}]
-    end.
+    {OsFam, OsName} = os:type(),
+    [{fam, OsFam}, {name, OsName}, {ver, os:version()}].
 
 ms1() ->
     App    = ?APPLICATION,

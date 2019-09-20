@@ -1315,7 +1315,7 @@ sub combine_instruction_group {
             my $inc = 0;
 
             unless ($i == $#slots) {
-                $flags = "-no_next";
+                $flags = "-micro_instruction";
                 my $next_offset = $label_to_offset{$next};
                 $inc = ($offset + $size) - $next_offset;
                 $transfer_to_next = "I += $inc;\n" if $inc;
@@ -1488,7 +1488,7 @@ sub code_gen {
                 $var_decls .= "Eterm $tmp;\n";
                 $tmp_arg_num++;
                 push(@f, $tmp);
-                $prefix .= "GetR($arg_offset, $tmp);\n";
+                $prefix .= "GetSource(" . arg_offset($arg_offset) . ", $tmp);\n";
                 $need_block = 1;
                 last SWITCH;
             };
@@ -1553,8 +1553,10 @@ sub code_gen {
     my $dispatch_next;
     my $instr_offset = $group_size + $offset + 1;
 
-    if ($flags =~ /-no_next/) {
+    if ($flags =~ /-micro_instruction/) {
         $dispatch_next = "";
+    } elsif ($flags =~ /-no_next/) {
+        $dispatch_next = "ASSERT(!\"Fell through '$name' (-no_next)\");";
     } elsif ($flags =~ /-no_prefetch/) {
         $dispatch_next = "\nI += $instr_offset;\n" .
             "ASSERT(VALID_INSTR(*I));\n" .
@@ -2737,7 +2739,7 @@ sub tr_maybe_keep {
 		return;
 	    }
 	} elsif ($op eq 'store_var_next_arg') {
-	    return unless shift(@last_instr) eq $args[0];
+	    return unless @last_instr and shift(@last_instr) eq $args[0];
 	} elsif (defined $pos) {
 	    return;
 	}

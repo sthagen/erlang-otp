@@ -32,6 +32,80 @@
   <p>This document describes the changes made to the Syntax_Tools
     application.</p>
 
+<section><title>Syntax_Tools 2.2.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p> Add missing calls to <c>erl_syntax:unwrap/1</c>. The
+	    nodes concerned represent names and values of maps and
+	    map types. </p>
+          <p>
+	    Own Id: OTP-16012 Aux Id: PR-2348 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Syntax_Tools 2.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    All incorrect (that is, all) uses of "can not" has been
+	    corrected to "cannot" in source code comments,
+	    documentation, examples, and so on.</p>
+          <p>
+	    Own Id: OTP-14282 Aux Id: PR-1891 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+	    <p> Correct links in the documentation. </p>
+          <p>
+	    Own Id: OTP-15761</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Syntax_Tools 2.1.7.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p> Add missing calls to <c>erl_syntax:unwrap/1</c>. The
+	    nodes concerned represent names and values of maps and
+	    map types. </p>
+          <p>
+	    Own Id: OTP-16012 Aux Id: PR-2348 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Syntax_Tools 2.1.7</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p> Fix pretty-printing of type funs. </p>
+          <p>
+	    Own Id: OTP-15519 Aux Id: ERL-815 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Syntax_Tools 2.1.6</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -744,4 +818,3 @@
     <p>Miscellaneous changes.</p>
   </section>
 </chapter>
-

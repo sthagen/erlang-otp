@@ -45,6 +45,8 @@
          handle_msg/3,
          handle_stop/1,
 
+         open_channel/4,
+
 	 channel_adjust_window_msg/2,
 	 channel_close_msg/1,
 	 channel_open_failure_msg/4,
@@ -57,15 +59,124 @@
          channel_request_msg/4,
          channel_success_msg/1,
 
+         request_global_msg/3,
 	 request_failure_msg/0, 
 	 request_success_msg/1,
 
-         bind/4, unbind/3, unbind_channel/2, 
-	 bound_channel/3, encode_ip/1
+	 encode_ip/1
         ]).
 
 -type connection_ref() :: ssh:connection_ref().
 -type channel_id()     :: ssh:channel_id().
+
+-type req_status() :: success | failure .
+-type reason() :: closed | timeout .
+
+-type result() :: req_status() | {error, reason()} .
+
+-type ssh_data_type_code() :: non_neg_integer(). % Only 0 and 1 are used
+
+
+%%% The SSH Connection Protocol
+
+-export_type([event/0,
+              channel_msg/0,
+              want_reply/0,
+              data_ch_msg/0,
+              eof_ch_msg/0,
+              signal_ch_msg/0,
+              exit_signal_ch_msg/0,
+              exit_status_ch_msg/0,
+              closed_ch_msg/0,
+              env_ch_msg/0,
+              pty_ch_msg/0,
+              shell_ch_msg/0,
+              window_change_ch_msg/0,
+              exec_ch_msg/0
+             ]).
+
+-type event() :: {ssh_cm, ssh:connection_ref(), channel_msg()}.
+-type channel_msg() ::  data_ch_msg()
+                      | eof_ch_msg()
+                      | closed_ch_msg()
+                      | pty_ch_msg()
+                      | env_ch_msg()
+                      | shell_ch_msg()
+                      | exec_ch_msg()
+                      | signal_ch_msg()
+                      | window_change_ch_msg()
+                      | exit_status_ch_msg()
+                      | exit_signal_ch_msg()
+                        .
+
+-type want_reply() :: boolean().
+
+-type data_ch_msg() :: {data,
+                        ssh:channel_id(),
+                        ssh_data_type_code(),
+                        Data :: binary()
+                       } .
+-type eof_ch_msg() :: {eof,
+                       ssh:channel_id()
+                      } .
+-type signal_ch_msg() :: {signal,
+                          ssh:channel_id(),
+                          SignalName :: string()
+                         } .
+-type exit_signal_ch_msg() :: {exit_signal, ssh:channel_id(),
+                               ExitSignal :: string(),
+                               ErrorMsg :: string(),
+                               LanguageString :: string()} .
+-type exit_status_ch_msg() :: {exit_status,
+                               ssh:channel_id(),
+                               ExitStatus :: non_neg_integer()
+                              } .
+-type closed_ch_msg() :: {closed,
+                          ssh:channel_id()
+                         } .
+-type env_ch_msg() :: {env,
+                       ssh:channel_id(),
+                       want_reply(),
+                       Var :: string(),
+                       Value :: string()
+                      } .
+-type pty_ch_msg() :: {pty,
+                       ssh:channel_id(),
+                       want_reply(),
+                       {Terminal :: string(),
+                        CharWidth :: non_neg_integer(),
+                        RowHeight :: non_neg_integer(),
+                        PixelWidth :: non_neg_integer(),
+                        PixelHeight :: non_neg_integer(),
+                        TerminalModes :: [term_mode()]
+                       }
+                      } .
+
+-type term_mode() :: {Opcode :: atom() | byte(),
+                      Value :: non_neg_integer()} .
+
+-type shell_ch_msg() :: {shell,
+                         ssh:channel_id(),
+                         want_reply()
+                        } .
+-type window_change_ch_msg() :: {window_change,
+                                 ssh:channel_id(),
+                                 CharWidth :: non_neg_integer(),
+                                 RowHeight :: non_neg_integer(),
+                                 PixelWidth :: non_neg_integer(),
+                                 PixelHeight :: non_neg_integer()
+                                } .
+-type exec_ch_msg() :: {exec,
+                        ssh:channel_id(),
+                        want_reply(),
+                        Command :: string()
+                       } .
+
+%%% This function is soley to convince all
+%%% checks that the type event() exists...
+-export([dummy/1]).
+-spec dummy(event()) -> false.
+dummy(_) -> false.
 
 %%--------------------------------------------------------------------
 %%% API
@@ -77,20 +188,39 @@
 %% application, a system command, or some built-in subsystem.
 %% --------------------------------------------------------------------
 
--spec session_channel(connection_ref(), timeout()) ->
-                             {ok, channel_id()} | {error, timeout | closed}.
+-spec session_channel(ConnectionRef, Timeout) -> Result when
+      ConnectionRef :: ssh:connection_ref(),
+      Timeout :: timeout(),
+      Result :: {ok, ssh:channel_id()} | {error, reason()} .
 
 session_channel(ConnectionHandler, Timeout) ->
     session_channel(ConnectionHandler, ?DEFAULT_WINDOW_SIZE, ?DEFAULT_PACKET_SIZE, Timeout).
 
--spec session_channel(connection_ref(), integer(), integer(), timeout()) ->
-                             {ok, channel_id()} | {error, timeout | closed}.
+
+-spec session_channel(ConnectionRef, InitialWindowSize, MaxPacketSize, Timeout) -> Result when
+      ConnectionRef :: ssh:connection_ref(),
+      InitialWindowSize :: pos_integer(),
+      MaxPacketSize :: pos_integer(),
+      Timeout :: timeout(),
+      Result :: {ok, ssh:channel_id()} | {error, reason()} .
 
 session_channel(ConnectionHandler, InitialWindowSize, MaxPacketSize, Timeout) ->
-    case ssh_connection_handler:open_channel(ConnectionHandler, "session", <<>>,
-                                             InitialWindowSize,
-                                             MaxPacketSize, Timeout) of
-	{open, Channel} ->
+    open_channel(ConnectionHandler, "session", <<>>,
+                 InitialWindowSize,
+                 MaxPacketSize,
+                 Timeout).
+
+%%--------------------------------------------------------------------
+%% Description: Opens a channel for the given type.
+%% --------------------------------------------------------------------
+open_channel(ConnectionHandler, Type, ChanData, Timeout) ->
+    open_channel(ConnectionHandler, Type, ChanData, ?DEFAULT_WINDOW_SIZE, ?DEFAULT_PACKET_SIZE, Timeout).
+
+open_channel(ConnectionHandler, Type, ChanData, InitialWindowSize, MaxPacketSize, Timeout) ->
+    case ssh_connection_handler:open_channel(ConnectionHandler, Type, ChanData,
+                                             InitialWindowSize, MaxPacketSize,
+                                             Timeout) of
+        {open, Channel} ->
 	    {ok, Channel};
 	Error ->
 	    Error
@@ -100,8 +230,11 @@ session_channel(ConnectionHandler, InitialWindowSize, MaxPacketSize, Timeout) ->
 %% Description: Will request that the server start the
 %% execution of the given command. 
 %%--------------------------------------------------------------------
--spec exec(connection_ref(), channel_id(), string(), timeout()) -> 
-		  success | failure | {error, timeout | closed}.
+-spec exec(ConnectionRef, ChannelId, Command, Timeout) -> result() when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id(),
+      Command :: string(),
+      Timeout :: timeout().
 
 exec(ConnectionHandler, ChannelId, Command, TimeOut) ->
     ssh_connection_handler:request(ConnectionHandler, self(), ChannelId, "exec",
@@ -112,8 +245,10 @@ exec(ConnectionHandler, ChannelId, Command, TimeOut) ->
 %% defined in /etc/passwd in UNIX systems) be started at the other
 %% end.
 %%--------------------------------------------------------------------
--spec shell(connection_ref(), channel_id()) -> 
-                   ok | success | failure | {error, timeout}.
+-spec shell(ConnectionRef, ChannelId) -> Result when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id(),
+      Result :: ok | success | failure | {error, timeout} .
 
 shell(ConnectionHandler, ChannelId) ->
     ssh_connection_handler:request(ConnectionHandler, self(), ChannelId,
@@ -122,8 +257,11 @@ shell(ConnectionHandler, ChannelId) ->
 %%
 %% Description: Executes a predefined subsystem.
 %%--------------------------------------------------------------------
--spec subsystem(connection_ref(), channel_id(), string(), timeout()) -> 
-		       success | failure | {error, timeout | closed}.
+-spec subsystem(ConnectionRef, ChannelId, Subsystem, Timeout) -> result() when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id(),
+      Subsystem  :: string(),
+      Timeout :: timeout().
 
 subsystem(ConnectionHandler, ChannelId, SubSystem, TimeOut) ->
      ssh_connection_handler:request(ConnectionHandler, self(),
@@ -134,12 +272,13 @@ subsystem(ConnectionHandler, ChannelId, SubSystem, TimeOut) ->
 %%--------------------------------------------------------------------
 -spec send(connection_ref(), channel_id(), iodata()) ->
 		  ok | {error, timeout | closed}.
+
 send(ConnectionHandler, ChannelId, Data) ->
     send(ConnectionHandler, ChannelId, 0, Data, infinity).
 
 
--spec send(connection_ref(), channel_id(), integer()| iodata(), timeout() | iodata()) ->
-		  ok | {error, timeout | closed}.
+-spec send(connection_ref(), channel_id(), iodata(), timeout()) -> ok |  {error, reason()};
+          (connection_ref(), channel_id(), ssh_data_type_code(), iodata()) -> ok |  {error, reason()}.
 
 send(ConnectionHandler, ChannelId, Data, TimeOut) when is_integer(TimeOut) ->
     send(ConnectionHandler, ChannelId, 0, Data, TimeOut);
@@ -151,14 +290,15 @@ send(ConnectionHandler, ChannelId, Type, Data) ->
     send(ConnectionHandler, ChannelId, Type, Data, infinity).
 
 
--spec send(connection_ref(), channel_id(), integer(), iodata(), timeout()) ->
-		  ok | {error, timeout | closed}.
+-spec send(connection_ref(), channel_id(), ssh_data_type_code(), iodata(), timeout()) -> ok |  {error, reason()}.
 
 send(ConnectionHandler, ChannelId, Type, Data, TimeOut) ->
     ssh_connection_handler:send(ConnectionHandler, ChannelId,
 				Type, Data, TimeOut).
 %%--------------------------------------------------------------------
--spec send_eof(connection_ref(), channel_id()) -> ok | {error, closed}.
+-spec send_eof(ConnectionRef, ChannelId) -> ok  | {error, closed} when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id().
 %%
 %%
 %% Description: Sends eof on the channel <ChannelId>.
@@ -167,7 +307,10 @@ send_eof(ConnectionHandler, Channel) ->
     ssh_connection_handler:send_eof(ConnectionHandler, Channel).
 
 %%--------------------------------------------------------------------
--spec adjust_window(connection_ref(), channel_id(), integer()) -> ok.
+-spec adjust_window(ConnectionRef, ChannelId, NumOfBytes) -> ok when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id(),
+      NumOfBytes  :: integer().
 %%
 %%
 %% Description: Adjusts the ssh flowcontrol window.
@@ -176,8 +319,12 @@ adjust_window(ConnectionHandler, Channel, Bytes) ->
     ssh_connection_handler:adjust_window(ConnectionHandler, Channel, Bytes).
 
 %%--------------------------------------------------------------------
--spec setenv(connection_ref(), channel_id(), string(), string(), timeout()) ->  
-		    success | failure | {error, timeout | closed}.
+-spec setenv(ConnectionRef, ChannelId, Var, Value, Timeout) -> result() when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id(),
+      Var :: string(),
+      Value :: string(),
+      Timeout :: timeout().
 %%
 %%
 %% Description: Environment variables may be passed to the shell/command to be
@@ -189,7 +336,9 @@ setenv(ConnectionHandler, ChannelId, Var, Value, TimeOut) ->
 
 
 %%--------------------------------------------------------------------
--spec close(connection_ref(), channel_id()) -> ok.
+-spec close(ConnectionRef, ChannelId) -> ok when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id().
 %%
 %%
 %% Description: Sends a close message on the channel <ChannelId>.
@@ -198,7 +347,11 @@ close(ConnectionHandler, ChannelId) ->
     ssh_connection_handler:close(ConnectionHandler, ChannelId).
 
 %%--------------------------------------------------------------------
--spec reply_request(connection_ref(), boolean(), success | failure, channel_id()) -> ok.
+-spec reply_request(ConnectionRef, WantReply, Status, ChannelId) -> ok when
+      ConnectionRef :: ssh:connection_ref(),
+      WantReply :: boolean(),
+      Status :: req_status(),
+      ChannelId :: ssh:channel_id().
 %%
 %%
 %% Description: Send status replies to requests that want such replies.
@@ -211,15 +364,20 @@ reply_request(_,false, _, _) ->
 %%--------------------------------------------------------------------
 %% Description: Sends a ssh connection protocol pty_req.
 %%--------------------------------------------------------------------
--spec ptty_alloc(connection_ref(), channel_id(), proplists:proplist()) -> 
-			success | failure | {error, timeout}.
+-spec ptty_alloc(ConnectionRef, ChannelId, Options) -> result() when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id(),
+      Options  :: proplists:proplist().
 
 ptty_alloc(ConnectionHandler, Channel, Options) ->
     ptty_alloc(ConnectionHandler, Channel, Options, infinity).
 
 
--spec ptty_alloc(connection_ref(), channel_id(), proplists:proplist(), timeout()) -> 
-			success | failure | {error, timeout | closed}.
+-spec ptty_alloc(ConnectionRef, ChannelId, Options, Timeout) -> result() when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id(),
+      Options  :: proplists:proplist(),
+      Timeout :: timeout().
 
 ptty_alloc(ConnectionHandler, Channel, Options0, TimeOut) ->
     TermData = backwards_compatible(Options0, []), % FIXME
@@ -233,6 +391,7 @@ ptty_alloc(ConnectionHandler, Channel, Options0, TimeOut) ->
 	    proplists:get_value(pixel_height, TermData, PixHeight),
 	    proplists:get_value(pty_opts, TermData, []), TimeOut
 	   ).
+
 %%--------------------------------------------------------------------
 %% Not yet officialy supported! The following functions are part of the
 %% initial contributed ssh application. They are untested. Do we want them?
@@ -252,6 +411,10 @@ signal(ConnectionHandler, Channel, Sig) ->
 				   "signal", false, [?string(Sig)], 0).
 
 
+-spec exit_status(ConnectionRef, ChannelId, Status) -> ok when
+      ConnectionRef :: ssh:connection_ref(),
+      ChannelId :: ssh:channel_id(),
+      Status  :: integer().
 exit_status(ConnectionHandler, Channel, Status) ->
     ssh_connection_handler:request(ConnectionHandler, Channel,
 				   "exit-status", false, [?uint32(Status)], 0).
@@ -421,6 +584,124 @@ handle_msg(#ssh_msg_channel_open{channel_type = "session" = Type,
 	    {[{connection_reply, FailMsg}], Connection0}
     end;
 
+handle_msg(#ssh_msg_channel_open{channel_type = "forwarded-tcpip",
+				 sender_channel = RemoteId,
+                                 initial_window_size = WindowSize,
+                                 maximum_packet_size = PacketSize,
+                                 data = <<?DEC_BIN(ConnectedHost,_L1), ?UINT32(ConnectedPort),
+                                          ?DEC_BIN(_OriginHost,_L2), ?UINT32(_OriginPort)
+                                        >>
+                                },
+           #connection{channel_cache = Cache,
+                       channel_id_seed = ChId,
+                       options = Options,
+                       sub_system_supervisor = SubSysSup
+                      } = C,
+	   client) ->
+    {ReplyMsg, NextChId} =
+        case ssh_connection_handler:retrieve(C, {tcpip_forward,ConnectedHost,ConnectedPort}) of
+            {ok, {ConnectToHost,ConnectToPort}} ->
+                case gen_tcp:connect(ConnectToHost, ConnectToPort, [{active,false}, binary]) of
+                    {ok,Sock} ->
+                        {ok,Pid} = ssh_subsystem_sup:start_channel(client, SubSysSup, self(),
+                                                                   ssh_tcpip_forward_client, ChId,
+                                                                   [Sock], undefined, Options),
+                        ssh_client_channel:cache_update(Cache,
+                                                        #channel{type = "forwarded-tcpip",
+                                                                 sys = "none",
+                                                                 local_id = ChId,
+                                                                 remote_id = RemoteId,
+                                                                 user = Pid,
+                                                                 recv_window_size = ?DEFAULT_WINDOW_SIZE,
+                                                                 recv_packet_size = ?DEFAULT_PACKET_SIZE,
+                                                                 send_window_size = WindowSize,
+                                                                 send_packet_size = PacketSize,
+                                                                 send_buf = queue:new()
+                                                                }),
+                        gen_tcp:controlling_process(Sock, Pid),
+                        inet:setopts(Sock, [{active,once}]),
+                        {channel_open_confirmation_msg(RemoteId, ChId,
+                                                       ?DEFAULT_WINDOW_SIZE, 
+                                                       ?DEFAULT_PACKET_SIZE),
+                         ChId + 1};
+
+                    {error,Error} ->
+                        {channel_open_failure_msg(RemoteId, 
+                                                  ?SSH_OPEN_CONNECT_FAILED,
+                                                  io_lib:format("Forwarded connection refused: ~p",[Error]),
+                                                  "en"),
+                         ChId}
+                end;
+
+            undefined ->
+                {channel_open_failure_msg(RemoteId, 
+                                          ?SSH_OPEN_CONNECT_FAILED,
+                                          io_lib:format("No forwarding ordered",[]),
+                                          "en"),
+                 ChId}
+        end,
+    {[{connection_reply, ReplyMsg}], C#connection{channel_id_seed = NextChId}};
+
+handle_msg(#ssh_msg_channel_open{channel_type = "direct-tcpip",
+				 sender_channel = RemoteId,
+                                 initial_window_size = WindowSize,
+                                 maximum_packet_size = PacketSize,
+                                 data = <<?DEC_BIN(HostToConnect,_L1),        ?UINT32(PortToConnect),
+                                          ?DEC_BIN(_OriginatorIPaddress,_L2), ?UINT32(_OrignatorPort)
+                                        >>
+                                }, 
+	   #connection{channel_cache = Cache,
+                       channel_id_seed = ChId,
+                       options = Options,
+                       sub_system_supervisor = SubSysSup
+                      } = C,
+	   server) ->
+    {ReplyMsg, NextChId} =
+        case ?GET_OPT(tcpip_tunnel_in, Options) of
+            %% May add more to the option, like allowed ip/port pairs to connect to
+            false ->
+                {channel_open_failure_msg(RemoteId, 
+                                          ?SSH_OPEN_CONNECT_FAILED,
+                                          "Forwarding disabled", "en"),
+                 ChId};
+
+            true ->
+                case gen_tcp:connect(binary_to_list(HostToConnect), PortToConnect,
+                                     [{active,false}, binary]) of
+                    {ok,Sock} ->
+                        {ok,Pid} = ssh_subsystem_sup:start_channel(server, SubSysSup, self(),
+                                                                   ssh_tcpip_forward_srv, ChId,
+                                                                   [Sock], undefined, Options),
+                        ssh_client_channel:cache_update(Cache,
+                                                        #channel{type = "direct-tcpip",
+                                                                 sys = "none",
+                                                                 local_id = ChId,
+                                                                 remote_id = RemoteId,
+                                                                 user = Pid,
+                                                                 recv_window_size = ?DEFAULT_WINDOW_SIZE,
+                                                                 recv_packet_size = ?DEFAULT_PACKET_SIZE,
+                                                                 send_window_size = WindowSize,
+                                                                 send_packet_size = PacketSize,
+                                                                 send_buf = queue:new()
+                                                                }),
+                        gen_tcp:controlling_process(Sock, Pid),
+                        inet:setopts(Sock, [{active,once}]),
+
+                        {channel_open_confirmation_msg(RemoteId, ChId,
+                                                       ?DEFAULT_WINDOW_SIZE, 
+                                                       ?DEFAULT_PACKET_SIZE),
+                         ChId + 1};
+
+                    {error,Error} ->
+                        {channel_open_failure_msg(RemoteId, 
+                                                  ?SSH_OPEN_CONNECT_FAILED,
+                                                  io_lib:format("Forwarded connection refused: ~p",[Error]),
+                                                  "en"),
+                         ChId}
+                end
+        end,
+    {[{connection_reply, ReplyMsg}], C#connection{channel_id_seed = NextChId}};
+
 handle_msg(#ssh_msg_channel_open{channel_type = "session",
 				 sender_channel = RemoteId}, 
 	   Connection,
@@ -501,18 +782,13 @@ handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
     #channel{remote_id=RemoteId} = Channel = 
 	ssh_client_channel:cache_lookup(Cache, ChannelId), 
     Reply =
-        try
-            start_subsystem(SsName, Connection, Channel,
-                            {subsystem, ChannelId, WantReply, binary_to_list(SsName)})
-        of
+        case start_subsystem(SsName, Connection, Channel,
+                             {subsystem, ChannelId, WantReply, binary_to_list(SsName)}) of
             {ok, Pid} ->
                 erlang:monitor(process, Pid),
                 ssh_client_channel:cache_update(Cache, Channel#channel{user=Pid}),
                 channel_success_msg(RemoteId);
             {error,_Error} ->
-                channel_failure_msg(RemoteId)
-        catch
-            _:_ ->
                 channel_failure_msg(RemoteId)
         end,
     {[{connection_reply,Reply}], Connection};
@@ -598,9 +874,45 @@ handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
 	    {[], Connection}
     end;
 
+handle_msg(#ssh_msg_global_request{name = <<"tcpip-forward">>,
+				   want_reply = WantReply,
+				   data = <<?DEC_BIN(ListenAddrStr,_Len),?UINT32(ListenPort)>>},
+           #connection{options = Opts} = Connection, server) ->
+    case ?GET_OPT(tcpip_tunnel_out, Opts) of
+        false ->
+            %% This daemon instance has not enabled tcpip_forwarding
+            {[{connection_reply, request_failure_msg()}], Connection};
+
+        true ->
+            Sups = ?GET_INTERNAL_OPT(supervisors, Opts),
+            SubSysSup = proplists:get_value(subsystem_sup,  Sups),
+            FwdSup = ssh_subsystem_sup:tcpip_fwd_supervisor(SubSysSup),
+            ConnPid = self(),
+            case ssh_tcpip_forward_acceptor:supervised_start(FwdSup,
+                                                             {ListenAddrStr, ListenPort},
+                                                             undefined,
+                                                             "forwarded-tcpip", ssh_tcpip_forward_srv,
+                                                             ConnPid) of
+                {ok,ListenPort} when WantReply==true ->
+                    {[{connection_reply, request_success_msg(<<>>)}], Connection};
+
+                {ok,LPort} when WantReply==true ->
+                    {[{connection_reply, request_success_msg(<<?UINT32(LPort)>>)}], Connection};
+
+                {error,_} when WantReply==true ->
+                    {[{connection_reply, request_failure_msg()}], Connection};
+
+                _ when WantReply==true ->
+                    {[{connection_reply, request_failure_msg()}], Connection};
+
+                _ ->
+                    {[], Connection}
+            end
+    end;
+
 handle_msg(#ssh_msg_global_request{name = _Type,
 				   want_reply = WantReply,
-				   data = _Data}, Connection, _) ->
+				   data = _Data}, Connection, _Role) ->
     if WantReply == true ->
 	    FailMsg = request_failure_msg(),
 	    {[{connection_reply, FailMsg}], Connection};
@@ -613,8 +925,19 @@ handle_msg(#ssh_msg_request_failure{},
     {[{channel_request_reply, From, {failure, <<>>}}],
      Connection#connection{requests = Rest}};
 
+handle_msg(#ssh_msg_request_failure{},
+	   #connection{requests = [{_, From,_} | Rest]} = Connection, _) ->
+    {[{channel_request_reply, From, {failure, <<>>}}],
+     Connection#connection{requests = Rest}};
+
 handle_msg(#ssh_msg_request_success{data = Data},
 	   #connection{requests = [{_, From} | Rest]} = Connection, _) ->
+    {[{channel_request_reply, From, {success, Data}}],
+     Connection#connection{requests = Rest}};
+
+handle_msg(#ssh_msg_request_success{data = Data},
+	   #connection{requests = [{_, From, Fun} | Rest]} = Connection0, _) ->
+    Connection = Fun({success,Data}, Connection0),
     {[{channel_request_reply, From, {success, Data}}],
      Connection#connection{requests = Rest}};
 
@@ -702,8 +1025,13 @@ channel_success_msg(ChannelId) ->
 
 %%%----------------------------------------------------------------
 %%% request_*_msg(...)
-%%% Returns a #ssh_msg_....{} for request responses.
+%%% Returns a #ssh_msg_....{}
 %%%
+request_global_msg(Name, WantReply, Data) ->
+    #ssh_msg_global_request{name = Name,
+                            want_reply = WantReply,
+                            data = Data}.
+
 request_failure_msg() ->
     #ssh_msg_request_failure{}.
 
@@ -713,29 +1041,6 @@ request_success_msg(Data) ->
 %%%----------------------------------------------------------------
 %%%
 %%%
-bind(IP, Port, ChannelPid, Connection) ->
-    Binds = [{{IP, Port}, ChannelPid}
-	     | lists:keydelete({IP, Port}, 1, 
-			       Connection#connection.port_bindings)],
-    Connection#connection{port_bindings = Binds}.
-
-unbind(IP, Port, Connection) ->
-    Connection#connection{
-      port_bindings = 
-      lists:keydelete({IP, Port}, 1,
-		      Connection#connection.port_bindings)}.
-unbind_channel(ChannelPid, Connection) ->
-    Binds = [{Bind, ChannelP} || {Bind, ChannelP} 
-				     <- Connection#connection.port_bindings, 
-				 ChannelP =/= ChannelPid],
-    Connection#connection{port_bindings = Binds}.
-
-bound_channel(IP, Port, Connection) ->
-    case lists:keysearch({IP, Port}, 1, Connection#connection.port_bindings) of
-	{value, {{IP, Port}, ChannelPid}} -> ChannelPid;
-	_ -> undefined
-    end.
-
 encode_ip(Addr) when is_tuple(Addr) ->
     case catch inet_parse:ntoa(Addr) of
 	{'EXIT',_} -> false;
@@ -797,7 +1102,7 @@ start_cli(#connection{options = Options,
         no_cli ->
             {error, cli_disabled};
         {CbModule, Args} ->
-            start_channel(CbModule, ChannelId, Args, SubSysSup, Exec, Options)
+            ssh_subsystem_sup:start_channel(server, SubSysSup, self(), CbModule, ChannelId, Args, Exec, Options)
     end.
 
 
@@ -807,37 +1112,15 @@ start_subsystem(BinName, #connection{options = Options,
     Name = binary_to_list(BinName),
     case check_subsystem(Name, Options) of
 	{Callback, Opts} when is_atom(Callback), Callback =/= none ->
-	    start_channel(Callback, ChannelId, Opts, SubSysSup, Options);
-	{Other, _} when Other =/= none ->
+            ssh_subsystem_sup:start_channel(server, SubSysSup, self(), Callback, ChannelId, Opts, undefined, Options);
+        {none, _} ->
+            {error, bad_subsystem};
+	{_, _} ->
 	    {error, legacy_option_not_supported}
     end.
 
 
 %%% Helpers for starting cli/subsystems
-start_channel(Cb, Id, Args, SubSysSup, Opts) ->
-    start_channel(Cb, Id, Args, SubSysSup, undefined, Opts).
-
-start_channel(Cb, Id, Args, SubSysSup, Exec, Opts) ->
-    ChannelSup = ssh_subsystem_sup:channel_supervisor(SubSysSup),
-    case max_num_channels_not_exceeded(ChannelSup, Opts) of
-        true ->
-            case ssh_server_channel_sup:start_child(ChannelSup, Cb, Id, Args, Exec) of
-                {error,{Error,_Info}} ->
-                    throw(Error);
-                Others ->
-                    Others
-            end;
-        false ->
-	    throw(max_num_channels_exceeded)
-    end.
-    
-max_num_channels_not_exceeded(ChannelSup, Opts) ->
-    MaxNumChannels = ?GET_OPT(max_channels, Opts),
-    NumChannels = length([x || {_,_,worker,[ssh_server_channel]} <- 
-				   supervisor:which_children(ChannelSup)]),
-    %% Note that NumChannels is BEFORE starting a new one
-    NumChannels < MaxNumChannels.
-
 check_subsystem("sftp"= SsName, Options) ->
     case ?GET_OPT(subsystems, Options) of
 	no_subsys -> 	% FIXME: Can 'no_subsys' ever be matched?
@@ -1176,13 +1459,13 @@ handle_cli_msg(C0, ChId, Reply0) ->
     Ch0 = ssh_client_channel:cache_lookup(Cache, ChId),
     case Ch0#channel.user of
         undefined ->
-            case (catch start_cli(C0, ChId)) of
+            case start_cli(C0, ChId) of
                 {ok, Pid} ->
                     erlang:monitor(process, Pid),
                     Ch = Ch0#channel{user = Pid},
                     ssh_client_channel:cache_update(Cache, Ch),
                     reply_msg(Ch, C0, Reply0);
-                _Other ->
+                {error, _Error} ->
                     Reply = {connection_reply, channel_failure_msg(Ch0#channel.remote_id)},
                     {[Reply], C0}
             end;
@@ -1190,6 +1473,10 @@ handle_cli_msg(C0, ChId, Reply0) ->
         _ ->
             reply_msg(Ch0, C0, Reply0)
     end.
+
+%%%----------------------------------------------------------------
+%%%
+%%% TCP/IP forwarding
 
 %%%----------------------------------------------------------------
 %%%

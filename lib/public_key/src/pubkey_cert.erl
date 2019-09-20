@@ -1169,7 +1169,7 @@ validity(Opts) ->
     Format =
         fun({Y,M,D}) ->
                 lists:flatten(
-                  io_lib:format("~4..0w~2..0w~2..0w000000Z",[Y,M,D]))
+                  io_lib:format("~4..0w~2..0w~2..0w130000Z",[Y,M,D]))
         end,
     #'Validity'{notBefore={generalTime, Format(DefFrom)},
 		notAfter ={generalTime, Format(DefTo)}}.
@@ -1187,6 +1187,8 @@ sign_algorithm(#'ECPrivateKey'{parameters = Parms}, Opts) ->
                           parameters = Parms}.
 rsa_digest_oid(sha1) ->
     ?'sha1WithRSAEncryption';
+rsa_digest_oid(sha) ->
+    ?'sha1WithRSAEncryption';
 rsa_digest_oid(sha512) ->
     ?'sha512WithRSAEncryption';
 rsa_digest_oid(sha384) ->
@@ -1197,6 +1199,8 @@ rsa_digest_oid(md5) ->
    ?'md5WithRSAEncryption'.
 
 ecdsa_digest_oid(sha1) ->
+    ?'ecdsa-with-SHA1';
+ecdsa_digest_oid(sha) ->
     ?'ecdsa-with-SHA1';
 ecdsa_digest_oid(sha512) ->
     ?'ecdsa-with-SHA512';

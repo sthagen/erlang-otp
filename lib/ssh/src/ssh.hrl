@@ -68,6 +68,25 @@
 -define(string(X), ?string_utf8(X)).
 -define(binary(X), << ?STRING(X) >>).
 
+-define('2bin'(X), (if is_binary(X) -> X;
+		       is_list(X) -> list_to_binary(X);
+		       X==undefined -> <<>>
+		    end) ).
+
+%% encoding macros
+-define('E...'(X),    ?'2bin'(X)/binary ).
+-define(Eboolean(X),  ?BOOLEAN(case X of
+				   true -> ?TRUE;
+				   false -> ?FALSE
+			       end) ).
+-define(Ebyte(X),        ?BYTE(X) ).
+-define(Euint32(X),      ?UINT32(X) ).
+-define(Estring(X),      ?STRING(?'2bin'(X)) ).
+-define(Estring_utf8(X), ?string_utf8(X)/binary ).
+-define(Ename_list(X),   ?STRING(ssh_bits:name_list(X)) ).
+-define(Empint(X),       (ssh_bits:mpint(X))/binary ).
+-define(Ebinary(X),      ?STRING(X) ).
+
 %% Cipher details
 -define(SSH_CIPHER_NONE, 0).
 -define(SSH_CIPHER_3DES, 3).
@@ -283,6 +302,8 @@
       | shell_daemon_option()
       | exec_daemon_option()
       | ssh_cli_daemon_option()
+      | tcpip_tunnel_out_daemon_option()
+      | tcpip_tunnel_in_daemon_option()
       | authentication_daemon_options()
       | diffie_hellman_group_exchange_daemon_option()
       | negotiation_timeout_daemon_option()
@@ -293,7 +314,8 @@
       | gen_tcp:listen_option()
       | ?COMMON_OPTION .
 
--type subsystem_daemon_option() :: {subsystems, subsystem_spec()}.
+-type subsystem_daemon_option() :: {subsystems, subsystem_specs()}.
+-type subsystem_specs() :: [ subsystem_spec() ].
 
 -type shell_daemon_option()     :: {shell, mod_fun_args() | 'shell_fun/1'()  | 'shell_fun/2'() }.
 -type 'shell_fun/1'() :: fun((User::string()) -> pid()) .
@@ -308,6 +330,9 @@
 -type exec_result()  :: {ok,Result::term()} | {error,Reason::term()} .
 
 -type ssh_cli_daemon_option()   :: {ssh_cli, mod_args() | no_cli }.
+
+-type tcpip_tunnel_out_daemon_option() :: {tcpip_tunnel_out, boolean()} .
+-type tcpip_tunnel_in_daemon_option() :: {tcpip_tunnel_in, boolean()} .
 
 -type send_ext_info_daemon_option() :: {send_ext_info, boolean()} .
 
@@ -396,11 +421,13 @@
 	  recv_mac_size = 0,
 
 	  encrypt = none,       %% encrypt algorithm
+          encrypt_cipher,       %% cipher. could be different from the algorithm
 	  encrypt_keys,         %% encrypt keys
 	  encrypt_block_size = 8,
 	  encrypt_ctx,
 
 	  decrypt = none,       %% decrypt algorithm
+          decrypt_cipher,       %% cipher. could be different from the algorithm
 	  decrypt_keys,         %% decrypt keys
 	  decrypt_block_size = 8,
 	  decrypt_ctx,          %% Decryption context   
@@ -457,27 +484,12 @@
           recv_ext_info
 	 }).
 
--record(ssh_key,
-	{
-	  type,
-	  public,
-	  private,
-	  comment = ""
-	 }).
-
 -record(ssh_pty, {term = "", % e.g. "xterm"
 		  width = 80,
 		  height = 25,
 		  pixel_width = 1024,
 		  pixel_height = 768,
 		  modes = <<>>}).
-
-%% assertion macro
--define(ssh_assert(Expr, Reason),
-	case Expr of
-	    true -> ok;
-	    _ -> exit(Reason)
-	end).
 
 
 %% dbg help macros

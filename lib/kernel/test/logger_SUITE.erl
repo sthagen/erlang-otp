@@ -101,7 +101,8 @@ all() ->
      compare_levels,
      process_metadata,
      app_config,
-     kernel_config].
+     kernel_config,
+     pretty_print].
 
 start_stop(_Config) ->
     S = whereis(logger),
@@ -879,7 +880,7 @@ other_node(cleanup,_Config) ->
     ok.
 
 compare_levels(_Config) ->
-    Levels = [emergency,alert,critical,error,warning,notice,info,debug],
+    Levels = [none,emergency,alert,critical,error,warning,notice,info,debug,all],
     ok = compare(Levels),
     {error,badarg} = ?TRY(logger:compare_levels(bad,bad)),
     {error,badarg} = ?TRY(logger:compare_levels({bad},notice)),
@@ -898,14 +899,14 @@ process_metadata(_Config) ->
     undefined = logger:get_process_metadata(),
     {error,badarg} = ?TRY(logger:set_process_metadata(bad)),
     ok = logger:add_handler(h1,?MODULE,#{level=>notice,filter_default=>log}),
-    Time = erlang:system_time(microsecond),
+    Time = logger:timestamp(),
     ProcMeta = #{time=>Time,line=>0,custom=>proc},
     ok = logger:set_process_metadata(ProcMeta),
     S1 = ?str,
     ?LOG_NOTICE(S1,#{custom=>macro}),
     check_logged(notice,S1,#{time=>Time,line=>0,custom=>macro}),
 
-    Time2 = erlang:system_time(microsecond),
+    Time2 = logger:timestamp(),
     S2 = ?str,
     ?LOG_NOTICE(S2,#{time=>Time2,line=>1,custom=>macro}),
     check_logged(notice,S2,#{time=>Time2,line=>1,custom=>macro}),
@@ -1047,8 +1048,11 @@ kernel_config(Config) ->
     ok = rpc:call(Node,logger,internal_init_logger,[]),
     ok = rpc:call(Node,logger,add_handlers,[kernel]),
     #{primary:=#{filter_default:=log,filters:=[]},
-      handlers:=[#{id:=default,filters:=DF,config:=#{type:={file,F}}}],
+      handlers:=[#{id:=default,filters:=DF,
+                   config:=#{type:=file,file:=F,modes:=Modes}}],
       module_levels:=[]} = rpc:call(Node,logger,get_config,[]),
+    [append,delayed_write,raw] = lists:sort(Modes),
+
 
     %% Same, but using 'logger' parameter instead of 'error_logger'
     ok = rpc:call(Node,logger,remove_handler,[default]),% so it can be added again
@@ -1059,26 +1063,27 @@ kernel_config(Config) ->
     ok = rpc:call(Node,logger,internal_init_logger,[]),
     ok = rpc:call(Node,logger,add_handlers,[kernel]),
     #{primary:=#{filter_default:=log,filters:=[]},
-      handlers:=[#{id:=default,filters:=DF,config:=#{type:={file,F}}}],
+      handlers:=[#{id:=default,filters:=DF,
+                   config:=#{type:=file,file:=F,modes:=Modes}}],
       module_levels:=[]} = rpc:call(Node,logger,get_config,[]),
 
     %% Same, but with type={file,File,Modes}
     ok = rpc:call(Node,logger,remove_handler,[default]),% so it can be added again
     ok = rpc:call(Node,application,unset_env,[kernel,error_logger]),
-    M = [raw,write,delayed_write],
+    M = [raw,write],
     ok = rpc:call(Node,application,set_env,[kernel,logger,
                                             [{handler,default,logger_std_h,
                                               #{config=>#{type=>{file,F,M}}}}]]),
     ok = rpc:call(Node,logger,internal_init_logger,[]),
     ok = rpc:call(Node,logger,add_handlers,[kernel]),
     #{primary:=#{filter_default:=log,filters:=[]},
-      handlers:=[#{id:=default,filters:=DF,config:=#{type:={file,F,M}}}],
+      handlers:=[#{id:=default,filters:=DF,
+                   config:=#{type:=file,file:=F,modes:=[delayed_write|M]}}],
       module_levels:=[]} = rpc:call(Node,logger,get_config,[]),
 
     %% Same, but with disk_log handler
     ok = rpc:call(Node,logger,remove_handler,[default]),% so it can be added again
     ok = rpc:call(Node,application,unset_env,[kernel,error_logger]),
-    M = [raw,write,delayed_write],
     ok = rpc:call(Node,application,set_env,[kernel,logger,
                                             [{handler,default,logger_disk_log_h,
                                               #{config=>#{file=>F}}}]]),
@@ -1139,6 +1144,61 @@ kernel_config(Config) ->
     {error,{bad_config,{kernel,{invalid_level,bad}}}} =
         rpc:call(Node,logger,internal_init_logger,[]),
 
+    ok.
+
+pretty_print(Config) ->
+    ok = logger:add_handler(?FUNCTION_NAME,logger_std_h,#{}),
+    ok = logger:set_module_level([module1,module2],debug),
+
+    ct:capture_start(),
+    logger:i(),
+    ct:capture_stop(),
+    I0 = ct:capture_get(),
+
+    ct:capture_start(),
+    logger:i(primary),
+    ct:capture_stop(),
+    IPrim = ct:capture_get(),
+
+    ct:capture_start(),
+    logger:i(handlers),
+    ct:capture_stop(),
+    IHs = ct:capture_get(),
+
+    ct:capture_start(),
+    logger:i(proxy),
+    ct:capture_stop(),
+    IProxy = ct:capture_get(),
+
+    ct:capture_start(),
+    logger:i(modules),
+    ct:capture_stop(),
+    IMs = ct:capture_get(),
+
+    I02 = lists:append([IPrim,IHs,IProxy,IMs]),
+    %% ct:log("~p~n",[I0]),
+    %% ct:log("~p~n",[I02]),
+    I0 = I02,
+
+    ct:capture_start(),
+    logger:i(handlers),
+    ct:capture_stop(),
+    IHs = ct:capture_get(),
+
+    Ids = logger:get_handler_ids(),
+    IHs2 =
+        lists:append(
+          [begin
+               ct:capture_start(),
+               logger:i(Id),
+               ct:capture_stop(),
+               [_|IH] = ct:capture_get(),
+               IH
+           end || Id <- Ids]),
+
+    %% ct:log("~p~n",[IHs]),
+    %% ct:log("~p~n",[["Handler configuration: \n"|IHs2]]),
+    IHs = ["Handler configuration: \n"|IHs2],
     ok.
 
 %%%-----------------------------------------------------------------

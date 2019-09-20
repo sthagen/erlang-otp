@@ -34,7 +34,10 @@
 %% Common Test interface functions -----------------------------------
 %%--------------------------------------------------------------------
 all() ->
-    [pem_cleanup, invalid_insert].
+    [
+     pem_cleanup, 
+     clear_pem_cache,
+     invalid_insert].
 
 groups() ->
     [].
@@ -44,11 +47,8 @@ init_per_suite(Config0) ->
     try crypto:start() of
 	ok ->
 	    ssl_test_lib:clean_start(),
-	    %% make rsa certs using oppenssl
-	    {ok, _} =  make_certs:all(proplists:get_value(data_dir, Config0),
-				      proplists:get_value(priv_dir, Config0)),
-	    Config1 = ssl_test_lib:make_dsa_cert(Config0),
-	    ssl_test_lib:cert_options(Config1)
+	    %% make rsa certs  
+            ssl_test_lib:make_rsa_cert(Config0)
     catch _:_ ->
 	    {skip, "Crypto did not start"}
     end.
@@ -86,8 +86,8 @@ pem_cleanup() ->
     [{doc, "Test pem cache invalidate mechanism"}].
 pem_cleanup(Config)when is_list(Config) ->
     process_flag(trap_exit, true),
-    ClientOpts = proplists:get_value(client_verification_opts, Config),
-    ServerOpts = proplists:get_value(server_verification_opts, Config),
+    ClientOpts = proplists:get_value(client_rsa_verify_opts, Config),
+    ServerOpts = proplists:get_value(server_rsa_verify_opts, Config),
     {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
 
     Server =
@@ -113,13 +113,44 @@ pem_cleanup(Config)when is_list(Config) ->
     ssl_test_lib:close(Client),
     false = Size == Size1.
 
+clear_pem_cache() ->
+    [{doc,"Test that internal reference tabel is cleaned properly even when "
+     " the PEM cache is cleared" }].
+clear_pem_cache(Config) when is_list(Config) -> 
+    {status, _, _, StatusInfo} = sys:get_status(whereis(ssl_manager)),
+    [_, _,_, _, Prop] = StatusInfo,
+    State = ssl_test_lib:state(Prop),
+    [_,{FilRefDb, _} |_] = element(6, State),
+    {Server, Client} = basic_verify_test_no_close(Config),
+    CountReferencedFiles = fun({_, -1}, Acc) ->
+				   Acc;
+			      ({_, N}, Acc) ->
+				   N + Acc
+			   end,
+    
+    2 = ets:foldl(CountReferencedFiles, 0, FilRefDb), 
+    ssl:clear_pem_cache(),
+    _ = sys:get_status(whereis(ssl_manager)),
+    {Server1, Client1} = basic_verify_test_no_close(Config),
+    4 =  ets:foldl(CountReferencedFiles, 0, FilRefDb), 
+    ssl_test_lib:close(Server),
+    ssl_test_lib:close(Client),
+    ct:sleep(2000),
+    _ = sys:get_status(whereis(ssl_manager)),
+    2 =  ets:foldl(CountReferencedFiles, 0, FilRefDb), 
+    ssl_test_lib:close(Server1),
+    ssl_test_lib:close(Client1),
+    ct:sleep(2000),
+    _ = sys:get_status(whereis(ssl_manager)),
+    0 =  ets:foldl(CountReferencedFiles, 0, FilRefDb).
+
 invalid_insert() ->
     [{doc, "Test that insert of invalid pem does not cause empty cache entry"}].
 invalid_insert(Config)when is_list(Config) ->      
     process_flag(trap_exit, true),
     
-    ClientOpts = proplists:get_value(client_verification_opts, Config),
-    ServerOpts = proplists:get_value(server_verification_opts, Config),
+    ClientOpts = proplists:get_value(client_rsa_verify_opts, Config),
+    ServerOpts = proplists:get_value(server_rsa_verify_opts, Config),
     {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
     BadClientOpts = [{cacertfile, "tmp/does_not_exist.pem"} | proplists:delete(cacertfile, ClientOpts)],
     Server =
@@ -166,3 +197,22 @@ later()->
     Gregorian = calendar:datetime_to_gregorian_seconds(DateTime),
     calendar:gregorian_seconds_to_datetime(Gregorian + (2 * ?CLEANUP_INTERVAL)).
 	
+basic_verify_test_no_close(Config) ->
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_opts, Config),
+    ServerOpts = ssl_test_lib:ssl_options(server_rsa_opts, Config),
+
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+
+    Server = ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+					{from, self()},
+					{mfa, {ssl_test_lib, send_recv_result_active, []}},
+					{options, ServerOpts}]),
+    Port = ssl_test_lib:inet_port(Server),
+    Client = ssl_test_lib:start_client([{node, ClientNode}, {port, Port},
+					{host, Hostname},
+					{from, self()},
+					{mfa, {ssl_test_lib, send_recv_result_active, []}},
+					{options, ClientOpts}]),
+
+    ssl_test_lib:check_result(Server, ok, Client, ok),
+    {Server, Client}.

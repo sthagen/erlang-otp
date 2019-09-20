@@ -51,9 +51,20 @@
 #include "erl_db_tree_util.h"
 
 #define GETKEY_WITH_POS(Keypos, Tplp) (*((Tplp) + Keypos))
-#define NITEMS(tb) ((int)erts_atomic_read_nob(&(tb)->common.nitems))
 
-#define TREE_MAX_ELEMENTS 0xFFFFFFFFUL
+#define NITEMS_CENTRALIZED(tb)                                          \
+    ((Sint)erts_flxctr_read_centralized(&(tb)->common.counters,          \
+                                        ERTS_DB_TABLE_NITEMS_COUNTER_ID))
+#define ADD_NITEMS(DB, TO_ADD)                                          \
+    erts_flxctr_add(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID, TO_ADD)
+#define INC_NITEMS(DB)                                                  \
+    erts_flxctr_inc(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID)
+#define INC_NITEMS_CENTRALIZED(DB)                                      \
+    erts_flxctr_inc_read_centralized(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID)
+#define RESET_NITEMS(DB)                                                \
+    erts_flxctr_reset(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID)
+#define IS_CENTRALIZED_CTR(tb) (!(tb)->common.counters.is_decentralized)
+#define APPROX_MEM_CONSUMED(tb) erts_flxctr_read_approx(&(tb)->common.counters, ERTS_DB_TABLE_MEM_COUNTER_ID)
 
 #define TOPN_NODE(Dtt, Pos)                   \
      (((Pos) < Dtt->pos) ? 			\
@@ -296,7 +307,7 @@ int tree_balance_right(TreeDbTerm **this);
 static int delsub(TreeDbTerm **this); 
 static TreeDbTerm *slot_search(Process *p, TreeDbTerm *root, Sint slot,
                                DbTable *tb, DbTableTree *stack_container,
-                               CATreeRootIterator *iter);
+                               CATreeRootIterator *iter, int* is_EOT);
 static TreeDbTerm *find_node(DbTableCommon *tb, TreeDbTerm *root,
                              Eterm key, DbTableTree *stack_container);
 static TreeDbTerm **find_node2(DbTableCommon *tb, TreeDbTerm **root, Eterm key);
@@ -397,24 +408,31 @@ static int db_erase_object_tree(DbTable *tbl, Eterm object,Eterm *ret);
 static int db_slot_tree(Process *p, DbTable *tbl, 
 			Eterm slot_term,  Eterm *ret);
 static int db_select_tree(Process *p, DbTable *tbl, Eterm tid,
-			  Eterm pattern, int reversed, Eterm *ret);
+			  Eterm pattern, int reversed, Eterm *ret,
+                          enum DbIterSafety);
 static int db_select_count_tree(Process *p, DbTable *tbl, Eterm tid,
-				Eterm pattern,  Eterm *ret);
+				Eterm pattern,  Eterm *ret, enum DbIterSafety);
 static int db_select_chunk_tree(Process *p, DbTable *tbl, Eterm tid,
 				Eterm pattern, Sint chunk_size,
-				int reversed, Eterm *ret);
+				int reversed, Eterm *ret, enum DbIterSafety);
 static int db_select_continue_tree(Process *p, DbTable *tbl,
-				   Eterm continuation, Eterm *ret);
+				   Eterm continuation, Eterm *ret,
+                                   enum DbIterSafety*);
 static int db_select_count_continue_tree(Process *p, DbTable *tbl,
-					 Eterm continuation, Eterm *ret);
+					 Eterm continuation, Eterm *ret,
+                                         enum DbIterSafety*);
 static int db_select_delete_tree(Process *p, DbTable *tbl, Eterm tid,
-				 Eterm pattern,  Eterm *ret);
+				 Eterm pattern,  Eterm *ret,
+                                 enum DbIterSafety);
 static int db_select_delete_continue_tree(Process *p, DbTable *tbl, 
-					  Eterm continuation, Eterm *ret);
+					  Eterm continuation, Eterm *ret,
+                                          enum DbIterSafety*);
 static int db_select_replace_tree(Process *p, DbTable *tbl, Eterm tid,
-                                  Eterm pattern, Eterm *ret);
+                                  Eterm pattern, Eterm *ret,
+                                  enum DbIterSafety);
 static int db_select_replace_continue_tree(Process *p, DbTable *tbl,
-                                           Eterm continuation, Eterm *ret);
+                                           Eterm continuation, Eterm *ret,
+                                           enum DbIterSafety*);
 static int db_take_tree(Process *, DbTable *, Eterm, Eterm *);
 static void db_print_tree(fmtfn_t to, void *to_arg,
 			  int show, DbTable *tbl);
@@ -426,8 +444,12 @@ static void db_foreach_offheap_tree(DbTable *,
 				    void (*)(ErlOffHeap *, void *),
 				    void *);
 
-static SWord db_delete_all_objects_tree(Process* p, DbTable* tbl, SWord reds);
-
+static SWord db_delete_all_objects_tree(Process* p,
+                                        DbTable* tbl,
+                                        SWord reds,
+                                        Eterm* nitems_holder_wb);
+static Eterm db_delete_all_objects_get_nitems_from_holder_tree(Process* p,
+                                                               Eterm nitems_holder);
 #ifdef HARDDEBUG
 static void db_check_table_tree(DbTable *tbl);
 #endif
@@ -436,6 +458,9 @@ db_lookup_dbterm_tree(Process *, DbTable *, Eterm key, Eterm obj,
                       DbUpdateHandle*);
 static void
 db_finalize_dbterm_tree(int cret, DbUpdateHandle *);
+
+static int db_get_binary_info_tree(Process*, DbTable*, Eterm key, Eterm *ret);
+
 
 /*
 ** Static variables
@@ -471,13 +496,16 @@ DbTableMethod db_tree =
     db_select_replace_continue_tree,
     db_take_tree,
     db_delete_all_objects_tree,
+    db_delete_all_objects_get_nitems_from_holder_tree,
     db_free_empty_table_tree,
     db_free_table_continue_tree,
     db_print_tree,
     db_foreach_offheap_tree,
     db_lookup_dbterm_tree,
-    db_finalize_dbterm_tree
-
+    db_finalize_dbterm_tree,
+    db_get_binary_info_tree,
+    db_first_tree, /* raw_first same as first */
+    db_next_tree   /* raw_next same as next */
 };
 
 
@@ -588,7 +616,8 @@ int db_last_tree_common(Process *p, DbTable *tbl, TreeDbTerm *root,
     }
     if (stack) {
 	PUSH_NODE(stack, this);
-	stack->slot = NITEMS(tbl);
+        /* Always centralized counters when static stack is used */
+	stack->slot = NITEMS_CENTRALIZED(tbl);
 	release_stack(tbl,stack_container,stack);
     }
     *ret = db_copy_key(p, tbl, &this->dbterm);
@@ -654,10 +683,7 @@ int db_put_tree_common(DbTableCommon *tb, TreeDbTerm **root, Eterm obj,
     for (;;)
 	if (!*this) { /* Found our place */
 	    state = 1;
-	    if (erts_atomic_inc_read_nob(&tb->nitems) >= TREE_MAX_ELEMENTS) {
-		erts_atomic_dec_nob(&tb->nitems);
-		return DB_ERROR_SYSRES;
-	    }
+            INC_NITEMS(((DbTable*)tb));
 	    *this = new_dbterm(tb, obj);
 	    (*this)->balance = 0;
 	    (*this)->left = (*this)->right = NULL;
@@ -881,7 +907,7 @@ int db_slot_tree_common(Process *p, DbTable *tbl, TreeDbTerm *root,
     TreeDbTerm *st;
     Eterm *hp, *hend;
     Eterm copy;
-
+    int is_EOT = 0;
     /*
      * The notion of a "slot" is not natural in a tree, but we try to
      * simulate it by giving the n'th node in the tree instead.
@@ -892,10 +918,10 @@ int db_slot_tree_common(Process *p, DbTable *tbl, TreeDbTerm *root,
 
     if (is_not_small(slot_term) ||
 	((slot = signed_val(slot_term)) < 0) ||
-	(slot > NITEMS(tbl)))
+	(IS_CENTRALIZED_CTR(tbl) && slot > NITEMS_CENTRALIZED(tbl)))
 	return DB_ERROR_BADPARAM;
 
-    if (slot == NITEMS(tbl)) {
+    if (IS_CENTRALIZED_CTR(tbl) && slot == NITEMS_CENTRALIZED(tbl)) {
 	*ret = am_EOT;
 	return DB_ERROR_NONE;
     }
@@ -905,7 +931,11 @@ int db_slot_tree_common(Process *p, DbTable *tbl, TreeDbTerm *root,
      * are counted from 1 and up.
      */
     ++slot;
-    st = slot_search(p, root, slot, tbl, stack_container, iter);
+    st = slot_search(p, root, slot, tbl, stack_container, iter, &is_EOT);
+    if (is_EOT) {
+        *ret = am_EOT;
+	return DB_ERROR_NONE;
+    }
     if (st == NULL) {
 	*ret = am_false;
 	return DB_ERROR_UNSPEC;
@@ -1145,7 +1175,7 @@ int db_select_continue_tree_common(Process *p,
 	 sc.accum,
 	 tptr[7],
 	 make_small(sc.got));
-    RET_TO_BIF(bif_trap1(bif_export[BIF_ets_select_1], p, continuation), 
+    RET_TO_BIF(bif_trap1(&bif_trap_export[BIF_ets_select_1], p, continuation), 
 	       DB_ERROR_NONE);
 
 #undef RET_TO_BIF
@@ -1160,7 +1190,8 @@ int db_select_continue_tree_common(Process *p,
 static int db_select_continue_tree(Process *p, 
 				   DbTable *tbl,
 				   Eterm continuation,
-				   Eterm *ret)
+				   Eterm *ret,
+                                   enum DbIterSafety* safety_p)
 {
     DbTableTree *tb = &tbl->tree;
     return db_select_continue_tree_common(p, &tb->common,
@@ -1289,7 +1320,7 @@ int db_select_tree_common(Process *p, DbTable *tb,
 	 make_small(sc.got));
 
     /* Don't free mpi.mp, so don't use macro */
-    *ret = bif_trap1(bif_export[BIF_ets_select_1], p, continuation); 
+    *ret = bif_trap1(&bif_trap_export[BIF_ets_select_1], p, continuation); 
     return DB_ERROR_NONE;
 
 #undef RET_TO_BIF
@@ -1297,7 +1328,8 @@ int db_select_tree_common(Process *p, DbTable *tb,
 }
 
 static int db_select_tree(Process *p, DbTable *tbl, Eterm tid,
-			  Eterm pattern, int reverse, Eterm *ret)
+			  Eterm pattern, int reverse, Eterm *ret,
+                          enum DbIterSafety safety)
 {
     return db_select_tree_common(p, tbl, tid,
                                  pattern, reverse, ret, &tbl->tree, NULL);
@@ -1408,7 +1440,8 @@ int db_select_count_continue_tree_common(Process *p,
 static int db_select_count_continue_tree(Process *p, 
                                          DbTable *tbl,
                                          Eterm continuation,
-                                         Eterm *ret)
+                                         Eterm *ret,
+                                         enum DbIterSafety* safety_p)
 {
     DbTableTree *tb = &tbl->tree;
     return db_select_count_continue_tree_common(p, tbl,
@@ -1527,7 +1560,8 @@ int db_select_count_tree_common(Process *p, DbTable *tb,
 }
 
 static int db_select_count_tree(Process *p, DbTable *tbl, Eterm tid,
-                                Eterm pattern, Eterm *ret)
+                                Eterm pattern, Eterm *ret,
+                                enum DbIterSafety safety)
 {
     DbTableTree *tb = &tbl->tree;
     return db_select_count_tree_common(p, tbl,
@@ -1694,7 +1728,7 @@ int db_select_chunk_tree_common(Process *p, DbTable *tb,
 	 make_small(reverse),
 	 make_small(sc.got));
     /* Don't let RET_TO_BIF macro free mpi.mp*/
-    *ret = bif_trap1(bif_export[BIF_ets_select_1], p, continuation);
+    *ret = bif_trap1(&bif_trap_export[BIF_ets_select_1], p, continuation);
     return DB_ERROR_NONE;
 
 #undef RET_TO_BIF
@@ -1704,7 +1738,7 @@ int db_select_chunk_tree_common(Process *p, DbTable *tb,
 static int db_select_chunk_tree(Process *p, DbTable *tbl, Eterm tid,
                                 Eterm pattern, Sint chunk_size,
                                 int reverse,
-                                Eterm *ret)
+                                Eterm *ret, enum DbIterSafety safety)
 {
     DbTableTree *tb = &tbl->tree;
     return db_select_chunk_tree_common(p, tbl,
@@ -1813,7 +1847,8 @@ int db_select_delete_continue_tree_common(Process *p,
 static int db_select_delete_continue_tree(Process *p, 
 					  DbTable *tbl,
 					  Eterm continuation,
-					  Eterm *ret)
+					  Eterm *ret,
+                                          enum DbIterSafety* safety_p)
 {
     DbTableTree *tb = &tbl->tree;
     ASSERT(!erts_atomic_read_nob(&tb->is_stack_busy));
@@ -1942,7 +1977,8 @@ int db_select_delete_tree_common(Process *p, DbTable *tbl,
 }
 
 static int db_select_delete_tree(Process *p, DbTable *tbl, Eterm tid,
-				 Eterm pattern, Eterm *ret)
+				 Eterm pattern, Eterm *ret,
+                                 enum DbIterSafety safety)
 {
     DbTableTree *tb = &tbl->tree;
     return db_select_delete_tree_common(p, tbl, tid, pattern, ret,
@@ -2052,7 +2088,8 @@ int db_select_replace_continue_tree_common(Process *p,
 static int db_select_replace_continue_tree(Process *p,
                                            DbTable *tbl,
                                            Eterm continuation,
-                                           Eterm *ret)
+                                           Eterm *ret,
+                                           enum DbIterSafety* safety_p)
 {
     return db_select_replace_continue_tree_common(p, tbl, continuation, ret,
                                                   &tbl->tree, NULL);
@@ -2177,7 +2214,8 @@ int db_select_replace_tree_common(Process *p, DbTable *tbl,
 }
 
 static int db_select_replace_tree(Process *p, DbTable *tbl, Eterm tid,
-                                  Eterm pattern, Eterm *ret)
+                                  Eterm pattern, Eterm *ret,
+                                  enum DbIterSafety safety)
 {
     return db_select_replace_tree_common(p, tbl, tid, pattern, ret,
                                          &tbl->tree, NULL);
@@ -2229,7 +2267,8 @@ void db_print_tree_common(fmtfn_t to, void *to_arg,
 	erts_print(to, to_arg, "\n"
 		   "------------------------------------------------\n");
 #else
-    erts_print(to, to_arg, "Ordered set (AVL tree), Elements: %d\n", NITEMS(tbl));
+    erts_print(to, to_arg, "Ordered set (AVL tree), Elements: %d\n",
+               erts_flxctr_read_approx(&tbl->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID));
 #endif
 }
 
@@ -2266,22 +2305,39 @@ static SWord db_free_table_continue_tree(DbTable *tbl, SWord reds)
 		     (DbTable *) tb,
 		     (void *) tb->static_stack.array,
 		     sizeof(TreeDbTerm *) * STACK_NEED);
-	ASSERT((erts_atomic_read_nob(&tb->common.memory_size)
-	       == sizeof(DbTable)) ||
-               (erts_atomic_read_nob(&tb->common.memory_size)
-                == (sizeof(DbTable) + sizeof(DbFixation))));
+	ASSERT(erts_flxctr_is_snapshot_ongoing(&tb->common.counters) ||
+               ((APPROX_MEM_CONSUMED(tb)
+                 == sizeof(DbTable)) ||
+                (APPROX_MEM_CONSUMED(tb)
+                 == (sizeof(DbTable) + sizeof(DbFixation)))));
     }
     return reds;
 }
 
-static SWord db_delete_all_objects_tree(Process* p, DbTable* tbl, SWord reds)
+static SWord db_delete_all_objects_tree(Process* p,
+                                        DbTable* tbl,
+                                        SWord reds,
+                                        Eterm* nitems_holder_wb)
 {
+    if (nitems_holder_wb != NULL) {
+        Uint nr_of_items =
+            erts_flxctr_read_centralized(&tbl->common.counters,
+                                         ERTS_DB_TABLE_NITEMS_COUNTER_ID);
+        *nitems_holder_wb = erts_make_integer(nr_of_items, p);
+    }
     reds = db_free_table_continue_tree(tbl, reds);
     if (reds < 0)
         return reds;
     db_create_tree(p, tbl);
-    erts_atomic_set_nob(&tbl->tree.common.nitems, 0);
+    RESET_NITEMS(tbl);
     return reds;
+}
+
+static Eterm db_delete_all_objects_get_nitems_from_holder_tree(Process* p,
+                                                               Eterm holder)
+{
+    (void)p;
+    return holder;
 }
 
 static void do_db_tree_foreach_offheap(TreeDbTerm *,
@@ -2368,7 +2424,7 @@ static TreeDbTerm *linkout_tree(DbTableCommon *tb, TreeDbTerm **root,
 		tstack[tpos++] = this;
 		state = delsub(this);
 	    }
-	    erts_atomic_dec_nob(&tb->nitems);
+            DEC_NITEMS(((DbTable*)tb));
 	    break;
 	}
     }
@@ -2435,7 +2491,7 @@ static TreeDbTerm *linkout_object_tree(DbTableCommon *tb,  TreeDbTerm **root,
 		tstack[tpos++] = this;
 		state = delsub(this);
 	    }
-	    erts_atomic_dec_nob(&tb->nitems);
+            DEC_NITEMS(((DbTable*)tb));
 	    break;
 	}
     }
@@ -2730,7 +2786,8 @@ static int delsub(TreeDbTerm **this)
 static TreeDbTerm *slot_search(Process *p, TreeDbTerm *root,
                                Sint slot, DbTable *tb,
                                DbTableTree *stack_container,
-                               CATreeRootIterator *iter)
+                               CATreeRootIterator *iter,
+                               int* is_EOT)
 {
     TreeDbTerm *this;
     TreeDbTerm *tmp;
@@ -2822,8 +2879,12 @@ static TreeDbTerm *slot_search(Process *p, TreeDbTerm *root,
         break;
 
 next_root:
-        if (!iter)
+        if (!iter) {
+            if (stack->slot == (slot-1)) {
+                *is_EOT = 1;
+            }
             break; /* EOT */
+        }
 
         ASSERT(slot > stack->slot);
         if (lastobj) {
@@ -2831,8 +2892,12 @@ next_root:
             lastobj = NULL;
         }
         pp = catree_find_next_root(iter, &lastkey);
-        if (!pp)
+        if (!pp) {
+            if (stack->slot == (slot-1)) {
+                *is_EOT = 1;
+            }
             break; /* EOT */
+        }
         root = *pp;
         stack->pos = 0;
         find_next(&tb->common, root, stack, lastkey);
@@ -3091,6 +3156,14 @@ static TreeDbTerm *find_node(DbTableCommon *tb, TreeDbTerm *root,
     return this;
 }
 
+
+TreeDbTerm *db_find_tree_node_common(DbTableCommon *tb, TreeDbTerm *root,
+                                     Eterm key)
+{
+    return find_node(tb, root, key, NULL);
+}
+
+
 /*
  * Lookup a node and return the address of the node pointer in the tree
  */
@@ -3242,6 +3315,38 @@ db_finalize_dbterm_tree(int cret, DbUpdateHandle *handle)
     DbTableTree *tb = &tbl->tree;
     db_finalize_dbterm_tree_common(cret, handle, tb);
 }
+
+static int db_get_binary_info_tree(Process *p, DbTable *tbl, Eterm key, Eterm *ret)
+{
+    *ret = db_binary_info_tree_common(p, find_node(&tbl->common, tbl->tree.root,
+                                                   key, &tbl->tree));
+    return DB_ERROR_NONE;
+}
+
+Eterm db_binary_info_tree_common(Process* p, TreeDbTerm* this)
+{
+    Eterm *hp, *hp_end;
+    Uint hsz;
+    Eterm ret;
+
+    if (this == NULL) {
+	ret = NIL;
+    } else {
+        ErlOffHeap oh;
+        hsz = 0;
+
+        oh.first = this->dbterm.first_oh;
+        erts_bld_bin_list(NULL, &hsz, &oh, NIL);
+
+        hp = HAlloc(p, hsz);
+        hp_end = hp + hsz;
+        oh.first = this->dbterm.first_oh;
+        ret = erts_bld_bin_list(&hp, NULL, &oh, NIL);
+        ASSERT(hp == hp_end); (void)hp_end;
+    }
+    return ret;
+}
+
 
 /*
  * Traverse the tree with a callback function, used by db_match_xxx
@@ -3743,13 +3848,6 @@ static int doit_select(DbTableCommon *tb, TreeDbTerm *this,
     if (is_value(ret)) {
 	sc->accum = CONS(hp, ret, sc->accum);
     }
-    if (MBUF(sc->p)) {
-	/*
-	 * Force a trap and GC if a heap fragment was created. Many heap fragments
-	 * make the GC slow.
-	 */
-	sc->max = 0;
-    }
     if (--(sc->max) <= 0) {
 	return 0;
     }
@@ -3805,13 +3903,6 @@ static int doit_select_chunk(DbTableCommon *tb, TreeDbTerm *this,
     if (is_value(ret)) {
 	++(sc->got);
 	sc->accum = CONS(hp, ret, sc->accum);
-    }
-    if (MBUF(sc->p)) {
-	/*
-	 * Force a trap and GC if a heap fragment was created. Many heap fragments
-	 * make the GC slow.
-	 */
-	sc->max = 0;
     }
     if (--(sc->max) <= 0 || sc->got == sc->chunk_size) {
 	return 0;
@@ -3888,6 +3979,12 @@ static int doit_select_replace(DbTableCommon *tb, TreeDbTerm **this,
 	return 0;
     }
     return 1;
+}
+
+void
+erts_db_foreach_thr_prgr_offheap_tree(void (*func)(ErlOffHeap *, void *),
+                                      void *arg)
+{
 }
 
 #ifdef TREE_DEBUG

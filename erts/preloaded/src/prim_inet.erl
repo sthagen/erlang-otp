@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2000-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2019. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -172,8 +172,18 @@ close(S) when is_port(S) ->
             %% and is a contradiction in itself.
             %% We have hereby done our best...
             %%
-            Tref = erlang:start_timer(T * 1000, self(), close_port),
-            close_pend_loop(S, Tref, undefined);
+            case subscribe(S, [subs_empty_out_q]) of
+                {ok, [{subs_empty_out_q,0}]} ->
+                    close_port(S);
+                {ok, [{subs_empty_out_q,N}]} when N > 0 ->
+                    %% Wait for pending output to be sent
+                    Tref = erlang:start_timer(T * 1000, self(), close_port),
+                    close_pend_loop(S, Tref, N);
+                _ ->
+                    %% Subscribe failed - wait full time
+                    Tref = erlang:start_timer(T * 1000, self(), close_port),
+                    close_pend_loop(S, Tref, undefined)
+            end;
 	_ -> % Regard this as {ok,{false,_}}
             case subscribe(S, [subs_empty_out_q]) of
                 {ok, [{subs_empty_out_q,N}]} when N > 0 ->
@@ -417,7 +427,7 @@ accept_opts(L, S, FamilyOpts) ->
     case
         getopts(
           L,
-          [active, nodelay, keepalive, delay_send, priority]
+          [active, nodelay, keepalive, delay_send, priority, linger]
           ++ FamilyOpts)
     of
 	{ok, Opts} ->
@@ -543,34 +553,49 @@ send(S, Data) ->
 %% "sendto" is for UDP. IP and Port are set by the caller to 0 if the socket
 %% is known to be connected.
 
-sendto(S, Addr, _, Data) when is_port(S), tuple_size(Addr) =:= 2 ->
-    case type_value(set, addr, Addr) of
-	true ->
-	    ?DBG_FORMAT("prim_inet:sendto(~p, ~p, ~p)~n", [S,Addr,Data]),
-	    try
-		erlang:port_command(S, [enc_value(set, addr, Addr),Data])
-	    of
-		true ->
-		    receive
-			{inet_reply,S,Reply} ->
-			    ?DBG_FORMAT(
-			       "prim_inet:sendto() -> ~p~n", [Reply]),
-			    Reply
-		    end
-	    catch
-		error:_ ->
-		    ?DBG_FORMAT(
-		       "prim_inet:sendto() -> {error,einval}~n", []),
-		    {error,einval}
-	    end;
-	false ->
-	    ?DBG_FORMAT(
-	       "prim_inet:sendto() -> {error,einval}~n", []),
-	    {error,einval}
-    end;
-sendto(S, IP, Port, Data) ->
-    sendto(S, {IP, Port}, 0, Data).
-
+sendto(S, {_, _} = Address, AncOpts, Data)
+  when is_port(S), is_list(AncOpts) ->
+    case encode_opt_val(AncOpts) of
+        {ok, AncData} ->
+            AncDataLen = iolist_size(AncData),
+            case
+                type_value(set, addr, Address) andalso
+                type_value(set, uint32, AncDataLen)
+            of
+                true ->
+                    ?DBG_FORMAT("prim_inet:sendto(~p, ~p, ~p, ~p)~n",
+                                [S,Address,AncOpts,Data]),
+                    PortCommandData =
+                        [enc_value(set, addr, Address),
+                         enc_value(set, uint32, AncDataLen), AncData,
+                         Data],
+                    try erlang:port_command(S, PortCommandData) of
+                        true ->
+                            receive
+                                {inet_reply,S,Reply} ->
+                                    ?DBG_FORMAT(
+                                       "prim_inet:sendto() -> ~p~n", [Reply]),
+                                    Reply
+                            end
+                    catch
+                        _:_ ->
+                            ?DBG_FORMAT(
+                               "prim_inet:sendto() -> {error,einval}~n", []),
+                            {error,einval}
+                    end;
+                false ->
+                    ?DBG_FORMAT(
+                       "prim_inet:sendto() -> {error,einval}~n", []),
+                    {error,einval}
+            end;
+        {error,_} ->
+            ?DBG_FORMAT(
+               "prim_inet:sendto() -> {error,einval}~n", []),
+            {error,einval}
+    end;                        
+sendto(S, IP, Port, Data)
+  when is_port(S), is_integer(Port) ->
+    sendto(S, {IP, Port}, [], Data).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -1983,15 +2008,15 @@ enc_value_2(addr, {File,_}) when is_list(File); is_binary(File) ->
     [?INET_AF_LOCAL,iolist_size(File)|File];
 %%
 enc_value_2(addr, {inet,{any,Port}}) ->
-    [?INET_AF_INET,?int16(Port),0,0,0,0];
+    [?INET_AF_INET,?int16(Port)|ip4_to_bytes({0,0,0,0})];
 enc_value_2(addr, {inet,{loopback,Port}}) ->
-    [?INET_AF_INET,?int16(Port),127,0,0,1];
+    [?INET_AF_INET,?int16(Port)|ip4_to_bytes({127,0,0,1})];
 enc_value_2(addr, {inet,{IP,Port}}) ->
     [?INET_AF_INET,?int16(Port)|ip4_to_bytes(IP)];
 enc_value_2(addr, {inet6,{any,Port}}) ->
-    [?INET_AF_INET6,?int16(Port),0,0,0,0,0,0,0,0];
+    [?INET_AF_INET6,?int16(Port)|ip6_to_bytes({0,0,0,0,0,0,0,0})];
 enc_value_2(addr, {inet6,{loopback,Port}}) ->
-    [?INET_AF_INET6,?int16(Port),0,0,0,0,0,0,0,1];
+    [?INET_AF_INET6,?int16(Port)|ip6_to_bytes({0,0,0,0,0,0,0,1})];
 enc_value_2(addr, {inet6,{IP,Port}}) ->
     [?INET_AF_INET6,?int16(Port)|ip6_to_bytes(IP)];
 enc_value_2(addr, {local,Addr}) ->
@@ -2139,10 +2164,10 @@ enum_name(_, []) -> false.
 %% encode opt/val REVERSED since options are stored in reverse order
 %% i.e. the recent options first (we must process old -> new)
 encode_opt_val(Opts) -> 
-    try 
-	enc_opt_val(Opts, [])
+    try
+	{ok, enc_opt_val(Opts, [])}
     catch
-	Reason -> {error,Reason}
+	throw:Reason -> {error,Reason}
     end.
 
 %% {active, once} and {active, N} are specially optimized because they will
@@ -2161,17 +2186,21 @@ enc_opt_val([binary|Opts], Acc) ->
     enc_opt_val(Opts, Acc, mode, binary);
 enc_opt_val([list|Opts], Acc) ->
     enc_opt_val(Opts, Acc, mode, list);
-enc_opt_val([_|_], _) -> {error,einval};
-enc_opt_val([], Acc)  -> {ok,Acc}.
+enc_opt_val([_|_], _) ->
+    throw(einval);
+enc_opt_val([], Acc) ->
+    Acc.
 
 enc_opt_val(Opts, Acc, Opt, Val) when is_atom(Opt) ->
     Type = type_opt(set, Opt),
     case type_value(set, Type, Val) of
 	true -> 
 	    enc_opt_val(Opts, [enc_opt(Opt),enc_value(set, Type, Val)|Acc]);
-	false -> {error,einval}
+	false ->
+            throw(einval)
     end;
-enc_opt_val(_, _, _, _) -> {error,einval}.
+enc_opt_val(_, _, _, _) ->
+    throw(einval).
 
 
 
@@ -2679,12 +2708,13 @@ get_ip6([X1,X2,X3,X4,X5,X6,X7,X8,X9,X10,X11,X12,X13,X14,X15,X16 | T]) ->
 	?u16(X9,X10),?u16(X11,X12),?u16(X13,X14),?u16(X15,X16)},
       T }.
 
+-define(ERTS_INET_DRV_CONTROL_MAGIC_NUMBER, 16#03f1a300).
 
 %% Control command
 ctl_cmd(Port, Cmd, Args) ->
     ?DBG_FORMAT("prim_inet:ctl_cmd(~p, ~p, ~p)~n", [Port,Cmd,Args]),
     Result =
-	try erlang:port_control(Port, Cmd, Args) of
+	try erlang:port_control(Port, Cmd+?ERTS_INET_DRV_CONTROL_MAGIC_NUMBER, Args) of
 	    [?INET_REP_OK|Reply]  -> {ok,Reply};
 	    [?INET_REP]  -> inet_reply;
 	    [?INET_REP_ERROR|Err] -> {error,list_to_atom(Err)}

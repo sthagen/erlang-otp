@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2007-2016. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2019. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -332,7 +332,7 @@ integer_timer_start_and_expire(Config) when is_list(Config) ->
     receive
 	{timeout, Timeout} ->
 	    ok
-    after Timeout + 100 ->
+    after Timeout + 500 ->
 	    tmr_stop(Ref),
 	    error(no_timeout)
     end,
@@ -354,12 +354,24 @@ integer_timer_start_and_stop(Config) when is_list(Config) ->
     i("starting"),
 
     Timeout = 5000,
-    Ref = tmr_start(Timeout),
+    i("try start (~w msec) timer", [Timeout]),
+    Ref     = tmr_start(Timeout),
+    i("timer started "),
     receive
 	{timeout, Timeout} ->
+            i("unexpected premature timer expire"),
 	    error(bad_timeout)
     after Timeout - 100 ->
-	    tmr_stop(Ref)
+            i("try stop timer"),
+	    case tmr_stop(Ref) of
+                {ok, Rem} ->
+                    i("timer stopped with ~w msec remaining", [Rem]),
+                    ok;
+                CancelRes ->
+                    i("failed stop timer: "
+                      "~n   ~p", [CancelRes]),
+                    ?SKIP({cancel_failed, CancelRes}) % Race - not our problem
+            end
     end,
 
     %% Make sure it does not reach us after we attempted to stop it.
@@ -438,21 +450,6 @@ print1(_, _, _, _) ->
 print(Prefix, F, A) ->
     io:format("*** [~s] ~s ~p ~s:~w ***"
               "~n   " ++ F ++ "~n", 
-              [formated_timestamp(), Prefix, self(), get(sname), get(tc) | A]).
-
-    
+              [?FTS(), Prefix, self(), get(sname), get(tc) | A]).
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-formated_timestamp() ->
-    format_timestamp(now()).
-
-format_timestamp({_N1, _N2, N3} = Now) ->
-    {Date, Time}   = calendar:now_to_datetime(Now),
-    {YYYY,MM,DD}   = Date,
-    {Hour,Min,Sec} = Time,
-    FormatDate = 
-        io_lib:format("~.4w:~.2.0w:~.2.0w ~.2.0w:~.2.0w:~.2.0w 4~w",
-                      [YYYY,MM,DD,Hour,Min,Sec,round(N3/1000)]),  
-    lists:flatten(FormatDate).

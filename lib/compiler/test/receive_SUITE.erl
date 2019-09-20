@@ -25,7 +25,8 @@
 	 init_per_group/2,end_per_group/2,
 	 init_per_testcase/2,end_per_testcase/2,
 	 export/1,recv/1,coverage/1,otp_7980/1,ref_opt/1,
-	 wait/1,recv_in_try/1,double_recv/1]).
+	 wait/1,recv_in_try/1,double_recv/1,receive_var_zero/1,
+         match_built_terms/1,elusive_common_exit/1]).
 
 -include_lib("common_test/include/ct.hrl").
 
@@ -45,7 +46,8 @@ all() ->
 groups() -> 
     [{p,test_lib:parallel(),
       [recv,coverage,otp_7980,ref_opt,export,wait,
-       recv_in_try,double_recv]}].
+       recv_in_try,double_recv,receive_var_zero,
+       match_built_terms,elusive_common_exit]}].
 
 
 init_per_suite(Config) ->
@@ -377,5 +379,109 @@ do_double_recv(_, Msg) ->
     after 0 ->
             error
     end.
+
+%% Test 'after Z', when Z =:= 0 been propagated as an immediate by the type
+%% optimization pass.
+receive_var_zero(Config) when is_list(Config) ->
+    self() ! x,
+    self() ! y,
+    Z = zero(),
+    timeout = receive
+                  z -> ok
+              after Z -> timeout
+              end,
+    timeout = receive
+              after Z -> timeout
+              end,
+    self() ! w,
+    receive
+	x -> ok;
+	Other ->
+	    ct:fail({bad_message,Other})
+    end.
+
+zero() -> 0.
+
+%% ERL-862; the validator would explode when a term was constructed in a
+%% receive guard.
+
+-define(MATCH_BUILT_TERM(Ref, Expr),
+        (fun() ->
+                 Ref = make_ref(),
+                 A = id($a),
+                 B = id($b),
+                 Built = id(Expr),
+                 self() ! {Ref, A, B},
+                 receive
+                     {Ref, A, B} when Expr =:= Built ->
+                         ok
+                 after 5000 ->
+                     ct:fail("Failed to match message with term built in "
+                             "receive guard.")
+                 end
+         end)()).
+
+match_built_terms(Config) when is_list(Config) ->
+    ?MATCH_BUILT_TERM(Ref, [A, B]),
+    ?MATCH_BUILT_TERM(Ref, {A, B}),
+    ?MATCH_BUILT_TERM(Ref, <<A, B>>),
+    ?MATCH_BUILT_TERM(Ref, #{ 1 => A, 2 => B}).
+
+elusive_common_exit(_Config) ->
+    self() ! {1, a},
+    self() ! {2, b},
+    {[z], [{2,b},{1,a}]} = elusive_loop([x,y,z], 2, []),
+
+    CodeServer = whereis(code_server),
+    Self = self(),
+    Self ! {Self, abc},
+    Self ! {CodeServer, []},
+    Self ! {Self, other},
+    try elusive2([]) of
+        Unexpected ->
+            ct:fail("Expected an exception; got ~p\n", [Unexpected])
+    catch
+        throw:[other, CodeServer, Self] ->
+            ok
+    end,
+
+    ok.
+
+elusive_loop(List, 0, Results) ->
+    {List, Results};
+elusive_loop(List, ToReceive, Results) ->
+    {Result, RemList} =
+        receive
+            {_Pos, _R} = Res when List =/= [] ->
+                [_H|T] = List,
+                {Res, T};
+            {_Pos, _R} = Res when List =:= [] ->
+                {Res, []}
+        end,
+    %% beam_ssa_pre_codegen:fix_receives() would fail to find
+    %% the common exit block for this receive. That would mean
+    %% that it would not insert all necessary copy instructions.
+    elusive_loop(RemList, ToReceive-1, [Result | Results]).
+
+
+elusive2(Acc) ->
+    receive
+        {Pid, abc} ->
+            ok;
+        {Pid, []} ->
+            ok;
+        {Pid, Res} ->
+            %% beam_ssa_pre_codegen:find_loop_exit/2 attempts to find
+            %% the first block of the common code after the receive
+            %% statement. It used to only look at the two last clauses
+            %% of the receive. In this function, the last two clauses
+            %% don't have any common block, so it would be assumed
+            %% that there was no common block for any of the
+            %% clauses. That would mean that copy instructions would
+            %% not be inserted as needed.
+            throw([Res | Acc])
+    end,
+    %% Common code.
+    elusive2([Pid | Acc]).
 
 id(I) -> I.

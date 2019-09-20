@@ -129,14 +129,17 @@ export_alloc(struct export_entry* tmpl_e)
 	obj->info.mfa.module = tmpl->info.mfa.module;
 	obj->info.mfa.function = tmpl->info.mfa.function;
 	obj->info.mfa.arity = tmpl->info.mfa.arity;
-        obj->beam[0] = 0;
+        obj->bif_number = -1;
+        obj->is_bif_traced = 0;
+
+        memset(&obj->trampoline, 0, sizeof(obj->trampoline));
+
         if (BeamOpsAreInitialized()) {
-            obj->beam[0] = BeamOpCodeAddr(op_call_error_handler);
+            obj->trampoline.op = BeamOpCodeAddr(op_call_error_handler);
         }
-	obj->beam[1] = 0;
 
 	for (ix=0; ix<ERTS_NUM_CODE_IX; ix++) {
-	    obj->addressv[ix] = obj->beam;
+	    obj->addressv[ix] = obj->trampoline.raw;
 
 	    blob->entryv[ix].slot.index = -1;
 	    blob->entryv[ix].ep = &blob->exp;
@@ -196,6 +199,19 @@ init_export_table(void)
     }
 }
 
+static struct export_entry* init_template(struct export_templ* templ,
+					  Eterm m, Eterm f, unsigned a)
+{
+    templ->entry.ep = &templ->exp;
+    templ->entry.slot.index = -1;
+    templ->exp.info.mfa.module = m;
+    templ->exp.info.mfa.function = f;
+    templ->exp.info.mfa.arity = a;
+    templ->exp.bif_number = -1;
+    templ->exp.is_bif_traced = 0;
+    return &templ->entry;
+}
+
 /*
  * Return a pointer to the export entry for the given function,
  * or NULL otherwise.  Notes:
@@ -214,40 +230,14 @@ erts_find_export_entry(Eterm m, Eterm f, unsigned int a,ErtsCodeIndex code_ix);
 Export*
 erts_find_export_entry(Eterm m, Eterm f, unsigned int a, ErtsCodeIndex code_ix)
 {
-    HashValue hval = EXPORT_HASH((BeamInstr) m, (BeamInstr) f, (BeamInstr) a);
-    int ix;
-    HashBucket* b;
-
-    ix = hval % export_tables[code_ix].htable.size;
-    b = export_tables[code_ix].htable.bucket[ix];
-
-    /*
-     * Note: We have inlined the code from hash.c for speed.
-     */
-	
-    while (b != (HashBucket*) 0) {
-	Export* ep = ((struct export_entry*) b)->ep;
-	if (ep->info.mfa.module == m &&
-            ep->info.mfa.function == f &&
-            ep->info.mfa.arity == a) {
-	    return ep;
-	}
-	b = b->next;
-    }
+    struct export_templ templ;
+    struct export_entry *ee =
+        hash_fetch(&export_tables[code_ix].htable,
+                   init_template(&templ, m, f, a),
+                   (H_FUN)export_hash, (HCMP_FUN)export_cmp);
+    if (ee) return ee->ep;
     return NULL;
 }
-
-static struct export_entry* init_template(struct export_templ* templ,
-					  Eterm m, Eterm f, unsigned a)
-{
-    templ->entry.ep = &templ->exp;
-    templ->entry.slot.index = -1;
-    templ->exp.info.mfa.module = m;
-    templ->exp.info.mfa.function = f;
-    templ->exp.info.mfa.arity = a;
-    return &templ->entry;
-}
-
 
 /*
  * Find the export entry for a loaded function.
@@ -268,8 +258,8 @@ erts_find_function(Eterm m, Eterm f, unsigned int a, ErtsCodeIndex code_ix)
 
     ee = hash_get(&export_tables[code_ix].htable, init_template(&templ, m, f, a));
     if (ee == NULL ||
-	(ee->ep->addressv[code_ix] == ee->ep->beam &&
-	 ! BeamIsOpCode(ee->ep->beam[0], op_i_generic_breakpoint))) {
+	(ee->ep->addressv[code_ix] == ee->ep->trampoline.raw &&
+	 ! BeamIsOpCode(ee->ep->trampoline.op, op_i_generic_breakpoint))) {
 	return NULL;
     }
     return ee->ep;

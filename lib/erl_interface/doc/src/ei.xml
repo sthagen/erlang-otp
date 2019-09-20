@@ -35,6 +35,9 @@
   <lib>ei</lib>
   <libsummary>Routines for handling the Erlang binary term format.</libsummary>
   <description>
+    <note><p>The support for VxWorks is deprecated as of OTP 22, and
+    will be removed in OTP 23.</p></note>
+    
     <p>The library <c>ei</c> contains macros and functions to encode
       and decode the Erlang binary term format.</p>
 
@@ -176,6 +179,43 @@ typedef enum {
                   binary. Notice that <c>ei_decode_binary()</c> assumes that
                   there is enough room for the binary. The size required can be
                   fetched by <c>ei_get_type()</c>.</p>
+          </desc>
+      </func>
+
+      <func>
+          <name since="OTP 22.0"><ret>int</ret><nametext>ei_decode_bitstring(const char *buf, int *index, const char **pp, unsigned int *bitoffsp, size_t *nbitsp)</nametext></name>
+          <fsummary>Decode a bitstring.</fsummary>
+          <desc>
+            <p>Decodes a bit string from the binary format.</p>
+	    <taglist>
+	      <tag><c>pp</c></tag>
+	      <item><p>Either <c>NULL</c> or <c>*pp</c> returns a pointer to
+	       the first byte of the bit string. The returned bit string is
+	       readable as long as the buffer pointed to by <c>buf</c> is
+	       readable and not written to.</p>
+	      </item>
+	      <tag><c>bitoffsp</c></tag>
+	      <item><p>Either <c>NULL</c> or <c>*bitoffsp</c> returns the
+	       number of unused bits in the first byte pointed to by
+	       <c>*pp</c>. The value of <c>*bitoffsp</c> is between 0 and 7.
+	       Unused bits in the first byte are the most significant bits.</p>
+	      </item>
+	      <tag><c>nbitsp</c></tag>
+	      <item><p>Either <c>NULL</c> or <c>*nbitsp</c> returns the length
+	       of the bit string in <em>bits</em>.</p>
+	      </item>
+	    </taglist>
+	    <p>Returns <c>0</c> if it was a bit string term.</p>
+	    <p>The number of <em>bytes</em> pointed to by <c>*pp</c>, which are
+	      part of the bit string, is <c>(*bitoffsp + *nbitsp + 7)/8</c>. If
+	      <c>(*bitoffsp + *bitsp)%8 > 0</c> then only <c>(*bitoffsp +
+	      *bitsp)%8</c> bits of the last byte are used. Unused bits in
+	      the last byte are the least significant bits.</p>
+	    <p>The values of unused bits in the first and last byte are undefined
+	      and cannot be relied on.</p>
+	    <p>Number of bits may be divisible by 8, which means a binary
+	      decodable by <c>ei_decode_binary</c> is also decodable by
+	      <c>ei_decode_bitstring</c>.</p>
           </desc>
       </func>
 
@@ -346,8 +386,10 @@ typedef enum {
           <c>t</c> is actually an <c>ETERM**</c> (see
           <seealso marker="erl_eterm"><c>erl_eterm</c></seealso>).
           The term is later to be deallocated.</p>
-        <p>Notice that this function is located in the <c>Erl_Interface</c>
-          library.</p>
+	<note><p>This function is deprecated as of OTP 22 and will be removed in
+	  OTP 23 together with the old legacy <c>erl_interface</c> library (functions
+	  with prefix <c>erl_</c>).</p>
+	</note>
       </desc>
     </func>
 
@@ -452,6 +494,28 @@ typedef enum {
       <desc>
         <p>Encodes a binary in the binary format. The data is at
           <c>p</c>, of <c>len</c> bytes length.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name since="OTP 22.0"><ret>int</ret>
+      <nametext>ei_encode_bitstring(char *buf, int *index, const char *p, size_t bitoffs, size_t nbits)</nametext></name>
+      <name since="OTP 22.0"><ret>int</ret>
+      <nametext>ei_x_encode_bitstring(ei_x_buff* x, const char *p, size_t bitoffs, size_t nbits)</nametext></name>
+      <fsummary>Encode a bitstring.</fsummary>
+      <desc>
+        <p>Encodes a bit string in the binary format.</p>
+	<p>The data is at <c>p</c>. The length of the bit string is <c>nbits</c>
+	  bits. The first <c>bitoffs</c> bits of the data at <c>p</c> are unused.
+	  The first byte which is part of the bit string is
+	  <c>p[bitoffs/8]</c>. The <c>bitoffs%8</c> most significant bits of
+	  the first byte <c>p[bitoffs/8]</c> are unused.</p>
+	<p>The number of bytes which is part of the bit string is <c>(bitoffs +
+	  nbits + 7)/8</c>. If <c>(bitoffs + nbits)%8 > 0</c> then only <c>(bitoffs +
+	  nbits)%8</c> bits of the last byte are used. Unused bits in
+	  the last byte are the least significant bits.</p>
+	<p>The values of unused bits are disregarded and does not need to be
+	  cleared.</p>
       </desc>
     </func>
 
@@ -653,6 +717,10 @@ ei_x_encode_string(&amp;x, "Banana");</pre>
           <c>erl_interface</c>. Parameter <c>t</c> is
           actually an <c>ETERM</c> pointer. This function
           does not free the <c>ETERM</c>.</p>
+	<note><p>These functions are deprecated as of OTP 22 and will be removed in
+	  OTP 23 together with the old legacy <c>erl_interface</c> library
+	  (functions with prefix <c>erl_</c>).</p>
+	</note>
       </desc>
     </func>
     <func>
@@ -722,13 +790,28 @@ ei_encode_tuple_header(buf, &amp;i, 0);</pre>
       <name since=""><ret>int</ret><nametext>ei_get_type(const char *buf, const int *index, int *type, int *size)</nametext></name>
       <fsummary>Fetch the type and size of an encoded term.</fsummary>
       <desc>
-        <p>Returns the type in <c>type</c> and size in
-          <c>size</c> of the encoded term. For strings and atoms,
+        <p>Returns the type in <c>*type</c> and size in
+          <c>*size</c> of the encoded term. For strings and atoms,
           size is the number of characters <em>not</em> including the
-          terminating <c>NULL</c>. For binaries, <c>size</c> is the number of
-          bytes. For lists and tuples, <c>size</c> is the arity of
-          the object. For other types, <c>size</c> is 0. In all
+          terminating <c>NULL</c>. For binaries and bitstrings, <c>*size</c> is
+	  the number of bytes. For lists, tuples and maps, <c>*size</c> is the
+	  arity of the object. For other types, <c>*size</c> is 0. In all
           cases, <c>index</c> is left unchanged.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name since="OTP 21.3"><ret>int</ret><nametext>ei_init(void)</nametext></name>
+      <fsummary>Initialize the ei library.</fsummary>
+      <desc>
+        <p>Initialize the <c>ei</c> library. This function should be called once
+	(and only once) before calling any other functionality in the <c>ei</c>
+	library. However, note the exception below.</p>
+	<p>If the <c>ei</c> library is used together with the <c>erl_interface</c>
+	library, this function should <em>not</em> be called directly. It will be
+	called by the <c>erl_init()</c> function which should be used to initialize
+	the combination of the two libraries instead.</p>
+	<p>On success zero is returned. On failure a posix error code is returned.</p>
       </desc>
     </func>
 
@@ -766,30 +849,48 @@ ei_encode_tuple_header(buf, &amp;i, 0);</pre>
       </type>
       <desc>
         <marker id="ei_set_compat_rel"></marker>
-        <p>By default, the <c>ei</c> library is only guaranteed
-          to be compatible with other Erlang/OTP components from the same
-          release as the <c>ei</c> library itself. For example,
-          <c>ei</c> from
-          Erlang/OTP R10 is not compatible with an Erlang emulator
-          from Erlang/OTP R9 by default.</p>
-        <p>A call to <c>ei_set_compat_rel(release_number)</c> sets
-          the <c>ei</c> library in compatibility mode of release
-          <c>release_number</c>. Valid range of
-          <c>release_number</c>
-          is <c>[7, current release]</c>. This makes it possible to
-          communicate with Erlang/OTP components from earlier releases.</p>
+        <p>In general, the <c>ei</c> library is guaranteed
+          to be compatible with other Erlang/OTP components that are 2 major
+	  releases older or newer than the <c>ei</c> library itself.</p>
+        <p>Sometimes an exception to the above rule has to be made to make new
+	  features (or even bug fixes) possible. A call to
+	  <c>ei_set_compat_rel(release_number)</c> sets
+          the <c>ei</c> library in compatibility mode of OTP release
+          <c>release_number</c>.</p>
+	<p>The only useful value for <c>release_number</c> is currently
+	  <c>21</c>. This will only be useful and have an effect if <em>bit
+	  strings</em> or <em>export funs</em> are received from a connected
+	  node. Before OTP 22, bit strings and export funs were not supported by
+	  <c>ei</c>. They were instead encoded using an undocumented fallback
+	  tuple format when sent from the emulator to <c>ei</c>:</p>
+	<taglist>
+	  <tag><c>Bit string</c></tag>
+	  <item><p>The term <c>&lt;&lt;42, 1:1>></c> was encoded as
+	    <c>{&lt;&lt;42, 128>>, 1}</c>. The first element of the tuple is a
+	    binary and the second element denotes how many bits of the last bytes
+	    are part of the bit string. In this example only the most significant
+	    bit of the last byte (128) is part of the bit string.</p>
+	  </item>
+	  <tag><c>Export fun</c></tag>
+	  <item><p>The term <c>fun lists:map/2</c> was encoded as
+	    <c>{lists,map}</c>. A tuple with the module, function and a missing
+	    arity.</p>
+	  </item>
+	</taglist>
+	<p>If <c>ei_set_compat_rel(21)</c> is <em>not</em> called then a connected
+	  emulator will send bit strings and export funs correctly encoded. The
+	  functions <seealso marker="#ei_decode_bitstring"><c>ei_decode_bitstring</c></seealso>
+	  and <seealso marker="#ei_decode_fun"><c>ei_decode_fun</c></seealso>
+	  has to be used to decode such terms. Calling
+	  <c>ei_set_compat_rel(21)</c> should only be done as a workaround to
+	  keep an old implementation alive, which expects to receive the
+	  undocumented tuple formats for bit strings and/or export funs.
+	</p>
         <note>
           <p>If this function is called, it can only be called once
             and must be called before any other functions in the
             <c>ei</c> library are called.</p>
         </note>
-        <warning>
-          <p>You can run into trouble if this feature is used
-            carelessly. Always ensure that all communicating
-            components are either from the same Erlang/OTP release, or
-            from release X and release Y where all components
-            from release Y are in compatibility mode of release X.</p>
-        </warning>
       </desc>
     </func>
 

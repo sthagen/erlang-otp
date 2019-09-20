@@ -25,10 +25,11 @@
 
 suite() -> [{ct_hooks,[{ts_install_cth,[{nodenames,2}]}]}].
 
-all() -> [{group, setup}, {group, payload}, {group, pem_cache}].
+all() -> [{group, basic}, {group, setup}, {group, payload}, {group, pem_cache}].
 
 groups() ->
-    [{setup, [{repeat, 3}], [setup_sequential, setup_concurrent]},
+    [{basic, [], [basic_pem_cache]},
+     {setup, [{repeat, 3}], [setup_sequential, setup_concurrent]},
      {payload, [{repeat, 3}], [payload_simple]},
      {pem_cache, [{repeat, 3}], [use_pem_cache, bypass_pem_cache]}
     ].
@@ -40,6 +41,7 @@ end_per_group(_GroupName, _Config) ->
     ok.
 
 init_per_suite(Config) ->
+    ct:timetrap({minutes, 1}),
     case node() of
         nonode@nohost ->
             {skipped, "Node not distributed"};
@@ -51,29 +53,21 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(use_pem_cache, Conf) ->
+init_per_testcase(TC, Conf) when TC =:= use_pem_cache;
+                                 TC =:= bypass_pem_cache;
+                                 TC =:= basic_pem_cache ->
     case bypass_pem_cache_supported() of
         false -> {skipped, "PEM cache bypass support required"};
         true ->
             application:set_env(ssl, bypass_pem_cache, false),
             Conf
     end;
-init_per_testcase(bypass_pem_cache, Conf) ->
-    case bypass_pem_cache_supported() of
-        false -> {skipped, "PEM cache bypass support required"};
-        true ->
-            application:set_env(ssl, bypass_pem_cache, true),
-            Conf
-    end;
 init_per_testcase(_Func, Conf) ->
     Conf.
 
-end_per_testcase(use_pem_cache, _Config) ->
-    case bypass_pem_cache_supported() of
-        false -> ok;
-        true -> application:set_env(ssl, bypass_pem_cache, false)
-    end;
-end_per_testcase(bypass_pem_cache, _Config) ->
+end_per_testcase(TC, _Config) when TC =:= use_pem_cache;
+                                   TC =:= bypass_pem_cache;
+                                   TC =:= basic_pem_cache ->
     case bypass_pem_cache_supported() of
         false -> ok;
         true -> application:set_env(ssl, bypass_pem_cache, false)
@@ -118,6 +112,9 @@ payload_simple(Config) ->
 			   data=[{value, Result},
 				 {suite, "ssl"}, {name, "Payload simple"}]}),
     ok.
+
+basic_pem_cache(_Config) ->
+    do_test(ssl, pem_cache, 10, 5, node()).
 
 use_pem_cache(_Config) ->
     {ok, Result} = do_test(ssl, pem_cache, 100, 500, node()),
@@ -167,7 +164,7 @@ do_test(Type, TC, Loop, ParallellConnections, Server) ->
 		   end
 	   end,
     Spawn = fun(Id) ->
-		    Pid = spawn(fun() -> Test(Id) end),
+		    Pid = spawn_link(fun() -> Test(Id) end),
 		    receive {Pid, init} -> Pid end
 	    end,
     Pids = [Spawn(Id) || Id <- lists:seq(ParallellConnections, 1, -1)],
@@ -177,49 +174,54 @@ do_test(Type, TC, Loop, ParallellConnections, Server) ->
 	   end,
     {TimeInMicro, _} = timer:tc(Run),
     TotalTests = ParallellConnections * Loop,
-    TestPerSecond = 1000000 * TotalTests div TimeInMicro,
+    TestPerSecond = case TimeInMicro of
+                        0 ->
+                            undefined;
+                        _ -> 
+                            1000000 * TotalTests div TimeInMicro
+                    end,
     io:format("TC ~p ~p ~p ~p 1/s~n", [TC, Type, ParallellConnections, TestPerSecond]),
     unlink(SPid),
     SPid ! quit,
     {ok, TestPerSecond}.
 
 server_init(ssl, setup_connection, _, _, Server) ->
-    {ok, Socket} = ssl:listen(0, ssl_opts(listen)),
-    {ok, {_Host, Port}} = ssl:sockname(Socket),
+    {ok, LSocket} = ssl:listen(0, ssl_opts(listen)),
+    {ok, {_Host, Port}} = ssl:sockname(LSocket),
     {ok, Host} = inet:gethostname(),
     ?FPROF_SERVER andalso start_profile(fprof, [whereis(ssl_manager), new]),
     %%?EPROF_SERVER andalso start_profile(eprof, [ssl_connection_sup, ssl_manager]),
     ?EPROF_SERVER andalso start_profile(eprof, [ssl_manager]),
     Server ! {self(), {init, Host, Port}},
     Test = fun(TSocket) ->
-		   ok = ssl:ssl_accept(TSocket),
-		   ssl:close(TSocket)
+		   {ok, Socket} = ssl:handshake(TSocket),
+		   ssl:close(Socket)
 	   end,
-    setup_server_connection(Socket, Test);
+    setup_server_connection(LSocket, Test);
 server_init(ssl, payload, Loop, _, Server) ->
-    {ok, Socket} = ssl:listen(0, ssl_opts(listen)),
-    {ok, {_Host, Port}} = ssl:sockname(Socket),
+    {ok, LSocket} = ssl:listen(0, ssl_opts(listen)),
+    {ok, {_Host, Port}} = ssl:sockname(LSocket),
     {ok, Host} = inet:gethostname(),
     Server ! {self(), {init, Host, Port}},
     Test = fun(TSocket) ->
-		   ok = ssl:ssl_accept(TSocket),
+		   {ok, Socket} = ssl:handshake(TSocket),
 		   Size = byte_size(msg()),
-		   server_echo(TSocket, Size, Loop),
-		   ssl:close(TSocket)
+		   server_echo(Socket, Size, Loop),
+		   ssl:close(Socket)
 	   end,
-    setup_server_connection(Socket, Test);
+    setup_server_connection(LSocket, Test);
 server_init(ssl, pem_cache, Loop, _, Server) ->
-    {ok, Socket} = ssl:listen(0, ssl_opts(listen_der)),
-    {ok, {_Host, Port}} = ssl:sockname(Socket),
+    {ok, LSocket} = ssl:listen(0, ssl_opts(listen_der)),
+    {ok, {_Host, Port}} = ssl:sockname(LSocket),
     {ok, Host} = inet:gethostname(),
     Server ! {self(), {init, Host, Port}},
     Test = fun(TSocket) ->
-		   ok = ssl:ssl_accept(TSocket),
+		   {ok, Socket} = ssl:handshake(TSocket),
 		   Size = byte_size(msg()),
-		   server_echo(TSocket, Size, Loop),
-		   ssl:close(TSocket)
+		   server_echo(Socket, Size, Loop),
+		   ssl:close(Socket)
 	   end,
-    setup_server_connection(Socket, Test);
+    setup_server_connection(LSocket, Test);
 
 server_init(Type, Tc, _, _, Server) ->
     io:format("No server init code for ~p ~p~n",[Type, Tc]),

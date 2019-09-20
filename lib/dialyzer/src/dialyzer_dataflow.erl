@@ -405,8 +405,13 @@ handle_apply(Tree, Map, State) ->
                                     t_fun_args(OpType1, 'universe')),
 	      case any_none(NewArgs) of
 		true ->
+                  EnumNewArgs = lists:zip(lists:seq(1, length(NewArgs)),
+                                          NewArgs),
+                  ArgNs = [Arg ||
+                            {Arg, Type} <- EnumNewArgs, t_is_none(Type)],
 		  Msg = {fun_app_args,
-			 [format_args(Args, ArgTypes, State),
+			 [ArgNs,
+			  format_args(Args, ArgTypes, State),
 			  format_type(OpType, State)]},
 		  State3 = state__add_warning(State2, ?WARN_FAILING_CALL,
 					      Tree, Msg),
@@ -3639,14 +3644,15 @@ format_args(ArgList0, TypeList, State) ->
   "(" ++ format_args_1(ArgList, TypeList, State) ++ ")".
 
 format_args_1([Arg], [Type], State) ->
-  format_arg(Arg) ++ format_type(Type, State);
+  format_arg_1(Arg, Type, State);
 format_args_1([Arg|Args], [Type|Types], State) ->
-  String =
-    case cerl:is_literal(Arg) of
-      true -> format_cerl(Arg);
-      false -> format_arg(Arg) ++ format_type(Type, State)
-    end,
-  String ++ "," ++ format_args_1(Args, Types, State).
+  format_arg_1(Arg, Type, State) ++ "," ++ format_args_1(Args, Types, State).
+
+format_arg_1(Arg, Type, State) ->
+  case cerl:is_literal(Arg) of
+    true -> format_cerl(Arg);
+    false -> format_arg(Arg) ++ format_type(Type, State)
+  end.
 
 format_arg(Arg) ->
   Default = "",

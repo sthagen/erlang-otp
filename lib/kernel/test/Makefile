@@ -57,6 +57,7 @@ MODULES= \
 	prim_file_SUITE \
 	ram_file_SUITE \
 	gen_tcp_api_SUITE \
+	gen_tcp_dist \
 	gen_tcp_echo_SUITE \
 	gen_tcp_misc_SUITE \
 	gen_udp_SUITE \
@@ -76,8 +77,11 @@ MODULES= \
 	logger_filters_SUITE \
 	logger_formatter_SUITE \
 	logger_legacy_SUITE \
+	logger_olp_SUITE \
+	logger_proxy_SUITE \
 	logger_simple_h_SUITE \
 	logger_std_h_SUITE \
+	logger_stress_SUITE \
 	logger_test_lib \
 	os_SUITE \
 	pg2_SUITE \
@@ -127,11 +131,17 @@ ERL_COMPILE_FLAGS +=
 
 EBIN = .
 
+TARGETS = $(MODULES:%=$(EBIN)/%.$(EMULATOR))
+
+
 # ----------------------------------------------------
 # Targets
 # ----------------------------------------------------
 
-make_emakefile:
+gen_tcp_dist.erl: ../examples/gen_tcp_dist/src/gen_tcp_dist.erl
+	cp $< $@
+
+make_emakefile: $(ERL_FILES)
 	$(ERL_TOP)/make/make_emakefile $(ERL_COMPILE_FLAGS) -o$(EBIN) '*_SUITE_make' \
 	> $(EMAKEFILE)
 	$(ERL_TOP)/make/make_emakefile $(ERL_COMPILE_FLAGS) -o$(EBIN) $(MODULES) \
@@ -146,6 +156,9 @@ clean:
 	rm -f core
 
 docs:
+
+targets: $(TARGETS)
+
 
 # ----------------------------------------------------
 # Release Target

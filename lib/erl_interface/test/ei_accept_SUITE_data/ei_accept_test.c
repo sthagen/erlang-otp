@@ -58,7 +58,7 @@ static struct {
     int num_args;		/* Number of arguments. */
     void (*func)(char* buf, int len);
 } commands[] = {
-    "ei_connect_init",  3, cmd_ei_connect_init,
+    "ei_connect_init",  4, cmd_ei_connect_init,
     "ei_publish", 	1, cmd_ei_publish,
     "ei_accept", 	1, cmd_ei_accept,
     "ei_receive",  	1, cmd_ei_receive,
@@ -73,6 +73,8 @@ TESTCASE(interpret)
     ei_x_buff x;
     int i;
     ei_term term;
+
+    ei_init();
 
     ei_x_new(&x);
     while (get_bin_term(&x, &term) == 0) {
@@ -104,66 +106,51 @@ TESTCASE(interpret)
 static void cmd_ei_connect_init(char* buf, int len)
 {
     int index = 0, r = 0;
-    int type, size;
-    long l;
-    char b[100];
+    long num, creation;
+    unsigned long compat;
+    char node_name[100];
     char cookie[MAXATOMLEN], * cp = cookie;
     ei_x_buff res;
-    if (ei_decode_long(buf, &index, &l) < 0)
+    if (ei_decode_long(buf, &index, &num) < 0)
 	fail("expected int");
-    sprintf(b, "c%d", l);
-    /* FIXME don't use internal and maybe use skip?! */
-    ei_get_type_internal(buf, &index, &type, &size);
+    sprintf(node_name, "c%d", num);
     if (ei_decode_atom(buf, &index, cookie) < 0)
 	fail("expected atom (cookie)");
     if (cookie[0] == '\0')
 	cp = NULL;
-    r = ei_connect_init(&ec, b, cp, 0);
+    if (ei_decode_long(buf, &index, &creation) < 0)
+	fail("expected int");
+    if (ei_decode_long(buf, &index, &compat) < 0)
+	fail("expected uint");
+    if (compat)
+        ei_set_compat_rel(compat);
+    r = ei_connect_init(&ec, node_name, cp, creation);
     ei_x_new_with_version(&res);
     ei_x_encode_long(&res, r);
     send_bin_term(&res);
     ei_x_free(&res);
 }
 
-static int my_listen(int port)
-{
-    int listen_fd;
-    struct sockaddr_in addr;
-    const char *on = "1";
-    
-    if ((listen_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-	return -1;
-    
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, on, sizeof(on));
-    
-    memset((void*) &addr, 0, (size_t) sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    
-    if (bind(listen_fd, (struct sockaddr*) &addr, sizeof(addr)) < 0)
-	return -1;
-
-    listen(listen_fd, 5);
-    return listen_fd;
-}
-
 static void cmd_ei_publish(char* buf, int len)
 {
     int index = 0;
-    int listen, r;
-    long port;
+    int iport, lfd, r;
+    long lport;
     ei_x_buff x;
     int i;
 
     /* get port */
-    if (ei_decode_long(buf, &index, &port) < 0)
+    if (ei_decode_long(buf, &index, &lport) < 0)
 	fail("expected int (port)");
     /* Make a listen socket */
-    if ((listen = my_listen(port)) <= 0)
+
+    iport = (int) lport;
+    lfd = ei_listen(&ec, &iport, 5);
+    if (lfd < 0)
 	fail("listen");
+    lport = (long) iport;
     
-    if ((i = ei_publish(&ec, port)) == -1)
+    if ((i = ei_publish(&ec, lport)) == -1)
 	fail("ei_publish");
 #ifdef VXWORKS
     save_fd(i);
@@ -171,7 +158,7 @@ static void cmd_ei_publish(char* buf, int len)
     /* send listen-fd, result and errno */
     ei_x_new_with_version(&x);
     ei_x_encode_tuple_header(&x, 3);
-    ei_x_encode_long(&x, listen);
+    ei_x_encode_long(&x, (long) lfd);
     ei_x_encode_long(&x, i);
     ei_x_encode_long(&x, erl_errno);
     send_bin_term(&x);

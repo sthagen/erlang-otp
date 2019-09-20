@@ -24,7 +24,8 @@
 	 integers/1,numbers/1,coverage/1,booleans/1,setelement/1,
 	 cons/1,tuple/1,record_float/1,binary_float/1,float_compare/1,
 	 arity_checks/1,elixir_binaries/1,find_best/1,
-         test_size/1]).
+         test_size/1,cover_lists_functions/1,list_append/1,bad_binary_unit/1,
+         none_argument/1]).
 
 suite() -> [{ct_hooks,[ts_install_cth]}].
 
@@ -46,7 +47,11 @@ groups() ->
        arity_checks,
        elixir_binaries,
        find_best,
-       test_size
+       test_size,
+       cover_lists_functions,
+       list_append,
+       bad_binary_unit,
+       none_argument
       ]}].
 
 init_per_suite(Config) ->
@@ -213,10 +218,17 @@ coverage(Config) ->
              [_|_] ->
                  ok
          end,
+
+    %% Cover beam_type:verified_type(none).
+    {'EXIT',{badarith,_}} = (catch (id(2) / id(1)) band 16#ff),
+
     ok.
 
 booleans(_Config) ->
     {'EXIT',{{case_clause,_},_}} = (catch do_booleans_1(42)),
+
+    ok = do_booleans_2(42, 41),
+    error = do_booleans_2(42, 42),
 
     AnyAtom = id(atom),
     true = is_atom(AnyAtom),
@@ -246,11 +258,38 @@ do_booleans_1(B) ->
 	no -> no
     end.
 
+do_booleans_2(A, B) ->
+    Not = not do_booleans_cmp(A, B),
+    case Not of
+        true ->
+            case Not of
+                true -> error;
+                false -> ok
+            end;
+        false -> ok
+    end.
+
+do_booleans_cmp(A, B) -> A > B.
+
 setelement(_Config) ->
     T0 = id({a,42}),
     {a,_} = T0,
     {b,_} = setelement(1, T0, b),
+    {z,b} = do_setelement_1(<<(id(1)):32>>, {a,b}, z),
+    {new,two} = do_setelement_2(<<(id(1)):1>>, {one,two}, new),
     ok.
+
+do_setelement_1(<<N:32>>, Tuple, NewValue) ->
+    _ = element(N, Tuple),
+    %% While updating the type for Tuple, beam_ssa_type would do:
+    %%   maps:without(lists:seq(0, 4294967295), Elements)
+    setelement(N, Tuple, NewValue).
+
+do_setelement_2(<<N:1>>, Tuple, NewValue) ->
+    %% Cover the second clause in remove_element_info/2. The
+    %% type for the second element will be kept.
+    two = element(2, Tuple),
+    setelement(N, Tuple, NewValue).
 
 cons(_Config) ->
     [did] = cons(assigned, did),
@@ -452,6 +491,53 @@ do_test_size(Term) when is_tuple(Term) ->
     size(Term);
 do_test_size(Term) when is_binary(Term) ->
     size(Term).
+
+cover_lists_functions(Config) ->
+    case lists:suffix([no|Config], Config) of
+        true ->
+            ct:fail(should_be_false);
+        false ->
+            ok
+    end,
+    Zipped = lists:zipwith(fun(A, B) -> {A,B} end,
+                           lists:duplicate(length(Config), zip),
+                           Config),
+    true = is_list(Zipped),
+    ok.
+
+list_append(_Config) ->
+    %% '++'/2 has a quirk where it returns the right-hand argument as-is when
+    %% the left-hand is [].
+    hello = id([]) ++ id(hello),
+    ok.
+
+%% OTP-15872: The compiler would treat the "Unit" of bs_init instructions as
+%% the unit of the result instead of the required unit of the input, causing
+%% is_binary checks to be wrongly optimized away.
+bad_binary_unit(_Config) ->
+    Bin = id(<<1,2,3>>),
+    Bitstring = <<Bin/binary,1:1>>,
+    false = is_binary(Bitstring),
+    ok.
+
+%% ERL-1013: The compiler would crash during the type optimization pass.
+none_argument(_Config) ->
+    Binary = id(<<3:16, 42>>),
+    error = id(case Binary of
+                   <<Len:16, Body/binary>> when length(Body) == Len - 2 ->
+                       %% The type for Body will be none. It means
+                       %% that this clause will never match and that
+                       %% uncompress/1 will never be called.
+                       uncompress(Body);
+                   _ ->
+                       error
+               end),
+    ok.
+
+uncompress(CompressedBinary) ->
+    %% The type for CompressedBinary is none, which beam_ssa_type
+    %% did not handle properly.
+    zlib:uncompress(CompressedBinary).
 
 id(I) ->
     I.

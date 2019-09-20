@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@
 -export([read_application/4]).
 
 -export([make_hybrid_boot/4]).
+-export([preloaded/0]). % Exported just for testing
 
 -import(lists, [filter/2, keysort/2, keysearch/3, map/2, reverse/1,
 		append/1, foldl/3,  member/2, foreach/2]).
@@ -44,6 +45,15 @@
 -define(XREF_SERVER, systools_make).
 
 -compile({inline,[{badarg,2}]}).
+
+-ifdef(USE_ESOCK).
+-define(ESOCK_SOCKET_MODS, [socket]).
+-define(ESOCK_NET_MODS,    [prim_net]).
+-else.
+-define(ESOCK_SOCKET_MODS, []).
+-define(ESOCK_NET_MODS,    []).
+-endif.
+
 
 %%-----------------------------------------------------------------
 %% Create a boot script from a release file.
@@ -1566,7 +1576,7 @@ preloaded() ->
      erts_code_purger,erts_dirty_process_signal_handler,
      erts_internal,erts_literal_area_collector,
      init,persistent_term,prim_buffer,prim_eval,prim_file,
-     prim_inet,prim_zip,zlib].
+     prim_inet] ++ ?ESOCK_NET_MODS ++ [prim_zip] ++ ?ESOCK_SOCKET_MODS ++ [zlib].
 
 %%______________________________________________________________________
 %% Kernel processes; processes that are specially treated by the init

@@ -39,7 +39,95 @@
     thus constitutes one section in this document. The title of each
     section is the version number of Mnesia.</p>
 
-  <section><title>Mnesia 4.15.5</title>
+  <section><title>Mnesia 4.16.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    <c>mnesia:add_table_copy/3</c> could cause a deadlock if
+	    called when a new node was starting.</p>
+          <p>
+	    Own Id: OTP-15933 Aux Id: ERL-872 </p>
+        </item>
+        <item>
+	    <p>Transactions with sticky locks could with async_asym
+	    transactions be committed in the wrong order, since asym
+	    transaction are spawned on the remote nodes.</p> <p>To
+	    fix this bug the communication protocol between mnesia
+	    nodes had to be updated, thus mnesia will no longer be
+	    able to connect to nodes earlier than mnesia-4.14 ,
+	    OTP-19.0.</p>
+          <p>
+	    *** POTENTIAL INCOMPATIBILITY ***</p>
+          <p>
+	    Own Id: OTP-15979 Aux Id: ERL-768 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Mnesia 4.16</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Optimize mnesia:read/1 if data have been written in the
+	    same transaction.</p>
+          <p>
+	    Own Id: OTP-15550 Aux Id: PR-2029 </p>
+        </item>
+        <item>
+          <p>
+	    Fixed bugs in table index plugin handling.</p>
+          <p>
+	    Own Id: OTP-15689 Aux Id: PR-1695 ERL-556 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Optimized dumping of tables with plugin backends.</p>
+          <p>
+	    Own Id: OTP-15588 Aux Id: PR-2102 </p>
+        </item>
+        <item>
+          <p>
+	    Include stacktrace in exception if a dirty activity
+	    errors, thus if user have matched on the error thrown it
+	    may not match any more.</p>
+          <p>
+	    *** POTENTIAL INCOMPATIBILITY ***</p>
+          <p>
+	    Own Id: OTP-15804 Aux Id: PR-2216 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Mnesia 4.15.6</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Avoid overload warnings caused by a race condition.</p>
+          <p>
+	    Own Id: OTP-15619 Aux Id: ERIERL-310 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Mnesia 4.15.5</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
       <list>

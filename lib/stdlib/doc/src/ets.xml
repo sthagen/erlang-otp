@@ -138,23 +138,96 @@
        operation. In database terms the isolation level can be seen as
        "serializable", as if all isolated operations are carried out serially,
        one after the other in a strict order.</p>
+  </section>
 
-      <p>No other support is available within this module that would guarantee
-       consistency between objects. However, function
-       <seealso marker="#safe_fixtable/2"><c>safe_fixtable/2</c></seealso>
-       can be used to guarantee that a sequence of
-       <seealso marker="#first/1"><c>first/1</c></seealso> and
-       <seealso marker="#next/2"><c>next/2</c></seealso> calls traverse the
-       table without errors and that each existing object in the table is
-       visited exactly once, even if another (or the same) process
-       simultaneously deletes or inserts objects into the table.
-       Nothing else is guaranteed; in particular objects that are inserted
-       or deleted during such a traversal can be visited once or not at all.
-       Functions that internally traverse over a table, like
-       <seealso marker="#select/1"><c>select</c></seealso> and
-       <seealso marker="#match/1"><c>match</c></seealso>,
-       give the same guarantee as
-       <seealso marker="#safe_fixtable/2"><c>safe_fixtable</c></seealso>.</p>
+  <section><marker id="traversal"></marker>
+    <title>Table traversal</title>
+    <p>There are different ways to traverse through the objects of a table.</p>
+    <list type="bulleted">
+      <item><p><em>Single-step</em> traversal one key at at time, using
+	<seealso marker="#first/1"><c>first/1</c></seealso>,
+	<seealso marker="#next/2"><c>next/2</c></seealso>,
+	<seealso marker="#last/1"><c>last/1</c></seealso> and
+	<seealso marker="#prev/2"><c>prev/2</c></seealso>.</p>
+      </item>
+      <item><p>Search with simple <em>match patterns</em>, using
+	<seealso marker="#match/1"><c>match/1/2/3</c></seealso>,
+	<seealso marker="#match_delete/2"><c>match_delete/2</c></seealso> and
+	<seealso marker="#match_object/1"><c>match_object/1/2/3</c></seealso>.</p>
+      </item>
+      <item><p>Search with more powerful <em>match specifications</em>, using
+	<seealso marker="#select/1"><c>select/1/2/3</c></seealso>,
+	<seealso marker="#select_count/2"><c>select_count/2</c></seealso>,
+	<seealso marker="#select_delete/2"><c>select_delete/2</c></seealso>,
+	<seealso marker="#select_replace/2"><c>select_replace/2</c></seealso> and
+	<seealso marker="#select_reverse/1"><c>select_reverse/1/2/3</c></seealso>.</p>
+      </item>
+      <item><p><em>Table conversions</em>, using
+	<seealso marker="#tab2file/2"><c>tab2file/2/3</c></seealso> and
+        <seealso marker="#tab2list/1"><c>tab2list/1</c></seealso>.</p>
+      </item>
+    </list>
+    <p>None of these ways of table traversal will guarantee a consistent table snapshot
+    if the table is also updated during the traversal. Moreover, traversals not
+    done in a <em>safe</em> way, on tables where keys are inserted or deleted
+    during the traversal, may yield the following undesired effects:</p>
+    <list type="bulleted">
+      <item><p>Any key may be missed.</p></item>
+      <item><p>Any key may be found more than once.</p></item>
+      <item><p>The traversal may fail with <c>badarg</c> exception if keys are deleted.</p>
+      </item>
+    </list>
+    <p>A table traversal is <em>safe</em> if either</p>
+    <list type="bulleted">
+      <item><p>the table is of type <c>ordered_set</c>.</p>
+      </item>
+      <item><p>the entire table traversal is done within one ETS function
+        call.</p>
+      </item>
+      <item><p>function <seealso marker="#safe_fixtable/2"><c>safe_fixtable/2</c></seealso>
+        is used to keep the table fixated during the entire traversal.</p>
+      </item>
+    </list>
+    <note>
+      <p>Even though the access of a single object is always guaranteed to be
+      <seealso marker="#concurrency">atomic and isolated</seealso>, each traversal
+      through a table to find the next key is not done with such guarantees. This is often
+      not a problem, but may cause rare subtle "unexpected" effects if a concurrent
+      process inserts objects during a traversal. For example, consider one
+      process doing</p>
+<pre>
+ets:new(t, [ordered_set, named_table]),
+ets:insert(t, {1}),
+ets:insert(t, {2}),
+ets:insert(t, {3}),
+</pre>
+      <p>A concurrent call to <c>ets:first(t)</c>, done by another
+      process, may then in rare cases return <c>2</c> even though
+      <c>2</c> has never existed in the table ordered as the first key. In
+      the same way, a concurrent call to <c>ets:next(t, 1)</c> may return
+      <c>3</c> even though <c>3</c> never existed in the table
+      ordered directly after <c>1</c>.</p>
+      <p>Effects like this are improbable but possible. The probability will
+      further be reduced (if not vanish) if table option
+      <seealso marker="#new_2_write_concurrency"><c>write_concurrency</c></seealso>
+      is not enabled. This can also only be a potential concern for
+      <c>ordered_set</c> where the traversal order is defined.</p>
+    </note>
+    <p>Traversals using <c>match</c> and <c>select</c> functions may not need to
+    scan the entire table depending on how the key is specified. A match
+    pattern with a <em>fully bound key</em> (without any match variables) will
+    optimize the operation to a single key lookup without any table traversal
+    at all. For <c>ordered_set</c> a <em>partially bound key</em> will limit the
+    traversal to only scan a subset of the table based on term order. A
+    partially bound key is either a list or a tuple with a prefix that is fully
+    bound. Example:</p>
+<pre>
+1> <input>T = ets:new(t,[ordered_set]), ets:insert(T, {"555-1234", "John Smith"}).</input>
+true
+2> <input>%% Efficient search of all with area code 555</input>
+2> <input>ets:match(T,{[$5,$5,$5,$- |'$1'],'$2'}).</input>
+[["1234","John Smith"]]
+</pre>
   </section>
 
   <section>
@@ -562,6 +635,14 @@ Error: fun containing local Erlang function calls
             the following items are allowed:</p>
         <list type="bulleted">
           <item>
+            <p><c>Item=binary, Value=BinInfo</c></p>
+	    <p><c>BinInfo</c> is a list containing miscellaneous
+              information about binaries kept by the table.
+              This <c><anno>Item</anno></c> can be changed or removed without
+	      prior notice. In the current implementation <c>BinInfo</c> is a
+	      list of tuples <c>{BinaryId,BinarySize,BinaryRefcCount}</c>.</p>
+          </item>
+          <item>
             <p><c>Item=fixed, Value=boolean()</c></p>
             <p>Indicates if the table is fixed by any process.</p>
           </item>
@@ -569,12 +650,11 @@ Error: fun containing local Erlang function calls
             <p><marker id="info_2_safe_fixed_monotonic_time"/></p>
             <p><c>Item=safe_fixed|safe_fixed_monotonic_time,
               Value={FixationTime,Info}|false</c></p>
-            <p>If the table has been fixed using
+            <p>If the table is fixed using
               <seealso marker="#safe_fixtable/2">
               <c>safe_fixtable/2</c></seealso>,
               the call returns a tuple where <c>FixationTime</c> is the
-              time when the table was first fixed by a process, which either
-              is or is not one of the processes it is fixed by now.</p>
+              last time when the table changed from unfixed to fixed.</p>
             <p>The format and value of <c>FixationTime</c> depends on
               <c>Item</c>:</p>
             <taglist>
@@ -606,8 +686,15 @@ Error: fun containing local Erlang function calls
               table is fixed by now. <c>RefCount</c> is the value
               of the reference counter and it keeps track of how many times
               the table has been fixed by the process.</p>
-            <p>If the table never has been fixed, the call returns
-              <c>false</c>.</p>
+	    <p>Table fixations are not limited to <seealso marker="#safe_fixtable/2">
+	      <c>safe_fixtable/2</c></seealso>. Temporary fixations may also
+	      be done by for example <seealso marker="#traversal">traversing
+	      functions</seealso> like <c>select</c> and <c>match</c>. Such
+	      table fixations are automatically released before the
+	      corresponding functions returns, but they may be seen by a
+	      concurrent call to
+	      <c>ets:info(T,safe_fixed|safe_fixed_monotonic_time)</c>.</p>
+            <p>If the table is not fixed at all, the call returns <c>false</c>.</p>
           </item>
           <item>
             <p><c>Item=stats, Value=tuple()</c></p>
@@ -703,29 +790,25 @@ Error: fun containing local Erlang function calls
       <fsummary>Check if an Erlang term is the result of
         <c>match_spec_compile</c>.</fsummary>
       <desc>
-        <p>Checks if a term is a valid
-          compiled <seealso marker="#match_spec">match specification</seealso>.
-          The compiled match specification is an opaque datatype that
-          <em>cannot</em> be sent between Erlang nodes or be stored on
-          disk. Any attempt to create an external representation of a
-          compiled match specification results in an empty binary
-          (<c><![CDATA[<<>>]]></c>).</p>
-        <p><em>Examples:</em></p>
-        <p>The following expression yields <c>true</c>::</p>
-        <code type="none">
-ets:is_compiled_ms(ets:match_spec_compile([{'_',[],[true]}])).</code>
-        <p>The following expressions yield <c>false</c>, as variable
-          <c>Broken</c> contains a compiled match specification that has
-          passed through external representation:</p>
-        <code type="none">
-MS = ets:match_spec_compile([{'_',[],[true]}]),
-Broken = binary_to_term(term_to_binary(MS)),
-ets:is_compiled_ms(Broken).</code>
+        <p>Checks if a term represent a valid compiled
+	  <seealso marker="#match_spec">match specification</seealso>.
+          A compiled match specifications is only valid on the Erlang node where
+	  it was compiled by calling <seealso marker="#match_spec_compile/1">
+	  <c>match_spec_compile/1</c></seealso>.</p>
         <note>
-          <p>The reason for not having an external representation of
-            compiled match specifications is performance. It can be
-            subject to change in future releases, while this interface
-            remains for backward compatibility.</p>
+          <p>
+	    Before STDLIB 3.4 (OTP 20.0) compiled match specifications did
+	    not have an external representation. If passed through
+	    <c>binary_to_term(term_to_binary(CMS))</c> or sent to another node
+	    and back, the result was always an empty binary <c>&lt;&lt;>></c>.</p>
+	  <p>
+	    After STDLIB 3.4 (OTP 20.0) compiled match specifications have an
+	    external representation as a node specific reference to the original
+	    compiled match specification. If passed through
+	    <c>binary_to_term(term_to_binary(CMS))</c> or sent to another node
+	    and back, the result <em>may or may not</em> be a valid compiled match
+	    specification depending on if the original compiled match
+	    specification was still alive.</p>
         </note>
       </desc>
     </func>
@@ -870,6 +953,9 @@ ets:is_compiled_ms(Broken).</code>
           <seealso marker="#first/1"><c>first/1</c></seealso> and
           <seealso marker="#next/2"><c>next/2</c></seealso>.</p>
         <p>If the table is empty, <c>'$end_of_table'</c> is returned.</p>
+	<p>Use <seealso marker="#safe_fixtable/2"><c>safe_fixtable/2</c></seealso>
+	  to guarantee <seealso marker="#traversal">safe traversal</seealso>
+	  for subsequent calls to <seealso marker="#match/1"><c>match/1</c></seealso>.</p>
       </desc>
     </func>
 
@@ -935,6 +1021,10 @@ ets:is_compiled_ms(Broken).</code>
           <seealso marker="#first/1"><c>first/1</c></seealso> and
           <seealso marker="#next/2"><c>next/2</c></seealso>.</p>
         <p>If the table is empty, <c>'$end_of_table'</c> is returned.</p>
+	<p>Use <seealso marker="#safe_fixtable/2"><c>safe_fixtable/2</c></seealso>
+	  to guarantee <seealso marker="#traversal">safe traversal</seealso>
+	  for subsequent calls to <seealso marker="#match_object/1">
+	  <c>match_object/1</c></seealso>.</p>
       </desc>
     </func>
 
@@ -947,11 +1037,7 @@ ets:is_compiled_ms(Broken).</code>
           <seealso marker="#match_spec">match specification</seealso> into an
           internal representation that can be used in subsequent calls to
           <seealso marker="#match_spec_run/2"><c>match_spec_run/2</c></seealso>.
-          The internal representation is
-          opaque and cannot be converted to external term format and
-          then back again without losing its properties (that is, it cannot
-          be sent to a process on another node and still remain a
-          valid compiled match specification, nor can it be stored on disk).
+          The internal representation is opaque.
           To check the validity of a compiled match specification, use
           <seealso marker="#is_compiled_ms/1"><c>is_compiled_ms/1</c></seealso>.
         </p>
@@ -1197,12 +1283,13 @@ ets:select(Table, MatchSpec),</code>
         <p>To find the first key in the table, use
           <seealso marker="#first/1"><c>first/1</c></seealso>.</p>
         <p>Unless a table of type <c>set</c>, <c>bag</c>, or
-          <c>duplicate_bag</c> is protected using
+          <c>duplicate_bag</c> is fixated using
           <seealso marker="#safe_fixtable/2"><c>safe_fixtable/2</c></seealso>,
-          a traversal can fail if
-          concurrent updates are made to the table. For table
-          type <c>ordered_set</c>, the function returns the next key in
-          order, even if the object does no longer exist.</p>
+          a call to <c>next/2</c> will fail if <c><anno>Key1</anno></c> no longer
+	  exists in the table. For table type <c>ordered_set</c>, the function
+	  always returns the next key after <c><anno>Key1</anno></c> in term
+	  order, regardless whether <c><anno>Key1</anno></c> ever existed in the
+	  table.</p>
       </desc>
     </func>
 
@@ -1217,7 +1304,7 @@ ets:select(Table, MatchSpec),</code>
           table types, the function is synonymous to
           <seealso marker="#next/2"><c>next/2</c></seealso>.
           If no previous key exists, <c>'$end_of_table'</c> is returned.</p>
-        <p>To find the last key in the table, use
+        <p>To find the last key in an <c>ordered_set</c> table, use
           <seealso marker="#last/1"><c>last/1</c></seealso>.</p>
       </desc>
     </func>
@@ -1243,46 +1330,41 @@ ets:select(Table, MatchSpec),</code>
           continuation has passed through external term format (been
           sent between nodes or stored on disk).</p>
         <p>The reason for this function is that continuation terms
-          contain compiled match specifications and therefore are
+          contain compiled match specifications and may therefore be
           invalidated if converted to external term format. Given that the
           original match specification is kept intact, the continuation can
           be restored, meaning it can once again be used in subsequent
           <c>select/1</c> calls even though it has been stored on
           disk or on another node.</p>
         <p><em>Examples:</em></p>
-        <p>The following sequence of calls fails:</p>
+        <p>The following sequence of calls may fail:</p>
         <code type="none">
 T=ets:new(x,[]),
 ...
-{_,C} = ets:select(T,ets:fun2ms(fun({N,_}=A)
-when (N rem 10) =:= 0 ->
-A
-end),10),
-Broken = binary_to_term(term_to_binary(C)),
-ets:select(Broken).</code>
+MS = ets:fun2ms(fun({N,_}=A) when (N rem 10) =:= 0 -> A end),
+{_,C} = ets:select(T, MS, 10),
+MaybeBroken = binary_to_term(term_to_binary(C)),
+ets:select(MaybeBroken).</code>
         <p>The following sequence works, as the call to
-          <c>repair_continuation/2</c> reestablishes the (deliberately)
-          invalidated continuation <c>Broken</c>.</p>
+          <c>repair_continuation/2</c> reestablishes the
+          <c>MaybeBroken</c> continuation.</p>
         <code type="none">
 T=ets:new(x,[]),
 ...
-MS = ets:fun2ms(fun({N,_}=A)
-when (N rem 10) =:= 0 ->
-A
-end),
+MS = ets:fun2ms(fun({N,_}=A) when (N rem 10) =:= 0 -> A end),
 {_,C} = ets:select(T,MS,10),
-Broken = binary_to_term(term_to_binary(C)),
-ets:select(ets:repair_continuation(Broken,MS)).</code>
+MaybeBroken = binary_to_term(term_to_binary(C)),
+ets:select(ets:repair_continuation(MaybeBroken,MS)).</code>
         <note>
           <p>This function is rarely needed in application code. It is used
             by Mnesia to provide distributed <c>select/3</c>
             and <c>select/1</c> sequences. A normal application would
             either use Mnesia or keep the continuation from being
             converted to external format.</p>
-          <p>The reason for not having an external representation of a
-            compiled match specification is performance. It can be subject to
-            change in future releases, while this interface remains
-            for backward compatibility.</p>
+          <p>The actual behavior of compiled match specifications when recreated
+	    from external format has changed and may change in future releases,
+	    but this interface remains for backward compatibility.
+	    See <seealso marker="#is_compiled_ms/1"><c>is_compiled_ms/1</c></seealso>.</p>
         </note>
       </desc>
     </func>
@@ -1292,7 +1374,16 @@ ets:select(ets:repair_continuation(Broken,MS)).</code>
       <fsummary>Fix an ETS table for safe traversal.</fsummary>
       <desc>
         <p>Fixes a table of type <c>set</c>, <c>bag</c>, or
-          <c>duplicate_bag</c> for safe traversal.</p>
+        <c>duplicate_bag</c> for <seealso marker="#traversal">
+	safe traversal</seealso> using
+	<seealso marker="#first/1"><c>first/1</c></seealso> &amp;
+	<seealso marker="#next/2"><c>next/2</c></seealso>,
+	<seealso marker="#match/3"><c>match/3</c></seealso> &amp;
+	<seealso marker="#match/1"><c>match/1</c></seealso>,
+	<seealso marker="#match_object/3"><c>match_object/3</c></seealso> &amp;
+	<seealso marker="#match_object/1"><c>match_object/1</c></seealso>, or
+	<seealso marker="#select/3"><c>select/3</c></seealso> &amp;
+	<seealso marker="#select/1"><c>select/1</c></seealso>.</p>
         <p>A process fixes a table by calling
           <c>safe_fixtable(<anno>Tab</anno>, true)</c>. The table remains
           fixed until the process releases it by calling
@@ -1305,11 +1396,11 @@ ets:select(ets:repair_continuation(Broken,MS)).</code>
         <p>When a table is fixed, a sequence of
           <seealso marker="#first/1"><c>first/1</c></seealso> and
           <seealso marker="#next/2"><c>next/2</c></seealso> calls are
-          guaranteed to succeed, and each object in
-          the table is returned only once, even if objects
-          are removed or inserted during the traversal. The keys for new
-          objects inserted during the traversal <em>can</em> be returned by
-          <c>next/2</c> (it depends on the internal ordering of the keys).</p>
+          guaranteed to succeed even if keys are removed during the
+	  traversal. The keys for objects inserted or deleted during a
+	  traversal may or may not be returned by <c>next/2</c> depending on
+	  the ordering of keys within the table and if the key exists at the time
+	  <c>next/2</c> is called.</p>
         <p><em>Example:</em></p>
         <code type="none">
 clean_all_with_value(Tab,X) ->
@@ -1327,7 +1418,7 @@ clean_all_with_value(Tab,X,Key) ->
             true
     end,
     clean_all_with_value(Tab,X,ets:next(Tab,Key)).</code>
-        <p>Notice that no deleted objects are removed from a
+        <p>Notice that deleted objects are not freed from a
           fixed table until it has been released. If a process fixes a
           table but never releases it, the memory used by the deleted
           objects is never freed. The performance of operations on
@@ -1337,9 +1428,9 @@ clean_all_with_value(Tab,X,Key) ->
           <c>info(Tab, safe_fixed_monotonic_time)</c></seealso>. A system with
           many processes fixing tables can need a monitor that sends alarms
           when tables have been fixed for too long.</p>
-        <p>Notice that for table type <c>ordered_set</c>,
-          <c>safe_fixtable/2</c> is not necessary, as calls to
-          <c>first/1</c> and <c>next/2</c> always succeed.</p>
+        <p>Notice that <c>safe_fixtable/2</c> is not necessary for table type
+	<c>ordered_set</c> and for traversals done by a single ETS function call,
+	like <seealso marker="#select/2"><c>select/2</c></seealso>.</p>
       </desc>
     </func>
 
@@ -1467,7 +1558,10 @@ is_integer(X), is_integer(Y), X + Y < 4711]]></code>
           table, which is still faster than traversing the table object by
           object using <seealso marker="#first/1"><c>first/1</c></seealso>
           and <seealso marker="#next/2"><c>next/2</c></seealso>.</p>
-        <p>If the table is empty, <c>'$end_of_table'</c> is returned.</p>
+          <p>If the table is empty, <c>'$end_of_table'</c> is returned.</p>
+	  <p>Use <seealso marker="#safe_fixtable/2"><c>safe_fixtable/2</c></seealso>
+	  to guarantee <seealso marker="#traversal">safe traversal</seealso>
+	  for subsequent calls to <seealso marker="#select/1"><c>select/1</c></seealso>.</p>
       </desc>
     </func>
 
@@ -1524,7 +1618,7 @@ is_integer(X), is_integer(Y), X + Y < 4711]]></code>
           the match specification result.</p>
 	<p>The match-and-replace operation for each individual object is guaranteed to be
 	  <seealso marker="#concurrency">atomic and isolated</seealso>. The
-	  <c>select_replace</c> table iteration as a whole, like all other select functions,
+	  <c>select_replace</c> table traversal as a whole, like all other select functions,
 	  does not give such guarantees.</p>
 	<p>The match specifiction must be guaranteed to <em>retain the key</em>
 	  of any matched object. If not, <c>select_replace</c> will fail with <c>badarg</c>
@@ -1945,9 +2039,8 @@ true</pre>
         <p>This function provides an efficient way to update one or more 
           counters, without the trouble of having to look up an object, update 
           the object by incrementing an element, and insert the resulting
-          object into the table again. (The update is done atomically,
-          that is, no process 
-          can access the ETS table in the middle of the operation.)</p>
+          object into the table again. The operation is guaranteed to be
+          <seealso marker="#concurrency">atomic and isolated</seealso>.</p>
         <p>This function destructively update the object with key
           <c><anno>Key</anno></c> in table <c><anno>Tab</anno></c> by adding
           <c><anno>Incr</anno></c> to the element at position

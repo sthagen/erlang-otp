@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -248,7 +248,7 @@ count_small([#{control_char := $s}|Cs], #{w := W} = Cnts) ->
     count_small(Cs, Cnts#{w := W + 1});
 count_small([S|Cs], #{other := Other} = Cnts) when is_list(S);
                                                    is_binary(S) ->
-    count_small(Cs, Cnts#{other := Other + string:length(S)});
+    count_small(Cs, Cnts#{other := Other + io_lib:chars_length(S)});
 count_small([C|Cs], #{other := Other} = Cnts) when is_integer(C) ->
     count_small(Cs, Cnts#{other := Other + 1});
 count_small([], #{p := P, s := S, w := W, other := Other}) ->
@@ -280,10 +280,15 @@ build_limited([#{control_char := C, args := As, width := F, adjust := Ad,
                    true -> MaxLen0 div Count0
                end,
     S = control_limited(C, As, F, Ad, P, Pad, Enc, Str, MaxChars, I),
-    Len = string:length(S),
     NumOfPs = decr_pc(C, NumOfPs0),
     Count = Count0 - 1,
-    MaxLen = sub(MaxLen0, Len),
+    MaxLen = if
+                 MaxLen0 < 0 -> % optimization
+                     MaxLen0;
+                 true ->
+                     Len = io_lib:chars_length(S),
+                     sub(MaxLen0, Len)
+             end,
     if
 	NumOfPs > 0 -> [S|build_limited(Cs, NumOfPs, Count,
                                         MaxLen, indentation(S, I))];
@@ -322,11 +327,11 @@ indentation([], I) -> I.
 %%                 PadChar, Encoding, StringP, ChrsLim, Indentation) -> String
 %%  These are the dispatch functions for the various formatting controls.
 
-control_small($s, [A], F, Adj, P, Pad, latin1) when is_atom(A) ->
+control_small($s, [A], F, Adj, P, Pad, latin1=Enc) when is_atom(A) ->
     L = iolist_to_chars(atom_to_list(A)),
-    string(L, F, Adj, P, Pad);
-control_small($s, [A], F, Adj, P, Pad, unicode) when is_atom(A) ->
-    string(atom_to_list(A), F, Adj, P, Pad);
+    string(L, F, Adj, P, Pad, Enc);
+control_small($s, [A], F, Adj, P, Pad, unicode=Enc) when is_atom(A) ->
+    string(atom_to_list(A), F, Adj, P, Pad, Enc);
 control_small($e, [A], F, Adj, P, Pad, _Enc) when is_float(A) ->
     fwrite_e(A, F, Adj, P, Pad);
 control_small($f, [A], F, Adj, P, Pad, _Enc) when is_float(A) ->
@@ -366,12 +371,12 @@ control_small($n, [], F, Adj, P, Pad, _Enc) -> newline(F, Adj, P, Pad);
 control_small($i, [_A], _F, _Adj, _P, _Pad, _Enc) -> [];
 control_small(_C, _As, _F, _Adj, _P, _Pad, _Enc) -> not_small.
 
-control_limited($s, [L0], F, Adj, P, Pad, latin1, _Str, CL, _I) ->
-    L = iolist_to_chars(L0),
-    string(limit_string(L, F, CL), limit_field(F, CL), Adj, P, Pad);
-control_limited($s, [L0], F, Adj, P, Pad, unicode, _Str, CL, _I) ->
-    L = cdata_to_chars(L0),
-    uniconv(string(limit_string(L, F, CL), limit_field(F, CL), Adj, P, Pad));
+control_limited($s, [L0], F, Adj, P, Pad, latin1=Enc, _Str, CL, _I) ->
+    L = iolist_to_chars(L0, F, CL),
+    string(L, limit_field(F, CL), Adj, P, Pad, Enc);
+control_limited($s, [L0], F, Adj, P, Pad, unicode=Enc, _Str, CL, _I) ->
+    L = cdata_to_chars(L0, F, CL),
+    uniconv(string(L, limit_field(F, CL), Adj, P, Pad, Enc));
 control_limited($w, [A], F, Adj, P, Pad, Enc, _Str, CL, _I) ->
     Chars = io_lib:write(A, [{depth, -1}, {encoding, Enc}, {chars_limit, CL}]),
     term(Chars, F, Adj, P, Pad);
@@ -406,7 +411,7 @@ base(B) when is_integer(B) ->
 term(T, none, _Adj, none, _Pad) -> T;
 term(T, none, Adj, P, Pad) -> term(T, P, Adj, P, Pad);
 term(T, F, Adj, P0, Pad) ->
-    L = string:length(T),
+    L = io_lib:chars_length(T),
     P = erlang:min(L, case P0 of none -> F; _ -> min(P0, F) end),
     if
 	L > P ->
@@ -713,7 +718,10 @@ fwrite_g(Fl, F, Adj, P, Pad) when P >= 1 ->
     end.
 
 
-%% iolist_to_chars(iolist()) -> deep_char_list()
+iolist_to_chars(Cs, F, CharsLimit) when CharsLimit < 0; CharsLimit >= F ->
+    iolist_to_chars(Cs);
+iolist_to_chars(Cs, _, CharsLimit) ->
+    limit_iolist_to_chars(Cs, sub(CharsLimit, 3), [], normal). % three dots
 
 iolist_to_chars([C|Cs]) when is_integer(C), C >= $\000, C =< $\377 ->
     [C | iolist_to_chars(Cs)];
@@ -724,12 +732,34 @@ iolist_to_chars([]) ->
 iolist_to_chars(B) when is_binary(B) ->
     binary_to_list(B).
 
-%% cdata() :: clist() | cbinary()
-%% clist() ::  maybe_improper_list(char() | cbinary() | clist(),
-%%                                 cbinary() | nil())
-%% cbinary() :: unicode:unicode_binary() | unicode:latin1_binary()
+limit_iolist_to_chars(Cs, 0, S, normal) ->
+    L = limit_iolist_to_chars(Cs, 4, S, final),
+    case iolist_size(L) of
+        N when N < 4 -> L;
+        4 -> "..."
+    end;
+limit_iolist_to_chars(_Cs, 0, _S, final) -> [];
+limit_iolist_to_chars([C|Cs], Limit, S, Mode) when C >= $\000, C =< $\377 ->
+    [C | limit_iolist_to_chars(Cs, Limit - 1, S, Mode)];
+limit_iolist_to_chars([I|Cs], Limit, S, Mode) ->
+    limit_iolist_to_chars(I, Limit, [Cs|S], Mode);
+limit_iolist_to_chars([], _Limit, [], _Mode) ->
+    [];
+limit_iolist_to_chars([], Limit, [Cs|S], Mode) ->
+    limit_iolist_to_chars(Cs, Limit, S, Mode);
+limit_iolist_to_chars(B, Limit, S, Mode) when is_binary(B) ->
+    case byte_size(B) of
+        Sz when Sz > Limit ->
+            {B1, B2} = split_binary(B, Limit),
+            [binary_to_list(B1) | limit_iolist_to_chars(B2, 0, S, Mode)];
+        Sz ->
+            [binary_to_list(B) | limit_iolist_to_chars([], Limit-Sz, S, Mode)]
+    end.
 
-%% cdata_to_chars(cdata()) -> io_lib:deep_char_list()
+cdata_to_chars(Cs, F, CharsLimit) when CharsLimit < 0; CharsLimit >= F ->
+    cdata_to_chars(Cs);
+cdata_to_chars(Cs, _, CharsLimit) ->
+    limit_cdata_to_chars(Cs, sub(CharsLimit, 3), normal). % three dots
 
 cdata_to_chars([C|Cs]) when is_integer(C), C >= $\000 ->
     [C | cdata_to_chars(Cs)];
@@ -743,11 +773,25 @@ cdata_to_chars(B) when is_binary(B) ->
         _ -> binary_to_list(B)
     end.
 
-limit_string(S, F, CharsLimit) when CharsLimit < 0; CharsLimit >= F -> S;
-limit_string(S, _F, CharsLimit) ->
-    case string:length(S) =< CharsLimit of
-        true -> S;
-        false -> [string:slice(S, 0, sub(CharsLimit, 3)), "..."]
+limit_cdata_to_chars(Cs, 0, normal) ->
+    L = limit_cdata_to_chars(Cs, 4, final),
+    case string:length(L) of
+        N when N < 4 -> L;
+        4 -> "..."
+    end;
+limit_cdata_to_chars(_Cs, 0, final) -> [];
+limit_cdata_to_chars(Cs, Limit, Mode) ->
+    case string:next_grapheme(Cs) of
+        {error, <<C,Cs1/binary>>} ->
+            %% This is how ~ts handles Latin1 binaries with option
+            %% chars_limit.
+            [C | limit_cdata_to_chars(Cs1, Limit - 1, Mode)];
+        {error, [C|Cs1]} -> % not all versions of module string return this
+            [C | limit_cdata_to_chars(Cs1, Limit - 1, Mode)];
+        [] ->
+            [];
+        [GC|Cs1] ->
+            [GC | limit_cdata_to_chars(Cs1, Limit - 1, Mode)]
     end.
 
 limit_field(F, CharsLimit) when CharsLimit < 0; F =:= none ->
@@ -757,30 +801,30 @@ limit_field(F, CharsLimit) ->
 
 %% string(String, Field, Adjust, Precision, PadChar)
 
-string(S, none, _Adj, none, _Pad) -> S;
-string(S, F, Adj, none, Pad) ->
-    string_field(S, F, Adj, string:length(S), Pad);
-string(S, none, _Adj, P, Pad) ->
-    string_field(S, P, left, string:length(S), Pad);
-string(S, F, Adj, P, Pad) when F >= P ->
-    N = string:length(S),
+string(S, none, _Adj, none, _Pad, _Enc) -> S;
+string(S, F, Adj, none, Pad, Enc) ->
+    string_field(S, F, Adj, io_lib:chars_length(S), Pad, Enc);
+string(S, none, _Adj, P, Pad, Enc) ->
+    string_field(S, P, left, io_lib:chars_length(S), Pad, Enc);
+string(S, F, Adj, P, Pad, Enc) when F >= P ->
+    N = io_lib:chars_length(S),
     if F > P ->
 	    if N > P ->
-		    adjust(flat_trunc(S, P), chars(Pad, F-P), Adj);
+		    adjust(flat_trunc(S, P, Enc), chars(Pad, F-P), Adj);
 	       N < P ->
 		    adjust([S|chars(Pad, P-N)], chars(Pad, F-P), Adj);
 	       true -> % N == P
 		    adjust(S, chars(Pad, F-P), Adj)
 	    end;
        true -> % F == P
-	    string_field(S, F, Adj, N, Pad)
+	    string_field(S, F, Adj, N, Pad, Enc)
     end.
 
-string_field(S, F, _Adj, N, _Pad) when N > F ->
-    flat_trunc(S, F);
-string_field(S, F, Adj, N, Pad) when N < F ->
+string_field(S, F, _Adj, N, _Pad, Enc) when N > F ->
+    flat_trunc(S, F, Enc);
+string_field(S, F, Adj, N, Pad, _Enc) when N < F ->
     adjust(S, chars(Pad, F-N), Adj);
-string_field(S, _, _, _, _) -> % N == F
+string_field(S, _, _, _, _, _) -> % N == F
     S.
 
 %% unprefixed_integer(Int, Field, Adjust, Base, PadChar, Lowercase)
@@ -832,7 +876,10 @@ adjust(Data, Pad, right) -> [Pad|Data].
 
 %% Flatten and truncate a deep list to at most N elements.
 
-flat_trunc(List, N) when is_integer(N), N >= 0 ->
+flat_trunc(List, N, latin1) when is_integer(N), N >= 0 ->
+    {S, _} = lists:split(N, lists:flatten(List)),
+    S;
+flat_trunc(List, N, unicode) when is_integer(N), N >= 0 ->
     string:slice(List, 0, N).
 
 %% A deep version of lists:duplicate/2

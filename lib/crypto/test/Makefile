@@ -6,7 +6,7 @@ include $(ERL_TOP)/make/$(TARGET)/otp.mk
 # ----------------------------------------------------
 
 MODULES = \
-	blowfish_SUITE \
+	crypto_bench_SUITE \
 	crypto_SUITE \
 	engine_SUITE
 
@@ -77,7 +77,7 @@ release_spec:
 
 release_tests_spec: $(TEST_TARGET)
 	$(INSTALL_DIR) "$(RELSYSDIR)"
-	$(INSTALL_DATA) crypto.spec crypto.cover $(RELTEST_FILES) "$(RELSYSDIR)"
+	$(INSTALL_DATA) crypto.spec crypto_bench.spec crypto.cover $(RELTEST_FILES) "$(RELSYSDIR)"
 	@tar cfh - *_SUITE_data | (cd "$(RELSYSDIR)"; tar xf -)
 	chmod -R u+w "$(RELSYSDIR)"
 

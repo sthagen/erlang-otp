@@ -239,7 +239,7 @@ static BIF_RETTYPE erlang_length_trap(BIF_ALIST_3)
              * Signal an error. The original argument was tucked away in BIF_ARG_3.
              */
             ERTS_BIF_ERROR_TRAPPED1(BIF_P, BIF_P->freason,
-                                    bif_export[BIF_length_1], BIF_ARG_3);
+                                    &bif_trap_export[BIF_length_1], BIF_ARG_3);
         }
     }
 }
@@ -306,7 +306,7 @@ Eterm erts_trapping_length_1(Process* p, Eterm* args)
      * We reached the end of the list successfully. Bump reductions
      * and return result.
      */
-    BUMP_REDS(p, saved_max_iter / 16);
+    BUMP_REDS(p, (saved_max_iter - max_iter) / 16);
     return make_small(i);
 }
 

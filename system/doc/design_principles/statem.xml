@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>2016</year><year>2018</year>
+      <year>2016</year><year>2019</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -108,7 +108,9 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
       <item>
 	Co-located callback code for each state,
 	for all
-	<seealso marker="#Event Types"><em>Event Types</em></seealso>
+	<seealso marker="#Event Types and Event Content">
+	  <em>Event Types</em>
+	</seealso>
 	(such as <em>call</em>, <em>cast</em> and <em>info</em>)
       </item>
       <item>
@@ -136,7 +138,7 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
 	(<seealso marker="#State Time-Outs">State Time-Outs</seealso>,
 	<seealso marker="#Event Time-Outs">Event Time-Outs</seealso>
 	and
-	<seealso marker="#Generic Time-Outs">Generic Time-outs</seealso>
+	<seealso marker="#Generic Time-Outs">Generic Time-Outs</seealso>
 	(named time-outs))
       </item>
     </list>
@@ -353,9 +355,10 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
     </taglist>
     <p>
       The state is either the name of the function itself or an argument to it.
-      The other arguments are the <c>EventType</c> described in section
-      <seealso marker="#Event Types">Event Types</seealso>,
-      the event dependent <c>EventContent</c>,
+      The other arguments are the <c>EventType</c>
+      and the event dependent <c>EventContent</c>,
+      both described in section
+      <seealso marker="#Event Types and Event Content">Event Types and Event Content</seealso>,
       and the current server <c>Data</c>.
     </p>
     <p>
@@ -561,34 +564,48 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
       </item>
       <tag>
 	<seealso marker="stdlib:gen_statem#type-state_timeout">
-	  <c>{state_timeout, EventContent, Time}</c>
+	  <c>{state_timeout, Time, EventContent}</c>
 	</seealso>
 	<br />
-	<c>{state_timeout, EventContent, Time, Opts}</c>
+	<c>{state_timeout, Time, EventContent, Opts}</c><br />
+	<seealso marker="stdlib:gen_statem#type-timeout_update_action">
+	  <c>{state_timeout, update, EventContent}</c>
+	</seealso>
+	<br />
+	<seealso marker="stdlib:gen_statem#type-timeout_cancel_action">
+	  <c>{state_timeout, cancel}</c>
+	</seealso>
       </tag>
       <item>
-	Start a state time-out, read more in sections
+	Start, update or cancel a state time-out, read more in sections
 	<seealso marker="#Time-Outs">Time-Outs</seealso> and
 	<seealso marker="#State Time-Outs">State Time-Outs</seealso>.
       </item>
       <tag>
 	<seealso marker="stdlib:gen_statem#type-generic_timeout">
-	  <c>{{timeout, Name}, EventContent, Time}</c>
+	  <c>{{timeout, Name}, Time, EventContent}</c>
 	</seealso>
 	<br />
-	<c>{{timeout, Name}, EventContent, Time, Opts}</c>
+	<c>{{timeout, Name}, Time, EventContent, Opts}</c><br />
+	<seealso marker="stdlib:gen_statem#type-timeout_update_action">
+	  <c>{{timeout, Name}, update, EventContent}</c>
+	</seealso>
+	<br />
+	<seealso marker="stdlib:gen_statem#type-timeout_cancel_action">
+	  <c>{{timeout, Name}, cancel}</c>
+	</seealso>
       </tag>
       <item>
-	Start a generic time-out, read more in sections
+	Start, update or cancel a generic time-out, read more in sections
 	<seealso marker="#Time-Outs">Time-Outs</seealso> and
 	<seealso marker="#Generic Time-Outs">Generic Time-Outs</seealso>.
       </item>
       <tag>
 	<seealso marker="stdlib:gen_statem#type-event_timeout">
-	  <c>{timeout, EventContent, Time}</c>
+	  <c>{timeout, Time, EventContent}</c>
 	</seealso>
 	<br />
-	<c>{timeout, EventContent, Time, Opts}</c><br />
+	<c>{timeout, Time, EventContent, Opts}</c><br />
 	<c>Time</c>
       </tag>
       <item>
@@ -624,19 +641,42 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
       and set a time-out to use absolute instead of relative time
       (using the <c>Opts</c> field).
     </p>
+    <p>
+      Among these <em>transition actions</em> only to reply to a caller
+      is an immediate action.  The others are collected and handled
+      later during the <em>state transition</em>.
+      <seealso marker="#Inserted Events">Inserted Events</seealso>
+      are stored and inserted all together,
+      and the rest set transition options
+      where the last of a specific type override the previous.
+      See the description of a <em>state transition</em>
+      in the <c>gen_statem(3)</c> manual page for type
+      <seealso marker="stdlib:gen_statem#type-transition_option"><c>transition_option()</c></seealso>.
+    </p>
+    <p>
+      The different
+      <seealso marker="#Time-Outs">Time-Outs</seealso> and
+      <seealso marker="#Inserted Events"><c>next_event</c></seealso>
+      actions generate new events with corresponding
+      <seealso marker="#Event Types and Event Content">
+	Event Types and Event Content
+      </seealso>.
+    </p>
   </section>
 
 <!-- =================================================================== -->
 
   <section>
-    <marker id="Event Types" />
-    <title>Event Types</title>
+    <marker id="Event Types and Event Content" />
+    <title>Event Types and Event Content</title>
     <p>
       Events are categorized in different
       <seealso marker="stdlib:gen_statem#type-event_type"><em>event types</em></seealso>.
       Events of all types are for a given state
       handled in the same callback function, and that function gets
       <c>EventType</c> and <c>EventContent</c> as arguments.
+      The meaning of the <c>EventContent</c>
+      depends on the <c>EventType</c>.
     </p>
     <p>
       The following is a complete list of <em>event types</em> and where
@@ -650,7 +690,10 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
       </tag>
       <item>
 	Generated by
-	<seealso marker="stdlib:gen_statem#cast/2"><c>gen_statem:cast</c></seealso>.
+	<seealso marker="stdlib:gen_statem#cast/2">
+	  <c>gen_statem:cast(ServerRef, Msg)</c>
+	</seealso>
+	where <c>Msg</c> becomes the <c>EventContent</c>.
       </item>
       <tag>
 	<seealso marker="stdlib:gen_statem#type-external_event_type">
@@ -659,11 +702,17 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
       </tag>
       <item>
 	Generated by
-	<seealso marker="stdlib:gen_statem#call/2"><c>gen_statem:call</c></seealso>,
-	where <c>From</c> is the reply address to use
+	<seealso marker="stdlib:gen_statem#call/2">
+	  <c>gen_statem:call(ServerRef, Request)</c>
+	</seealso>
+	where <c>Request</c> becomes the <c>EventContent</c>.
+	<c>From</c> is the reply address to use
 	when replying either through the <em>transition action</em>
-	<c>{reply,From,Msg}</c> or by calling
-	<seealso marker="stdlib:gen_statem#reply/1"><c>gen_statem:reply</c></seealso>.
+	<c>{reply,From,Reply}</c> or by calling
+	<seealso marker="stdlib:gen_statem#reply/1">
+	  <c>gen_statem:reply(From, Reply)</c>
+	</seealso>
+	from the <em>callback module</em>.
       </item>
       <tag>
 	<seealso marker="stdlib:gen_statem#type-external_event_type">
@@ -673,6 +722,7 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
       <item>
 	Generated by any regular process message sent to
 	the <c>gen_statem</c> process.
+	The process message becomes the <c>EventContent</c>.
       </item>
       <tag>
 	<seealso marker="stdlib:gen_statem#type-timeout_event_type">
@@ -724,7 +774,7 @@ State(S) x Event(E) -> Actions(A), State(S')</pre>
       </tag>
       <item>
 	Generated by <em>transition action</em>
-	<seealso marker="stdlib:gen_statem#type-enter_action"><c>{next_event,internal,EventContent}</c></seealso>.
+	<seealso marker="stdlib:gen_statem#type-action"><c>{next_event,internal,EventContent}</c></seealso>.
 	All <em>event types</em> above can also be generated using
 	the <c>next_event</c> action:
 	<c>{next_event,EventType,EventContent}</c>.
@@ -759,7 +809,7 @@ StateName(EventType, EventContent, Data) ->
     <p>
       Since the <em>state enter call</em> is not an event there are restrictions
       on the allowed return value and
-      <seealso marker="#State Transition Actions">State Transition Actions</seealso>.
+      <seealso marker="#Transition Actions">State Transition Actions</seealso>.
       You may not change the state,
       <seealso marker="#Postponing Events">postpone</seealso>
       this non-event, or
@@ -793,7 +843,7 @@ StateName(EventType, EventContent, Data) ->
 
   <section>
     <marker id="Time-Outs" />
-    <title>Time-outs</title>
+    <title>Time-Outs</title>
     <p>
       Time-outs in <c>gen_statem</c> are started from a
       <seealso marker="#Transition Actions">
@@ -844,9 +894,9 @@ StateName(EventType, EventContent, Data) ->
       </item>
     </taglist>
     <p>
-      When a time-out is started any running time-out with the same tag,
+      When a time-out is started any running time-out of the same type;
       <c>state_timeout</c>, <c>{timeout, Name}</c> or <c>timeout</c>,
-      is cancelled, that is the time-out is restarted with the new time.
+      is cancelled, that is, the time-out is restarted with the new time.
     </p>
     <p>
       All time-outs has got an <c>EventContent</c> that is part of the
@@ -868,6 +918,39 @@ StateName(EventType, EventContent, Data) ->
 	running time-out with the same tag will be cancelled.
 	The <c>EventContent</c> will in this case be ignored,
 	so why not set it to <c>undefined</c>.
+      </p>
+      <p>
+	A more explicit way to cancel a timer is to use a
+	<seealso marker="#Transition Actions">
+	  <em>transition action</em>
+	</seealso>
+	on the form
+	<seealso marker="stdlib:gen_statem#type-timeout_cancel_action">
+	  <c>{TimeoutType, cancel}</c>
+	</seealso>
+	which is a feature introduced in OTP 22.1.
+      </p>
+    </section>
+    <section>
+      <marker id="Updating a Time-Out" />
+      <title>Updating a Time-Out</title>
+      <p>
+	While a time-out is running, its <c>EventContent</c>
+	can be updated using a
+	<seealso marker="#Transition Actions">
+	  <em>transition action</em>
+	</seealso>
+	on the form
+	<seealso marker="stdlib:gen_statem#type-timeout_update_action">
+	  <c>{TimeoutType, update, NewEventContent}</c>
+	</seealso>
+	which is a feature introduced in OTP 22.1.
+      </p>
+      <p>
+	If this feature is used while no such <c>TimeoutType</c>
+	is running then a time-out event is immediately delivered
+	as when starting a
+	<seealso marker="#Time-Out Zero">Time-Out Zero</seealso>.
       </p>
     </section>
     <section>
@@ -1200,10 +1283,12 @@ open(state_timeout, lock,  Data) ->
     <p>
       The timer for a state time-out is automatically cancelled
       when the state machine does a <em>state change</em>.
-      You can restart a state time-out by setting it to a new time,
-      which cancels the running timer and starts a new.
-      This implies that you can cancel a state time-out
-      by restarting it with time <c>infinity</c>.
+    </p>
+    <p>
+      You can restart, cancel or update a state time-out.
+      See section
+      <seealso marker="#Time-Outs">Time-Outs</seealso>
+      for details.
     </p>
   </section>
 
@@ -1472,12 +1557,13 @@ locked(
     <p>
       An event time-out is cancelled by any other event so you either
       get some other event or the time-out event.  It is therefore
-      not possible nor needed to cancel or restart an event time-out.
-      Whatever event you act on has already cancelled
-      the event time-out...
+      not possible nor needed to cancel, restart or update an event time-out.
+      Whatever event you act on has already cancelled the event time-out,
+      so there is never a running event time-out
+      while the <em>state callback</em> executes.
     </p>
     <p>
-      Note that an event time-out does not work well with
+      Note that an event time-out does not work well
       when you have for example a status call as in section
       <seealso marker="#All State Events">All State Events</seealso>,
       or handle unknown events, since all kinds of events
@@ -1547,6 +1633,12 @@ open(cast, {button,_}, Data) ->
       Instead of bothering with when to cancel a time-out,
       a late time-out event can be handled by ignoring it
       if it arrives in a state where it is known to be late.
+    </p>
+    <p>
+      You can restart, cancel or update a generic time-out.
+      See section
+      <seealso marker="#Time-Outs">Time-Outs</seealso>
+      for details.
     </p>
   </section>
 
@@ -1858,7 +1950,7 @@ open(state_timeout, lock, Data) ->
       <seealso marker="#Transition Actions">
 	<em>transition action</em>
       </seealso>
-      <c>{next_event,EventType,EventContent}</c>.
+      <seealso marker="stdlib:gen_statem#type-action"><c>{next_event,EventType,EventContent}</c></seealso>.
     </p>
     <p>
       You can generate events of any existing
@@ -2415,16 +2507,17 @@ handle_event(enter, _OldState, {open,_}, _Data) ->
       <seealso marker="#Event Time-Outs">event time-out</seealso>
       to trigger hibernation after a certain time of inactivity.
       There is also a server start option
-      <seealso marker="stdlib:gen_statem#type-hibernate_after_opt">
+      <seealso marker="stdlib:gen_statem#type-enter_loop_opt">
 	<c>{hibernate_after, Timeout}</c>
       </seealso>
       for
-      <seealso marker="stdlib:gen_statem#start/3">
-	<c>start/3,4</c>
-      </seealso>
-      or
+      <seealso marker="stdlib:gen_statem#start/3"><c>start/3,4</c></seealso>,
       <seealso marker="stdlib:gen_statem#start_link/3">
 	<c>start_link/3,4</c>
+      </seealso>
+      or
+      <seealso marker="stdlib:gen_statem#enter_loop/4">
+	<c>enter_loop/4,5,6</c>
       </seealso>
       that may be used to automatically hibernate the server.
     </p>

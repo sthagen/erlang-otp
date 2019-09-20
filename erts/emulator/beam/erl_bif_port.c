@@ -44,6 +44,7 @@
 #include "erl_bif_unique.h"
 #include "dtrace-wrapper.h"
 #include "erl_proc_sig_queue.h"
+#include "erl_osenv.h"
 
 static Port *open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump);
 static int merge_global_environment(erts_osenv_t *env, Eterm key_value_pairs);
@@ -210,7 +211,7 @@ BIF_RETTYPE erts_internal_port_command_3(BIF_ALIST_3)
 	    ERTS_BIF_PREP_RET(res, am_false);
 	else {
 	    erts_suspend(BIF_P, ERTS_PROC_LOCK_MAIN, prt);
-	    ERTS_BIF_PREP_YIELD3(res, bif_export[BIF_erts_internal_port_command_3],
+	    ERTS_BIF_PREP_YIELD3(res, &bif_trap_export[BIF_erts_internal_port_command_3],
 				 BIF_P, BIF_ARG_1, BIF_ARG_2, BIF_ARG_3);
 	}
 	break;
@@ -891,10 +892,6 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
 
 	    driver = &spawn_driver;
 	} else if (*tp == am_fd) { /* An fd port */
-	    int n;
-	    struct Sint_buf sbuf;
-	    char* p;
-
 	    if (arity != make_arityval(3)) {
 		goto badarg;
 	    }
@@ -904,15 +901,9 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
 	    opts.ifd = unsigned_val(tp[1]);
 	    opts.ofd = unsigned_val(tp[2]);
 
-	    /* Syntesize name from input and output descriptor. */
-	    name_buf = erts_alloc(ERTS_ALC_T_TMP,
-				  2*sizeof(struct Sint_buf) + 2); 
-	    p = Sint_to_buf(opts.ifd, &sbuf);
-	    n = sys_strlen(p);
-	    sys_strncpy(name_buf, p, n);
-	    name_buf[n] = '/';
-	    p = Sint_to_buf(opts.ofd, &sbuf);
-	    sys_strcpy(name_buf+n+1, p);
+            /* Syntesize name from input and output descriptor. */
+            name_buf = erts_alloc(ERTS_ALC_T_TMP, 256);
+            erts_snprintf(name_buf, 256, "%i/%i", opts.ifd, opts.ofd);
 
 	    driver = &fd_driver;
 	} else {

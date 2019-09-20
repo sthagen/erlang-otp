@@ -248,6 +248,7 @@ atom erts_debug
 atom erts_dflags
 atom erts_internal
 atom ets
+atom ets_info_binary
 atom ETS_TRANSFER='ETS-TRANSFER'
 atom exact_reductions
 atom exception_from
@@ -290,6 +291,7 @@ atom Ge='>='
 atom generational
 atom get_all_trap
 atom get_seq_token
+atom get_size
 atom get_tcw
 atom gather_gc_info_result
 atom gather_io_bytes
@@ -402,6 +404,7 @@ atom min_bin_vheap_size
 atom minor
 atom minor_version
 atom Minus='-'
+atom MinusMinus='--'
 atom module
 atom module_info
 atom monitored_by
@@ -492,6 +495,7 @@ atom packet
 atom packet_size
 atom parallelism
 atom Plus='+'
+atom PlusPlus='++'
 atom pause
 atom pending
 atom pending_driver

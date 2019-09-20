@@ -149,6 +149,7 @@ type	MODULE_TABLE	LONG_LIVED	CODE		module_tab
 type	TAINT		LONG_LIVED	CODE		taint_list
 type	MODULE_REFS	STANDARD	CODE		module_refs
 type	NC_TMP		TEMPORARY	SYSTEM		nc_tmp
+type	NC_STD		STANDARD	SYSTEM		nc_std
 type	TMP		TEMPORARY	SYSTEM		tmp
 type	UNDEF		SYSTEM		SYSTEM		undefined
 type	DCACHE		STANDARD	SYSTEM		dcache
@@ -275,11 +276,15 @@ type	ML_DIST		STANDARD	SYSTEM		monitor_link_dist
 type	PF3_ARGS	SHORT_LIVED	PROCESSES	process_flag_3_arguments
 type	SETUP_CONN_ARG	SHORT_LIVED	PROCESSES	setup_connection_argument
 type    LIST_TRAP       SHORT_LIVED     PROCESSES       list_bif_trap_state
+type    CONT_EXIT_TRAP  SHORT_LIVED     PROCESSES       continue_exit_trap_state
+type    SEQ_YIELD_STATE SHORT_LIVED     SYSTEM          dist_seq_yield_state
+type    PHASH2_TRAP     SHORT_LIVED     PROCESSES       phash2_trap_state
 
 type	ENVIRONMENT	SYSTEM		SYSTEM		environment
 
 type	PERSISTENT_TERM	LONG_LIVED	CODE		persisten_term
 type	PERSISTENT_LOCK_Q SHORT_LIVED	SYSTEM		persistent_lock_q
+type	PERSISTENT_TERM_TMP SHORT_LIVED	SYSTEM		persistent_term_tmp_table
 
 #
 # Types used for special emulators
@@ -326,8 +331,7 @@ type	DB_HEIR_DATA	STANDARD	ETS		db_heir_data
 type	DB_MS_PSDO_PROC	LONG_LIVED	ETS		db_match_pseudo_proc
 type	SCHDLR_DATA	LONG_LIVED	SYSTEM		scheduler_data
 
-type	NIF_TRAP_EXPORT	STANDARD	PROCESSES	nif_trap_export_entry
-type	NIF_EXP_TRACE	FIXED_SIZE	PROCESSES	nif_export_trace
+type	NFUNC_TRAP_WRAPPER	STANDARD	PROCESSES	nfunc_trap_wrapper
 type	EXPORT		LONG_LIVED	CODE		export_entry
 type	MONITOR		FIXED_SIZE	PROCESSES	monitor
 type	MONITOR_SUSPEND	STANDARD	PROCESSES	monitor_suspend
@@ -345,16 +349,17 @@ type	COUNTERS	STANDARD	SYSTEM		erl_bif_counters
 # Types used by system specific code
 #
 
-type  	TEMP_TERM 	TEMPORARY	SYSTEM		temp_term
-type	DRV_TAB		LONG_LIVED	SYSTEM		drv_tab
-type	DRV_EV_STATE	LONG_LIVED	SYSTEM		driver_event_state
-type	DRV_SEL_D_STATE	FIXED_SIZE	SYSTEM		driver_select_data_state
-type	NIF_SEL_D_STATE	FIXED_SIZE	SYSTEM		enif_select_data_state
-type	POLLSET		LONG_LIVED	SYSTEM		pollset
-type	POLLSET_UPDREQ	SHORT_LIVED	SYSTEM		pollset_update_req
-type	POLL_FDS	LONG_LIVED	SYSTEM		poll_fds
-type	FD_STATUS	LONG_LIVED	SYSTEM		fd_status
-type	SELECT_FDS	LONG_LIVED	SYSTEM		select_fds
+type  	TEMP_TERM       	TEMPORARY	SYSTEM		temp_term
+type  	SHORT_LIVED_TERM 	SHORT_LIVED	SYSTEM		short_lived_term
+type	DRV_TAB		        LONG_LIVED	SYSTEM		drv_tab
+type	DRV_EV_STATE	        LONG_LIVED	SYSTEM		driver_event_state
+type	DRV_SEL_D_STATE	        FIXED_SIZE	SYSTEM		driver_select_data_state
+type	NIF_SEL_D_STATE	        FIXED_SIZE	SYSTEM		enif_select_data_state
+type	POLLSET		        LONG_LIVED	SYSTEM		pollset
+type	POLLSET_UPDREQ	        SHORT_LIVED	SYSTEM		pollset_update_req
+type	POLL_FDS	        LONG_LIVED	SYSTEM		poll_fds
+type	FD_STATUS	        LONG_LIVED	SYSTEM		fd_status
+type	SELECT_FDS	        LONG_LIVED	SYSTEM		select_fds
 
 +if unix
 

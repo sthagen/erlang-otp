@@ -106,7 +106,8 @@ real_requests()->
      streaming_error,
      inet_opts,
      invalid_headers,
-     invalid_body
+     invalid_body,
+     no_scheme
     ].
 
 real_requests_esi() ->
@@ -339,14 +340,6 @@ end_per_testcase(Case, Config)
 end_per_testcase(_Case, _Config) ->
     ok.
 
-is_ipv6_supported() ->
-    case gen_udp:open(0, [inet6]) of
-        {ok, Socket} ->
-            gen_udp:close(Socket),
-            true;
-        _ ->
-            false
-    end.
 
 
 %%--------------------------------------------------------------------
@@ -1239,6 +1232,16 @@ invalid_body(Config) ->
 	    ok
     end.
 
+
+%%-------------------------------------------------------------------------
+
+no_scheme(_Config) ->
+    {error,{bad_scheme,"ftp"}} = httpc:request("ftp://foobar"),
+    {error,{no_scheme}} = httpc:request("//foobar"),
+    {error,{no_scheme}} = httpc:request("foobar"),
+    ok.
+
+
 %%-------------------------------------------------------------------------
 remote_socket_close(Config) when is_list(Config) ->
     URL = url(group_name(Config), "/just_close.html", Config),
@@ -1612,7 +1615,8 @@ post_with_content_type(Config) when is_list(Config) ->
 
 %%--------------------------------------------------------------------
 request_options() ->
-    [{doc, "Test http get request with socket options against local server (IPv6)"}].
+    [{require, ipv6_hosts},
+     {doc, "Test http get request with socket options against local server (IPv6)"}].
 request_options(Config) when is_list(Config) ->
     Request  = {url(group_name(Config), "/dummy.html", Config), []},
     {ok, {{_,200,_}, [_ | _], _ = [_ | _]}} = httpc:request(get, Request, [],
@@ -2187,7 +2191,7 @@ check_cookie([_Head | Tail]) ->
 
 content_length([]) ->
     0;
-content_length(["content-length:" ++ Value | _]) ->
+content_length([{"content-length", Value}|_]) ->
     list_to_integer(string:strip(Value));
 content_length([_Head | Tail]) ->
    content_length(Tail).
@@ -2944,4 +2948,13 @@ receive_stream_n(Ref, N) ->
 	{http, {Ref,stream, Data}} ->
 	    ct:pal("Data:  ~p", [Data]),
 	    receive_stream_n(Ref, N-1)
+    end.
+
+is_ipv6_supported() ->
+    {ok, Hostname0} = inet:gethostname(),
+    try 
+        lists:member(list_to_atom(Hostname0), ct:get_config(ipv6_hosts))
+    catch
+         _: _ ->
+            false
     end.
