@@ -136,6 +136,8 @@
 
 -type instruction() :: beam_utils:instruction().
 
+-include("beam_types.hrl").
+
 -spec module(beam_utils:module_code(), [compile:option()]) ->
                     {'ok',beam_utils:module_code()}.
 
@@ -189,6 +191,15 @@ eliminate_moves([{test,is_eq_exact,_,[Reg,Val]}=I,
     RegVal = {Reg,Val},
     BlkIs = eliminate_moves_blk(BlkIs0, RegVal),
     eliminate_moves([{block,BlkIs}|Is], D, [I|Acc]);
+eliminate_moves([{test,is_nonempty_list,Fail,[Reg]}=I|Is], D0, Acc) ->
+    case is_proper_list(Reg, Acc) of
+        true ->
+            D = update_value_dict([nil,Fail], Reg, D0),
+            eliminate_moves(Is, D, [I|Acc]);
+        false ->
+            D = update_unsafe_labels(I, D0),
+            eliminate_moves(Is, D, [I|Acc])
+    end;
 eliminate_moves([{label,Lbl},{block,BlkIs0}=Blk|Is], D, Acc0) ->
     Acc = [{label,Lbl}|Acc0],
     case {no_fallthrough(Acc0),D} of
@@ -198,6 +209,10 @@ eliminate_moves([{label,Lbl},{block,BlkIs0}=Blk|Is], D, Acc0) ->
         {_,_} ->
             eliminate_moves([Blk|Is], D, Acc)
     end;
+eliminate_moves([{call,_,_}=I|Is], D, Acc) ->
+    eliminate_moves_call(Is, D, [I | Acc]);
+eliminate_moves([{call_ext,_,_}=I|Is], D, Acc) ->
+    eliminate_moves_call(Is, D, [I | Acc]);
 eliminate_moves([{block,[]}|Is], D, Acc) ->
     %% Empty blocks can prevent further jump optimizations.
     eliminate_moves(Is, D, Acc);
@@ -205,6 +220,21 @@ eliminate_moves([I|Is], D0, Acc) ->
     D = update_unsafe_labels(I, D0),
     eliminate_moves(Is, D, [I|Acc]);
 eliminate_moves([], _, Acc) -> reverse(Acc).
+
+eliminate_moves_call([{'%',{var_info,{x,0},Info}}=Anno,
+                      {block,BlkIs0}=Blk | Is], D, Acc0) ->
+    Acc = [Anno | Acc0],
+    RetType = proplists:get_value(type, Info, none),
+    case beam_types:get_singleton_value(RetType) of
+        {ok, Value} ->
+            RegVal = {{x,0}, value_to_literal(Value)},
+            BlkIs = eliminate_moves_blk(BlkIs0, RegVal),
+            eliminate_moves([{block,BlkIs}|Is], D, Acc);
+        error ->
+            eliminate_moves(Is, D, [Blk | Acc])
+    end;
+eliminate_moves_call(Is, D, Acc) ->
+    eliminate_moves(Is, D, Acc).
 
 eliminate_moves_blk([{set,[Dst],[_],move}|_]=Is, {_,Dst}) ->
     Is;
@@ -217,8 +247,28 @@ eliminate_moves_blk([{set,[_],[_],move}=I|Is], {_,_}=RegVal) ->
     [I|eliminate_moves_blk(Is, RegVal)];
 eliminate_moves_blk(Is, _) -> Is.
 
+no_fallthrough([{'%',_} | Is]) ->
+    no_fallthrough(Is);
 no_fallthrough([I|_]) ->
     is_unreachable_after(I).
+
+is_proper_list(Reg, [{'%',{var_info,Reg,Info}}|_]) ->
+    case proplists:get_value(type, Info) of
+        #t_list{terminator=nil} ->
+            true;
+        _ ->
+            %% Unknown type or not a proper list.
+            false
+    end;
+is_proper_list(Reg, [{'%',{var_info,_,_}}|Is]) ->
+    is_proper_list(Reg, Is);
+is_proper_list(_, _) -> false.
+
+value_to_literal([]) -> nil;
+value_to_literal(A) when is_atom(A) -> {atom,A};
+value_to_literal(F) when is_float(F) -> {float,F};
+value_to_literal(I) when is_integer(I) -> {integer,I};
+value_to_literal(Other) -> {literal,Other}.
 
 update_value_dict([Lit,{f,Lbl}|T], Reg, D0) ->
     D = case D0 of
@@ -722,7 +772,13 @@ instr_labels({recv_set,Lbl}) ->
     do_instr_labels(Lbl);
 instr_labels({fcheckerror,Lbl}) ->
     do_instr_labels(Lbl);
-instr_labels(_) -> [].
+instr_labels({bs_start_match4,Fail,_,_,_}) ->
+    case Fail of
+        {f,L} -> [L];
+        {atom,_} -> []
+    end;
+instr_labels(_) ->
+    [].
 
 do_instr_labels({f,0}) -> [];
 do_instr_labels({f,F}) -> [F].

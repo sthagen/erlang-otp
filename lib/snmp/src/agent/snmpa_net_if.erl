@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2004-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2019. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -736,8 +736,28 @@ handle_discovery_response(
 	    %% XXX Strange... Reqs from this Pid should be reaped
 	    %% at process exit by clear_reqs/2 so the following
 	    %% should be redundant.
-	    NReqs = lists:keydelete(ReqId, 1, Reqs),
+            NReqs = lists:keydelete(ReqId, 1, Reqs -- [{0, Pid}]), % ERIERL-427
 	    S#state{reqs = NReqs};
+
+        %% <OTP-16207>
+        %% For some reason 'snmptrapd' response in stage 2 with request-id
+        %% of zero.
+        false when (ReqId =:= 0) ->
+            DiscoReqs = [X|| {0, From1}     <- S#state.reqs,
+                             {_, From2} = X <- S#state.reqs, From1 =:= From2],
+            case (length(DiscoReqs) =:= 2) of
+                true ->
+                    [{_, Pid}, _] = DiscoReqs,
+                    active_once(Socket),
+                    Pid ! {snmp_discovery_response_received, Pdu,
+                           ManagerEngineId},
+                    NReqs = S#state.reqs -- DiscoReqs,
+                    S#state{reqs = NReqs};
+                false ->
+                    S
+            end;
+        %% </OTP-16207>
+
 	false ->
 	    %% Ouch, timeout? resend?
 	    S
@@ -1013,8 +1033,10 @@ handle_send_discovery(
 		    log(Log, Type, Packet, {Domain, Address}),
 		    udp_send(Socket, {Domain, Address}, Packet),
 		    ?vtrace("handle_send_discovery -> sent (~w)", [ReqId]),
-		    NReqs = snmp_misc:keyreplaceadd(From, 2, Reqs, {ReqId, From}),
-		    S#state{reqs = NReqs}
+                    link(From),
+		    NReqs  = snmp_misc:keyreplaceadd(From, 2, Reqs, {ReqId, From}),
+                    NReqs2 = (NReqs -- [{0, From}]) ++ [{0, From}], % OTP-16207
+		    S#state{reqs = NReqs2}
 	    end;
 	{discarded, Reason} ->
 	    ?vlog("handle_send_discovery -> "
@@ -1187,8 +1209,9 @@ handle_disk_log(_Log, _Info, State) ->
 
 
 clear_reqs(Pid, S) ->
-    NReqs = lists:keydelete(Pid, 2, S#state.reqs),
-    S#state{reqs = NReqs}.
+    NReqs  = lists:keydelete(Pid, 2, S#state.reqs),
+    NReqs2 = NReqs -- [{0, Pid}], % ERIERL-427
+    S#state{reqs = NReqs2}.
 
 
 toname(P) when is_pid(P) ->
@@ -1456,7 +1479,15 @@ socket_opts(Domain, {IpAddr, IpPort}, Opts) ->
 		 [];
 	     Sz ->
 		 [{sndbuf, Sz}]
-	 end].
+	 end] ++
+        case get_extra_sock_opts(Opts) of
+            ESO when is_list(ESO) ->
+                ESO;
+            BadESO ->
+                error_msg("Invalid 'extra socket options' (=> ignored):"
+                          "~n   ~p", [BadESO]),
+                []
+        end.
 
 
 %% ----------------------------------------------------------------
@@ -1509,6 +1540,9 @@ get_no_reuse_address(Opts) ->
 
 get_bind_to_ip_address(Opts) ->
     snmp_misc:get_option(bind_to, Opts, false).
+
+get_extra_sock_opts(Opts) ->
+    snmp_misc:get_option(extra_sock_opts, Opts, []).
 
 
 %% ----------------------------------------------------------------

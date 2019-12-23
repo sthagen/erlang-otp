@@ -915,8 +915,13 @@ Eterm erl_is_function(Process* p, Eterm arg1, Eterm arg2);
 /* beam_bif_load.c */
 Eterm erts_check_process_code(Process *c_p, Eterm module, int *redsp, int fcalls);
 Eterm erts_proc_copy_literal_area(Process *c_p, int *redsp, int fcalls, int gc_allowed);
+
+Uint32 erts_block_release_literal_area(void);
+void erts_unblock_release_literal_area(Uint32);
+
 void erts_debug_foreach_release_literal_area_off_heap(void (*func)(ErlOffHeap *, void *),
                                                       void *arg);
+
 typedef struct ErtsLiteralArea_ {
     struct erl_off_heap_header *off_heap;
     Eterm *end;
@@ -927,6 +932,8 @@ void erts_queue_release_literals(Process *c_p, ErtsLiteralArea* literals);
 
 #define ERTS_LITERAL_AREA_ALLOC_SIZE(N) \
     (sizeof(ErtsLiteralArea) + sizeof(Eterm)*((N) - 1))
+#define ERTS_LITERAL_AREA_SIZE(AP) \
+    (ERTS_LITERAL_AREA_ALLOC_SIZE((AP)->end - (AP)->start))
 
 extern erts_atomic_t erts_copy_literal_area__;
 #define ERTS_COPY_LITERAL_AREA()					\
@@ -1136,6 +1143,12 @@ extern int is_node_name_atom(Eterm a);
 extern int erts_net_message(Port *, DistEntry *, Uint32 conn_id,
 			    byte *, ErlDrvSizeT, Binary *, byte *, ErlDrvSizeT);
 
+int erts_dist_pend_spawn_exit_delete(ErtsMonitor *mon);
+int erts_dist_pend_spawn_exit_parent_setup(ErtsMonitor *mon);
+int erts_dist_pend_spawn_exit_parent_wait(Process *c_p,
+                                          ErtsProcLocks locks,
+                                          ErtsMonitor *mon);
+
 extern void init_dist(void);
 extern int stop_dist(void);
 
@@ -1260,6 +1273,7 @@ void *erts_calc_stacklimit(char *prev_c, UWord stacksize) ERTS_NOINLINE;
 int erts_check_below_limit(char *ptr, char *limit) ERTS_NOINLINE;
 int erts_check_above_limit(char *ptr, char *limit) ERTS_NOINLINE;
 void *erts_ptr_id(void *ptr) ERTS_NOINLINE;
+int erts_check_if_stack_grows_downwards(char *ptr) ERTS_NOINLINE;
 
 Eterm store_external_or_ref_in_proc_(Process *, Eterm);
 Eterm store_external_or_ref_(Uint **, ErlOffHeap*, Eterm);
@@ -1292,7 +1306,6 @@ Sint erts_binary_set_loop_limit(Sint limit);
 
 /* erl_bif_persistent.c */
 void erts_init_bif_persistent_term(void);
-Uint erts_persistent_term_count(void);
 void erts_init_persistent_dumping(void);
 extern ErtsLiteralArea** erts_persistent_areas;
 extern Uint erts_num_persistent_areas;

@@ -132,7 +132,8 @@ packed_registers(Config) when is_list(Config) ->
 	       "_ = id(2),\n"
 	       "id([_@Vars,_@NewVars,_@MoreNewVars]).\n"
 	       "id(I) -> I.\n"]),
-    merl:compile_and_load(Code),
+
+    merl:compile_and_load(Code, []),
 
     %% Optionally print the generated code.
     PrintCode = false,                          %Change to true to print code.

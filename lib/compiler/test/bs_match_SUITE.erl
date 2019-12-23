@@ -45,7 +45,7 @@
          expression_before_match/1,erl_689/1,restore_on_call/1,
          restore_after_catch/1,matches_on_parameter/1,big_positions/1,
          matching_meets_apply/1,bs_start_match2_defs/1,
-         exceptions_after_match_failure/1]).
+         exceptions_after_match_failure/1, bad_phi_paths/1]).
 
 -export([coverage_id/1,coverage_external_ignore/2]).
 
@@ -82,7 +82,7 @@ groups() ->
        expression_before_match,erl_689,restore_on_call,
        matches_on_parameter,big_positions,
        matching_meets_apply,bs_start_match2_defs,
-       exceptions_after_match_failure]}].
+       exceptions_after_match_failure,bad_phi_paths]}].
 
 
 init_per_suite(Config) ->
@@ -502,6 +502,9 @@ unit(Config) when is_list(Config) ->
     {'EXIT',_} = (catch unit_opt_2(<<1:32,33:7>>)),
     {'EXIT',_} = (catch unit_opt_2(<<2:32,55:7>>)),
 
+    <<0:64>> = unit_opt_3(<<1:128>>),
+    <<1:64>> = unit_opt_3(<<1:64>>),
+
     ok.
 
 peek1(<<B:8,_/bitstring>>) -> B.
@@ -532,6 +535,13 @@ unit_opt_2(<<St:32,KO/binary>> = Bin0) ->
                   <<KO/binary>>
           end,
     id(Bin).
+
+unit_opt_3(A) when is_binary(A) ->
+    %% There should be no test_unit instruction after the first segment, since
+    %% we already know A is a binary and its tail will still be a binary after
+    %% matching 8 bytes from it.
+    <<Bin:8/binary, _/binary>> = A,
+    Bin.
 
 shared_sub_bins(Config) when is_list(Config) ->
     {15,[<<>>,<<5>>,<<4,5>>,<<3,4,5>>,<<2,3,4,5>>]} = sum(<<1,2,3,4,5>>, [], 0),
@@ -2019,6 +2029,19 @@ do_exceptions_after_match_failure(<<_A, _B, "gurka">>) ->
 do_exceptions_after_match_failure(Other) ->
     Other / 2.0,
     ok.
+
+%% ERL-1050: After copying successors, phi nodes on the *original* path could
+%% refer to blocks that were only reachable from the copied path.
+bad_phi_paths(_Config) ->
+    <<"gurka">> = bad_phi_paths_1(id(<<"gurka">>)),
+    ok.
+
+bad_phi_paths_1(Arg) ->
+    B = case Arg of
+            <<_/binary>> -> Arg;
+            #{} -> id(Arg)
+        end,
+    id(B).
 
 id(I) -> I.
 

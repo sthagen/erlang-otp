@@ -108,7 +108,9 @@ default_algorithms(cipher) ->
                                       ]));
 default_algorithms(mac) ->
     supported_algorithms(mac, same(['AEAD_AES_128_GCM',
-				    'AEAD_AES_256_GCM']));
+				    'AEAD_AES_256_GCM',
+                                    'hmac-sha1-96'
+                                   ]));
 
 default_algorithms(Alg) ->
     supported_algorithms(Alg, []).
@@ -161,6 +163,8 @@ supported_algorithms(cipher) ->
 	 {'aes128-ctr',       [{ciphers,aes_128_ctr}]},
 	 {'AEAD_AES_256_GCM', [{ciphers,aes_256_gcm}]},
 	 {'AEAD_AES_128_GCM', [{ciphers,aes_128_gcm}]},
+	 {'aes256-cbc',       [{ciphers,aes_256_cbc}]},
+	 {'aes192-cbc',       [{ciphers,aes_192_cbc}]},
 	 {'aes128-cbc',       [{ciphers,aes_128_cbc}]},
 	 {'3des-cbc',         [{ciphers,des_ede3_cbc}]}
 	]
@@ -171,6 +175,7 @@ supported_algorithms(mac) ->
 	[{'hmac-sha2-256',    [{macs,hmac}, {hashs,sha256}]},
 	 {'hmac-sha2-512',    [{macs,hmac}, {hashs,sha512}]},
 	 {'hmac-sha1',        [{macs,hmac}, {hashs,sha}]},
+	 {'hmac-sha1-96',     [{macs,hmac}, {hashs,sha}]},
 	 {'AEAD_AES_128_GCM', [{ciphers,aes_128_gcm}]},
 	 {'AEAD_AES_256_GCM', [{ciphers,aes_256_gcm}]}
 	]
@@ -1345,6 +1350,18 @@ cipher('aes128-cbc') ->
             iv_bytes = 16,
             block_bytes = 16};
 
+cipher('aes192-cbc') ->
+    #cipher{impl = aes_192_cbc,
+            key_bytes = 24,
+            iv_bytes = 16,
+            block_bytes = 16};
+
+cipher('aes256-cbc') ->
+    #cipher{impl = aes_256_cbc,
+            key_bytes = 32,
+            iv_bytes = 16,
+            block_bytes = 16};
+
 cipher('aes128-ctr') ->
     #cipher{impl = aes_128_ctr,
             key_bytes = 16,
@@ -1450,7 +1467,7 @@ encrypt(#ssh{encrypt = 'chacha20-poly1305@openssh.com',
     %% MAC tag
     PolyKey = crypto:crypto_one_time(chacha20, K2, <<0:8/unit:8,Seq:8/unit:8>>, <<0:32/unit:8>>, true),
     EncBytes = <<EncLen/binary,EncPayloadData/binary>>,
-    Ctag = crypto:poly1305(PolyKey, EncBytes),
+    Ctag = crypto:mac(poly1305, PolyKey, EncBytes),
     %% Result
     {Ssh, {EncBytes,Ctag}};
 
@@ -1531,7 +1548,7 @@ decrypt(#ssh{decrypt = 'chacha20-poly1305@openssh.com',
             %% The length is already decrypted and used to divide the input
             %% Check the mac (important that it is timing-safe):
             PolyKey = crypto:crypto_one_time(chacha20, K2, <<0:8/unit:8,Seq:8/unit:8>>, <<0:32/unit:8>>, false),
-            case equal_const_time(Ctag, crypto:poly1305(PolyKey, <<AAD/binary,Ctext/binary>>)) of
+            case equal_const_time(Ctag, crypto:mac(poly1305, PolyKey, <<AAD/binary,Ctext/binary>>)) of
                 true ->
                     %% MAC is ok, decode
                     IV2 = <<1:8/little-unit:8, Seq:8/unit:8>>,
@@ -1692,17 +1709,17 @@ recv_mac_final(SSH) ->
 mac(none, _ , _, _) ->
     <<>>;
 mac('hmac-sha1', Key, SeqNum, Data) ->
-    crypto:hmac(sha, Key, [<<?UINT32(SeqNum)>>, Data]);
+    crypto:mac(hmac, sha, Key, [<<?UINT32(SeqNum)>>, Data]);
 mac('hmac-sha1-96', Key, SeqNum, Data) ->
-    crypto:hmac(sha, Key, [<<?UINT32(SeqNum)>>, Data], mac_digest_size('hmac-sha1-96'));
+    crypto:macN(hmac, sha, Key, [<<?UINT32(SeqNum)>>, Data], mac_digest_size('hmac-sha1-96'));
 mac('hmac-md5', Key, SeqNum, Data) ->
-    crypto:hmac(md5, Key, [<<?UINT32(SeqNum)>>, Data]);
+    crypto:mac(hmac, md5, Key, [<<?UINT32(SeqNum)>>, Data]);
 mac('hmac-md5-96', Key, SeqNum, Data) ->
-    crypto:hmac(md5, Key, [<<?UINT32(SeqNum)>>, Data], mac_digest_size('hmac-md5-96'));
+    crypto:macN(hmac, md5, Key, [<<?UINT32(SeqNum)>>, Data], mac_digest_size('hmac-md5-96'));
 mac('hmac-sha2-256', Key, SeqNum, Data) ->
-	crypto:hmac(sha256, Key, [<<?UINT32(SeqNum)>>, Data]);
+    crypto:mac(hmac, sha256, Key, [<<?UINT32(SeqNum)>>, Data]);
 mac('hmac-sha2-512', Key, SeqNum, Data) ->
-	crypto:hmac(sha512, Key, [<<?UINT32(SeqNum)>>, Data]).
+    crypto:mac(hmac, sha512, Key, [<<?UINT32(SeqNum)>>, Data]).
 
 
 %%%----------------------------------------------------------------

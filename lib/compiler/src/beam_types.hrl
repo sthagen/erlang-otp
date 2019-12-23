@@ -23,22 +23,23 @@
 %%
 %% The type lattice is as follows:
 %%
-%%  any                  Any Erlang term (top element).
+%%  any                      Any Erlang term (top element).
 %%
-%%    - #t_atom{}        Atom, or a set thereof.
-%%    - #t_bitstring{}   Bitstring.
-%%    - #t_bs_context{}  Match context.
-%%    - #t_fun{}         Fun.
-%%    - #t_map{}         Map.
-%%    - number           Any number.
-%%       -- float        Floating point number.
-%%       -- integer      Integer.
-%%    - list             Any list.
-%%       -- cons         Cons (nonempty list).
-%%       -- nil          The empty list.
-%%    - #t_tuple{}       Tuple.
+%%    - #t_atom{}            Atom, or a set thereof.
+%%    - #t_bs_matchable{}    Binary-matchable types.
+%%        - #t_bitstring{}   Bitstring.
+%%        - #t_bs_context{}  Match context.
+%%    - #t_fun{}             Fun.
+%%    - #t_map{}             Map.
+%%    - number               Any number.
+%%       -- #t_float{}       Floating point number.
+%%       -- #t_integer{}     Integer.
+%%    - #t_list{}            Any list.
+%%       -- #t_cons{}        Cons (nonempty list).
+%%       -- nil              The empty list.
+%%    - #t_tuple{}           Tuple.
 %%
-%%  none                 No type (bottom element).
+%%  none                     No type (bottom element).
 %%
 %% We also use #t_union{} to represent conflicting types produced by certain
 %% expressions, e.g. the "#t_atom{} or #t_tuple{}" of lists:keyfind/3, which is
@@ -49,39 +50,72 @@
 
 -define(ATOM_SET_SIZE, 5).
 
--record(t_atom, {elements=any :: 'any' | [atom()]}).
--record(t_fun, {arity=any :: arity() | 'any'}).
--record(t_integer, {elements=any :: 'any' | {integer(),integer()}}).
--record(t_bitstring, {unit=1 :: pos_integer()}).
--record(t_bs_context, {slots=0 :: non_neg_integer(),
+-record(t_atom, {elements=any :: 'any' | ordsets:ordset(atom())}).
+-record(t_bitstring, {size_unit=1 :: pos_integer()}).
+-record(t_bs_context, {tail_unit=1 :: pos_integer(),
+                       slots=0 :: non_neg_integer(),
                        valid=0 :: non_neg_integer()}).
--record(t_map, {elements=#{} :: map_elements()}).
+-record(t_bs_matchable, {tail_unit=1}).
+-record(t_float, {elements=any :: 'any' | {float(),float()}}).
+-record(t_fun, {arity=any :: arity() | 'any',
+                type=any :: type() }).
+-record(t_integer, {elements=any :: 'any' | {integer(),integer()}}).
+
+%% `super_key` and `super_value` are the join of all key and value types.
+%%
+%% Note that we don't track specific elements as we have no obvious way to
+%% limit them. See ?TUPLE_ELEMENT_LIMIT for details.
+-record(t_map, {super_key=any :: type(),
+                super_value=any :: type()}).
+
+%% `type` is the join of all list elements, and `terminator` is the tail of the
+%% last cons cell ('nil' for proper lists).
+%%
+%% Note that `type` may not be updated unless the entire list is known, and
+%% that the terminator being known is not a guarantee that the rest of the list
+%% is.
+-record(t_cons, {type=any :: type(), terminator=any :: type()}).
+-record(t_list, {type=any :: type(), terminator=any :: type()}).
+
 -record(t_tuple, {size=0 :: integer(),
                   exact=false :: boolean(),
                   elements=#{} :: tuple_elements()}).
 
-%% Known element types, unknown elements are assumed to be 'any'. The key is
-%% a 1-based integer index for tuples, and a plain literal for maps (that is,
-%% not wrapped in a #b_literal{}, just the value itself).
+%% Known element types, where the key is a 1-based integer index. Unknown
+%% elements are assumed to be 'any', and indexes above ?TUPLE_ELEMENT_LIMIT are
+%% ignored for performance reasons.
+%%
+%% Cutting off all indexes above a certain limit may seem strange, but is
+%% required to ensure that a meet of two types always returns a type that's at
+%% least as specific as either type. Consider the following types:
+%%
+%%    A = #t_tuple{elements=#{ ... elements 1 .. 6 ... }}
+%%    B = #t_tuple{elements=#{ ... elements 7 .. 13 ... }}
+%%
+%% If we'd collapse types once a tuple has more than 12 elements, meet(A, B)
+%% would suddenly be less specific than either A or B. Ignoring all elements
+%% above a certain index avoids this problem, at the small price of losing type
+%% information in huge tuples.
 
+-define(TUPLE_ELEMENT_LIMIT, 12).
 -type tuple_elements() :: #{ Key :: pos_integer() => type() }.
--type map_elements() :: #{ Key :: term() => type() }.
-
--type elements() :: tuple_elements() | map_elements().
 
 -type normal_type() :: any | none |
-                       list | number |
-                       #t_atom{} | #t_bitstring{} | #t_bs_context{} |
-                       #t_fun{} | #t_integer{} | #t_map{} | #t_tuple{} |
-                       'cons' | 'float' | 'nil'.
+                       number | #t_float{} | #t_integer{} |
+                       #t_atom{} |
+                       #t_bitstring{} | #t_bs_context{} | #t_bs_matchable{} |
+                       #t_fun{} |
+                       #t_list{} | #t_cons{} | nil |
+                       #t_map{} |
+                       #t_tuple{}.
 
 -type record_key() :: {Arity :: integer(), Tag :: normal_type() }.
 -type record_set() :: ordsets:ordset({record_key(), #t_tuple{}}).
 -type tuple_set() :: #t_tuple{} | record_set().
 
 -record(t_union, {atom=none :: none | #t_atom{},
-                  list=none :: none | list | cons | nil,
-                  number=none :: none | number | float | #t_integer{},
+                  list=none :: none | #t_list{} | #t_cons{} | nil,
+                  number=none :: none | number | #t_float{} | #t_integer{},
                   tuple_set=none :: none | tuple_set(),
                   other=none :: normal_type()}).
 

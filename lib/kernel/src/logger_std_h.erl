@@ -300,10 +300,7 @@ terminate(_Name, _Reason, #{file_ctrl_pid:=FWPid}) ->
 open_log_file(HandlerName,#{type:=file,
                             file:=FileName,
                             modes:=Modes,
-                            file_check:=FileCheck,
-                            max_no_bytes:=Size,
-                            max_no_files:=Count,
-                            compress_on_rotate:=Compress}) ->
+                            file_check:=FileCheck}) ->
     try
         case filelib:ensure_dir(FileName) of
             ok ->
@@ -312,18 +309,16 @@ open_log_file(HandlerName,#{type:=file,
                         {ok,#file_info{inode=INode}} =
                             file:read_file_info(FileName,[raw]),
                         UpdateModes = [append | Modes--[write,append,exclusive]],
-                        State0 = #{handler_name=>HandlerName,
-                                   file_name=>FileName,
-                                   modes=>UpdateModes,
-                                   file_check=>FileCheck,
-                                   fd=>Fd,
-                                   inode=>INode,
-                                   last_check=>timestamp(),
-                                   synced=>false,
-                                   write_res=>ok,
-                                   sync_res=>ok},
-                        State = update_rotation({Size,Count,Compress},State0),
-                        {ok,State};
+                        {ok,#{handler_name=>HandlerName,
+                              file_name=>FileName,
+                              modes=>UpdateModes,
+                              file_check=>FileCheck,
+                              fd=>Fd,
+                              inode=>INode,
+                              last_check=>timestamp(),
+                              synced=>false,
+                              write_res=>ok,
+                              sync_res=>ok}};
                     Error ->
                         Error
                 end;
@@ -335,13 +330,22 @@ open_log_file(HandlerName,#{type:=file,
     end.
 
 close_log_file(#{fd:=Fd}) ->
-    _ = file:datasync(Fd),
+    _ = file:datasync(Fd), %% file:datasync may return error as it will flush the delayed_write buffer
     _ = file:close(Fd),
     ok;
 close_log_file(_) ->
     ok.
 
-
+%% A special close that closes the FD properly when the delayed write close failed
+delayed_write_close(#{fd:=Fd}) ->
+    case file:close(Fd) of
+        %% We got an error while closing, could be a delayed write failing
+        %% So we close again in order to make sure the file is closed.
+        {error, _} ->
+            file:close(Fd);
+        Res ->
+            Res
+    end.
 
 %%%-----------------------------------------------------------------
 %%% File control process
@@ -388,18 +392,30 @@ file_ctrl_call(Pid, Msg) ->
             {error,Reason}
     after
         ?DEFAULT_CALL_TIMEOUT ->
+            %% If this timeout triggers we will get a stray
+            %% reply message in our mailbox eventually.
+            %% That does not really matter though as it will
+            %% end up in this module's handle_info and be ignored
+            demonitor(MRef, [flush]),
             {error,{no_response,Pid}}
-    end.    
+    end.
 
 file_ctrl_init(HandlerName,
                #{type:=file,
+                 max_no_bytes:=Size,
+                 max_no_files:=Count,
+                 compress_on_rotate:=Compress,
                  file:=FileName} = HConfig,
                Starter) ->
     process_flag(message_queue_data, off_heap),
     case open_log_file(HandlerName,HConfig) of
         {ok,State} ->
             Starter ! {self(),ok},
-            file_ctrl_loop(State);
+            %% Do the initial rotate (if any) after we ack the starting
+            %% process as otherwise startup of the system will be
+            %% delayed/crash
+            RotState = update_rotation({Size,Count,Compress},State),
+            file_ctrl_loop(RotState);
         {error,Reason} ->
             Starter ! {self(),{error,{open_failed,FileName,Reason}}}
     end;
@@ -549,10 +565,9 @@ maybe_rotate_file(AddSize,#{rotation:=#{size:=RotSize,
 maybe_rotate_file(_Bin,State) ->
     State.
 
-rotate_file(#{fd:=Fd0,file_name:=FileName,modes:=Modes,rotation:=Rotation}=State) ->
+rotate_file(#{file_name:=FileName,modes:=Modes,rotation:=Rotation}=State) ->
     State1 = sync_dev(State),
-    _ = file:close(Fd0),
-    _ = file:close(Fd0),
+    _ = delayed_write_close(State),
     rotate_files(FileName,maps:get(count,Rotation),maps:get(compress,Rotation)),
     case file:open(FileName,Modes) of
         {ok,Fd} ->

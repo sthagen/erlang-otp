@@ -298,6 +298,7 @@ typedef struct {
     /* Common for inner and middle queue */
     ErtsMessage **saved_last;	/* saved last pointer */
     Sint len; /* NOT message queue length (see above) */
+    Uint32 flags;
 } ErtsSignalPrivQueues;
 
 typedef struct {
@@ -325,21 +326,19 @@ typedef struct erl_trace_message_queue__ {
         erts_proc_unlock((P), ERTS_PROC_LOCK_MSGQ);                     \
         if ((P)->sig_qs.cont) {                                         \
             (P)->sig_qs.saved_last = (P)->sig_qs.cont_last;             \
-            (P)->flags |= F_DEFERRED_SAVED_LAST;                        \
+            (P)->sig_qs.flags |= FS_DEFERRED_SAVED_LAST;                \
         }                                                               \
         else {                                                          \
             (P)->sig_qs.saved_last = (P)->sig_qs.last;                  \
-            (P)->flags &= ~F_DEFERRED_SAVED_LAST;                       \
+            (P)->sig_qs.flags &= ~FS_DEFERRED_SAVED_LAST;               \
         }                                                               \
     } while (0)
 
 #define ERTS_RECV_MARK_SET(P)                                           \
     do {                                                                \
         if ((P)->sig_qs.saved_last) {                                   \
-            if ((P)->flags & F_DEFERRED_SAVED_LAST) {                   \
-                /* Points to middle queue; use end of inner */          \
-                (P)->sig_qs.save = (P)->sig_qs.last;                    \
-                ASSERT(!PEEK_MESSAGE((P)));                             \
+            if ((P)->sig_qs.flags & FS_DEFERRED_SAVED_LAST) {           \
+                (P)->sig_qs.flags |= FS_DEFERRED_SAVE;                  \
             }                                                           \
             else {                                                      \
                 /* Points to inner queue; safe to use */                \
@@ -351,7 +350,7 @@ typedef struct erl_trace_message_queue__ {
 #define ERTS_RECV_MARK_CLEAR(P)                                         \
     do {                                                                \
         (P)->sig_qs.saved_last = NULL;                                  \
-        (P)->flags &= ~F_DEFERRED_SAVED_LAST;                           \
+        (P)->sig_qs.flags &= ~(FS_DEFERRED_SAVED_LAST|FS_DEFERRED_SAVE); \
     } while (0)
 
 
@@ -448,6 +447,7 @@ void free_message_buffer(ErlHeapFragment *);
 void erts_queue_dist_message(Process*, ErtsProcLocks, ErtsDistExternal *,
                              ErlHeapFragment *, Eterm, Eterm);
 void erts_queue_message(Process*, ErtsProcLocks,ErtsMessage*, Eterm, Eterm);
+void erts_queue_message_token(Process*, ErtsProcLocks,ErtsMessage*, Eterm, Eterm, Eterm);
 void erts_queue_proc_message(Process* from,Process* to, ErtsProcLocks,ErtsMessage*, Eterm);
 void erts_queue_proc_messages(Process* from, Process* to, ErtsProcLocks,
                               ErtsMessage*, ErtsMessage**, Uint);

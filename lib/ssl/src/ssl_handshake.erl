@@ -72,7 +72,7 @@
          premaster_secret/2, premaster_secret/3, premaster_secret/4]).
 
 %% Extensions handling
--export([client_hello_extensions/6,
+-export([client_hello_extensions/7,
 	 handle_client_hello_extensions/9, %% Returns server hello extensions
 	 handle_server_hello_extensions/9, select_curve/2, select_curve/3,
          select_hashsign/4, select_hashsign/5,
@@ -82,7 +82,7 @@
 
 -export([get_cert_params/1,
          server_name/3,
-         validation_fun_and_state/9,
+         validation_fun_and_state/10,
          handle_path_validation_error/7]).
 
 %%====================================================================
@@ -343,12 +343,13 @@ next_protocol(SelectedProtocol) ->
 %%--------------------------------------------------------------------
 certify(#certificate{asn1_certificates = ASN1Certs}, CertDbHandle, CertDbRef,
         #{server_name_indication := ServerNameIndication,
-         partial_chain := PartialChain,
-         verify_fun := VerifyFun,
-         customize_hostname_check := CustomizeHostnameCheck,
-         crl_check := CrlCheck,
-         depth := Depth} = Opts, CRLDbHandle, Role, Host) ->
-
+          partial_chain := PartialChain,
+          verify_fun := VerifyFun,
+          customize_hostname_check := CustomizeHostnameCheck,
+          crl_check := CrlCheck,
+          log_level := Level,
+          depth := Depth} = Opts, CRLDbHandle, Role, Host) ->
+    
     ServerName = server_name(ServerNameIndication, Host, Role),
     [PeerCert | ChainCerts ] = ASN1Certs,       
     try
@@ -358,7 +359,7 @@ certify(#certificate{asn1_certificates = ASN1Certs}, CertDbHandle, CertDbRef,
         ValidationFunAndState = validation_fun_and_state(VerifyFun, Role,
                                                          CertDbHandle, CertDbRef, ServerName,
                                                          CustomizeHostnameCheck,
-                                                         CrlCheck, CRLDbHandle, CertPath),
+                                                         CrlCheck, CRLDbHandle, CertPath, Level),
         Options = [{max_path_length, Depth},
                    {verify_fun, ValidationFunAndState}],
 	case public_key:pkix_path_validation(TrustedCert, CertPath, Options) of
@@ -369,7 +370,7 @@ certify(#certificate{asn1_certificates = ASN1Certs}, CertDbHandle, CertDbRef,
                                              CertDbHandle, CertDbRef)
 	end
     catch
-	error:{badmatch,{error, {asn1, Asn1Reason}}} ->
+	error:{_,{error, {asn1, Asn1Reason}}} ->
 	    %% ASN-1 decode of certificate somehow failed
             ?ALERT_REC(?FATAL, ?CERTIFICATE_UNKNOWN, {failed_to_decode_certificate, Asn1Reason});
         error:OtherReason ->
@@ -728,8 +729,12 @@ encode_extensions([#pre_shared_key_client_hello{
     Identities = encode_psk_identities(Identities0),
     Binders = encode_psk_binders(Binders0),
     Len = byte_size(Identities) + byte_size(Binders),
-    encode_extensions(Rest, <<?UINT16(?PRE_SHARED_KEY_EXT),
-                              ?UINT16(Len), Identities/binary, Binders/binary, Acc/binary>>);
+    %% The "pre_shared_key" extension MUST be the last extension in the
+    %% ClientHello (this facilitates implementation as described below).
+    %% Servers MUST check that it is the last extension and otherwise fail
+    %% the handshake with an "illegal_parameter" alert.
+    encode_extensions(Rest, <<Acc/binary,?UINT16(?PRE_SHARED_KEY_EXT),
+                              ?UINT16(Len), Identities/binary, Binders/binary>>);
 encode_extensions([#pre_shared_key_server_hello{selected_identity = Identity} | Rest], Acc) ->
     encode_extensions(Rest, <<?UINT16(?PRE_SHARED_KEY_EXT),
                               ?UINT16(2), ?UINT16(Identity), Acc/binary>>).
@@ -952,9 +957,9 @@ select_session(SuggestedSessionId, CipherSuites, HashSigns, Compressions, Port, 
 		   Session, Version,
 	       #{ciphers := UserSuites, honor_cipher_order := HonorCipherOrder} = SslOpts,
 	       Cache, CacheCb, Cert) ->
-    {SessionId, Resumed} = ssl_session:server_id(Port, SuggestedSessionId,
-						 SslOpts, Cert,
-						 Cache, CacheCb),
+    {SessionId, Resumed} = ssl_session:server_select_session(Version, Port, SuggestedSessionId,
+                                                             SslOpts, Cert,
+                                                             Cache, CacheCb),
     case Resumed of
         undefined ->
 	    Suites = available_suites(Cert, UserSuites, Version, HashSigns, ECCCurve0),
@@ -1069,10 +1074,11 @@ premaster_secret(EncSecret, #{algorithm := rsa} = Engine) ->
 %%====================================================================
 %% Extensions handling
 %%====================================================================
-client_hello_extensions(Version, CipherSuites, SslOpts, ConnectionStates, Renegotiation, KeyShare) ->
+client_hello_extensions(Version, CipherSuites, SslOpts, ConnectionStates, Renegotiation, KeyShare,
+                        TicketData) ->
     HelloExtensions0 = add_tls12_extensions(Version, SslOpts, ConnectionStates, Renegotiation),
     HelloExtensions1 = add_common_extensions(Version, HelloExtensions0, CipherSuites, SslOpts),
-    maybe_add_tls13_extensions(Version, HelloExtensions1, SslOpts, KeyShare).
+    maybe_add_tls13_extensions(Version, HelloExtensions1, SslOpts, KeyShare, TicketData).
 
 
 add_tls12_extensions(_Version,
@@ -1129,14 +1135,16 @@ maybe_add_tls13_extensions({3,4},
                            HelloExtensions0,
                            #{signature_algs_cert := SignatureSchemes,
                                         versions := SupportedVersions},
-                           KeyShare) ->
-    HelloExtensions =
+                           KeyShare,
+                           TicketData) ->
+    HelloExtensions1 =
         HelloExtensions0#{client_hello_versions =>
                               #client_hello_versions{versions = SupportedVersions},
                           signature_algs_cert =>
                               signature_algs_cert(SignatureSchemes)},
-    maybe_add_key_share(HelloExtensions, KeyShare);
-maybe_add_tls13_extensions(_, HelloExtensions, _, _) ->
+    HelloExtensions = maybe_add_key_share(HelloExtensions1, KeyShare),
+    maybe_add_pre_shared_key(HelloExtensions, TicketData);
+maybe_add_tls13_extensions(_, HelloExtensions, _, _, _) ->
     HelloExtensions.
 
 
@@ -1181,6 +1189,43 @@ maybe_add_key_share(HelloExtensions, KeyShare) ->
     HelloExtensions#{key_share => #key_share_client_hello{
                                      client_shares = ClientShares}}.
 
+
+maybe_add_pre_shared_key(HelloExtensions, undefined) ->
+    HelloExtensions;
+maybe_add_pre_shared_key(HelloExtensions, TicketData) ->
+    {Identities, Binders} = get_identities_binders(TicketData),
+
+    %% A client MUST provide a "psk_key_exchange_modes" extension if it
+    %% offers a "pre_shared_key" extension.
+    HelloExtensions#{pre_shared_key =>
+                         #pre_shared_key_client_hello{
+                            offered_psks =
+                                #offered_psks{
+                                   identities = Identities,
+                                   binders = Binders}},
+                     psk_key_exchange_modes =>
+                         #psk_key_exchange_modes{
+                            ke_modes = [psk_ke, psk_dhe_ke]}}.
+
+
+get_identities_binders(TicketData) ->
+    get_identities_binders(TicketData, {[], []}, 0).
+%%
+get_identities_binders([], {Identities, Binders}, _) ->
+    {lists:reverse(Identities), lists:reverse(Binders)};
+get_identities_binders([{Key, _, Identity, _, _, HKDF}|T], {I0, B0}, N) ->
+    %% Use dummy binder for proper calculation of packet size when creating
+    %% the real binder value.
+    Binder = dummy_binder(HKDF),
+    %% Store ticket position in identities
+    tls_client_ticket_store:update_ticket(Key, N),
+    get_identities_binders(T, {[Identity|I0], [Binder|B0]}, N + 1).
+
+
+dummy_binder(HKDF) ->
+    binary:copy(<<0>>, ssl_cipher:hash_size(HKDF)).
+
+
 add_server_share(server_hello, Extensions, KeyShare) ->
     #key_share_server_hello{server_share = ServerShare0} = KeyShare,
     %% Keep only public keys
@@ -1215,6 +1260,7 @@ kse_remove_private_key(#key_share_entry{
     #key_share_entry{
        group = Group,
        key_exchange = PublicKey}.
+
 
 signature_algs_ext(undefined) ->
     undefined;
@@ -1520,7 +1566,13 @@ extension_value(#key_share_server_hello{server_share = ServerShare}) ->
 extension_value(#client_hello_versions{versions = Versions}) ->
     Versions;
 extension_value(#server_hello_selected_version{selected_version = SelectedVersion}) ->
-    SelectedVersion.
+    SelectedVersion;
+extension_value(#pre_shared_key_client_hello{offered_psks = PSKs}) ->
+    PSKs;
+extension_value(#pre_shared_key_server_hello{selected_identity = SelectedIdentity}) ->
+    SelectedIdentity;
+extension_value(#psk_key_exchange_modes{ke_modes = Modes}) ->
+    Modes.
 
 
 %%--------------------------------------------------------------------
@@ -1581,7 +1633,8 @@ certificate_authorities_from_db(_CertDbHandle, {extracted, CertDbData}) ->
 
 %%-------------Handle handshake messages --------------------------------
 validation_fun_and_state({Fun, UserState0}, Role,  CertDbHandle, CertDbRef, 
-                         ServerNameIndication, CustomizeHostCheck, CRLCheck, CRLDbHandle, CertPath) ->
+                         ServerNameIndication, CustomizeHostCheck, CRLCheck, 
+                         CRLDbHandle, CertPath, LogLevel) ->
     {fun(OtpCert, {extension, _} = Extension, {SslState, UserState}) ->
 	     case ssl_certificate:validate(OtpCert,
 					   Extension,
@@ -1590,17 +1643,18 @@ validation_fun_and_state({Fun, UserState0}, Role,  CertDbHandle, CertDbRef,
 		     {valid, {NewSslState, UserState}};
 		 {fail, Reason} ->
 		     apply_user_fun(Fun, OtpCert, Reason, UserState,
-				    SslState, CertPath);
+				    SslState, CertPath, LogLevel);
 		 {unknown, _} ->
 		     apply_user_fun(Fun, OtpCert,
-				    Extension, UserState, SslState, CertPath)
+				    Extension, UserState, SslState, CertPath, LogLevel)
 	     end;
 	(OtpCert, VerifyResult, {SslState, UserState}) ->
 	     apply_user_fun(Fun, OtpCert, VerifyResult, UserState,
-			    SslState, CertPath)
+			    SslState, CertPath, LogLevel)
      end, {{Role, CertDbHandle, CertDbRef, {ServerNameIndication, CustomizeHostCheck}, CRLCheck, CRLDbHandle}, UserState0}};
 validation_fun_and_state(undefined, Role, CertDbHandle, CertDbRef, 
-                         ServerNameIndication, CustomizeHostCheck, CRLCheck, CRLDbHandle, CertPath) ->
+                         ServerNameIndication, CustomizeHostCheck, CRLCheck, 
+                         CRLDbHandle, CertPath, LogLevel) ->
     {fun(OtpCert, {extension, _} = Extension, SslState) ->
 	     ssl_certificate:validate(OtpCert,
 				      Extension,
@@ -1608,7 +1662,7 @@ validation_fun_and_state(undefined, Role, CertDbHandle, CertDbRef,
 	(OtpCert, VerifyResult, SslState) when (VerifyResult == valid) or 
                                                (VerifyResult == valid_peer) -> 
 	     case crl_check(OtpCert, CRLCheck, CertDbHandle, CertDbRef, 
-                            CRLDbHandle, VerifyResult, CertPath) of
+                            CRLDbHandle, VerifyResult, CertPath, LogLevel) of
 		 valid ->                     
                      ssl_certificate:validate(OtpCert,
                                               VerifyResult,
@@ -1623,21 +1677,21 @@ validation_fun_and_state(undefined, Role, CertDbHandle, CertDbRef,
      end, {Role, CertDbHandle, CertDbRef, {ServerNameIndication, CustomizeHostCheck}, CRLCheck, CRLDbHandle}}.
 
 apply_user_fun(Fun, OtpCert, VerifyResult, UserState0, 
-	       {_, CertDbHandle, CertDbRef, _, CRLCheck, CRLDbHandle} = SslState, CertPath) when
+	       {_, CertDbHandle, CertDbRef, _, CRLCheck, CRLDbHandle} = SslState, CertPath, LogLevel) when
       (VerifyResult == valid) or (VerifyResult == valid_peer) ->
     case Fun(OtpCert, VerifyResult, UserState0) of
 	{Valid, UserState} when (Valid == valid) or (Valid == valid_peer) ->
 	    case crl_check(OtpCert, CRLCheck, CertDbHandle, CertDbRef, 
-                           CRLDbHandle, VerifyResult, CertPath) of
+                           CRLDbHandle, VerifyResult, CertPath, LogLevel) of
 		valid ->
 		    {Valid, {SslState, UserState}};
 		Result ->
-		    apply_user_fun(Fun, OtpCert, Result, UserState, SslState, CertPath)
+		    apply_user_fun(Fun, OtpCert, Result, UserState, SslState, CertPath, LogLevel)
 	    end;
 	{fail, _} = Fail ->
 	    Fail
     end;
-apply_user_fun(Fun, OtpCert, ExtensionOrError, UserState0, SslState, _CertPath) ->
+apply_user_fun(Fun, OtpCert, ExtensionOrError, UserState0, SslState, _CertPath, _LogLevel) ->
     case Fun(OtpCert, ExtensionOrError, UserState0) of
 	{Valid, UserState} when (Valid == valid) or (Valid == valid_peer)->
 	    {Valid, {SslState, UserState}};
@@ -1651,27 +1705,13 @@ handle_path_validation_error({bad_cert, unknown_ca} = Reason, PeerCert, Chain,
                              Opts, Options, CertDbHandle, CertsDbRef) ->
     handle_incomplete_chain(PeerCert, Chain, Opts, Options, CertDbHandle, CertsDbRef, Reason);
 handle_path_validation_error({bad_cert, invalid_issuer} = Reason, PeerCert, Chain0, 
-			     #{partial_chain := PartialChain} = Opts, Options, CertDbHandle, CertsDbRef) ->
-    case ssl_certificate:certificate_chain(PeerCert, CertDbHandle, CertsDbRef, Chain0) of
-	{ok, _, [PeerCert | Chain] = OrdedChain} when  Chain =/= Chain0 -> %% Chain appaears to be unorded 
-            {Trusted, Path} = ssl_certificate:trusted_cert_and_path(OrdedChain,
-                                                                    CertDbHandle, CertsDbRef,
-                                                                    PartialChain),
-            case public_key:pkix_path_validation(Trusted, Path, Options) of
-		{ok, {PublicKeyInfo,_}} ->
-		    {PeerCert, PublicKeyInfo};
-                {error, PathError} ->
-		    handle_path_validation_error(PathError, PeerCert, Path,
-                                                 Opts, Options, CertDbHandle, CertsDbRef)
-	    end;
-        _ ->
-            path_validation_alert(Reason)
-    end;
+			     Opts, Options, CertDbHandle, CertsDbRef) ->
+    handle_unordered_chain(PeerCert, Chain0, Opts, Options, CertDbHandle, CertsDbRef, Reason);
 handle_path_validation_error(Reason, _, _, _, _,_, _) ->
     path_validation_alert(Reason).
 
 handle_incomplete_chain(PeerCert, Chain0,
-                        #{partial_chain := PartialChain}, Options, CertDbHandle, CertsDbRef, PathError0) ->
+                        #{partial_chain := PartialChain} = Opts, Options, CertDbHandle, CertsDbRef, Reason) ->
     case ssl_certificate:certificate_chain(PeerCert, CertDbHandle, CertsDbRef) of
         {ok, _, [PeerCert | _] = Chain} when Chain =/= Chain0 -> %% Chain candidate found          
             {Trusted, Path} = ssl_certificate:trusted_cert_and_path(Chain,
@@ -1681,10 +1721,28 @@ handle_incomplete_chain(PeerCert, Chain0,
 		{ok, {PublicKeyInfo,_}} ->
 		    {PeerCert, PublicKeyInfo};
                 {error, PathError} ->
-		    path_validation_alert(PathError)
+                    handle_unordered_chain(PeerCert, Chain0, Opts, Options, CertDbHandle, CertsDbRef, PathError)
 	    end;
         _ ->
-            path_validation_alert(PathError0)
+            handle_unordered_chain(PeerCert, Chain0, Opts, Options, CertDbHandle, CertsDbRef, Reason)
+    end.
+
+handle_unordered_chain(PeerCert, Chain0,
+                     #{partial_chain := PartialChain}, Options, CertDbHandle, CertsDbRef, Reason) ->
+    {ok,  ExtractedCerts} = ssl_pkix_db:extract_trusted_certs({der, Chain0}),
+    case ssl_certificate:certificate_chain(PeerCert, CertDbHandle, ExtractedCerts, Chain0) of
+        {ok, _, Chain} when  Chain =/= Chain0 -> %% Chain appaears to be unordered 
+            {Trusted, Path} = ssl_certificate:trusted_cert_and_path(Chain,
+                                                                    CertDbHandle, CertsDbRef,
+                                                                    PartialChain),
+            case public_key:pkix_path_validation(Trusted, Path, Options) of
+                {ok, {PublicKeyInfo,_}} ->
+                    {PeerCert, PublicKeyInfo};
+                {error, PathError} ->
+                    path_validation_alert(PathError)
+	    end;
+        _ ->
+            path_validation_alert(Reason)
     end.
 
 path_validation_alert({bad_cert, cert_expired}) ->
@@ -1705,7 +1763,7 @@ path_validation_alert({bad_cert, {revocation_status_undetermined, Details}}) ->
 path_validation_alert({bad_cert, selfsigned_peer}) ->
     ?ALERT_REC(?FATAL, ?BAD_CERTIFICATE);
 path_validation_alert({bad_cert, unknown_ca}) ->
-     ?ALERT_REC(?FATAL, ?UNKNOWN_CA);
+    ?ALERT_REC(?FATAL, ?UNKNOWN_CA);
 path_validation_alert(Reason) ->
     ?ALERT_REC(?FATAL, ?HANDSHAKE_FAILURE, Reason).
 
@@ -1741,29 +1799,38 @@ bad_key(#'RSAPrivateKey'{}) ->
 bad_key(#'ECPrivateKey'{}) ->
     unacceptable_ecdsa_key.
 
-crl_check(_, false, _,_,_, _, _) ->
+crl_check(_, false, _,_,_, _, _, _) ->
     valid;
-crl_check(_, peer, _, _,_, valid, _) -> %% Do not check CAs with this option.
+crl_check(_, peer, _, _,_, valid, _, _) -> %% Do not check CAs with this option.
     valid;
-crl_check(OtpCert, Check, CertDbHandle, CertDbRef, {Callback, CRLDbHandle}, _, CertPath) ->
+crl_check(OtpCert, Check, CertDbHandle, CertDbRef, {Callback, CRLDbHandle}, _, CertPath, LogLevel) ->
     Options = [{issuer_fun, {fun(_DP, CRL, Issuer, DBInfo) ->
 				     ssl_crl:trusted_cert_and_path(CRL, Issuer, {CertPath,
                                                                                  DBInfo})
 			     end, {CertDbHandle, CertDbRef}}}, 
-	       {update_crl, fun(DP, CRL) -> Callback:fresh_crl(DP, CRL) end},
+	       {update_crl, fun(DP, CRL) ->
+                                    case Callback:fresh_crl(DP, CRL) of
+                                        {logger, LogInfo, Fresh} ->
+                                            handle_log(LogLevel, LogInfo),
+                                            Fresh;
+                                        Fresh ->
+                                            Fresh
+                                    end
+                            end},
                {undetermined_details, true}
 	      ],
-    case dps_and_crls(OtpCert, Callback, CRLDbHandle, ext) of
+    case dps_and_crls(OtpCert, Callback, CRLDbHandle, ext, LogLevel) of
 	no_dps ->
 	    crl_check_same_issuer(OtpCert, Check,
-				  dps_and_crls(OtpCert, Callback, CRLDbHandle, same_issuer),
+				  dps_and_crls(OtpCert, Callback, CRLDbHandle, same_issuer, LogLevel),
 				  Options);
 	DpsAndCRLs ->  %% This DP list may be empty if relevant CRLs existed 
 	    %% but could not be retrived, will result in {bad_cert, revocation_status_undetermined}
 	    case public_key:pkix_crls_validate(OtpCert, DpsAndCRLs, Options) of
 		{bad_cert, {revocation_status_undetermined, _}} ->
-		    crl_check_same_issuer(OtpCert, Check, dps_and_crls(OtpCert, Callback, 
-								       CRLDbHandle, same_issuer), Options);
+		    crl_check_same_issuer(OtpCert, Check, 
+                                          dps_and_crls(OtpCert, Callback, 
+                                                       CRLDbHandle, same_issuer, LogLevel), Options);
 		Other ->
 		    Other
 	    end
@@ -1779,21 +1846,27 @@ crl_check_same_issuer(OtpCert, best_effort, Dps, Options) ->
 crl_check_same_issuer(OtpCert, _, Dps, Options) ->    
     public_key:pkix_crls_validate(OtpCert, Dps, Options).
 
-dps_and_crls(OtpCert, Callback, CRLDbHandle, ext) ->
+dps_and_crls(OtpCert, Callback, CRLDbHandle, ext, LogLevel) ->
     case public_key:pkix_dist_points(OtpCert) of
 	[] ->
 	    no_dps;
 	DistPoints ->
 	    Issuer = OtpCert#'OTPCertificate'.tbsCertificate#'OTPTBSCertificate'.issuer,
-	    CRLs = distpoints_lookup(DistPoints, Issuer, Callback, CRLDbHandle),
+	    CRLs = distpoints_lookup(DistPoints, Issuer, Callback, CRLDbHandle, LogLevel),
             dps_and_crls(DistPoints, CRLs, [])
     end;
 
-dps_and_crls(OtpCert, Callback, CRLDbHandle, same_issuer) ->    
+dps_and_crls(OtpCert, Callback, CRLDbHandle, same_issuer, LogLevel) ->    
     DP = #'DistributionPoint'{distributionPoint = {fullName, GenNames}} = 
 	public_key:pkix_dist_point(OtpCert),
     CRLs = lists:flatmap(fun({directoryName, Issuer}) -> 
-				 Callback:select(Issuer, CRLDbHandle);
+				 case Callback:select(Issuer, CRLDbHandle) of
+                                     {logger, LogInfo, Return} ->
+                                         handle_log(LogLevel, LogInfo),
+                                         Return;
+                                     Return ->
+                                         Return
+                                 end;
 			    (_) ->
 				 []
 			 end, GenNames),
@@ -1805,9 +1878,9 @@ dps_and_crls([DP | Rest], CRLs, Acc) ->
     DpCRL = [{DP, {CRL, public_key:der_decode('CertificateList', CRL)}} ||  CRL <- CRLs],
     dps_and_crls(Rest, CRLs, DpCRL ++ Acc).
     
-distpoints_lookup([],_, _, _) ->
+distpoints_lookup([],_, _, _, _) ->
     [];
-distpoints_lookup([DistPoint | Rest], Issuer, Callback, CRLDbHandle) ->
+distpoints_lookup([DistPoint | Rest], Issuer, Callback, CRLDbHandle, LogLevel) ->
     Result =
 	try Callback:lookup(DistPoint, Issuer, CRLDbHandle)
 	catch
@@ -1818,8 +1891,11 @@ distpoints_lookup([DistPoint | Rest], Issuer, Callback, CRLDbHandle) ->
 	end,
     case Result of
 	not_available ->
-	    distpoints_lookup(Rest, Issuer, Callback, CRLDbHandle);
-	CRLs ->
+	    distpoints_lookup(Rest, Issuer, Callback, CRLDbHandle, LogLevel);
+	{logger, LogInfo, CRLs} ->
+            handle_log(LogLevel, LogInfo),
+            CRLs;
+        CRLs ->
 	    CRLs
     end.
 
@@ -2144,7 +2220,7 @@ encode_psk_identities([#psk_identity{
                           identity = Identity,
                           obfuscated_ticket_age = Age}|T], Acc) ->
     IdLen = byte_size(Identity),
-    encode_psk_identities(T, <<Acc/binary,?UINT16(IdLen),Identity/binary,Age/binary>>).
+    encode_psk_identities(T, <<Acc/binary,?UINT16(IdLen),Identity/binary,?UINT32(Age)>>).
 
 
 encode_psk_binders(Binders) ->
@@ -2613,7 +2689,7 @@ decode_psk_identities(Identities) ->
 %%
 decode_psk_identities(<<>>, Acc) ->
     lists:reverse(Acc);
-decode_psk_identities(<<?UINT16(Len), Identity:Len/binary, Age:4/binary, Rest/binary>>, Acc) ->
+decode_psk_identities(<<?UINT16(Len), Identity:Len/binary, ?UINT32(Age), Rest/binary>>, Acc) ->
     decode_psk_identities(Rest, [#psk_identity{
                                     identity = Identity,
                                     obfuscated_ticket_age = Age}|Acc]).
@@ -3202,3 +3278,6 @@ empty_extensions(_, server_hello) ->
       alpn => undefined,
       next_protocol_negotiation => undefined,
       ec_point_formats => undefined}.
+
+handle_log(Level, {LogLevel, ReportMap, Meta}) ->
+    ssl_logger:log(Level, LogLevel, ReportMap, Meta).

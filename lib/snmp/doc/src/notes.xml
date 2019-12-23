@@ -34,7 +34,108 @@
   </header>
 
 
-  <section><title>SNMP 5.4</title>
+  <section><title>SNMP 5.4.5</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Its now possible to remove selected varbinds (from the
+	    final message) when sending a notification. This is done
+	    by setting the 'value' (in the varbind(s) of the varbinds
+	    list) to '?NOTIFICATION_IGNORE_VB_VALUE'.</p>
+          <p>
+	    Own Id: OTP-16349 Aux Id: ERIERL-444 </p>
+        </item>
+        <item>
+          <p>
+	    Its now possible to specify that an oid shall be
+	    "truncated" (trailing ".0" to be removed) when sending an
+	    notification.</p>
+          <p>
+	    Own Id: OTP-16360 Aux Id: ERIERL-451 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SNMP 5.4.4</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    [manager] The callbacks where executed in a (new)
+	    'temporary' process, that executed the callback call and
+	    then exited. This has now been made configurable so that
+	    is also possible to specify a 'permanent' callback proxy
+	    process. All callback calls will then be executed in this
+	    (permanent) process (in sequence).</p>
+          <p>
+	    Own Id: OTP-15947 Aux Id: ERIERL-378 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SNMP 5.4.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Agent discovery cleanup. If there is no receiver of
+	    INFORM then #state.reqs in snmpa_net_if keeps on growing
+	    for DISCOVERY.</p>
+          <p>
+	    Own Id: OTP-16228 Aux Id: ERIERL-427 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SNMP 5.4.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    The agent discovery process has been made to work with
+	    snmptrapd..</p>
+          <p>
+	    Own Id: OTP-16207 Aux Id: ERIERL-427 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SNMP 5.4.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Made it possible to add 'extra socket options' to the
+	    (gen_udp) socket open call (for both manager and agent).
+	    A new option has been added, extra_sock_opts, which makes
+	    it possible for the user to add a list of extra socket
+	    options that will be appended to the other socket options
+	    for the open call. See the snmp application config man
+	    page (erl -man 6 snmp) or the "Configuring the
+	    application" chapter of the Users Guide for more info.</p>
+          <p>
+	    Own Id: OTP-16092 Aux Id: ERIERL-410 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SNMP 5.4</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
       <list>
@@ -147,6 +248,26 @@
 	    'version' option was provided.</p>
           <p>
 	    Own Id: OTP-15290</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+  <section><title>SNMP 5.2.11.2</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    [manager] The callbacks where executed in a (new)
+	    'temporary' process, that executed the callback call and
+	    then exited. This has now been made configurable so that
+	    is also possible to specify a 'permanent' callback proxy
+	    process. All callback calls will then be executed in this
+	    (permanent) process (in sequence).</p>
+          <p>
+	    Own Id: OTP-15947 Aux Id: ERIERL-378 </p>
         </item>
       </list>
     </section>
@@ -642,11 +763,11 @@
         <item>
           <p>[agent] Enable SNMP to create missing database directories. </p>
 	  <p>Add
-	  <seealso marker="snmp_app#db_init_error">
+	  <seealso marker="snmp_config#db_init_error">
 	  {db_init_error, create_db_and_dir}</seealso> option to SNMP
-	  <seealso marker="snmp_app#manager_opts_and_types">manager</seealso>
+	  <seealso marker="snmp_config#manager_opts_and_types">manager</seealso>
 	  and
-	  <seealso marker="snmp_app#agent_opts_and_types">agent</seealso>.
+	  <seealso marker="snmp_config#agent_opts_and_types">agent</seealso>.
 	  This allows them to create any missing parent directories for
 	  <c>db_dir</c>, rather than treating any missing directories
 	  as a fatal error.
@@ -1319,7 +1440,7 @@
           limit the number of varbinds that can be included in
           a Get-BULK response message. This is specified by the
           new config option,
-          <seealso marker="snmp_app#agent_gb_max_vbs">gb_max_vbs</seealso>.
+          <seealso marker="snmp_config#agent_gb_max_vbs">gb_max_vbs</seealso>.
           </p>
           <p>Own Id: OTP-9700</p>
         </item>
@@ -1378,7 +1499,7 @@
           limit the number of varbinds that can be included in
           a Get-BULK response message. This is specified by the
           new config option,
-          <seealso marker="snmp_app#agent_gb_max_vbs">gb_max_vbs</seealso>.
+          <seealso marker="snmp_config#agent_gb_max_vbs">gb_max_vbs</seealso>.
           </p>
           <p>Own Id: OTP-9700</p>
         </item>

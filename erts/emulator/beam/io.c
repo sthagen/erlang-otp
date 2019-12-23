@@ -1192,22 +1192,17 @@ erts_schedule_proc2port_signal(Process *c_p,
     if (c_p)
 	erts_proc_lock(c_p, ERTS_PROC_LOCK_MAIN);
 
-    if (sched_res != 0) {
-	if (refp) {
-	    /*
-	     * We need to restore the message queue save
-	     * pointer to the beginning of the message queue
-	     * since the caller now wont wait for a message
-	     * containing the reference created above...
-	     */
-	    ASSERT(c_p);
-	    erts_proc_lock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
-	    JOIN_MESSAGE(c_p);
-	    erts_proc_unlock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
-	    *refp = NIL;
-	}
-	return ERTS_PORT_OP_DROPPED;
-    }
+    /*
+     * Only report dropped if the operation fails to schedule
+     * and no message reference has been passed along. If
+     * message reference has been passed along, a message
+     * reply will be sent regardless of successful schedule
+     * or not, i.e. report scheduled. Abortion of port task
+     * will send message in case of failure.
+     */
+    if (sched_res != 0 && !refp)
+        return ERTS_PORT_OP_DROPPED;
+    
     return ERTS_PORT_OP_SCHEDULED;
 }
 
@@ -3778,6 +3773,16 @@ erts_deliver_port_exit(Port *prt, Eterm from, Eterm reason, int send_closed,
    pectxt.port_id = prt->common.id;
    pectxt.reason = modified_reason;
 
+   if (state & ERTS_PORT_SFLG_DISTRIBUTION) {
+       DistEntry *dep = (DistEntry*) erts_prtsd_get(prt, ERTS_PRTSD_DIST_ENTRY);
+       ASSERT(dep);
+       erts_do_net_exits(dep, modified_reason);
+       erts_deref_dist_entry(dep);
+       erts_prtsd_set(prt, ERTS_PRTSD_DIST_ENTRY, NULL);
+       erts_atomic32_read_band_relb(&prt->state,
+				    ~ERTS_PORT_SFLG_DISTRIBUTION);
+   }
+   
    if (links)
        erts_monitor_tree_foreach_delete(&links,
                                         link_port_exit,
@@ -3794,16 +3799,6 @@ erts_deliver_port_exit(Port *prt, Eterm from, Eterm reason, int send_closed,
                                             monitor_port_exit,
                                             (void *) &pectxt);
        DRV_MONITOR_UNLOCK_PDL(prt);
-   }
-
-   if (state & ERTS_PORT_SFLG_DISTRIBUTION) {
-       DistEntry *dep = (DistEntry*) erts_prtsd_get(prt, ERTS_PRTSD_DIST_ENTRY);
-       ASSERT(dep);
-       erts_do_net_exits(dep, modified_reason);
-       erts_deref_dist_entry(dep);
-       erts_prtsd_set(prt, ERTS_PRTSD_DIST_ENTRY, NULL);
-       erts_atomic32_read_band_relb(&prt->state,
-				    ~ERTS_PORT_SFLG_DISTRIBUTION);
    }
        
    if ((reason != am_kill) && !is_port_ioq_empty(prt)) {

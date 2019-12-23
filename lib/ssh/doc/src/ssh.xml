@@ -91,7 +91,7 @@
   <section>
     <title>Keys and files</title>
     <p>A number of objects must be present for the SSH application to work. 
-    Thoose objects are per default stored in files.
+    Those objects are per default stored in files.
     The default names, paths and file formats are the same as for
     <url href="http://www.openssh.com">OpenSSH</url>. Keys could be generated with the <c>ssh-keygen</c>
     program from OpenSSH. See the
@@ -368,14 +368,16 @@
 
     <datatype>
       <name name="shell_daemon_option"/>
+      <name name="shell_spec"/>
+      <name name="shell_fun"/>
       <name name="'shell_fun/1'"/>
       <name name="'shell_fun/2'"/>
       <desc>
 	<p>Defines the read-eval-print loop used in a daemon when a shell is requested by the client.
 	The default is to use the Erlang shell: <c><![CDATA[{shell, start, []}]]></c>
 	</p>
-	<p>See the option <seealso marker="#type-exec_daemon_option"><c>exec</c></seealso>
-	for a description of how the daemon execute exec-requests depending on
+	<p>See the option <seealso marker="#type-exec_daemon_option"><c>exec-option</c></seealso>
+	for a description of how the daemon executes shell-requests and exec-requests depending on
 	the shell- and exec-options.</p>
       </desc>
     </datatype>
@@ -398,47 +400,98 @@
     <datatype>
       <name name="exec_result"/>
       <desc>
-	<p>This option changes how the daemon execute exec-requests from clients. The term in the return value
-	is formatted to a string if it is a non-string type. No trailing newline is added in the ok-case but in the
-	error case.</p>
+	<p>This option changes how the daemon executes exec-requests from clients. The term in the return value
+	is formatted to a string if it is a non-string type. No trailing newline is added in the ok-case.
+	</p>
+	<p>See the User's Guide section on
+	<seealso marker="using_ssh#one-time-execution">One-Time Execution</seealso> for examples.
+	</p>
 	<p>Error texts are returned on channel-type 1 which usually is piped to <c>stderr</c> on e.g Linux systems.
-	Texts from a successful execution will in similar manner be piped to <c>stdout</c>. The exit-status code
-	is set to 0 for success and -1 for errors. The exact results presented on the client side depends on the
+	Texts from a successful execution  are returned on channel-type 0 and
+	will in similar manner be piped to <c>stdout</c>. The exit-status code
+	is set to 0 for success and 255 for errors. The exact results presented on the client side depends on the
 	client and the client's operating system.
+	</p>
+	<p>In case of the <c>{direct, exec_fun()}</c> variant or no exec-option at all,
+	all reads from <c>standard_input</c> will be from the received data-events of type 0.
+	Those are sent by the client. Similarily all writes to <c>standard_output</c>
+	will be sent as data-events to the client. An OS shell client like the command 'ssh' will usally use
+	stdin and stdout for the user interface.
 	</p>
 	<p>The option cooperates with the daemon-option <seealso marker="#type-shell_daemon_option"><c>shell</c></seealso>
 	in the following way:</p>
+	
 	<taglist>
-	  <tag>1. If the exec-option is present (the shell-option may or may not be present):</tag>
+	  <tag>1. If neither the <seealso marker="#type-exec_daemon_option"><c>exec-option</c></seealso> nor the
+	  <seealso marker="#type-shell_daemon_option"><c>shell-option</c></seealso> is present:</tag>
 	  <item>
-	    <p>The exec-option fun is called with the same number of parameters as the arity of the fun,
+	    <p>The default Erlang evaluator is used both for exec and shell requests.
+	    The result is returned to the client.</p>
+	  </item>
+
+	  <tag>2. If the <seealso marker="#type-exec_daemon_option"><c>exec_spec</c></seealso>'s value is <c>disabled</c>
+	  (the <seealso marker="#type-shell_daemon_option"><c>shell-option</c></seealso> may or may not be present):</tag>
+	  <item>
+	    <p>No exec-requests are executed but shell-requests are not affected, they follow the
+	    <seealso marker="#type-shell_daemon_option"><c>shell_spec</c></seealso>'s value.</p>
+	  </item>
+
+	  <tag>3. If the <seealso marker="#type-exec_daemon_option"><c>exec-option</c></seealso>
+	  is present and the <seealso marker="#type-exec_daemon_option"><c>exec_spec</c></seealso> value =/= <c>disabled</c>
+	  (the <seealso marker="#type-shell_daemon_option"><c>shell-option</c></seealso> may or may not be present):</tag>
+	  <item>
+	    <p>The <seealso marker="#type-exec_daemon_option"><c>exec_spec</c></seealso>
+	    <c>fun()</c> is called with the same number of parameters as the arity of the fun,
 	    and the result is returned to the client.
+	    Shell-requests are not affected, they follow the
+	    <seealso marker="#type-shell_daemon_option"><c>shell_spec</c></seealso>'s value.
 	    </p>
 	  </item>
 	  
-	  <tag>2. If the exec-option is absent, but a shell-option is present with the default Erlang shell:</tag>
+	  <tag>4. If the <seealso marker="#type-exec_daemon_option"><c>exec-option</c></seealso> is absent, and the
+	  <seealso marker="#type-shell_daemon_option"><c>shell-option</c></seealso>
+	  is present with the default Erlang shell as the
+	  <seealso marker="#type-shell_daemon_option"><c>shell_spec</c></seealso>'s
+	  value:</tag>
 	  <item>
-	    <p>The default Erlang evaluator is used and the result is returned to the client.</p>
+	    <p>The default Erlang evaluator is used both for exec and shell requests.
+	    The result is returned to the client.</p>
 	  </item>
 	  
-	  <tag>3. If the exec-option is absent, but a shell-option is present that is not the default Erlang shell:</tag>
+	  <tag>5. If the <seealso marker="#type-exec_daemon_option"><c>exec-option</c></seealso> is absent, and the
+	  <seealso marker="#type-shell_daemon_option"><c>shell-option</c></seealso>
+	  is present with a value that is neither the default Erlang shell nor the value <c>disabled</c>:</tag>
 	  <item>
-	    <p>The exec-request is not evaluated and an error message is returned to the client.</p>
+	    <p>The exec-request is not evaluated and an error message is returned to the client. Shell-requests
+	    are executed according to the value of the
+	    <seealso marker="#type-shell_daemon_option"><c>shell_spec</c></seealso>.</p>
 	  </item>
 	  
-	  <tag>4. If neither the exec-option nor the shell-option is present:</tag>
+	  <tag>6. If the <seealso marker="#type-exec_daemon_option"><c>exec-option</c></seealso> is absent, and the
+	  <seealso marker="#type-shell_daemon_option"><c>shell_spec</c></seealso>'s value is <c>disabled</c>:</tag>
 	  <item>
-	    <p>The default Erlang evaluator is used and the result is returned to the client.</p>
+	    <p>Exec requests are executed by the default shell, but shell-requests are not executed.</p>
 	  </item>
+
 	</taglist>
-	<p>If a custom CLI is installed (see the option <seealso marker="#type-ssh_cli_daemon_option"><c>ssh_cli</c></seealso>)
+	<p>If a custom CLI is installed (see the option
+	<seealso marker="#type-ssh_cli_daemon_option"><c>ssh_cli</c></seealso>)
 	the rules above are replaced by thoose implied by the custom CLI.
 	</p>
 	<note>
-	  <p>The exec-option has existed for a long time but has not previously been documented. The old
-	  definition and behaviour are retained but obey the rules 1-4 above if conflicting.
+	  <p>The <seealso marker="#type-exec_daemon_option"><c>exec-option</c></seealso>
+	  has existed for a long time but has not previously been documented. The old
+	  definition and behaviour are retained but obey the rules 1-6 above if conflicting.
 	  The old and undocumented style should not be used in new programs.</p>
 	</note>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="deprecated_exec_opt"/>
+      <desc>
+	<p>Old-style exec specification that are kept for compatibility, but should not be used in
+	new programs</p>
       </desc>
     </datatype>
 
@@ -739,7 +792,12 @@
     <datatype>
       <name name="max_idle_time_common_option"/>
       <desc>
-	<p>Sets a time-out on a connection when no channels are active. Defaults to <c>infinity</c>.</p>
+	<p>Sets a time-out on a connection when no channels are open. Defaults to <c>infinity</c>.
+	The unit is milliseconds.
+	</p>
+	<p>The timeout is not active until channels are started, so it does
+	not limit the time from the connection creation to the first channel opening.
+	</p>
       </desc>
     </datatype>
 

@@ -98,28 +98,28 @@
 %%====================================================================
 %% Setup
 %%====================================================================
-start_fsm(Role, Host, Port, Socket, {#{erl_dist := false},_, Tracker} = Opts,
+start_fsm(Role, Host, Port, Socket, {#{erl_dist := false},_, Trackers} = Opts,
 	  User, {CbModule, _,_, _, _} = CbInfo, 
 	  Timeout) -> 
     try 
         {ok, Sender} = tls_sender:start(),
 	{ok, Pid} = tls_connection_sup:start_child([Role, Sender, Host, Port, Socket, 
 						    Opts, User, CbInfo]), 
-	{ok, SslSocket} = ssl_connection:socket_control(?MODULE, Socket, [Pid, Sender], CbModule, Tracker),
+	{ok, SslSocket} = ssl_connection:socket_control(?MODULE, Socket, [Pid, Sender], CbModule, Trackers),
         ssl_connection:handshake(SslSocket, Timeout)
     catch
 	error:{badmatch, {error, _} = Error} ->
 	    Error
     end;
 
-start_fsm(Role, Host, Port, Socket, {#{erl_dist := true},_, Tracker} = Opts,
+start_fsm(Role, Host, Port, Socket, {#{erl_dist := true},_, Trackers} = Opts,
 	  User, {CbModule, _,_, _, _} = CbInfo, 
 	  Timeout) -> 
     try 
         {ok, Sender} = tls_sender:start([{spawn_opt, ?DIST_CNTRL_SPAWN_OPTS}]),
 	{ok, Pid} = tls_connection_sup:start_child_dist([Role, Sender, Host, Port, Socket, 
 							 Opts, User, CbInfo]), 
-	{ok, SslSocket} = ssl_connection:socket_control(?MODULE, Socket, [Pid, Sender], CbModule, Tracker),
+	{ok, SslSocket} = ssl_connection:socket_control(?MODULE, Socket, [Pid, Sender], CbModule, Trackers),
         ssl_connection:handshake(SslSocket, Timeout)
     catch
 	error:{badmatch, {error, _} = Error} ->
@@ -261,7 +261,10 @@ next_event(StateName, no_record, State0, Actions) ->
  	{no_record, State} ->
             ssl_connection:hibernate_after(StateName, State, Actions);
         {Record, State} ->
-            next_event(StateName, Record, State, Actions)
+            next_event(StateName, Record, State, Actions);
+        #alert{} = Alert ->
+            ssl_connection:handle_normal_shutdown(Alert, StateName, State0),
+	    {stop, {shutdown, own_alert}, State0}
     end;
 next_event(StateName,  #ssl_tls{} = Record, State, Actions) ->
     {next_state, StateName, State, [{next_event, internal, {protocol_record, Record}} | Actions]};
@@ -298,9 +301,12 @@ handle_protocol_record(#ssl_tls{type = ?HANDSHAKE, fragment = Data},
 		    StateName, #state{protocol_buffers =
 					  #protocol_buffers{tls_handshake_buffer = Buf0} = Buffers,
                                       connection_env = #connection_env{negotiated_version = Version},
+                                      static_env = #static_env{role = Role},
 				      ssl_options = Options} = State0) ->
     try
-	EffectiveVersion = effective_version(Version, Options),
+	%% Calculate the effective version that should be used when decoding an incoming handshake
+	%% message.
+	EffectiveVersion = effective_version(Version, Options, Role),
 	{Packets, Buf} = tls_handshake:get_tls_handshake(EffectiveVersion,Data,Buf0, Options),
 	State =
 	    State0#state{protocol_buffers =
@@ -506,7 +512,7 @@ close(downgrade, _,_,_,_) ->
     ok;
 %% Other
 close(_, Socket, Transport, _,_) -> 
-    Transport:close(Socket).
+    tls_socket:close(Transport, Socket).
 protocol_name() ->
     "TLS".
 
@@ -514,8 +520,8 @@ protocol_name() ->
 %% Data handling
 %%====================================================================	     
 
-socket(Pids,  Transport, Socket, Tracker) ->
-    tls_socket:socket(Pids, Transport, Socket, ?MODULE, Tracker).
+socket(Pids,  Transport, Socket, Trackers) ->
+    tls_socket:socket(Pids, Transport, Socket, ?MODULE, Trackers).
 
 setopts(Transport, Socket, Other) ->
     tls_socket:setopts(Transport, Socket, Other).
@@ -543,26 +549,48 @@ init({call, From}, {start, Timeout},
             handshake_env = #handshake_env{renegotiation = {Renegotiation, _}} = HsEnv,
             connection_env = CEnv,
 	    ssl_options = #{log_level := LogLevel,
-                            versions := Versions} = SslOpts,
-	    session = #session{own_certificate = Cert} = Session0,
+                            %% Use highest version in initial ClientHello.
+                            %% Versions is a descending list of supported versions.
+                            versions := [HelloVersion|_] = Versions,
+                            session_tickets := SessionTickets} = SslOpts,
+	    session = NewSession,
 	    connection_states = ConnectionStates0
 	   } = State0) ->
     KeyShare = maybe_generate_client_shares(SslOpts),
+    Session = ssl_session:client_select_session({Host, Port, SslOpts}, Cache, CacheCb, NewSession),
+    %% Update UseTicket in case of automatic session resumption
+    {UseTicket, State1} = tls_handshake_1_3:maybe_automatic_session_resumption(State0),
+    TicketData = tls_handshake_1_3:get_ticket_data(self(), SessionTickets, UseTicket),
     Hello = tls_handshake:client_hello(Host, Port, ConnectionStates0, SslOpts,
-				       Cache, CacheCb, Renegotiation, Cert, KeyShare),
+                                       Session#session.session_id,
+                                       Renegotiation,
+                                       Session#session.own_certificate,
+                                       KeyShare,
+                                       TicketData),
 
-    HelloVersion = tls_record:hello_version(Versions),
     Handshake0 = ssl_handshake:init_handshake_history(),
+
+    %% Update pre_shared_key extension with binders (TLS 1.3)
+    Hello1 = tls_handshake_1_3:maybe_add_binders(Hello, TicketData, HelloVersion),
+
     {BinMsg, ConnectionStates, Handshake} =
-        encode_handshake(Hello,  HelloVersion, ConnectionStates0, Handshake0),
+        encode_handshake(Hello1,  HelloVersion, ConnectionStates0, Handshake0),
+
     tls_socket:send(Transport, Socket, BinMsg),
-    ssl_logger:debug(LogLevel, outbound, 'handshake', Hello),
+    ssl_logger:debug(LogLevel, outbound, 'handshake', Hello1),
     ssl_logger:debug(LogLevel, outbound, 'record', BinMsg),
 
-    State = State0#state{connection_states = ConnectionStates,
-                         connection_env = CEnv#connection_env{negotiated_version = HelloVersion}, %% Requested version
-                         session =
-                             Session0#session{session_id = Hello#client_hello.session_id},
+    %% RequestedVersion is used as the legacy record protocol version and shall be
+    %% {3,3} in case of TLS 1.2 and higher. In all other cases it defaults to the
+    %% lowest supported protocol version.
+    %%
+    %% negotiated_version is also used by the TLS 1.3 state machine and is set after
+    %% ServerHello is processed.
+    RequestedVersion = tls_record:hello_version(Versions),
+    State = State1#state{connection_states = ConnectionStates,
+                         connection_env = CEnv#connection_env{
+                                            negotiated_version = RequestedVersion},
+                         session = Session,
                          handshake_env = HsEnv#handshake_env{tls_handshake_history = Handshake},
                          start_or_recv_from = From,
                          key_share = KeyShare},
@@ -599,7 +627,7 @@ hello(internal, #client_hello{extensions = Extensions} = Hello,
     {next_state, user_hello, State#state{start_or_recv_from = undefined,
                                          handshake_env = HsEnv#handshake_env{hello = Hello}},
      [{reply, From, {ok, Extensions}}]};
-hello(internal, #server_hello{extensions = Extensions} = Hello, 
+hello(internal, #server_hello{extensions = Extensions} = Hello,
       #state{ssl_options = #{handshake := hello},
              handshake_env = HsEnv,
              start_or_recv_from = From} = State) ->
@@ -670,9 +698,12 @@ hello(internal, #server_hello{} = Hello,
 	    ssl_connection:handle_session(Hello, 
 					  Version, NewId, ConnectionStates, ProtoExt, Protocol, State);
         %% TLS 1.3
-        {next_state, wait_sh} ->
+        {next_state, wait_sh, SelectedVersion} ->
             %% Continue in TLS 1.3 'wait_sh' state
-            {next_state, wait_sh, State, [{next_event, internal, Hello}]}
+            {next_state, wait_sh,
+             State#state{
+               connection_env = CEnv#connection_env{negotiated_version = SelectedVersion}},
+             [{next_event, internal, Hello}]}
     end;
 hello(info, Event, State) ->
     gen_info(Event, ?FUNCTION_NAME, State);
@@ -762,11 +793,14 @@ connection(internal, #hello_request{},
 		  connection_states = ConnectionStates} = State0) ->
     try tls_sender:peer_renegotiate(Pid) of
         {ok, Write} ->
+            Session = ssl_session:client_select_session({Host, Port, SslOpts}, Cache, CacheCb, Session0),
             Hello = tls_handshake:client_hello(Host, Port, ConnectionStates, SslOpts,
-                                               Cache, CacheCb, Renegotiation, Cert, undefined),
-            {State, Actions} = send_handshake(Hello, State0#state{connection_states = ConnectionStates#{current_write => Write}}),
-            next_event(hello, no_record, State#state{session = Session0#session{session_id
-                                                                      = Hello#client_hello.session_id}}, Actions)
+                                               Session#session.session_id,
+                                               Renegotiation, Cert, undefined,
+                                               undefined),
+            {State, Actions} = send_handshake(Hello, State0#state{connection_states = ConnectionStates#{current_write => Write},
+                                                                  session = Session}),
+            next_event(hello, no_record, State, Actions)
         catch 
             _:_ ->
                 {stop, {shutdown, sender_blocked}, State0}
@@ -774,19 +808,17 @@ connection(internal, #hello_request{},
 connection(internal, #hello_request{},
 	   #state{static_env = #static_env{role = client,
                                            host = Host,
-                                           port = Port,
-                                           session_cache = Cache,
-                                           session_cache_cb = CacheCb},
+                                           port = Port},
                   handshake_env = #handshake_env{renegotiation = {Renegotiation, _}},
-		  session = #session{own_certificate = Cert} = Session0,
+		  session = #session{own_certificate = Cert},
 		  ssl_options = SslOpts, 
 		  connection_states = ConnectionStates} = State0) ->
     Hello = tls_handshake:client_hello(Host, Port, ConnectionStates, SslOpts,
-				       Cache, CacheCb, Renegotiation, Cert, undefined),
+                                       <<>>, Renegotiation, Cert, undefined,
+                                       undefined),
 
     {State, Actions} = send_handshake(Hello, State0),
-    next_event(hello, no_record, State#state{session = Session0#session{session_id
-                                                                        = Hello#client_hello.session_id}}, Actions);
+    next_event(hello, no_record, State, Actions);
 connection(internal, #client_hello{} = Hello, 
 	   #state{static_env = #static_env{role = server},
                   handshake_env = #handshake_env{allow_renegotiate = true}= HsEnv,
@@ -813,9 +845,9 @@ connection(internal, #client_hello{},
     State = reinit_handshake_data(State0),
     next_event(?FUNCTION_NAME, no_record, State);
 
-connection(internal, #new_session_ticket{}, State) ->
+connection(internal, #new_session_ticket{} = NewSessionTicket, State) ->
     %% TLS 1.3
-    %% Drop NewSessionTicket (currently not supported)
+    handle_new_session_ticket(NewSessionTicket, State),
     next_event(?FUNCTION_NAME, no_record, State);
 
 connection(Type, Event, State) ->
@@ -981,7 +1013,7 @@ code_change(_OldVsn, StateName, State, _) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
-initial_state(Role, Sender, Host, Port, Socket, {SSLOptions, SocketOptions, Tracker}, User,
+initial_state(Role, Sender, Host, Port, Socket, {SSLOptions, SocketOptions, Trackers}, User,
 	      {CbModule, DataTag, CloseTag, ErrorTag, PassiveTag}) ->
     #{beast_mitigation := BeastMitigation,
       erl_dist := IsErlDist,
@@ -1012,8 +1044,8 @@ initial_state(Role, Sender, Host, Port, Socket, {SSLOptions, SocketOptions, Trac
                      port = Port,
                      socket = Socket,
                      session_cache_cb = SessionCacheCb,
-                     tracker = Tracker
-                    },
+                     trackers = Trackers
+                    },  
     #state{
        static_env = InitStatEnv,
        handshake_env = #handshake_env{
@@ -1040,7 +1072,7 @@ initialize_tls_sender(#state{static_env = #static_env{
                                              role = Role,
                                              transport_cb = Transport,
                                              socket = Socket,
-                                             tracker = Tracker
+                                             trackers = Trackers
                                             },
                              connection_env = #connection_env{negotiated_version = Version},
                              socket_options = SockOpts, 
@@ -1052,7 +1084,7 @@ initialize_tls_sender(#state{static_env = #static_env{
              role => Role,
              socket => Socket,
              socket_options => SockOpts,
-             tracker => Tracker,
+             trackers => Trackers,
              transport_cb => Transport,
              negotiated_version => Version,
              renegotiate_at => RenegotiateAt,
@@ -1065,12 +1097,19 @@ next_tls_record(Data, StateName,
                                                       tls_cipher_texts = CT0} = Buffers,
                                 ssl_options = SslOpts} = State0) ->
     Versions =
-        %% TLS 1.3 Client/Server
-        %% - Ignore TLSPlaintext.legacy_record_version
-        %% - Verify that TLSCiphertext.legacy_record_version is set to  0x0303 for all records
-        %%   other than an initial ClientHello, where it MAY also be 0x0301.
+        %% TLSPlaintext.legacy_record_version is ignored in TLS 1.3 and thus all
+        %% record version are accepted when receiving initial ClientHello and
+        %% ServerHello. This can happen in state 'hello' in case of all TLS
+        %% versions and also in state 'start' when TLS 1.3 is negotiated.
+        %% After the version is negotiated all subsequent TLS records shall have
+        %% the proper legacy_record_version (= negotiated_version).
+        %% Note: TLS record version {3,4} is used internally in TLS 1.3 and at this
+        %% point it is the same as the negotiated protocol version.
+        %% TODO: Refactor state machine and introduce a record_protocol_version beside
+        %% the negotiated_version.
         case StateName of
-            hello ->
+            State when State =:= hello orelse
+                       State =:= start ->
                 [tls_record:protocol_version(Vsn) || Vsn <- ?ALL_AVAILABLE_VERSIONS];
             _ ->
                 State0#state.connection_env#connection_env.negotiated_version
@@ -1096,13 +1135,13 @@ tls_handshake_events(Packets) ->
 
 %% raw data from socket, upack records
 handle_info({Protocol, _, Data}, StateName,
-            #state{static_env = #static_env{data_tag = Protocol}} = State0) ->
+            #state{static_env = #static_env{data_tag = Protocol},
+                   connection_env = #connection_env{negotiated_version = Version}} = State0) ->
     case next_tls_record(Data, StateName, State0) of
 	{Record, State} ->
 	    next_event(StateName, Record, State);
 	#alert{} = Alert ->
-	    ssl_connection:handle_normal_shutdown(Alert, StateName, State0), 
-	    {stop, {shutdown, own_alert}, State0}
+	    ssl_connection:handle_own_alert(Alert, Version, StateName, State0)
     end;
 handle_info({PassiveTag, Socket},  StateName, 
             #state{static_env = #static_env{socket = Socket,
@@ -1323,7 +1362,55 @@ choose_tls_version(_, _) ->
     'tls_v1.2'.
 
 
-effective_version(undefined, #{versions := [Version|_]}) ->
+%% Special version handling for TLS 1.3 clients:
+%% In the shared state 'init' negotiated_version is set to requested version and
+%% that is expected by the legacy part of the state machine. However, in order to
+%% be able to process new TLS 1.3 extensions, the effective version shall be set
+%% {3,4}.
+%% When highest supported version is {3,4} the negotiated version is set to {3,3}.
+effective_version({3,3} , #{versions := [Version|_]}, client) when Version >= {3,4} ->
     Version;
-effective_version(Version, _) ->
+%% Use highest supported version during startup (TLS server, all versions).
+effective_version(undefined, #{versions := [Version|_]}, _) ->
+    Version;
+%% Use negotiated version in all other cases.
+effective_version(Version, _, _) ->
     Version.
+
+
+handle_new_session_ticket(_, #state{ssl_options = #{session_tickets := disabled}}) ->
+    ok;
+handle_new_session_ticket(#new_session_ticket{ticket_nonce = Nonce} = NewSessionTicket,
+                          #state{connection_states = ConnectionStates,
+                                 ssl_options = #{session_tickets := SessionTickets,
+                                                 server_name_indication := SNI},
+                                 connection_env = #connection_env{user_application = {_, User}}})
+  when SessionTickets =:= enabled ->
+    #{security_parameters := SecParams} =
+	ssl_record:current_connection_state(ConnectionStates, read),
+    HKDF = SecParams#security_parameters.prf_algorithm,
+    RMS = SecParams#security_parameters.resumption_master_secret,
+    PSK = tls_v1:pre_shared_key(RMS, Nonce, HKDF),
+    send_ticket_data(User, NewSessionTicket, HKDF, SNI, PSK);
+handle_new_session_ticket(#new_session_ticket{ticket_nonce = Nonce} = NewSessionTicket,
+                          #state{connection_states = ConnectionStates,
+                                 ssl_options = #{session_tickets := SessionTickets,
+                                                 server_name_indication := SNI}})
+  when SessionTickets =:= auto ->
+    #{security_parameters := SecParams} =
+	ssl_record:current_connection_state(ConnectionStates, read),
+    HKDF = SecParams#security_parameters.prf_algorithm,
+    RMS = SecParams#security_parameters.resumption_master_secret,
+    PSK = tls_v1:pre_shared_key(RMS, Nonce, HKDF),
+    tls_client_ticket_store:store_ticket(NewSessionTicket, HKDF, SNI, PSK).
+
+
+%% Send ticket data to user as opaque binary
+send_ticket_data(User, NewSessionTicket, HKDF, SNI, PSK) ->
+    Timestamp = erlang:system_time(seconds),
+    TicketData = #{hkdf => HKDF,
+                   sni => SNI,
+                   psk => PSK,
+                   timestamp => Timestamp,
+                   ticket => NewSessionTicket},
+    User ! {ssl, session_ticket, {SNI, erlang:term_to_binary(TicketData)}}.

@@ -160,6 +160,9 @@ db_lookup_dbterm_catree(Process *, DbTable *, Eterm key, Eterm obj,
                         DbUpdateHandle*);
 static void db_finalize_dbterm_catree(int cret, DbUpdateHandle *);
 static int db_get_binary_info_catree(Process*, DbTable*, Eterm key, Eterm *ret);
+static int db_put_dbterm_catree(DbTable* tbl,
+                                void* obj,
+                                int key_clash_fail);
 
 static void split_catree(DbTableCATree *tb,
                          DbTableCATreeNode* ERTS_RESTRICT base,
@@ -213,6 +216,12 @@ DbTableMethod db_catree =
     db_foreach_offheap_catree,
     db_lookup_dbterm_catree,
     db_finalize_dbterm_catree,
+    db_eterm_to_dbterm_tree_common,
+    db_dbterm_list_prepend_tree_common,
+    db_dbterm_list_remove_first_tree_common,
+    db_put_dbterm_catree,
+    db_free_dbterm_tree_common,
+    db_get_dbterm_key_tree_common,
     db_get_binary_info_catree,
     db_first_catree, /* raw_first same as first */
     db_next_catree   /* raw_next same as next */
@@ -1367,7 +1376,7 @@ static void split_catree(DbTableCATree *tb,
     }
 }
 
-/* @brief Free the entire catree and its sub-trees.
+/** @brief Free the entire catree and its sub-trees.
  *
  * @param reds Reductions to spend.
  * @return Reductions left. Negative value if not done.
@@ -1464,7 +1473,7 @@ static SWord db_free_table_continue_catree(DbTable *tbl, SWord reds)
     return reds;
 }
 
-/* @brief Free all objects of a base node, but keep the base node.
+/** @brief Free all objects of a base node, but keep the base node.
  *
  * @param reds Reductions to spend.
  * @return Reductions left. Negative value if not done.
@@ -1632,6 +1641,24 @@ static int db_prev_catree(Process *p, DbTable *tbl, Eterm key, Eterm *ret)
     return result;
 }
 
+static int db_put_dbterm_catree(DbTable* tbl,
+                                void* obj,
+                                int key_clash_fail)
+{
+    TreeDbTerm *value_to_insert = obj;
+    DbTableCATree *tb = &tbl->catree;
+    Eterm key = GETKEY(tb, value_to_insert->dbterm.tpl);
+    FindBaseNode fbn;
+    DbTableCATreeNode* node = find_wlock_valid_base_node(tb, key, &fbn);
+    int result = db_put_dbterm_tree_common(&tb->common,
+                                           &node->u.base.root,
+                                           value_to_insert,
+                                           key_clash_fail,
+                                           NULL);
+    wunlock_adapt_base_node(tb, node, fbn.parent, fbn.current_level);
+    return result;
+}
+
 static int db_put_catree(DbTable *tbl, Eterm obj, int key_clash_fail)
 {
     DbTableCATree *tb = &tbl->catree;
@@ -1776,7 +1803,7 @@ TreeDbTerm** catree_find_prev_root(CATreeRootIterator *iter, Eterm* keyp)
     return catree_find_nextprev_root(iter, 0, keyp);
 }
 
-/* @brief Find root of tree where object with smallest key of all larger than
+/** @brief Find root of tree where object with smallest key of all larger than
  * partially bound key may reside. Can be used as a starting point for
  * a reverse iteration with pb_key.
  *
@@ -1829,7 +1856,7 @@ TreeDbTerm** catree_find_next_from_pb_key_root(Eterm pb_key,
     }
 }
 
-/* @brief Find root of tree where object with largest key of all smaller than
+/** @brief Find root of tree where object with largest key of all smaller than
  * partially bound key may reside. Can be used as a starting point for
  * a forward iteration with pb_key.
  *

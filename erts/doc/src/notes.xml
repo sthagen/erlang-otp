@@ -31,6 +31,486 @@
   </header>
   <p>This document describes the changes made to the ERTS application.</p>
 
+<section><title>Erts 10.6.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Corrected an issue with the new socket api which could
+	    cause a core dump. A race during socket close could cause
+	    a core dump (an invalid nif environment free).</p>
+          <p>
+	    Own Id: OTP-16314 Aux Id: ERL-1098 </p>
+        </item>
+        <item>
+          <p>
+	    Corrected an issue with the new socket api which could
+	    cause a core dump. When multiple accept processes waiting
+	    for a connect a connect could cause a core dump.</p>
+          <p>
+	    Own Id: OTP-16359</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.6</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    The functions <seealso
+	    marker="stdlib:unicode#characters_to_list/2"><c>unicode:characters_to_list()</c></seealso>
+	    and <seealso
+	    marker="stdlib:unicode#characters_to_binary/3"><c>unicode:characters_to_binary()</c></seealso>
+	    raised a <c>badarg</c> exception instead of returning an
+	    error tuple when passed very large invalid code points as
+	    input.</p>
+          <p>
+	    Own Id: OTP-16052</p>
+        </item>
+        <item>
+	    <p><c>file:allocate/3</c> will now work properly on Mac
+	    OS.</p>
+          <p>
+	    Own Id: OTP-16074 Aux Id: ERL-1042, PR-2386 </p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, invalid
+	    encoding of send and receive flags caused badarg and send
+	    failure.</p>
+          <p>
+	    Own Id: OTP-16149</p>
+        </item>
+        <item>
+          <p>
+	    Fix a bug in <c>re</c> on platforms where the native
+	    stack grows upwards, for instance on HP PA-RISC.</p>
+          <p>
+	    Own Id: OTP-16150 Aux Id: ERL-1043 </p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, unable to
+	    properly decode the timestamp control message header on
+	    FreeBSD. We incorrectly used the SO_TIMESTAMP flag for
+	    the timestamp control message header type. It should have
+	    been SCM_TIMESTAMP. This caused the timestamp control
+	    message header to not be fully decoded.</p>
+          <p>
+	    Own Id: OTP-16151 Aux Id: #2400 </p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, when
+	    setting the ip option 'recvtos' to true, thereby
+	    indicating that we want to receive the TOS control
+	    message header, we don't actually get TOS but RECVTOS on
+	    FreeBSD (and maybe others)! This was previously not
+	    handled.</p>
+          <p>
+	    Own Id: OTP-16152 Aux Id: OTP-16114 </p>
+        </item>
+        <item>
+	    <p>Fixed a bug where the emulator would print out error
+	    messages forever if it crashed during startup.</p>
+          <p>
+	    Own Id: OTP-16159 Aux Id: ERL-1060 </p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, wrong
+	    type for protocol caused segmentation fault if protocol
+	    was provided as {raw, integer()}.</p>
+          <p>
+	    Own Id: OTP-16163 Aux Id: ERL-1061 </p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, when
+	    setting the ip option 'recvttl' to true, thereby
+	    indicating that we want to receive the TTL control
+	    message header, we don't actually get TTL but RECVTTL on
+	    Solaris (and maybe others)! This was previously not
+	    handled.</p>
+          <p>
+	    Own Id: OTP-16172 Aux Id: OTP-16114 </p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, IPv6
+	    control message headers was incorrectly decoded with
+	    level ip instead of ipv6.</p>
+          <p>
+	    Own Id: OTP-16173</p>
+        </item>
+        <item>
+          <p>
+	    Fix configure bug where <c>clock_getres</c> would not
+	    correctly be detected causing
+	    <c>erlang:system_info(os_system_time_source)</c> to
+	    return an incorrect resolution.</p>
+          <p>
+	    This bug effects all OSs that use <c>clock_gettime</c> to
+	    get time (basically all OSs except windows) and has been
+	    present since OTP-19.2.</p>
+          <p>
+	    Own Id: OTP-16191 Aux Id: ERL-1067 </p>
+        </item>
+        <item>
+          <p>
+	    Fix bugs when using <c>ERLC_USE_SERVER=true</c> on
+	    Windows when building Erlang/OTP.</p>
+          <p>
+	    Change the cookie used by the compile server to be hard
+	    coded instead of using the users cookie.</p>
+          <p>
+	    Own Id: OTP-16192</p>
+        </item>
+        <item>
+          <p>
+	    Fix so that <c>persistent_term</c> is listed in the erts
+	    application file.</p>
+          <p>
+	    Own Id: OTP-16194</p>
+        </item>
+        <item>
+          <p>
+	    Fix bug in call_time tracing which could sometimes cause
+	    call time measurements being attributed to the wrong
+	    function.</p>
+          <p>
+	    Own Id: OTP-16195 Aux Id: ERL-1027 </p>
+        </item>
+        <item>
+          <p>
+	    The <seealso marker="socket#">socket</seealso> socket
+	    option 'peek_off' has been disabled. If peek_off was set
+	    and then socket:recv/3 was called with the peek flag, the
+	    call could hang.</p>
+          <p>
+	    Own Id: OTP-16196</p>
+        </item>
+        <item>
+          <p>
+	    Handle possibly uninitiated (control message header)
+	    data.</p>
+          <p>
+	    Own Id: OTP-16197</p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="kernel:net#">net</seealso>, a couple
+	    of NI macros was deprecated in new versions of glibc, so
+	    these are no longer used (IDN_ALLOW_UNASSIGNED and
+	    IDN_USE_STD3_ASCII_RULES).</p>
+          <p>
+	    Own Id: OTP-16203</p>
+        </item>
+        <item>
+          <p>
+	    The string value from a get operation needed to be
+	    truncated.</p>
+          <p>
+	    Own Id: OTP-16204</p>
+        </item>
+        <item>
+          <p>
+	    Fix misleading seq_trace message for remote send
+	    operation toward named process. Changed receiver to be
+	    <c>{Name,Node}</c> instead of just <c>Name</c>.</p>
+          <p>
+	    Own Id: OTP-16206 Aux Id: PR-2423 </p>
+        </item>
+        <item>
+          <p>
+	    Fixed a bug causing actual nodedown reason reported by
+	    <seealso
+	    marker="kernel:net_kernel#monitor_nodes/2"><c>net_kernel:monitor_nodes(true,
+	    [nodedown_reason])</c></seealso> to be lost and replaced
+	    by the reason <c>killed</c>.</p>
+          <p>
+	    Own Id: OTP-16216</p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, the
+	    timestamp creation used when printing warning messages
+	    and debug printouts did not work. The used buffer was too
+	    small.</p>
+          <p>
+	    Own Id: OTP-16223</p>
+        </item>
+        <item>
+          <p>
+	    Fix compiler warnings generated by GCC 8</p>
+          <p>
+	    Own Id: OTP-16235</p>
+        </item>
+        <item>
+          <p>
+	    Fix <c>erl -emu_type</c> to accept the option <c>opt</c>
+	    which means the normal optimized emulator. This can be
+	    used to override the <c>-emu_type</c> option from
+	    environment variables.</p>
+          <p>
+	    Own Id: OTP-16297</p>
+        </item>
+        <item>
+          <p>
+	    Corrected the function spec to reflect the actual code of
+	    the function socket:bind.</p>
+          <p>
+	    Own Id: OTP-16310 Aux Id: ERL-1082 </p>
+        </item>
+        <item>
+          <p>
+	    Fixed a performance issue in ETS lookup when using the
+	    <c>compressed</c> option and the term contained atoms.
+	    Before this fix the decompress algorithm for atoms would
+	    unnecessarily take a global lock to validate the atom.</p>
+          <p>
+	    Own Id: OTP-16316</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, not all
+	    send and receive flags are supported on all platforms. In
+	    order to (at least) simplify testing, the
+	    socket:supports/0,1,2,3 functions has been extended with
+	    send_flags and recv_flags items, which indicates what the
+	    current platform can manage.</p>
+          <p>
+	    Own Id: OTP-16153</p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, add
+	    support for IPv6 socket options tclass and recvtclass.
+	    Both has been added, but the use of them are platform
+	    dependent. Call socket:supports(options, ipv6, Opt) to be
+	    sure what option to use in order to request a TCLASS
+	    control message header.</p>
+          <p>
+	    Own Id: OTP-16180</p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, the TCP
+	    socket option cork was not supported even though the
+	    supports function reported it as such.</p>
+          <p>
+	    Own Id: OTP-16205</p>
+        </item>
+        <item>
+          <p>
+	    The Kernel application's User's Guide now contain a
+	    Logger Cookbook with with common usage patterns.</p>
+          <p>
+	    Own Id: OTP-16208</p>
+        </item>
+        <item>
+          <p>
+	    Add a "full featured" version of getifaddrs in the net
+	    module.</p>
+          <p>
+	    Own Id: OTP-16212 Aux Id: ERL-1070 </p>
+        </item>
+        <item>
+          <p>
+	    Fix an inefficiency introduced by the bug fix in
+	    OTP-16241 which fixed a problem with the receive
+	    optimization. That bug fix introduced an inefficiency
+	    when using the receive optimization and a burst of
+	    messages arrive at once when the receiving process'
+	    mailbox was empty.</p>
+          <p>
+	    Own Id: OTP-16269 Aux Id: OTP-16241 </p>
+        </item>
+        <item>
+          <p>
+	    For <seealso marker="socket#">socket</seealso>, added
+	    support for the socket option extended_err. Andreas
+	    Schultz.</p>
+          <p>
+	    Own Id: OTP-16302 Aux Id: #2449 </p>
+        </item>
+        <item>
+          <p>
+	    ETS tables have been optimized to not use any locks when
+	    running in a system with only one scheduler enabled. This
+	    can provide significant performance gains for
+	    applications that use ETS tables heavily.</p>
+          <p>
+	    Own Id: OTP-16315</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.5.6</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Large amounts of quickly executed dirty work could cause
+	    heavy contention on an internal spin lock. The spin lock
+	    was replaced by a mutex which behaves much better under
+	    these conditions.</p>
+          <p>
+	    Own Id: OTP-16301 Aux Id: ERL-1079 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.5.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    A literal area could prematurely be released before all
+	    uses of it had been removed. This occurred either when a
+	    terminating process had a complex exit reason referring
+	    to a literal that concurrently was removed, or when a
+	    terminating process continued executing a dirty NIF
+	    accessing a literal (via the heap) that concurrently was
+	    removed.</p>
+          <p>
+	    Own Id: OTP-16193</p>
+        </item>
+        <item>
+          <p>
+	    Fix bug causing VM crash due to memory corruption of
+	    distribution entry. Probability of crash increases if
+	    Erlang distribution is frequently disconnected and
+	    reestablished towards same node names. Bug exists since
+	    OTP-21.0.</p>
+          <p>
+	    Own Id: OTP-16224 Aux Id: ERL-1044 </p>
+        </item>
+        <item>
+          <p>
+	    Fixed bug causing crash of VM built with configuration
+	    <c>--enable--sharing-preserving</c>. Provoked when a sent
+	    message contains both a bit string and the heap binary
+	    (&lt; 65 bytes) which the bit string was matched from.
+	    Bug exists since OTP-19.0 but has seen to be easier to
+	    provoke since OTP-22.1.</p>
+          <p>
+	    Own Id: OTP-16265 Aux Id: ERL-1064 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.5.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>The compiler could do an unsafe optimization of
+	    receives, which would cause a receive to only scan part
+	    of the message queue.</p>
+	    <p>This bug fix in the compiler fixes a bug in the socket
+	    module.</p>
+          <p>
+	    Own Id: OTP-16219 Aux Id: ERL-1076 </p>
+        </item>
+        <item>
+          <p>
+	    Fix bug where the receive marker used by the runtime to
+	    do the receive queue optimization could be incorrectly
+	    set. The symptom of this would be that a message that
+	    should match in a receive never matches.</p>
+          <p>
+	    The bug requires the OTP-22 compiler and multiple
+	    selective receives to trigger. See OTP-16219 for details
+	    about the bug fix in the compiler.</p>
+          <p>
+	    Own Id: OTP-16241 Aux Id: ERL-1076 OTP-16219 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.5.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Erlang/OTP can now be built on macOS Catalina (10.15).</p>
+          <p>
+	    Own Id: OTP-16177 Aux Id: ERL-1063 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.5.2</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+	    <p>Added the environment variable <c>ERLC_SERVER_ID</c>,
+	    which allows multiple compile servers to run separately
+	    under the same user.</p>
+          <p>
+	    Own Id: OTP-16125 Aux Id: ERIERL-412 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.5.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    A terminating process sending distributed <c>'EXIT'</c>
+	    or <c>'DOWN'</c> signals while terminating could end up
+	    in a state where no progress at all was made. This was
+	    triggered by a distribution channel that the terminating
+	    process was sending on got busy. This bug has existed
+	    since ERTS version 10.4 (OTP 22.0).</p>
+          <p>
+	    Own Id: OTP-16069</p>
+        </item>
+        <item>
+          <p>
+	    When communicating with a simultaneously exiting port via
+	    the <c>erlang:port_*()</c> BIFs one could sometimes get
+	    stray <c>{Ref, What}</c> messages. Where <c>Ref</c> was a
+	    reference and <c>What</c> usually were the atom
+	    <c>badarg</c>.</p>
+          <p>
+	    Own Id: OTP-16107 Aux Id: ERL-1049 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Erts 10.5</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -959,6 +1439,87 @@
 	    -remsh bar </c></p>
           <p>
 	    Own Id: OTP-15794 Aux Id: PR-2219 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.3.5.7</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    A literal area could prematurely be released before all
+	    uses of it had been removed. This occurred either when a
+	    terminating process had a complex exit reason referring
+	    to a literal that concurrently was removed, or when a
+	    terminating process continued executing a dirty NIF
+	    accessing a literal (via the heap) that concurrently was
+	    removed.</p>
+          <p>
+	    Own Id: OTP-16193</p>
+        </item>
+        <item>
+          <p>
+	    Fix bug causing VM crash due to memory corruption of
+	    distribution entry. Probability of crash increases if
+	    Erlang distribution is frequently disconnected and
+	    reestablished towards same node names. Bug exists since
+	    OTP-21.0.</p>
+          <p>
+	    Own Id: OTP-16224 Aux Id: ERL-1044 </p>
+        </item>
+        <item>
+          <p>
+	    Fix bug where the receive marker used by the runtime to
+	    do the receive queue optimization could be incorrectly
+	    set. The symptom of this would be that a message that
+	    should match in a receive never matches.</p>
+          <p>
+	    The bug requires the OTP-22 compiler and multiple
+	    selective receives to trigger. See OTP-16219 for details
+	    about the bug fix in the compiler.</p>
+          <p>
+	    Own Id: OTP-16241 Aux Id: ERL-1076 OTP-16219 </p>
+        </item>
+        <item>
+          <p>
+	    Fixed bug causing crash of VM built with configuration
+	    <c>--enable--sharing-preserving</c>. Provoked when a sent
+	    message contains both a bit string and the heap binary
+	    (&lt; 65 bytes) which the bit string was matched from.
+	    Bug exists since OTP-19.0 but has seen to be easier to
+	    provoke since OTP-22.1.</p>
+          <p>
+	    Own Id: OTP-16265 Aux Id: ERL-1064 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.3.5.6</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix a bug in <c>binary_to_term</c> that would crash the
+	    emulator if a term larger than 16GB was to be decoded.</p>
+          <p>
+	    Own Id: OTP-16058 Aux Id: PR-2382 </p>
+        </item>
+        <item>
+          <p>
+	    When communicating with a simultaneously exiting port via
+	    the <c>erlang:port_*()</c> BIFs one could sometimes get
+	    stray <c>{Ref, What}</c> messages. Where <c>Ref</c> was a
+	    reference and <c>What</c> usually were the atom
+	    <c>badarg</c>.</p>
+          <p>
+	    Own Id: OTP-16107 Aux Id: ERL-1049 </p>
         </item>
       </list>
     </section>
@@ -3150,6 +3711,64 @@
 	    Service Discovery for Erlang Distribution</seealso>.</p>
           <p>
 	    Own Id: OTP-15086 Aux Id: PR-1694 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 9.3.3.13</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    A literal area could prematurely be released before all
+	    uses of it had been removed. This occurred either when a
+	    terminating process had a complex exit reason referring
+	    to a literal that concurrently was removed, or when a
+	    terminating process continued executing a dirty NIF
+	    accessing a literal (via the heap) that concurrently was
+	    removed.</p>
+          <p>
+	    Own Id: OTP-16193</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 9.3.3.12</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    The runtime system disconnected a connection if it
+	    received an <c>exit/2</c> signal where the recipient was
+	    a process on an old incarnation of the current node. That
+	    is, the receiving node had the same node name, but
+	    another "creation" number. The signal will now just be
+	    dropped since the receiving process no longer exists.</p>
+          <p>
+	    Own Id: OTP-15867 Aux Id: ERIERL-373 </p>
+        </item>
+        <item>
+          <p>
+	    Fix a bug in <c>binary_to_term</c> that would crash the
+	    emulator if a term larger than 16GB was to be decoded.</p>
+          <p>
+	    Own Id: OTP-16058 Aux Id: PR-2382 </p>
+        </item>
+        <item>
+          <p>
+	    When communicating with a simultaneously exiting port via
+	    the <c>erlang:port_*()</c> BIFs one could sometimes get
+	    stray <c>{Ref, What}</c> messages. Where <c>Ref</c> was a
+	    reference and <c>What</c> usually were the atom
+	    <c>badarg</c>.</p>
+          <p>
+	    Own Id: OTP-16107 Aux Id: ERL-1049 </p>
         </item>
       </list>
     </section>

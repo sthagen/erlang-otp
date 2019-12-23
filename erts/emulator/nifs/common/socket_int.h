@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2018-2018. All Rights Reserved.
+ * Copyright Ericsson AB 2018-2019. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,6 +60,10 @@
 #include <sys/un.h>
 #endif
 
+#ifdef HAVE_NETPACKET_PACKET_H
+#include <netpacket/packet.h>
+#endif
+
 #endif
 
 #include <erl_nif.h>
@@ -82,6 +86,11 @@ typedef union {
     struct sockaddr_un  un;
 #endif
 
+    /* Link Layer sockaddr (used for address family PACKET) */
+#if defined(HAVE_NETPACKET_PACKET_H) && defined(AF_PACKET)
+    struct sockaddr_ll ll;
+#endif
+
 } ESockAddress;
 
 
@@ -101,7 +110,7 @@ typedef unsigned int BOOLEAN_T;
 
 
 /* ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
- * "Global" atoms
+ * "Global" atoms (esock_atom_...)
  *
  * Note that when an (global) atom is added here, it must also be added
  * in the socket_nif.c file!
@@ -133,9 +142,11 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(busy_poll);                \
     GLOBAL_ATOM_DEF(checksum);                 \
     GLOBAL_ATOM_DEF(close);                    \
+    GLOBAL_ATOM_DEF(cmsg_cloexec);             \
     GLOBAL_ATOM_DEF(command);                  \
-    GLOBAL_ATOM_DEF(connect);                  \
+    GLOBAL_ATOM_DEF(conirm);                   \
     GLOBAL_ATOM_DEF(congestion);               \
+    GLOBAL_ATOM_DEF(connect);                  \
     GLOBAL_ATOM_DEF(context);                  \
     GLOBAL_ATOM_DEF(cork);                     \
     GLOBAL_ATOM_DEF(credentials);              \
@@ -143,7 +154,7 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(ctrunc);                   \
     GLOBAL_ATOM_DEF(data);                     \
     GLOBAL_ATOM_DEF(debug);                    \
-    GLOBAL_ATOM_DEF(default);      \
+    GLOBAL_ATOM_DEF(default);                  \
     GLOBAL_ATOM_DEF(default_send_params);      \
     GLOBAL_ATOM_DEF(delayed_ack_time);         \
     GLOBAL_ATOM_DEF(dgram);                    \
@@ -154,6 +165,7 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(drop_membership);          \
     GLOBAL_ATOM_DEF(drop_source_membership);   \
     GLOBAL_ATOM_DEF(dstopts);                  \
+    GLOBAL_ATOM_DEF(egp);                      \
     GLOBAL_ATOM_DEF(eor);                      \
     GLOBAL_ATOM_DEF(error);                    \
     GLOBAL_ATOM_DEF(errqueue);                 \
@@ -164,16 +176,22 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(faith);                    \
     GLOBAL_ATOM_DEF(false);                    \
     GLOBAL_ATOM_DEF(family);                   \
+    GLOBAL_ATOM_DEF(fastroute);                \
     GLOBAL_ATOM_DEF(flags);                    \
     GLOBAL_ATOM_DEF(flowinfo);                 \
     GLOBAL_ATOM_DEF(fragment_interleave);      \
     GLOBAL_ATOM_DEF(freebind);                 \
     GLOBAL_ATOM_DEF(get_peer_addr_info);       \
+    GLOBAL_ATOM_DEF(hatype);                   \
     GLOBAL_ATOM_DEF(hdrincl);                  \
     GLOBAL_ATOM_DEF(hmac_ident);               \
     GLOBAL_ATOM_DEF(hoplimit);                 \
     GLOBAL_ATOM_DEF(hopopts);                  \
+    GLOBAL_ATOM_DEF(host);                     \
+    GLOBAL_ATOM_DEF(icmp);                     \
+    GLOBAL_ATOM_DEF(icmp6);                    \
     GLOBAL_ATOM_DEF(ifindex);                  \
+    GLOBAL_ATOM_DEF(igmp);                     \
     GLOBAL_ATOM_DEF(inet);                     \
     GLOBAL_ATOM_DEF(inet6);                    \
     GLOBAL_ATOM_DEF(info);                     \
@@ -181,6 +199,7 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(iov);                      \
     GLOBAL_ATOM_DEF(ip);                       \
     GLOBAL_ATOM_DEF(ipcomp_level);             \
+    GLOBAL_ATOM_DEF(ipip);                     \
     GLOBAL_ATOM_DEF(ipv6);                     \
     GLOBAL_ATOM_DEF(i_want_mapped_v4_addr);    \
     GLOBAL_ATOM_DEF(join_group);               \
@@ -201,9 +220,11 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(md5sig);                   \
     GLOBAL_ATOM_DEF(mincost);                  \
     GLOBAL_ATOM_DEF(minttl);                   \
+    GLOBAL_ATOM_DEF(more);                     \
     GLOBAL_ATOM_DEF(msfilter);                 \
     GLOBAL_ATOM_DEF(mtu);                      \
     GLOBAL_ATOM_DEF(mtu_discover);             \
+    GLOBAL_ATOM_DEF(multicast);                \
     GLOBAL_ATOM_DEF(multicast_all);            \
     GLOBAL_ATOM_DEF(multicast_hops);           \
     GLOBAL_ATOM_DEF(multicast_if);             \
@@ -213,6 +234,7 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(nodefrag);                 \
     GLOBAL_ATOM_DEF(noopt);                    \
     GLOBAL_ATOM_DEF(nopush);                   \
+    GLOBAL_ATOM_DEF(nosignal);                 \
     GLOBAL_ATOM_DEF(not_found);                \
     GLOBAL_ATOM_DEF(not_owner);                \
     GLOBAL_ATOM_DEF(ok);                       \
@@ -220,15 +242,20 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(oobinline);                \
     GLOBAL_ATOM_DEF(options);                  \
     GLOBAL_ATOM_DEF(origdstaddr);              \
+    GLOBAL_ATOM_DEF(otherhost);                \
+    GLOBAL_ATOM_DEF(outgoing);                 \
+    GLOBAL_ATOM_DEF(packet);                   \
     GLOBAL_ATOM_DEF(partial_delivery_point);   \
     GLOBAL_ATOM_DEF(passcred);                 \
     GLOBAL_ATOM_DEF(path);                     \
+    GLOBAL_ATOM_DEF(peek);                     \
     GLOBAL_ATOM_DEF(peekcred);                 \
     GLOBAL_ATOM_DEF(peek_off);                 \
     GLOBAL_ATOM_DEF(peer_addr_params);         \
     GLOBAL_ATOM_DEF(peer_auth_chunks);         \
     GLOBAL_ATOM_DEF(pktinfo);                  \
     GLOBAL_ATOM_DEF(pktoptions);               \
+    GLOBAL_ATOM_DEF(pkttype);                  \
     GLOBAL_ATOM_DEF(port);                     \
     GLOBAL_ATOM_DEF(portrange);                \
     GLOBAL_ATOM_DEF(primary_addr);             \
@@ -244,6 +271,7 @@ typedef unsigned int BOOLEAN_T;
     GLOBAL_ATOM_DEF(recvdstaddr);              \
     GLOBAL_ATOM_DEF(recverr);                  \
     GLOBAL_ATOM_DEF(recvfrom);                 \
+    GLOBAL_ATOM_DEF(recvhoplimit);             \
     GLOBAL_ATOM_DEF(recvif);                   \
     GLOBAL_ATOM_DEF(recvmsg);                  \
     GLOBAL_ATOM_DEF(recvopts);                 \
@@ -378,6 +406,7 @@ GLOBAL_ERROR_REASON_ATOM_DEFS
     enif_get_atom((E), (TE), (BP), (MAX), ERL_NIF_LATIN1)
 #define GET_BIN(E, TE, BP)          enif_inspect_iolist_as_binary((E), (TE), (BP))
 #define GET_INT(E, TE, IP)          enif_get_int((E), (TE), (IP))
+#define GET_INT64(E, TE, IP)          enif_get_int64((E), (TE), (IP))
 #define GET_LIST_ELEM(E, L, HP, TP) enif_get_list_cell((E), (L), (HP), (TP))
 #define GET_LIST_LEN(E, L, LP)      enif_get_list_length((E), (L), (LP))
 #define GET_LONG(E, TE, LP)         enif_get_long((E), (TE), (LP))

@@ -43,7 +43,7 @@
          role,
          socket,
          socket_options,
-         tracker,
+         trackers,
          transport_cb,
          negotiated_version,
          renegotiate_at,
@@ -200,7 +200,7 @@ init({call, From}, {Pid, #{current_write := WriteState,
                            role := Role,
                            socket := Socket,
                            socket_options := SockOpts,
-                           tracker := Tracker,
+                           trackers := Trackers,
                            transport_cb := Transport,
                            negotiated_version := Version,
                            renegotiate_at := RenegotiateAt,
@@ -214,7 +214,7 @@ init({call, From}, {Pid, #{current_write := WriteState,
                                                 role = Role,
                                                 socket = Socket,
                                                 socket_options = SockOpts,
-                                                tracker = Tracker,
+                                                trackers = Trackers,
                                                 transport_cb = Transport,
                                                 negotiated_version = Version,
                                                 renegotiate_at = RenegotiateAt,
@@ -255,11 +255,12 @@ connection({call, From}, dist_get_tls_socket,
            #data{static = #static{transport_cb = Transport,
                                   socket = Socket,
                                   connection_pid = Pid,
-                                  tracker = Tracker}} = StateData) ->
-    TLSSocket = tls_connection:socket([Pid, self()], Transport, Socket, Tracker),
+                                  trackers = Trackers}} = StateData) ->
+    TLSSocket = tls_connection:socket([Pid, self()], Transport, Socket, Trackers),
     {next_state, ?FUNCTION_NAME, StateData, [{reply, From, {ok, TLSSocket}}]};
 connection({call, From}, {dist_handshake_complete, _Node, DHandle},
            #data{static = #static{connection_pid = Pid} = Static} = StateData) ->
+    false = erlang:dist_ctrl_set_opt(DHandle, get_size, true),
     ok = erlang:dist_ctrl_input_handler(DHandle, Pid),
     ok = ssl_connection:dist_handshake_complete(Pid, DHandle),
     %% From now on we execute on normal priority
@@ -271,7 +272,7 @@ connection({call, From}, {dist_handshake_complete, _Node, DHandle},
               [];
           Data ->
               [{next_event, internal,
-               {application_packets,{self(),undefined},erlang:iolist_to_iovec(Data)}}]
+               {application_packets,{self(),undefined},Data}}]
       end]};
 connection(internal, {application_packets, From, Data}, StateData) ->
     send_application_data(Data, From, ?FUNCTION_NAME, StateData);
@@ -293,7 +294,7 @@ connection(info, dist_data, #data{static = #static{dist_handle = DHandle}}) ->
               [];
           Data ->
               [{next_event, internal,
-               {application_packets,{self(),undefined},erlang:iolist_to_iovec(Data)}}]
+               {application_packets,{self(),undefined},Data}}]
       end};
 connection(info, tick, StateData) ->  
     consume_ticks(),
@@ -394,16 +395,13 @@ handle_common(
   info, {'DOWN', Monitor, _, _, _},
   #data{static = #static{connection_monitor = Monitor}} = StateData) ->
     {stop, normal, StateData};
-handle_common(info, Msg, _) ->
-    Report =
-        io_lib:format("TLS sender: Got unexpected info: ~p ~n", [Msg]),
-    error_logger:info_report(Report),
+handle_common(info, Msg, #data{static = #static{log_level = Level}}) ->
+    ssl_logger:log(info, Level, #{event => "TLS sender recived unexpected info", 
+                                  reason => [{message, Msg}]}, ?LOCATION),
     keep_state_and_data;
-handle_common(Type, Msg, _) ->
-    Report =
-        io_lib:format(
-          "TLS sender: Got unexpected event: ~p ~n", [{Type,Msg}]),
-    error_logger:error_report(Report),
+handle_common(Type, Msg, #data{static = #static{log_level = Level}}) ->
+    ssl_logger:log(error, Level, #{event => "TLS sender recived unexpected event", 
+                                   reason => [{type, Type}, {message, Msg}]}, ?LOCATION),
     keep_state_and_data.
 
 send_tls_alert(#alert{} = Alert,
@@ -503,15 +501,14 @@ dist_data(DHandle) ->
         %% since the emulator will always deliver a Data
         %% smaller than 4 GB, and the distribution will
         %% therefore always have to use {packet,4}
-        Data when is_binary(Data) ->
-            Len = byte_size(Data),
-            [[<<Len:32>>,Data]|dist_data(DHandle)];
-        [BA,BB] = Data ->
-            Len = byte_size(BA) + byte_size(BB),
-            [[<<Len:32>>|Data]|dist_data(DHandle)];
-        Data when is_list(Data) ->
-            Len = iolist_size(Data),
-            [[<<Len:32>>|Data]|dist_data(DHandle)]
+        {Len, Data} ->
+            %% Data is of type iovec(); lets keep it
+            %% as an iovec()...
+            Packet = [<<Len:32>> | Data],
+            case dist_data(DHandle) of
+                [] -> Packet;
+                More -> Packet ++ More
+            end
     end.
 
 

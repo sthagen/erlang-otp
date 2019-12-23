@@ -94,7 +94,7 @@
 -record(icall,     {anno=#a{},module,name,args}).
 -record(icase,     {anno=#a{},args,clauses,fc}).
 -record(icatch,    {anno=#a{},body}).
--record(iclause,   {anno=#a{},pats,pguard=[],guard,body}).
+-record(iclause,   {anno=#a{},pats,guard,body}).
 -record(ifun,      {anno=#a{},id,vars,clauses,fc,name=unnamed}).
 -record(iletrec,   {anno=#a{},defs,body}).
 -record(imatch,    {anno=#a{},pat,guard=[],arg,fc}).
@@ -216,38 +216,45 @@ defined_functions(Forms) ->
 %%     ok.
 
 function({function,_,Name,Arity,Cs0}, Ws0, File, Opts) ->
-    St0 = #core{vcount=0,function={Name,Arity},opts=Opts,
-		ws=Ws0,file=[{file,File}]},
-    {B0,St1} = body(Cs0, Name, Arity, St0),
-    %% ok = function_dump(Name,Arity,"body:~n~p~n",[B0]),
-    {B1,St2} = ubody(B0, St1),
-    %% ok = function_dump(Name,Arity,"ubody:~n~p~n",[B1]),
-    {B2,#core{ws=Ws}} = cbody(B1, St2),
-    %% ok = function_dump(Name,Arity,"cbody:~n~p~n",[B2]),
-    {{#c_var{name={Name,Arity}},B2},Ws}.
+    try
+        St0 = #core{vcount=0,function={Name,Arity},opts=Opts,
+                    ws=Ws0,file=[{file,File}]},
+        {B0,St1} = body(Cs0, Name, Arity, St0),
+        %% ok = function_dump(Name,Arity,"body:~n~p~n",[B0]),
+        {B1,St2} = ubody(B0, St1),
+        %% ok = function_dump(Name,Arity,"ubody:~n~p~n",[B1]),
+        {B2,#core{ws=Ws}} = cbody(B1, St2),
+        %% ok = function_dump(Name,Arity,"cbody:~n~p~n",[B2]),
+        {{#c_var{name={Name,Arity}},B2},Ws}
+    catch
+        Class:Error:Stack ->
+	    io:fwrite("Function: ~w/~w\n", [Name,Arity]),
+	    erlang:raise(Class, Error, Stack)
+    end.
 
 body(Cs0, Name, Arity, St0) ->
     Anno = lineno_anno(element(2, hd(Cs0)), St0),
+    FunAnno = [{function,{Name,Arity}} | Anno],
     {Args0,St1} = new_vars(Anno, Arity, St0),
     Args = reverse(Args0),                      %Nicer order
     case clauses(Cs0, St1) of
 	{Cs1,[],St2} ->
 	    {Ps,St3} = new_vars(Arity, St2),    %Need new variables here
-	    Fc = function_clause(Ps, Anno, {Name,Arity}),
-	    {#ifun{anno=#a{anno=Anno},id=[],vars=Args,clauses=Cs1,fc=Fc},St3};
+	    Fc = function_clause(Ps, Anno),
+	    {#ifun{anno=#a{anno=FunAnno},id=[],vars=Args,clauses=Cs1,fc=Fc},St3};
 	{Cs1,Eps,St2} ->
 	    %% We have pre-expressions from patterns and
 	    %% these needs to be letified before matching
 	    %% since only bound variables are allowed
 	    AnnoGen = #a{anno=[compiler_generated]},
 	    {Ps1,St3} = new_vars(Arity, St2),    %Need new variables here
-	    Fc1 = function_clause(Ps1, Anno, {Name,Arity}),
+	    Fc1 = function_clause(Ps1, Anno),
 	    {Ps2,St4} = new_vars(Arity, St3),    %Need new variables here
-	    Fc2 = function_clause(Ps2, Anno, {Name,Arity}),
+	    Fc2 = function_clause(Ps2, Anno),
 	    Case = #icase{anno=AnnoGen,args=Args,
 			  clauses=Cs1,
 			  fc=Fc2},
-	    {#ifun{anno=#a{anno=Anno},id=[],vars=Args,
+	    {#ifun{anno=#a{anno=FunAnno},id=[],vars=Args,
 		   clauses=[#iclause{anno=AnnoGen,pats=Ps1,
 				     guard=[#c_literal{val=true}],
 				     body=Eps ++ [Case]}],
@@ -419,6 +426,15 @@ gexpr_test(E0, Bools0, St0) ->
     {E1,Eps0,St1} = expr(E0, St0),
     %% Generate "top-level" test and argument calls.
     case E1 of
+        #icall{anno=Anno,module=#c_literal{val=erlang},
+               name=#c_literal{val=is_function},
+               args=[_,_]} ->
+            %% is_function/2 is not a safe type test. We must force
+            %% it to be protected.
+            Lanno = Anno#a.anno,
+            {New,St2} = new_var(Lanno, St1),
+            {icall_eq_true(New),
+             Eps0 ++ [#iset{anno=Anno,var=New,arg=E1}],Bools0,St2};
 	#icall{anno=Anno,module=#c_literal{val=erlang},name=#c_literal{val=N},args=As} ->
             %% Note that erl_expand_records has renamed type
             %% tests to the new names; thus, float/1 as a type
@@ -655,7 +671,7 @@ expr({'try',L,Es0,[],[],As0}, St0) ->
     {V,St4} = new_var(St3),		% (must not exist in As1)
     LA = lineno_anno(L, St4),
     Lanno = #a{anno=LA},
-    Fc = function_clause([], LA, {Name,0}),
+    Fc = function_clause([], LA),
     Fun = #ifun{anno=Lanno,id=[],vars=[],
 		clauses=[#iclause{anno=Lanno,pats=[],
 				  guard=[#c_literal{val=true}],
@@ -702,7 +718,7 @@ expr({call,Lc,{atom,Lf,F},As0}, St0) ->
     Op = #c_var{anno=lineno_anno(Lf, St1),name={F,length(As1)}},
     {#iapply{anno=#a{anno=lineno_anno(Lc, St1)},op=Op,args=As1},Aps,St1};
 expr({call,L,FunExp,As0}, St0) ->
-    {Fun,Fps,St1} = safe_fun(length(As0), FunExp, St0),
+    {Fun,Fps,St1} = safe(FunExp, St0),
     {As1,Aps,St2} = safe_list(As0, St1),
     Lanno = lineno_anno(L, St2),
     {#iapply{anno=#a{anno=Lanno},op=Fun,args=As1},Fps ++ Aps,St2};
@@ -1150,7 +1166,7 @@ fun_tq(Cs0, L, St0, NameInfo) ->
     {Ps,St3} = new_vars(Arity, St2),		%Need new variables here
     Anno = full_anno(L, St3),
     {Name,St4} = new_fun_name(St3),
-    Fc = function_clause(Ps, Anno, {Name,Arity}),
+    Fc = function_clause(Ps, Anno),
     Id = {0,0,Name},
     Fun = #ifun{anno=#a{anno=Anno},
 		id=[{id,Id}],				%We KNOW!
@@ -1170,7 +1186,7 @@ lc_tq(Line, E, [#igen{anno=#a{anno=GA}=GAnno,ceps=Ceps,
     F = #c_var{anno=LA,name={Name,1}},
     Nc = #iapply{anno=GAnno,op=F,args=[Tail]},
     {Var,St2} = new_var(St1),
-    Fc = function_clause([Var], GA, {Name,1}),
+    Fc = function_clause([Var], GA),
     TailClause = #iclause{anno=LAnno,pats=[TailPat],guard=[],body=[Mc]},
     Cs0 = case {AccPat,AccGuard} of
               {SkipPat,[]} ->
@@ -1231,7 +1247,7 @@ bc_tq1(Line, E, [#igen{anno=GAnno,ceps=Ceps,
     {Vars=[_,AccVar],St2} = new_vars(LA, 2, St1),
     F = #c_var{anno=LA,name={Name,2}},
     Nc = #iapply{anno=GAnno,op=F,args=[Tail,AccVar]},
-    Fc = function_clause(Vars, LA, {Name,2}),
+    Fc = function_clause(Vars, LA),
     TailClause = #iclause{anno=LAnno,pats=[TailPat,AccVar],guard=[],
                           body=[AccVar]},
     Cs0 = case {AccPat,AccGuard} of
@@ -1762,15 +1778,6 @@ safe(E0, St0) ->
     {Se,Sps,St2} = force_safe(E1, St1),
     {Se,Eps ++ Sps,St2}.
 
-safe_fun(A0, E0, St0) ->
-    case safe(E0, St0) of
-        {#c_var{name={_,A1}}=E1,Eps,St1} when A1 =/= A0 ->
-            {V,St2} = new_var(St1),
-            {V,Eps ++ [#iset{var=V,arg=E1}],St2};
-        Result ->
-            Result
-    end.
-
 safe_list(Es, St) ->
     foldr(fun (E, {Ces,Esp,St0}) ->
 		  {Ce,Ep,St1} = safe(E, St0),
@@ -1901,11 +1908,19 @@ pattern_map_pair({map_field_exact,L,K,V}, St0) ->
 		 val=Cv},EpsK++EpsV,St2}.
 
 pat_alias_map_pairs(Ps) ->
-    D = foldl(fun(#c_map_pair{key=K0}=Pair, D0) ->
-		      K = cerl:set_ann(K0, []),
-		      dict:append(K, Pair, D0)
-	      end, dict:new(), Ps),
-    pat_alias_map_pairs_1(dict:to_list(D)).
+    D0 = foldl(fun(#c_map_pair{key=K0}=Pair, A) ->
+                       K = cerl:set_ann(K0, []),
+                       case A of
+                           #{K:=Aliases} ->
+                               A#{K:=[Pair|Aliases]};
+                           #{} ->
+                               A#{K=>[Pair]}
+                       end
+               end, #{}, Ps),
+    %% We must sort to ensure that the order remains consistent
+    %% between compilations.
+    D = sort(maps:to_list(D0)),
+    pat_alias_map_pairs_1(D).
 
 pat_alias_map_pairs_1([{_,[#c_map_pair{val=V0}=Pair|Vs]}|T]) ->
     V = foldl(fun(#c_map_pair{val=V}, Pat) ->
@@ -2052,9 +2067,8 @@ new_vars_1(N, Anno, St0, Vs) when N > 0 ->
     new_vars_1(N-1, Anno, St1, [V|Vs]);
 new_vars_1(0, _, St, Vs) -> {Vs,St}.
 
-function_clause(Ps, LineAnno, Name) ->
-    FcAnno = [{function_name,Name}|LineAnno],
-    fail_clause(Ps, FcAnno,
+function_clause(Ps, LineAnno) ->
+    fail_clause(Ps, LineAnno,
 		ann_c_tuple(LineAnno, [#c_literal{val=function_clause}|Ps])).
 
 fail_clause(Pats, Anno, Arg) ->

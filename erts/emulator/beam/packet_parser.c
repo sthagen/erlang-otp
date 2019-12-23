@@ -816,9 +816,6 @@ int packet_parse_http(const char* buf, int len, int* statep,
             ptr++;
             if (--n == 0) return -1;
         }
-        while (n && SP(ptr)) { /* Skip white space before ':' */
-            ptr++; n--;
-        } 
         if (*ptr != ':') {
             return -1;
         }
@@ -837,7 +834,9 @@ int packet_parse_http(const char* buf, int len, int* statep,
         while (n && SP(ptr)) {
             ptr++; n--;
         }
-        return pcb->http_header(arg, name, name_ptr, name_len,
+        return pcb->http_header(arg, name,
+                                name_ptr, name_len,
+                                buf, name_len,
                                 ptr, n);
     }
     return -1;

@@ -86,9 +86,7 @@
               sockaddr_in4/0,
               sockaddr_in6/0,
               sockaddr_un/0,
-
-              accept_flags/0,
-              accept_flag/0,
+              sockaddr_ll/0,
 
               send_flags/0,
               send_flag/0,
@@ -136,6 +134,11 @@
               cmsghdr_type/0,
               %% cmsghdr_data/0,
               cmsghdr_recv/0, cmsghdr_send/0,
+
+              ee_origin/0,
+              icmp_dest_unreach/0,
+              icmpv6_dest_unreach/0,
+              extended_err/0,
 
               uint8/0,
               uint16/0,
@@ -215,7 +218,7 @@
                        }.
 
 %% If the integer value is used, its up to the caller to ensure its valid!
--type ip_tos() :: lowdeley |
+-type ip_tos() :: lowdelay |
                   throughput |
                   reliability |
                   mincost |
@@ -320,9 +323,19 @@
                           addr     := any | loopback | ip6_address(),
                           flowinfo := in6_flow_info(),
                           scope_id := in6_scope_id()}.
+-type sockaddr_ll() :: #{family   := packet,
+                         protocol := non_neg_integer(),
+                         ifindex  := integer(),
+                         pkttype  := packet_type(),
+                         hatype   := non_neg_integer(),
+                         addr     := binary()}.
+-type packet_type() :: host | broadcast | multicast | otherhost |
+                       outgoing | loopback | user | kernel | fastroute |
+                       non_neg_integer().
 -type sockaddr() :: sockaddr_in4() |
                     sockaddr_in6() |
-                    sockaddr_un().
+                    sockaddr_un()  |
+                    sockaddr_ll().
 
 -define(SOCKADDR_IN4_DEFAULTS(A), #{port => 0,
                                     addr => A}).
@@ -382,7 +395,7 @@
                          oobinline |
                          passcred |
                          peek_off |
-                         peekcred |
+                         peercred |
                          priority |
                          protocol |
                          rcvbuf |
@@ -452,7 +465,6 @@
         esp_network_level |
         faith |
         flowinfo |
-        hoplimit |
         hopopts |
         ipcomp_level |
         join_group |
@@ -465,6 +477,7 @@
         portrange |
         pktoptions |
         recverr |
+        recvhoplimit | hoplimit |
         recvpktinfo | pktinfo |
         recvtclass |
         router_alert |
@@ -541,9 +554,6 @@
 
 -opaque socket() :: #socket{}.
 
--type accept_flags() :: [accept_flag()].
--type accept_flag()  :: nonblock | cloexec.
-
 -type send_flags() :: [send_flag()].
 -type send_flag()  :: confirm |
                       dontroute |
@@ -552,13 +562,6 @@
                       nosignal |
                       oob.
 
-%% Extend with OWN flags for other usage:
-%%   - adapt-buffer-sz:
-%%     This will have the effect that the nif recvfrom will use
-%%     MSG_PEEK to ensure no part of the message is lost, but if
-%%     necessary adapt (increase) the buffer size until all of
-%%     it fits.
-%%
 %% Note that not all of these flags are useful for every recv function!
 %%
 -type recv_flags() :: [recv_flag()].
@@ -593,13 +596,15 @@
 %% able to decode the data, in which case it will be a binary.
 
 -type cmsghdr_level() :: socket | ip | ipv6 | integer().
--type cmsghdr_type()  :: timestamp |
-                         pktinfo |
-                         tos |
-                         ttl |
-                         rights |
-                         credentials |
+-type cmsghdr_type()  :: credentials |
+                         hoplevel    |
                          origdstaddr |
+                         pktinfo     |
+                         recvtos     |
+                         rights |
+                         timestamp   |
+                         tos |
+                         ttl         |
                          integer().
 -type cmsghdr_recv() :: 
         #{level := socket,    type := timestamp,   data := timeval()}      |
@@ -607,22 +612,73 @@
         #{level := socket,    type := credentials, data := binary()}       |
         #{level := socket,    type := integer(),   data := binary()}       |
         #{level := ip,        type := tos,         data := ip_tos()}       |
+        #{level := ip,        type := recvtos,     data := ip_tos()}       |
         #{level := ip,        type := ttl,         data := integer()}      |
+        #{level := ip,        type := recvttl,     data := integer()}      |
         #{level := ip,        type := pktinfo,     data := ip_pktinfo()}   |
         #{level := ip,        type := origdstaddr, data := sockaddr_in4()} |
+        #{level := ip,        type := recverr,     data := extended_err() | binary()} |
         #{level := ip,        type := integer(),   data := binary()}       |
+        #{level := ipv6,      type := hoplevel,    data := integer()}      |
         #{level := ipv6,      type := pktinfo,     data := ipv6_pktinfo()} |
+        #{level := ipv6,      type := recverr,     data := extended_err() | binary()} |
+        #{level := ipv6,      type := tclass,      data := integer()}      |
         #{level := ipv6,      type := integer(),   data := binary()}       |
         #{level := integer(), type := integer(),   data := binary()}.
 -type cmsghdr_send() :: 
-        #{level := socket,    type := integer(), data := binary()} |
-        #{level := ip,        type := tos,       data := ip_tos()  | binary()} |
-        #{level := ip,        type := ttl,       data := integer() | binary()} |
-        #{level := ip,        type := integer(), data := binary()} |
-        #{level := ipv6,      type := integer(), data := binary()} |
-        #{level := udp,       type := integer(), data := binary()} |
-        #{level := integer(), type := integer(), data := binary()}.
+        #{level := socket,    type := timestamp,   data := binary()} |
+        #{level := socket,    type := rights,      data := binary()} |
+        #{level := socket,    type := credentials, data := binary()} |
+        #{level := socket,    type := integer(),   data := binary()} |
+        #{level := ip,        type := tos,         data := ip_tos()  | binary()} |
+        #{level := ip,        type := ttl,         data := integer() | binary()} |
+        #{level := ip,        type := integer(),   data := binary()} |
+        #{level := ipv6,      type := tclass,      data := integer()}      |
+        #{level := ipv6,      type := integer(),   data := binary()} |
+        #{level := udp,       type := integer(),   data := binary()} |
+        #{level := integer(), type := integer(),   data := binary()}.
 
+-type ee_origin() :: none | local | icmp | icmp6 | uint8().
+-type icmp_dest_unreach() :: net_unreach | host_unreach | port_unreach | frag_needed |
+                             net_unknown | host_unknown | uint8().
+-type icmpv6_dest_unreach() :: noroute | adm_prohibited | not_neighbour | addr_unreach |
+                               port_unreach | policy_fail | reject_route | uint8().
+-type extended_err() ::
+        #{error    := term(),
+          origin   := icmp,
+          type     := dest_unreach,
+          code     := icmp_dest_unreach(),
+          info     := uint32(),
+          data     := uint32(),
+          offender := undefined | sockaddr()} |
+        #{error    := term(),
+          origin   := icmp,
+          type     := time_exceeded | uint8(),
+          code     := uint8(),
+          info     := uint32(),
+          data     := uint32(),
+          offender := undefined | sockaddr()} |
+        #{error    := term(),
+          origin   := icmp6,
+          type     := dest_unreach,
+          code     := icmpv6_dest_unreach(),
+          info     := uint32(),
+          data     := uint32(),
+          offender := undefined | sockaddr()} |
+        #{error    := term(),
+          origin   := icmp6,
+          type     := pkt_toobig | time_exceeded | uint8(),
+          code     := uint8(),
+          info     := uint32(),
+          data     := uint32(),
+          offender := undefined | sockaddr()} |
+        #{error    := term(),
+          origin   := ee_origin(),
+          type     := uint8(),
+          code     := uint8(),
+          info     := uint32(),
+          data     := uint32(),
+          offender := undefined | sockaddr()}.
 
 -opaque select_tag() :: atom().
 -opaque select_ref() :: reference().
@@ -722,9 +778,9 @@
 -define(SOCKET_OPT_SOCK_LINGER,         11).
 %% -define(SOCKET_OPT_SOCK_MARK,           12).
 -define(SOCKET_OPT_SOCK_OOBINLINE,      13).
-%% -define(SOCKET_OPT_SOCK_PASSCRED,       14).
+-define(SOCKET_OPT_SOCK_PASSCRED,       14).
 -define(SOCKET_OPT_SOCK_PEEK_OFF,       15).
-%% -define(SOCKET_OPT_SOCK_PEEKCRED,       16).
+%% -define(SOCKET_OPT_SOCK_PEERCRED,       16).
 -define(SOCKET_OPT_SOCK_PRIORITY,       17).
 -define(SOCKET_OPT_SOCK_PROTOCOL,       18).
 -define(SOCKET_OPT_SOCK_RCVBUF,         19).
@@ -802,14 +858,15 @@
 %% -define(SOCKET_OPT_IPV6_PORTRANGE,         22). % FreeBSD
 %% -define(SOCKET_OPT_IPV6_PKTOPTIONS,        23). % FreeBSD
 -define(SOCKET_OPT_IPV6_RECVERR,           24).
--define(SOCKET_OPT_IPV6_RECVPKTINFO,       25). % On FreeBSD: PKTINFO
-%% -define(SOCKET_OPT_IPV6_RECVTCLASS,        26).
--define(SOCKET_OPT_IPV6_ROUTER_ALERT,      27).
--define(SOCKET_OPT_IPV6_RTHDR,             28).
-%% -define(SOCKET_OPT_IPV6_TCLASS,            29). % FreeBSD
--define(SOCKET_OPT_IPV6_UNICAST_HOPS,      30).
-%% -define(SOCKET_OPT_IPV6_USE_MIN_MTU,       31). % FreeBSD
--define(SOCKET_OPT_IPV6_V6ONLY,            32).
+-define(SOCKET_OPT_IPV6_RECVHOPLIMIT,      25).
+-define(SOCKET_OPT_IPV6_RECVPKTINFO,       26). % On FreeBSD: PKTINFO
+-define(SOCKET_OPT_IPV6_RECVTCLASS,        27).
+-define(SOCKET_OPT_IPV6_ROUTER_ALERT,      28).
+-define(SOCKET_OPT_IPV6_RTHDR,             29).
+-define(SOCKET_OPT_IPV6_TCLASS,            30). % FreeBSD
+-define(SOCKET_OPT_IPV6_UNICAST_HOPS,      31).
+%% -define(SOCKET_OPT_IPV6_USE_MIN_MTU,       32). % FreeBSD
+-define(SOCKET_OPT_IPV6_V6ONLY,            33).
 
 %% *** TCP (socket) options
 -define(SOCKET_OPT_TCP_CONGESTION,      1).
@@ -868,10 +925,12 @@
 -define(SOCKET_SHUTDOWN_HOW_READ_WRITE, 2).
 
 
--define(SOCKET_SUPPORTS_OPTIONS, 16#0001).
--define(SOCKET_SUPPORTS_SCTP,    16#0002).
--define(SOCKET_SUPPORTS_IPV6,    16#0003).
--define(SOCKET_SUPPORTS_LOCAL,   16#0004).
+-define(SOCKET_SUPPORTS_OPTIONS,      16#0001).
+-define(SOCKET_SUPPORTS_SCTP,         16#0002).
+-define(SOCKET_SUPPORTS_IPV6,         16#0003).
+-define(SOCKET_SUPPORTS_LOCAL,        16#0004).
+-define(SOCKET_SUPPORTS_SEND_FLAGS,   16#0005).
+-define(SOCKET_SUPPORTS_RECV_FLAGS,   16#0006).
 
 
 %% ===========================================================================
@@ -952,30 +1011,38 @@ info(#socket{ref = SockRef}) ->
 -type supports_options_tcp()    :: [{tcp_socket_option(),  boolean()}].
 -type supports_options_udp()    :: [{udp_socket_option(),  boolean()}].
 -type supports_options_sctp()   :: [{sctp_socket_option(), boolean()}].
--type supports_options() :: [{socket, supports_options_socket()} |
-                             {ip,     supports_options_ip()}     |
-                             {ipv6,   supports_options_ipv6()}   |
-                             {tcp,    supports_options_tcp()}    |
-                             {udp,    supports_options_udp()}    |
-                             {sctp,   supports_options_sctp()}].
+-type supports_options()        :: [{socket, supports_options_socket()} |
+                                    {ip,     supports_options_ip()}     |
+                                    {ipv6,   supports_options_ipv6()}   |
+                                    {tcp,    supports_options_tcp()}    |
+                                    {udp,    supports_options_udp()}    |
+                                    {sctp,   supports_options_sctp()}].
+-type supports_send_flags()     :: [{send_flag(), boolean()}].
+-type supports_recv_flags()     :: [{recv_flag(), boolean()}].
 
--spec supports() -> [{options, supports_options()} | 
-                     {sctp,    boolean()} |
-                     {ipv6,    boolean()} |
-                     {local,   boolean()}].
+-spec supports() -> [{options,    supports_options()} | 
+                     {sctp,       boolean()} |
+                     {ipv6,       boolean()} |
+                     {local,      boolean()} |
+                     {send_flags, supports_send_flags()} |
+                     {recv_flags, supports_recv_flags()}].
 
 supports() ->
-    [{options, supports(options)},
-     {sctp,    supports(sctp)},
-     {ipv6,    supports(ipv6)},
-     {local,   supports(local)}].
+    [{options,    supports(options)},
+     {sctp,       supports(sctp)},
+     {ipv6,       supports(ipv6)},
+     {local,      supports(local)},
+     {send_flags, supports(send_flags)},
+     {recv_flags, supports(recv_flags)}].
 
 
 -dialyzer({nowarn_function, supports/1}).
--spec supports(options) -> supports_options();
-              (sctp)    -> boolean();
-              (ipv6)    -> boolean();
-              (local)   -> boolean();
+-spec supports(options)    -> supports_options();
+              (sctp)       -> boolean();
+              (ipv6)       -> boolean();
+              (local)      -> boolean();
+              (send_flags) -> supports_send_flags();
+              (recv_flags) -> supports_recv_flags();
               (Key1)    -> false when
       Key1 :: term().
                         
@@ -987,39 +1054,43 @@ supports(ipv6) ->
     nif_supports(?SOCKET_SUPPORTS_IPV6);
 supports(local) ->
     nif_supports(?SOCKET_SUPPORTS_LOCAL);
+supports(send_flags) ->
+    nif_supports(?SOCKET_SUPPORTS_SEND_FLAGS);
+supports(recv_flags) ->
+    nif_supports(?SOCKET_SUPPORTS_RECV_FLAGS);
 supports(_Key1) ->
     false.
 
 -dialyzer({nowarn_function, supports/2}).
--spec supports(options, socket) -> supports_options_socket();
-              (options, ip) -> supports_options_ip();
-              (options, ipv6) -> supports_options_ipv6();
-              (options, tcp) -> supports_options_tcp();
-              (options, udp) -> supports_options_udp();
-              (options, sctp) -> supports_options_sctp();
-              (Key1, Key2) -> false when
-      Key1 :: term(),
-      Key2 :: term().
+-spec supports(options,    socket)   -> supports_options_socket();
+              (options,    ip)       -> supports_options_ip();
+              (options,    ipv6)     -> supports_options_ipv6();
+              (options,    tcp)      -> supports_options_tcp();
+              (options,    udp)      -> supports_options_udp();
+              (options,    sctp)     -> supports_options_sctp();
+              (send_flags, SendFlag :: send_flag()) -> boolean();
+              (recv_flags, RecvFlag :: recv_flag()) -> boolean();
+              (Key1,       Key2)     -> false when
+      Key1     :: term(),
+      Key2     :: term().
 
 supports(options, Level) ->
     proplists:get_value(Level, supports(options), false);
+supports(send_flags, Flag) ->
+    proplists:get_value(Flag, supports(send_flags), false);
+supports(recv_flags, Flag) ->
+    proplists:get_value(Flag, supports(recv_flags), false);
 supports(_Key1, _Level) ->
     false.
 
 
 -dialyzer({nowarn_function, supports/3}).
--spec supports(options, socket, Opt) -> boolean() when
-      Opt :: socket_option();
-              (options, ip, Opt) -> boolean() when
-      Opt :: ip_socket_option();
-              (options, ipv6, Opt) -> boolean() when
-      Opt :: ipv6_socket_option();
-              (options, tcp, Opt) -> boolean() when
-      Opt :: tcp_socket_option();
-              (options, udp, Opt) -> boolean() when
-      Opt :: udp_socket_option();
-              (options, sctp, Opt) -> boolean() when
-      Opt :: sctp_socket_option();
+-spec supports(options, socket, Opt :: socket_option()) -> boolean();
+              (options, ip,     Opt :: ip_socket_option()) -> boolean();
+              (options, ipv6,   Opt :: ipv6_socket_option()) -> boolean();
+              (options, tcp,    Opt :: tcp_socket_option()) -> boolean();
+              (options, udp,    Opt :: udp_socket_option()) -> boolean();
+              (options, sctp,   Opt :: sctp_socket_option()) -> boolean();
               (Key1, Key2, Key3) -> false when
       Key1 :: term(),
       Key2 :: term(),
@@ -1151,9 +1222,10 @@ open(Domain, Type, Protocol, Extra) when is_map(Extra) ->
 %% Note that Addr can only have the value of broadcast *if* Domain =:= inet!
 %%
 
--spec bind(Socket, Addr) -> ok | {error, Reason} when
+-spec bind(Socket, Addr) -> {ok, Port} | {error, Reason} when
       Socket :: socket(),
       Addr   :: any | broadcast | loopback | sockaddr(),
+      Port   :: port_number(),
       Reason :: term().
 
 bind(#socket{ref = SockRef}, Addr)
@@ -2725,6 +2797,7 @@ enc_protocol(dgram,     ip)      -> ?SOCKET_PROTOCOL_IP;
 enc_protocol(stream,    tcp)     -> ?SOCKET_PROTOCOL_TCP;
 enc_protocol(dgram,     udp)     -> ?SOCKET_PROTOCOL_UDP;
 enc_protocol(seqpacket, sctp)    -> ?SOCKET_PROTOCOL_SCTP;
+enc_protocol(dgram,     icmp)    -> ?SOCKET_PROTOCOL_ICMP;
 enc_protocol(raw,       icmp)    -> ?SOCKET_PROTOCOL_ICMP;
 enc_protocol(raw,       igmp)    -> ?SOCKET_PROTOCOL_IGMP;
 enc_protocol(raw,       {raw, P} = RAW) when is_integer(P) -> RAW;
@@ -2912,8 +2985,11 @@ enc_setopt_value(socket, linger, {OnOff, Secs} = V, _D, _T, _P)
     V;
 enc_setopt_value(socket, oobinline, V, _D, _T, _P) when is_boolean(V) ->
     V;
-enc_setopt_value(socket, peek_off, V, _D, _T, _P) when is_integer(V) ->
+enc_setopt_value(socket, passcred, V, _D, _T, _P) when is_boolean(V) ->
     V;
+enc_setopt_value(socket, peek_off = Opt, V, _D, _T, _P) when is_integer(V) ->
+    %% V;
+    not_supported(Opt);
 enc_setopt_value(socket, priority, V, _D, _T, _P) when is_integer(V) ->
     V;
 enc_setopt_value(socket, rcvbuf, V, _D, _T, _P) when is_integer(V) ->
@@ -3120,14 +3196,23 @@ enc_setopt_value(ipv6, multicast_loop, V, _D, _T, _P)
 enc_setopt_value(ipv6, recverr, V, _D, _T, _P)
   when is_boolean(V) ->
     V;
+enc_setopt_value(ipv6, recvhoplimit, V, _D, T, _P)
+  when is_boolean(V) andalso ((T =:= dgram) orelse (T =:= raw)) ->
+    V;
 enc_setopt_value(ipv6, Opt, V, _D, _T, _P)
   when ((Opt =:= recvpktinfo) orelse (Opt =:= pktinfo)) andalso 
        is_boolean(V) ->
+    V;
+enc_setopt_value(ipv6, recvtclass, V, _D, T, _P)
+  when is_boolean(V) andalso ((T =:= dgram) orelse (T =:= raw)) ->
     V;
 enc_setopt_value(ipv6, router_alert, V, _D, T, _P)
   when is_integer(V) andalso (T =:= raw) ->
     V;
 enc_setopt_value(ipv6, rthdr, V, _D, T, _P)
+  when is_boolean(V) andalso ((T =:= dgram) orelse (T =:= raw)) ->
+    V;
+enc_setopt_value(ipv6, tclass, V, _D, T, _P)
   when is_boolean(V) andalso ((T =:= dgram) orelse (T =:= raw)) ->
     V;
 enc_setopt_value(ipv6, unicast_hops, V, _D, _T, _P)
@@ -3145,6 +3230,9 @@ enc_setopt_value(tcp, congestion, V, _D, T, P)
   when is_list(V) andalso
        (T =:= stream) andalso
        (P =:= tcp) ->
+    V;
+enc_setopt_value(tcp, cork, V, _D, T, P)
+  when is_boolean(V) andalso (T =:= stream) andalso (P =:= tcp) ->
     V;
 enc_setopt_value(tcp, maxseg, V, _D, T, P)
   when is_integer(V) andalso
@@ -3267,8 +3355,19 @@ enc_getopt_key(Level, Opt, Domain, Type, Protocol) ->
 %% For the most part, we simply let the value pass through, but for some
 %% values we may need to do an actual decode.
 %%
+%% For some reason dialyzer thinks that the only valid value for Opt to 
+%% this function is otp_socket_option(). Of course without explaining
+%% how it came to that conclusion... And since I know that to be false...
+%%
 
-%% Let the user deal with this for now...
+-dialyzer({nowarn_function, dec_getopt_value/6}).
+
+%% This string is NULL-terminated, but the general function we use
+%% in the nif code does not know that. So, deal with it here.
+dec_getopt_value(tcp = _L, congestion = _Opt, Alg, _D, _T, _P) when is_list(Alg) ->
+    {Str, _} = lists:splitwith(fun(0) -> false; (_) -> true end, Alg),
+    Str;
+%% Let the user deal with the rest for now...
 dec_getopt_value(_L, _Opt, V, _D, _T, _P) ->
     V.
 
@@ -3408,11 +3507,12 @@ enc_sockopt_key(socket = L, mark = Opt, _Dir, _D, _T, _P) ->
     not_supported({L, Opt});
 enc_sockopt_key(socket = _L, oobinline = _Opt, _Dir, _D, _T, _P) ->
     ?SOCKET_OPT_SOCK_OOBINLINE;
-enc_sockopt_key(socket = L, passcred = Opt, _Dir, _D, _T, _P) ->
+enc_sockopt_key(socket, passcred, _Dir, _D, _T, _P) ->
+    ?SOCKET_OPT_SOCK_PASSCRED;
+enc_sockopt_key(socket = L, peek_off = Opt, _Dir, local = _D, _T, _P) ->
+    %% ?SOCKET_OPT_SOCK_PEEK_OFF;
     not_supported({L, Opt});
-enc_sockopt_key(socket = _L, peek_off = _Opt, _Dir, local = _D, _T, _P) ->
-    ?SOCKET_OPT_SOCK_PEEK_OFF;
-enc_sockopt_key(socket = L, peekcred = Opt, get = _Dir, _D, _T, _P) ->
+enc_sockopt_key(socket = L, peercred = Opt, get = _Dir, local = _D, _T, _P) ->
     not_supported({L, Opt});
 enc_sockopt_key(socket, priority = _Opt, _Dir, _D, _T, _P) ->
     ?SOCKET_OPT_SOCK_PRIORITY;
@@ -3552,7 +3652,7 @@ enc_sockopt_key(ipv6 = L, esp_network_level = Opt, _Dir, _D, _T, _P) ->
     not_supported({L, Opt});
 enc_sockopt_key(ipv6 = _L, flowinfo = _Opt, _Dir, _D, T, _P)
   when (T =:= dgram) orelse (T =:= raw) ->
-    ?SOCKET_OPT_IPV6_DSTOPTS;
+    ?SOCKET_OPT_IPV6_FLOWINFO;
 enc_sockopt_key(ipv6, hoplimit = _Opt, _Dir, _D, T, _P)
   when (T =:= dgram) orelse (T =:= raw) ->
     ?SOCKET_OPT_IPV6_HOPLIMIT;
@@ -3582,19 +3682,22 @@ enc_sockopt_key(ipv6 = L, pktoptions = Opt, _Dir, _D, _T, _P) ->
     not_supported({L, Opt});
 enc_sockopt_key(ipv6 = _L, recverr = _Opt, _Dir, _D, _T, _P) ->
     ?SOCKET_OPT_IPV6_RECVERR;
+enc_sockopt_key(ipv6, recvhoplimit = _Opt, _Dir, _D, T, _P)
+  when (T =:= dgram) orelse (T =:= raw) ->
+    ?SOCKET_OPT_IPV6_RECVHOPLIMIT;
 enc_sockopt_key(ipv6 = _L, Opt, _Dir, _D, T, _P) 
   when ((Opt =:= recvpktinfo) orelse (Opt =:= pktinfo)) andalso 
        ((T =:= dgram) orelse (T =:= raw)) ->
     ?SOCKET_OPT_IPV6_RECVPKTINFO;
-enc_sockopt_key(ipv6 = L, recvtclass = Opt, _Dir, _D, _T, _P) ->
-    not_supported({L, Opt});
+enc_sockopt_key(ipv6 = _L, recvtclass = _Opt, _Dir, _D, _T, _P) ->
+    ?SOCKET_OPT_IPV6_RECVTCLASS;
 enc_sockopt_key(ipv6 = _L, router_alert = _Opt, _Dir, _D, T, _P) when (T =:= raw) ->
     ?SOCKET_OPT_IPV6_ROUTER_ALERT;
 enc_sockopt_key(ipv6 = _L, rthdr = _Opt, _Dir, _D, T, _P) 
   when ((T =:= dgram) orelse (T =:= raw)) ->
     ?SOCKET_OPT_IPV6_RTHDR;
-enc_sockopt_key(ipv6 = L, tclass = Opt, _Dir, _D, _T, _P) ->
-    not_supported({L, Opt});
+enc_sockopt_key(ipv6 = _L, tclass = _Opt, _Dir, _D, _T, _P) ->
+    ?SOCKET_OPT_IPV6_TCLASS;
 enc_sockopt_key(ipv6 = _L, unicast_hops = _Opt, _Dir, _D, _T, _P) ->
     ?SOCKET_OPT_IPV6_UNICAST_HOPS;
 enc_sockopt_key(ipv6 = L, use_min_mtu = Opt, _Dir, _D, _T, _P) ->
@@ -3609,8 +3712,8 @@ enc_sockopt_key(ipv6 = L, UnknownOpt, _Dir, _D, _T, _P) ->
 %% but they are difficult to get portable...
 enc_sockopt_key(tcp, congestion = _Opt, _Dir, _D, _T, _P) ->
     ?SOCKET_OPT_TCP_CONGESTION;
-enc_sockopt_key(tcp = L, cork = Opt, _Dir, _D, _T, _P) ->
-    not_supported({L, Opt});
+enc_sockopt_key(tcp = _L, cork = _Opt, _Dir, _D, _T, _P) ->
+    ?SOCKET_OPT_TCP_CORK;
 enc_sockopt_key(tcp = L, keepidle = Opt, _Dir, _D, _T, _P) ->
     not_supported({L, Opt});
 enc_sockopt_key(tcp = L, keepintvl = Opt, _Dir, _D, _T, _P) ->

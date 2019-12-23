@@ -1500,23 +1500,15 @@ inline(E, #app{opnds = Opnds, ctxt = Ctxt, loc = L}, Ren, Env, S) ->
 	    %% respective operand structures from the app-structure.
 	    {Rs, Ren1, Env1, S1} = bind_locals(Vs, Opnds, Ren, Env, S),
 
-	    %% function_clause exceptions that have been inlined
-	    %% into another function (or even into the same function)
-	    %% will not work properly. The v3_kernel pass will
-	    %% take care of it, but we will need to help it by
-	    %% removing any function_name annotations on match_fail
-	    %% primops that we inline.
-	    E1 = kill_function_name_anns(fun_body(E)),
-
 	    %% Visit the body in the context saved in the structure.
-	    {E2, S2} = i(E1, Ctxt, Ren1, Env1, S1),
+	    {E1, S2} = i(fun_body(E), Ctxt, Ren1, Env1, S1),
 
 	    %% Create necessary bindings and/or set flags.
-	    {E3, S3} = make_let_bindings(Rs, E2, S2),
+	    {E2, S3} = make_let_bindings(Rs, E1, S2),
 
 	    %% Lastly, flag the application as inlined, since the inlining
 	    %% attempt was not aborted before we reached this point.
-	    {E3, st__set_app_inlined(L, S3)}
+	    {E2, st__set_app_inlined(L, S3)}
     end.
 
 %% For the (possibly renamed) argument variables to an inlined call,
@@ -2469,19 +2461,6 @@ kill_id_anns([A | As]) ->
 kill_id_anns([]) ->
     [].
 
-kill_function_name_anns(Body) ->
-    F = fun(P) ->
-		case type(P) of
-		    primop ->
-			Ann = get_ann(P),
-			Ann1 = lists:keydelete(function_name, 1, Ann),
-			set_ann(P, Ann1);
-		    _ ->
-			P
-		end
-	end,
-    cerl_trees:map(F, Body).
-
 
 %% =====================================================================
 %% General utilities
@@ -2526,21 +2505,19 @@ set_clause_bodies([], _) ->
 %% Abstract datatype: renaming()
 
 ren__identity() ->
-    dict:new().
+    #{}.
 
 ren__add(X, Y, Ren) ->
-    dict:store(X, Y, Ren).
+    Ren#{X=>Y}.
 
 ren__map(X, Ren) ->
-    case dict:find(X, Ren) of
-	{ok, Y} ->
-	    Y;
-	error ->
-	    X
+    case Ren of
+        #{X:=Y} -> Y;
+        #{} -> X
     end.
 
 ren__add_identity(X, Ren) ->
-    dict:erase(X, Ren).
+    maps:remove(X, Ren).
 
 
 %% =====================================================================
@@ -2633,7 +2610,7 @@ st__new(Effort, Size, Unroll) ->
 	   size = counter__new_passive(Size),
 	   effort = counter__new_passive(Effort),
 	   unroll = Unroll,
-	   cache = dict:new(),
+	   cache = maps:new(),
  	   var_flags = ets:new(var, EtsOpts),
 	   opnd_flags = ets:new(opnd, EtsOpts),
 	   app_flags = ets:new(app, EtsOpts)}.
@@ -2664,12 +2641,12 @@ st__get_var_referenced(L, S) ->
     ets:lookup_element(S#state.var_flags, L, #var_flags.referenced).
 
 st__lookup_opnd_cache(L, S) ->
-    dict:find(L, S#state.cache).
+    maps:find(L, S#state.cache).
 
 %% Note that setting the cache should only be done once.
 
 st__set_opnd_cache(L, C, S) ->
-    S#state{cache = dict:store(L, C, S#state.cache)}.
+    S#state{cache = maps:put(L, C, S#state.cache)}.
 
 st__set_opnd_effect(L, S) ->
     T = S#state.opnd_flags,

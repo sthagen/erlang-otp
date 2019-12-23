@@ -577,6 +577,17 @@ else
   WERRORFLAGS=""
 fi
 
+AC_MSG_CHECKING([C99 support])
+
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([],[
+#if __STDC_VERSION__ < 199901L
+  #error "Not C99"
+#endif])],
+  [AC_MSG_RESULT([yes])],
+    [AC_MSG_RESULT([no])
+     CFLAGS="-std=gnu99 $CFLAGS"
+     DEBUG_CFLAGS="-std=gnu99 $DEBUG_CFLAGS"])
+
 AC_MSG_CHECKING([CFLAGS for -O switch])
 case "$CFLAGS" in
      *-O*) AC_MSG_RESULT([yes]) ;;
@@ -1008,6 +1019,18 @@ case "${host}:${GCC}" in
     ;;
   *)
     ;;
+esac
+
+
+case $host_os in
+        darwin19*)
+	    # Disable stack checking to avoid crashing with a segment fault
+	    # in macOS Catalina.
+	    AC_MSG_NOTICE([Turning off stack check on macOS 10.15 (Catalina)])
+	    CFLAGS="-fno-stack-check $CFLAGS"
+	    ;;
+        *)
+	    ;;
 esac
 
 
@@ -1658,6 +1681,12 @@ dnl Check if we have timerfds to be used for high accuracy
 dnl epoll_wait timeouts
 AC_CHECK_HEADERS([sys/timerfd.h])
 
+dnl Check if we have the header file 'netpacket/packat.h' in which
+dnl type 'struct sockaddr_ll' is defined.
+AC_CHECK_HEADERS([netpacket/packet.h],
+	have_netpacket_packet_h=yes,
+	have_netpacket_packet_h=no)
+
 dnl Check for kernel SCTP support
 AC_SUBST(LIBSCTP)
 if test "x$enable_sctp" != "xno" ; then
@@ -1712,6 +1741,9 @@ fi
 dnl Check for setns
 AC_CHECK_HEADERS(sched.h setns.h)
 AC_CHECK_FUNCS([setns])
+
+dnl Check for linux/errqueue
+AC_CHECK_HEADERS(linux/errqueue.h)
 
 HAVE_VALGRIND=no
 AC_CHECK_HEADER(valgrind/valgrind.h, HAVE_VALGRIND=yes)

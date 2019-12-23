@@ -75,7 +75,7 @@ static Export *gather_gc_info_res_trap;
 static Export *gather_system_check_res_trap;
 
 static Export *is_process_alive_trap;
-
+static Export *get_internal_state_blocked;
 
 #define DECL_AM(S) Eterm AM_ ## S = am_atom_put(#S, sizeof(#S) - 1)
 
@@ -549,6 +549,8 @@ static int collect_one_origin_monitor(ErtsMonitor *mon, void *vmicp, Sint reds)
         case ERTS_MON_TYPE_PORT:
         case ERTS_MON_TYPE_DIST_PROC:
         case ERTS_MON_TYPE_TIME_OFFSET:
+            if (mon->flags & ERTS_ML_FLG_SPAWN_PENDING)
+                break; /* Not an active monitor... */
             if (!(mon->flags & ERTS_ML_FLG_NAME)) {
                 micp->mi[micp->mi_i].named = 0;
                 micp->mi[micp->mi_i].entity.term = mon->other.item;
@@ -1071,7 +1073,7 @@ process_info_bif(Process *c_p, Eterm pid, Eterm opt, int always_wrap, int pi2)
     ERTS_CT_ASSERT(ERTS_PI_DEF_ARR_SZ > 0);
 
     if (c_p->common.id == pid) {
-        int local_only = c_p->flags & F_LOCAL_SIGS_ONLY;
+        int local_only = c_p->sig_qs.flags & FS_LOCAL_SIGS_ONLY;
         int sres, sreds, reds_left;
 
         reds_left = ERTS_BIF_REDS_LEFT(c_p);
@@ -1089,7 +1091,7 @@ process_info_bif(Process *c_p, Eterm pid, Eterm opt, int always_wrap, int pi2)
         reds_left -= sreds;
 
         if (state & ERTS_PSFLG_EXITING) {
-            c_p->flags &= ~F_LOCAL_SIGS_ONLY;
+            c_p->sig_qs.flags &= ~FS_LOCAL_SIGS_ONLY;
             goto exited;
         }
         if (!sres | (reds_left <= 0)) {
@@ -1098,11 +1100,11 @@ process_info_bif(Process *c_p, Eterm pid, Eterm opt, int always_wrap, int pi2)
              * to yield and continue. Prevent fetching of
              * more signals by setting local-sigs-only flag.
              */
-            c_p->flags |= F_LOCAL_SIGS_ONLY;
+            c_p->sig_qs.flags |= FS_LOCAL_SIGS_ONLY;
             goto yield;
         }
 
-        c_p->flags &= ~F_LOCAL_SIGS_ONLY;
+        c_p->sig_qs.flags &= ~FS_LOCAL_SIGS_ONLY;
     }
 
     if (is_atom(opt)) {
@@ -1761,7 +1763,7 @@ process_info_aux(Process *c_p,
 
 	total_heap_size += rp->mbuf_sz;
 
-        if (rp->flags & F_ON_HEAP_MSGQ) {
+        if (rp->sig_qs.flags & FS_ON_HEAP_MSGQ) {
             ErtsMessage *mp;
             ASSERT(flags & ERTS_PI_FLAG_NEED_MSGQ_LEN);
             for (mp = rp->sig_qs.first; mp; mp = mp->next) {
@@ -1966,11 +1968,11 @@ process_info_aux(Process *c_p,
     }
 
     case ERTS_PI_IX_MESSAGE_QUEUE_DATA:
-	switch (rp->flags & (F_OFF_HEAP_MSGQ|F_ON_HEAP_MSGQ)) {
-	case F_OFF_HEAP_MSGQ:
+	switch (rp->sig_qs.flags & (FS_OFF_HEAP_MSGQ|FS_ON_HEAP_MSGQ)) {
+	case FS_OFF_HEAP_MSGQ:
 	    res = am_off_heap;
 	    break;
-	case F_ON_HEAP_MSGQ:
+	case FS_ON_HEAP_MSGQ:
 	    res = am_on_heap;
 	    break;
 	default:
@@ -2834,7 +2836,7 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
     /* Arguments that are unusual follow ... */
     else if (ERTS_IS_ATOM_STR("logical_processors", BIF_ARG_1)) {
 	int no;
-	erts_get_logical_processors(&no, NULL, NULL);
+	erts_get_logical_processors(&no, NULL, NULL, NULL);
 	if (no > 0)
 	    BIF_RET(make_small((Uint) no));
 	else {
@@ -2844,7 +2846,7 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
     }
     else if (ERTS_IS_ATOM_STR("logical_processors_online", BIF_ARG_1)) {
 	int no;
-	erts_get_logical_processors(NULL, &no, NULL);
+	erts_get_logical_processors(NULL, &no, NULL, NULL);
 	if (no > 0)
 	    BIF_RET(make_small((Uint) no));
 	else {
@@ -2854,7 +2856,17 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
     }
     else if (ERTS_IS_ATOM_STR("logical_processors_available", BIF_ARG_1)) {
 	int no;
-	erts_get_logical_processors(NULL, NULL, &no);
+	erts_get_logical_processors(NULL, NULL, &no, NULL);
+	if (no > 0)
+	    BIF_RET(make_small((Uint) no));
+	else {
+	    DECL_AM(unknown);
+	    BIF_RET(AM_unknown);
+	}
+    }
+    else if (ERTS_IS_ATOM_STR("cpu_quota", BIF_ARG_1)) {
+	int no;
+	erts_get_logical_processors(NULL, NULL, NULL, &no);
 	if (no > 0)
 	    BIF_RET(make_small((Uint) no));
 	else {
@@ -3890,8 +3902,7 @@ BIF_RETTYPE erts_debug_get_internal_state_1(BIF_ALIST_1)
 	}
 	else if (ERTS_IS_ATOM_STR("node_and_dist_references", BIF_ARG_1)) {
 	    /* Used by node_container_SUITE (emulator) */
-	    Eterm res = erts_get_node_and_dist_references(BIF_P);
-	    BIF_RET(res);
+            BIF_TRAP1(get_internal_state_blocked, BIF_P, BIF_ARG_1);
 	}
 	else if (ERTS_IS_ATOM_STR("monitoring_nodes", BIF_ARG_1)) {
 	    BIF_RET(erts_processes_monitoring_nodes(BIF_P));
@@ -4053,13 +4064,29 @@ BIF_RETTYPE erts_debug_get_internal_state_1(BIF_ALIST_1)
             BIF_RET(am_notsup);
 #endif
         }
-
+        else if (ERTS_IS_ATOM_STR("flxctr_memory_usage", BIF_ARG_1)) {
+            Sint mem = erts_flxctr_debug_memory_usage();
+            if (mem == -1) {
+                BIF_RET(am_notsup);
+            } else {
+		Uint hsz = BIG_UWORD_HEAP_SIZE((UWord)mem);
+		Eterm *hp = HAlloc(BIF_P, hsz);
+		BIF_RET(uword_to_big((UWord)mem, hp));
+            }
+        }
     }
     else if (is_tuple(BIF_ARG_1)) {
 	Eterm* tp = tuple_val(BIF_ARG_1);
 	switch (arityval(tp[0])) {
 	case 2: {
-	    if (ERTS_IS_ATOM_STR("process_status", tp[1])) {
+	    if (ERTS_IS_ATOM_STR("node_and_dist_references", tp[1])) {
+                if (tp[2] == am_blocked
+                    && erts_is_multi_scheduling_blocked() > 0) {
+                    Eterm res = erts_get_node_and_dist_references(BIF_P);
+                    BIF_RET(res);
+                }
+            }
+	    else if (ERTS_IS_ATOM_STR("process_status", tp[1])) {
 		/* Used by timer process_SUITE, timer_bif_SUITE, and
 		   node_container_SUITE (emulator) */
 		if (is_internal_pid(tp[2])) {
@@ -4377,6 +4404,9 @@ BIF_RETTYPE erts_debug_get_internal_state_1(BIF_ALIST_1)
 		  break;
 	      BIF_RET(res);
 	    }
+            else if (ERTS_IS_ATOM_STR("term_to_binary", tp[1])) {
+                return erts_debug_term_to_binary(BIF_P, tp[2], tp[3]);
+            }
 	    break;
 	}
 	default:
@@ -4642,9 +4672,14 @@ BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
 		flag = ERTS_DEBUG_WAIT_COMPLETED_TIMER_CANCELLATIONS;
             else if (ERTS_IS_ATOM_STR("aux_work", BIF_ARG_2))
                 flag = ERTS_DEBUG_WAIT_COMPLETED_AUX_WORK;
+            else if (ERTS_IS_ATOM_STR("thread_progress", BIF_ARG_2))
+                flag = ERTS_DEBUG_WAIT_COMPLETED_THREAD_PROGRESS;
 
-            if (flag && erts_debug_wait_completed(BIF_P, flag)) {
-                ERTS_BIF_YIELD_RETURN(BIF_P, am_ok);
+            if (flag) {
+                if (erts_debug_wait_completed(BIF_P, flag))
+                    ERTS_BIF_YIELD_RETURN(BIF_P, am_ok);
+                else
+                    BIF_ERROR(BIF_P, SYSTEM_LIMIT);
             }
 	}
         else if (ERTS_IS_ATOM_STR("broken_halt", BIF_ARG_1)) {
@@ -4723,7 +4758,6 @@ BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
         else if (ERTS_IS_ATOM_STR("ets_debug_random_split_join", BIF_ARG_1)) {
             if (is_tuple(BIF_ARG_2)) {
                 Eterm* tpl = tuple_val(BIF_ARG_2);
-
                 if (erts_ets_debug_random_split_join(tpl[1], tpl[2] == am_true))
                     BIF_RET(am_ok);
             }
@@ -4737,6 +4771,26 @@ BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
             BIF_P->mbuf = frag;
             BIF_P->mbuf_sz += sz;
             BIF_RET(copy);
+        }
+        else if (ERTS_IS_ATOM_STR("remove_hopefull_dflags", BIF_ARG_1)) {
+            int old_val, new_val;
+
+            switch (BIF_ARG_2) {
+            case am_true: new_val = !0; break;
+            case am_false: new_val = 0; break;
+            default: BIF_ERROR(BIF_P, BADARG); break;
+            }
+
+            erts_proc_unlock(BIF_P, ERTS_PROC_LOCK_MAIN);
+            erts_thr_progress_block();
+            
+            old_val = erts_dflags_test_remove_hopefull_flags;
+            erts_dflags_test_remove_hopefull_flags = new_val;
+            
+            erts_thr_progress_unblock();
+            erts_proc_lock(BIF_P, ERTS_PROC_LOCK_MAIN);
+
+            BIF_RET(old_val ? am_true : am_false);
         }
     }
 
@@ -5222,6 +5276,10 @@ erts_bif_info_init(void)
 	= erts_export_put(am_erts_internal, am_gather_system_check_result, 1);
 
     is_process_alive_trap = erts_export_put(am_erts_internal, am_is_process_alive, 1);
+    
+    get_internal_state_blocked = erts_export_put(am_erts_internal,
+                                                 am_get_internal_state_blocked,
+                                                 1);
 
 
     process_info_init();

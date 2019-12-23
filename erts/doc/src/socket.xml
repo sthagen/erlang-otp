@@ -32,10 +32,10 @@
   <module since="OTP 22.0">socket</module>
   <modulesummary>Socket interface.</modulesummary>
   <description>
-    <p>This module provides an API for the socket interface.
-    It is used to create, delete and manipulate sockets,
-    send and receive data.</p>
-    <p>The idea is that it shall be as "close as possible" to the OS
+    <p>This module provides an API for network socket.
+    Functions are provided to create, delete and manupilate the sockets
+    aswell as sending and reciving data on them. </p>
+    <p>The intent is that it shall be as "close as possible" to the OS
     level socket interface. The only significant addition is that some of
     the functions,
     e.g. <seealso marker="#recv/3"><c>recv/3</c></seealso>, 
@@ -144,6 +144,12 @@
       <name name="sockaddr_un"/>
     </datatype>
     <datatype>
+      <name name="sockaddr_ll"/>
+    </datatype>
+    <datatype>
+      <name name="packet_type"/>
+    </datatype>
+    <datatype>
       <name name="port_number"/>
     </datatype>
     <datatype>
@@ -151,12 +157,6 @@
     </datatype>
     <datatype>
       <name name="in6_scope_id"/>
-    </datatype>
-    <datatype>
-      <name name="accept_flags"/>
-    </datatype>
-    <datatype>
-      <name name="accept_flag"/>
     </datatype>
     <datatype>
       <name name="send_flags"/>
@@ -275,6 +275,18 @@
       <name name="cmsghdr_send"/>
     </datatype>
     <datatype>
+      <name name="icmp_dest_unreach"/>
+    </datatype>
+    <datatype>
+      <name name="icmpv6_dest_unreach"/>
+    </datatype>
+    <datatype>
+      <name name="ee_origin"/>
+    </datatype>
+    <datatype>
+      <name name="extended_err"/>
+    </datatype>
+    <datatype>
       <name name="uint8"/>
     </datatype>
     <datatype>
@@ -309,6 +321,12 @@
     </datatype>
     <datatype>
       <name name="supports_options"/>
+    </datatype>
+    <datatype>
+      <name name="supports_send_flags"/>
+    </datatype>
+    <datatype>
+      <name name="supports_recv_flags"/>
     </datatype>
   </datatypes>
 
@@ -453,20 +471,13 @@
       <fsummary>Get an option on a socket.</fsummary>
       <desc>
         <p>Get an option on a socket.</p>
-	<p>What properties are valid depend  both on <c>Level</c> and
-	on what kind of socket it is (<c>domain</c>, <c>type</c> and
-	<c>protocol</c>).</p>
+
 	<p>When specifying <c>Level</c> as an integer, and therefor
 	using "native mode", it is *currently* up to the caller to
 	know how to interpret the result.</p>
 
-	<p>See the
-	<seealso marker="socket_usage#socket_options">socket options</seealso>
-	chapter of the users guide for more info. </p>
-
-	<note><p>Not all options are valid on all platforms. That is,
-	even if "we" support an option, that does not mean that the
-	underlying OS does.</p></note>
+	<p>For more info, see
+	<seealso marker="#getopt/3">getopt</seealso> above. </p>
       </desc>
     </func>
 
@@ -582,7 +593,7 @@
         <p>Receive a message from a socket.</p>
         <p>This function reads "messages", which means that regardless of
 	how much we want to read, it returns when we get a message
-	(if the buffer size is to small, the message will be truncated).</p>
+	(if the buffer size is too small, the message will be truncated).</p>
         <p>The <c>BufSz</c> argument basically defines the size of the
 	receive buffer. By setting the value to zero (0), the configured
 	size (setopt with <c>Level</c> = <c>otp</c> and
@@ -604,7 +615,7 @@
         <p>Receive a message from a socket.</p>
         <p>This function reads "messages", which means that regardless of
 	how much we want to read, it returns when we get a message
-	(if the buffer size is to small, the message will be truncated).</p>
+	(if the buffer size is too small, the message will be truncated).</p>
         <p>The <c>BufSz</c> argument basically defines the size of the
 	receive buffer. By setting the value to zero (0), the configured
 	size (setopt with <c>Level</c> = <c>otp</c> and
@@ -858,21 +869,13 @@
       <fsummary>Set options on a socket.</fsummary>
       <desc>
         <p>Set options on a socket.</p>
-	<p>What properties are valid depend both on <c>Level</c> and on
-	what kind of socket it is (<c>domain</c>, <c>type</c> and
-	<c>protocol</c>).</p>
 
-	<p>See the
-	<seealso marker="socket_usage#socket_options">socket options</seealso>
-	chapter of the users guide for more info. </p>
+	<p>When specifying <c>Level</c> as an integer, and therefor
+	using "native mode", it is *currently* up to the caller to
+	know how to encode the <c>Value</c>.</p>
 
-	<note><p>Not all options are valid on all platforms. That is,
-	even if "we" support an option, that does not mean that the
-	underlying OS does.</p></note>
-
-	<note><p>Sockets are set 'non-blocking' when created, so this option
-	is *not* available (as it would adversely effect the Erlang VM
-	to set a socket 'blocking').</p></note>
+	<p>For more info, see
+	<seealso marker="#setopt/4">setopt</seealso> above. </p>
       </desc>
     </func>
 
@@ -897,14 +900,19 @@
       <name name="supports" arity="1" clause_i="1" since="OTP 22.0"/>
       <name name="supports" arity="1" clause_i="2" since="OTP 22.0"/>
       <name name="supports" arity="1" clause_i="3" since="OTP 22.0"/>
-      <name name="supports" arity="1" clause_i="4" since="OTP 22.0"/>
+      <name name="supports" arity="1" clause_i="4" since="OTP-22.0"/>
+      <name name="supports" arity="1" clause_i="5" since="@OTP-16153@"/>
+      <name name="supports" arity="1" clause_i="6" since="@OTP-16153@"/>
+      <name name="supports" arity="1" clause_i="7" since="OTP 22.0"/>
       <name name="supports" arity="2" clause_i="1" since="OTP 22.0"/>
       <name name="supports" arity="2" clause_i="2" since="OTP 22.0"/>
       <name name="supports" arity="2" clause_i="3" since="OTP 22.0"/>
       <name name="supports" arity="2" clause_i="4" since="OTP 22.0"/>
       <name name="supports" arity="2" clause_i="5" since="OTP 22.0"/>
       <name name="supports" arity="2" clause_i="6" since="OTP 22.0"/>
-      <name name="supports" arity="2" clause_i="7" since="OTP 22.0"/>
+      <name name="supports" arity="2" clause_i="7" since="@OTP-16153@"/>
+      <name name="supports" arity="2" clause_i="8" since="@OTP-16153@"/>
+      <name name="supports" arity="2" clause_i="9" since="OTP 22.0"/>
       <name name="supports" arity="3" clause_i="1" since="OTP 22.0"/>
       <name name="supports" arity="3" clause_i="2" since="OTP 22.0"/>
       <name name="supports" arity="3" clause_i="3" since="OTP 22.0"/>

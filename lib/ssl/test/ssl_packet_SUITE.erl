@@ -860,11 +860,11 @@ server_http_decode(Socket, HttpResponse) ->
 	Other4 -> exit({?LINE, Other4})
     end,
     assert_packet_opt(Socket, http),
-    ok = ssl:send(Socket, HttpResponse),
+    spawn(fun() -> ssl:send(Socket, HttpResponse) end),
     ok.
 
 client_http_decode(Socket, HttpRequest) ->
-    ok = ssl:send(Socket, HttpRequest),
+    spawn(fun() -> ssl:send(Socket, HttpRequest) end),
     receive
 	{ssl, Socket, {http_response, {1,1}, 200, "OK"}}  -> ok;
 	Other1 -> exit({?LINE, Other1})
@@ -922,7 +922,7 @@ packet_http_decode_list(Config) when is_list(Config) ->
 
 
 client_http_decode_list(Socket, HttpRequest) ->
-    ok = ssl:send(Socket, HttpRequest),
+    spawn(fun() -> ssl:send(Socket, HttpRequest) end),
     receive
 	{ssl, Socket, {http_response, {1,1}, 200, "OK"}}  -> ok;
 	Other1 -> exit({?LINE, Other1})
@@ -1001,13 +1001,13 @@ server_http_bin_decode(Socket, HttpResponse, Count) when Count > 0 ->
 	Other4 -> exit({?LINE, Other4})
     end,
     assert_packet_opt(Socket, http_bin),
-    ok = ssl:send(Socket, HttpResponse),
+    spawn(fun() -> ssl:send(Socket, HttpResponse) end),
     server_http_bin_decode(Socket, HttpResponse, Count - 1);
 server_http_bin_decode(_, _, _) ->
     ok.
 
 client_http_bin_decode(Socket, HttpRequest, Count) when Count > 0 ->
-    ok = ssl:send(Socket, HttpRequest),
+    spawn(fun() -> ssl:send(Socket, HttpRequest) end),
     receive
 	{ssl, Socket, {http_response, {1,1}, 200, <<"OK">>}}  -> ok;
 	Other1 -> exit({?LINE, Other1})
@@ -1085,7 +1085,7 @@ server_http_decode_error(Socket, HttpResponse) ->
     {ok, http_eoh} = ssl:recv(Socket, 0),
 
     assert_packet_opt(Socket, http),
-    ok = ssl:send(Socket, HttpResponse),
+    spawn(fun() -> ssl:send(Socket, HttpResponse) end),
     ok.
 %%--------------------------------------------------------------------
 packet_httph_active() ->
@@ -1130,7 +1130,7 @@ server_send_trailer(Socket, Trailer)->
 client_http_decode_trailer_active(Socket) ->
     receive
 	{ssl, Socket,
-	 {http_header,36,'Content-Encoding',undefined,"gzip"}} ->
+	 {http_header,36,'Content-Encoding',"Content-Encoding","gzip"}} ->
 	    ok;
 	Other1 ->
 	    exit({?LINE, Other1})
@@ -1180,7 +1180,7 @@ packet_httph_bin_active(Config) when is_list(Config) ->
 client_http_decode_trailer_bin_active(Socket) ->
     receive
 	{ssl, Socket,
-	 {http_header,36,'Content-Encoding',undefined, <<"gzip">>}} ->
+	 {http_header,36,'Content-Encoding',<<"Content-Encoding">>, <<"gzip">>}} ->
 	    ok;
 	Other1 ->
 	    exit({?LINE, Other1})
@@ -1232,7 +1232,7 @@ client_http_decode_trailer_active_once(Socket) ->
     ssl:setopts(Socket, [{active, once}]),
     receive
 	{ssl, Socket,
-	 {http_header,36,'Content-Encoding',undefined,"gzip"}} ->
+	 {http_header,36,'Content-Encoding',"Content-Encoding","gzip"}} ->
 	    ok;
 	Other1 ->
 	    exit({?LINE, Other1})
@@ -1284,7 +1284,7 @@ client_http_decode_trailer_bin_active_once(Socket) ->
     ssl:setopts(Socket, [{active, once}]),
     receive
 	{ssl, Socket,
-	 {http_header,36,'Content-Encoding',undefined, <<"gzip">>}} ->
+	 {http_header,36,'Content-Encoding',<<"Content-Encoding">>, <<"gzip">>}} ->
 	    ok;
 	Other1 ->
 	    exit({?LINE, Other1})
@@ -1335,7 +1335,7 @@ packet_httph_passive(Config) when is_list(Config) ->
     ssl_test_lib:close(Client).
 
 client_http_decode_trailer_passive(Socket) ->
-    {ok,{http_header,36,'Content-Encoding',undefined,"gzip"}} = ssl:recv(Socket, 0),
+    {ok,{http_header,36,'Content-Encoding',"Content-Encoding","gzip"}} = ssl:recv(Socket, 0),
     {ok, http_eoh} = ssl:recv(Socket, 0),
     ok.
 
@@ -1375,7 +1375,7 @@ packet_httph_bin_passive(Config) when is_list(Config) ->
     ssl_test_lib:close(Client).
 
 client_http_decode_trailer_bin_passive(Socket) ->
-    {ok,{http_header,36,'Content-Encoding',undefined,<<"gzip">>}} = ssl:recv(Socket, 0),
+    {ok,{http_header,36,'Content-Encoding',<<"Content-Encoding">>,<<"gzip">>}} = ssl:recv(Socket, 0),
     {ok, http_eoh} = ssl:recv(Socket, 0),
     ok.
 
@@ -2009,13 +2009,14 @@ packet(Config, Data, Send, Recv, Quantity, Packet, Active) ->
     Server = ssl_test_lib:start_server([{node, ClientNode}, {port, 0},
 					{from, self()},
 					{mfa, {?MODULE, Send ,[Data, Quantity]}},
-					{options, [{packet, Packet} | ServerOpts]}]),
+					{options, [{packet, Packet}, {nodelay, true}| ServerOpts]}]),
     Port = ssl_test_lib:inet_port(Server),
     Client = ssl_test_lib:start_client([{node, ServerNode}, {port, Port},
 					{host, Hostname},
 					{from, self()},
 					{mfa, {?MODULE, Recv, [Data, Quantity]}},
 					{options, [{active, Active},
+                                                   {nodelay, true},
 						   {packet, Packet} |
 						   ClientOpts]}]),
 
@@ -2048,7 +2049,7 @@ passive_recv_packet(Socket, _, 0) ->
 	    {other, Other, ssl:connection_information(Socket, [session_id, cipher_suite]), 0}
     end;
 passive_recv_packet(Socket, Data, N) ->
-    case ssl:recv(Socket, 0) of
+    case ssl:recv(Socket, 0, 10000) of
 	{ok, Data} -> 
 	    passive_recv_packet(Socket, Data, N-1);
 	Other ->
@@ -2108,18 +2109,10 @@ active_once_packet(Socket,_, 0) ->
     end;
 active_once_packet(Socket, Data, N) ->
     receive 	
-	{ssl, Socket, Byte} when length(Byte) == 1 ->
-	    ssl:setopts(Socket, [{active, once}]),
-	    receive 
-		{ssl, Socket, _} ->
-		    ssl:setopts(Socket, [{active, once}]),
-		    active_once_packet(Socket, Data, N-1)
-	    end;
 	{ssl, Socket, Data} ->
-	    ok
-    end,
-    ssl:setopts(Socket, [{active, once}]),
-    active_once_packet(Socket, Data, N-1).
+            ssl:setopts(Socket, [{active, once}]),
+            active_once_packet(Socket, Data, N-1)
+    end.
 
 active_raw(Socket, Data, N) ->
     active_raw(Socket, (length(Data) * N)).
@@ -2140,11 +2133,6 @@ active_packet(Socket, _, 0) ->
     end;
 active_packet(Socket, Data, N) ->
     receive 
-	{ssl, Socket, Byte} when length(Byte) == 1 ->
-	    receive
-		{ssl, Socket, _} ->
-		    active_packet(Socket, Data, N -1)
-		end;
 	{ssl, Socket, Data} ->
 	    active_packet(Socket, Data, N -1);
 	Other ->
@@ -2164,7 +2152,8 @@ server_packet_decode(Socket, Packet) ->
 	{ssl, Socket, Packet}  -> ok;
 	Other2 -> exit({?LINE, Other2})
     end,
-    ok = ssl:send(Socket, Packet).
+    spawn(fun() -> ssl:send(Socket, Packet) end),
+    ok.
 
 client_packet_decode(Socket, Packet) when is_binary(Packet)->
     <<P1:10/binary, P2/binary>> = Packet,
@@ -2173,14 +2162,12 @@ client_packet_decode(Socket, [Head | Tail] = Packet) ->
     client_packet_decode(Socket, [Head], Tail, Packet).
 
 client_packet_decode(Socket, P1, P2, Packet) ->
-    ct:log("Packet: ~p ~n", [Packet]),
-    ok = ssl:send(Socket, P1),
-    ok = ssl:send(Socket, P2),
+    spawn(fun() -> ssl:send(Socket, P1), ssl:send(Socket, P2)  end),
     receive
 	{ssl, Socket, Packet}  -> ok;
 	Other1 -> exit({?LINE, Other1})
     end,
-    ok = ssl:send(Socket, Packet),
+    spawn(fun() -> ssl:send(Socket, Packet) end),
     receive
 	{ssl, Socket, Packet}  -> ok;
 	Other2 -> exit({?LINE, Other2})
@@ -2193,10 +2180,11 @@ server_header_decode_active(Socket, Packet, Result) ->
 	{ssl, Socket, Other1} ->
 	    check_header_result(Result, Other1)
     end,
-    ok = ssl:send(Socket, Packet).
+    spawn(fun() -> ssl:send(Socket, Packet) end),
+    ok.
 
 client_header_decode_active(Socket, Packet, Result) ->
-    ok = ssl:send(Socket, Packet),
+    spawn(fun() -> ssl:send(Socket, Packet) end),
     receive
 	{ssl, Socket, Result}  ->
 	    ok;
@@ -2211,11 +2199,11 @@ server_header_decode_passive(Socket, Packet, Result) ->
 	{ok, Other} ->
 	    check_header_result(Result, Other)
     end,
-    ok = ssl:send(Socket, Packet).
+    spawn(fun() -> ssl:send(Socket, Packet) end),
+    ok.
 
 client_header_decode_passive(Socket, Packet, Result) ->
-    ok = ssl:send(Socket, Packet),
-
+    spawn(fun() -> ssl:send(Socket, Packet) end),
     case ssl:recv(Socket, 0) of
 	{ok, Result} ->
 	    ok;
@@ -2253,7 +2241,8 @@ server_line_packet_decode(Socket, L1, L2, Packet) ->
   	{ssl, Socket,  L2} -> ok;
   	Other2 -> exit({?LINE, Other2})
     end,
-    ok = ssl:send(Socket, Packet).
+    spawn(fun() -> ssl:send(Socket, Packet) end),
+    ok.
 
 client_line_packet_decode(Socket, Packet) when is_binary(Packet)->
     <<P1:10/binary, P2/binary>> = Packet,
@@ -2264,8 +2253,7 @@ client_line_packet_decode(Socket, [Head | Tail] = Packet) ->
     client_line_packet_decode(Socket, [Head], Tail, L1 ++ "\n", L2 ++ "\n").
 
 client_line_packet_decode(Socket, P1, P2, L1, L2) ->
-    ok = ssl:send(Socket, P1),
-    ok = ssl:send(Socket, P2),
+    spawn(fun() -> ssl:send(Socket, P1),  ssl:send(Socket, P2) end),
     receive
   	{ssl, Socket, L1} -> ok;
   	Other1 -> exit({?LINE, Other1})
@@ -2305,11 +2293,11 @@ client_reject_packet_opt(Config, PacketOpt) ->
 
 
 send_switch_packet(SslSocket, Data, NextPacket) ->
-    ssl:send(SslSocket, Data),
+    spawn(fun() -> ssl:send(SslSocket, Data) end),
     receive
         {ssl, SslSocket, "Hello World"} ->
             ssl:setopts(SslSocket, [{packet, NextPacket}]),
-            ssl:send(SslSocket, Data),
+            spawn(fun() -> ssl:send(SslSocket, Data) end),
             receive 
                 {ssl, SslSocket, "Hello World"} ->
                     ok
@@ -2318,10 +2306,11 @@ send_switch_packet(SslSocket, Data, NextPacket) ->
 recv_switch_packet(SslSocket, Data, NextPacket) ->
     receive
         {ssl, SslSocket, "Hello World"} ->
-            ssl:send(SslSocket, Data),
+            spawn(fun() -> ssl:send(SslSocket, Data) end),
             ssl:setopts(SslSocket, [{packet, NextPacket}]),
             receive 
                 {ssl, SslSocket, "Hello World"} ->
-                    ssl:send(SslSocket, Data)
+                    spawn(fun() -> ssl:send(SslSocket, Data) end),
+                    ok                        
             end
     end.

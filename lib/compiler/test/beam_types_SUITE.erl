@@ -29,7 +29,8 @@
          associativity/1,
          commutativity/1,
          idempotence/1,
-         identity/1]).
+         identity/1,
+         subtraction/1]).
 
 -export([binary_absorption/1,
          integer_absorption/1,
@@ -50,7 +51,8 @@ groups() ->
        associativity,
        commutativity,
        idempotence,
-       identity]}].
+       identity,
+       subtraction]}].
 
 init_per_suite(Config) ->
     ct_property_test:init_per_suite(Config).
@@ -78,14 +80,18 @@ identity(Config) when is_list(Config) ->
     %% manual test: proper:quickcheck(beam_types_prop:identity()).
     true = ct_property_test:quickcheck(beam_types_prop:identity(), Config).
 
+subtraction(Config) when is_list(Config) ->
+    %% manual test: proper:quickcheck(beam_types_prop:subtraction()).
+    true = ct_property_test:quickcheck(beam_types_prop:subtraction(), Config).
+
 binary_absorption(Config) when is_list(Config) ->
     %% These binaries should meet into {binary,12} as that's the best common
     %% unit for both types.
-    A = #t_bitstring{unit=4},
-    B = #t_bitstring{unit=6},
+    A = #t_bitstring{size_unit=4},
+    B = #t_bitstring{size_unit=6},
 
-    #t_bitstring{unit=12} = beam_types:meet(A, B),
-    #t_bitstring{unit=2} = beam_types:join(A, B),
+    #t_bitstring{size_unit=12} = beam_types:meet(A, B),
+    #t_bitstring{size_unit=2} = beam_types:join(A, B),
 
     A = beam_types:meet(A, beam_types:join(A, B)),
     A = beam_types:join(A, beam_types:meet(A, B)),

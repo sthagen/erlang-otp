@@ -34,6 +34,8 @@
 -include_lib("proper/include/proper.hrl").
 -define(MOD_eqc,proper).
 
+-import(lists, [foldl/3]).
+
 %% The default repetitions of 100 is a bit too low to reliably cover all type
 %% combinations, so we crank it up a bit.
 -define(REPETITIONS, 1000).
@@ -86,7 +88,7 @@ commutativity_1() ->
     ?FORALL({TypeA, TypeB},
             ?LET(TypeA, type(),
                  ?LET(TypeB, type(), {TypeA, TypeB})),
-             commutativity_check(TypeA, TypeB)).
+            commutativity_check(TypeA, TypeB)).
 
 commutativity_check(A, B) ->
     %% a ∨ b = b ∨ a,
@@ -124,8 +126,26 @@ identity_check(Type) ->
 
     true.
 
+subtraction() ->
+    numtests(?REPETITIONS, subtraction_1()).
+
+subtraction_1() ->
+    ?FORALL({TypeA, TypeB},
+            ?LET(TypeA, type(),
+                 ?LET(TypeB, type(), {TypeA, TypeB})),
+            subtraction_check(TypeA, TypeB)).
+
+subtraction_check(A, B) ->
+    %% Subtraction can be thought of as `a ∧ ¬b`, so the result must be at
+    %% least as specific as `a`.
+    Res = subtract(A, B),
+    Res = meet(A, Res),
+
+    true.
+
 meet(A, B) -> beam_types:meet(A, B).
 join(A, B) -> beam_types:join(A, B).
+subtract(A, B) -> beam_types:subtract(A, B).
 
 %%%
 %%% Generators
@@ -137,23 +157,28 @@ type() ->
 type(Depth) ->
     oneof(nested_types(Depth) ++
               numerical_types() ++
-              list_types() ++
               other_types()).
 
 other_types() ->
     [any,
      gen_atom(),
-     gen_binary(),
+     gen_bs_matchable(),
      none].
 
-list_types() ->
-    [cons, list, nil].
-
 numerical_types() ->
-    [gen_integer(), float, number].
+    [gen_integer(), gen_float(), number].
 
 nested_types(Depth) when Depth >= 3 -> [none];
-nested_types(Depth) -> [#t_map{}, gen_union(Depth + 1), gen_tuple(Depth + 1)].
+nested_types(Depth) -> list_types(Depth + 1) ++
+                           [gen_fun(Depth + 1),
+                            gen_map(Depth + 1),
+                            gen_union(Depth + 1),
+                            gen_tuple(Depth + 1)].
+
+list_types(Depth) when Depth >= 3 ->
+    [nil];
+list_types(Depth) ->
+    [gen_list(Depth), gen_cons(Depth), nil].
 
 gen_atom() ->
     ?LET(Size, range(0, ?ATOM_SET_SIZE),
@@ -170,8 +195,19 @@ gen_atom() ->
 gen_atom_val() ->
     ?LET(N, range($0, $~), list_to_atom([N])).
 
-gen_binary() ->
-    ?SHRINK(#t_bitstring{unit=range(1, 128)}, [#t_bitstring{unit=1}]).
+gen_bs_matchable() ->
+    oneof([?LET(Unit, range(1, 128), #t_bs_matchable{tail_unit=Unit}),
+           ?LET(Unit, range(1, 128), #t_bs_context{tail_unit=Unit}),
+           ?LET(Unit, range(1, 128), #t_bitstring{size_unit=Unit})]).
+
+gen_fun(Depth) ->
+    oneof([?LET(Arity, range(1, 8),
+                #t_fun{type=type(Depth),arity=Arity}),
+                #t_fun{type=type(Depth),arity=any}]).
+
+gen_map(Depth) ->
+    ?LET({SKey, SValue}, {gen_element(Depth), gen_element(Depth)},
+         #t_map{super_key=SKey,super_value=SValue}).
 
 gen_integer() ->
     oneof([gen_integer_bounded(), #t_integer{}]).
@@ -180,6 +216,25 @@ gen_integer_bounded() ->
     ?LET({A, B}, {integer(), integer()},
          begin
              #t_integer{elements={min(A,B), max(A,B)}}
+         end).
+
+gen_cons(Depth) ->
+    ?LET({Type, Term}, {gen_element(Depth), gen_element(Depth)},
+         #t_cons{type=Type,terminator=Term}).
+
+gen_list(Depth) ->
+    ?LET({Type, Term}, {gen_element(Depth), gen_element(Depth)},
+         #t_list{type=Type,terminator=Term}).
+
+gen_float() ->
+    oneof([gen_float_bounded(), #t_float{}]).
+
+gen_float_bounded() ->
+    ?LET({A, B}, {integer(), integer()},
+         begin
+             Min = float(min(A,B)),
+             Max = float(max(A,B)),
+             #t_float{elements={Min,Max}}
          end).
 
 gen_tuple(Depth) ->
@@ -197,22 +252,25 @@ gen_union(Depth) ->
 gen_wide_union(Depth) ->
     ?LET({A, B, C, D}, {oneof(nested_types(Depth)),
                         oneof(numerical_types()),
-                        oneof(list_types()),
+                        oneof(list_types(Depth)),
                         oneof(other_types())},
-          begin
-              T0 = join(A, B),
-              T1 = join(T0, C),
-              join(T1, D)
-          end).
+         begin
+             T0 = join(A, B),
+             T1 = join(T0, C),
+             join(T1, D)
+         end).
 
 gen_tuple_union(Depth) ->
     ?SIZED(Size,
            ?LET(Tuples, sized_list(Size, gen_tuple(Depth)),
-                lists:foldl(fun join/2, none, Tuples))).
+                foldl(fun join/2, none, Tuples))).
 
 gen_tuple_elements(Size, Depth) ->
     ?LET(Types, sized_list(rand:uniform(Size div 4 + 1), gen_element(Depth)),
-         maps:from_list([{rand:uniform(Size), T} || T <- Types])).
+         foldl(fun(Type, Acc) ->
+                       Index = rand:uniform(Size),
+                       beam_types:set_tuple_element(Index, Type, Acc)
+               end, #{}, Types)).
 
 gen_element(Depth) ->
     ?LAZY(?SUCHTHAT(Type, type(Depth),

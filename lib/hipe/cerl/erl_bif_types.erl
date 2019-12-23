@@ -115,6 +115,7 @@
 		    t_map_is_key/3,
 		    t_map_entries/2,
 		    t_map_put/3,
+		    t_map_remove/3,
 		    t_map_update/3,
 		    t_map_pairwise_merge/4
 		   ]).
@@ -1700,6 +1701,11 @@ type(maps, put, 3, Xs, Opaques) ->
 	 fun ([Key, Value, Map]) ->
 	     t_map_put({Key, Value}, Map, Opaques)
 	 end, Opaques);
+type(maps, remove, 2, Xs, Opaques) ->
+  strict(maps, remove, 2, Xs,
+         fun ([Key, Map]) ->
+             t_map_remove(Key, Map, Opaques)
+         end, Opaques);
 type(maps, size, 1, Xs, Opaques) ->
   strict(maps, size, 1, Xs,
 	 fun ([Map]) ->
@@ -2384,7 +2390,7 @@ arg_types(erlang, is_port, 1) ->
 arg_types(erlang, is_record, 2) ->
   [t_any(), t_atom()];
 arg_types(erlang, is_record, 3) ->
-  [t_any(), t_atom(), t_pos_fixnum()];
+  [t_any(), t_atom(), t_non_neg_fixnum()];
 arg_types(erlang, is_reference, 1) ->
   [t_any()];
 arg_types(erlang, is_tuple, 1) ->
@@ -2648,6 +2654,8 @@ arg_types(maps, merge, 2) ->
   [t_map(), t_map()];
 arg_types(maps, put, 3) ->
   [t_any(), t_any(), t_map()];
+arg_types(maps, remove, 2) ->
+  [t_any(), t_map()];
 arg_types(maps, size, 1) ->
   [t_map()];
 arg_types(maps, update, 3) ->

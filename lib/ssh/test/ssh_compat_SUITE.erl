@@ -86,13 +86,13 @@ init_per_suite(Config) ->
                Config
        end).
 
-end_per_suite(Config) ->
+end_per_suite(_Config) ->
     %% Remove all containers that are not running:
 %%%    os:cmd("docker rm $(docker ps -aq -f status=exited)"),
     %% Remove dangling images:
 %%%    os:cmd("docker rmi $(docker images -f dangling=true -q)"),
     catch ssh:stop(),
-    Config.
+    ok.
 
 
 init_per_group(otp_server, Config) ->
@@ -812,7 +812,7 @@ iptoa(IP) -> inet_parse:ntoa(IP).
 
 host_ip() ->
     {ok,Name} = inet:gethostname(),
-    {ok,#hostent{h_addr_list = [IP|_]}} = inet_res:gethostbyname(Name),
+    {ok,IP} = inet:ip(Name),
     IP.
 
 %%--------------------------------------------------------------------

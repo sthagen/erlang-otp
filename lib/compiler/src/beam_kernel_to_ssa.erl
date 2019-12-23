@@ -24,7 +24,7 @@
 %% The main interface.
 -export([module/2]).
 
--import(lists, [append/1,duplicate/2,flatmap/2,foldl/3,
+-import(lists, [all/2,append/1,flatmap/2,foldl/3,
                 keysort/2,mapfoldl/3,map/2,member/2,
                 reverse/1,reverse/2,sort/1]).
 
@@ -106,8 +106,6 @@ make_failure(Reason, St0) ->
 
 cg(#k_match{body=M,ret=Rs}, St) ->
     do_match_cg(M, Rs, St);
-cg(#k_guard_match{body=M,ret=Rs}, St) ->
-    do_match_cg(M, Rs, St);
 cg(#k_seq{arg=Arg,body=Body}, St0) ->
     {ArgIs,St1} = cg(Arg, St0),
     {BodyIs,St} = cg(Body, St1),
@@ -139,19 +137,17 @@ cg(#k_return{args=[Ret0]}, St) ->
     {[#b_ret{arg=Ret}],St};
 cg(#k_break{args=Bs}, #cg{break=Br}=St) ->
     Args = ssa_args(Bs, St),
-    {[#cg_break{args=Args,phi=Br}],St};
-cg(#k_guard_break{args=Bs}, St) ->
-    cg(#k_break{args=Bs}, St).
+    {[#cg_break{args=Args,phi=Br}],St}.
 
 %% match_cg(Matc, [Ret], State) -> {[Ainstr],State}.
 %%  Generate code for a match.
 
-do_match_cg(M, Rs, St0) ->
+do_match_cg(M, Rs, #cg{bfail=Bfail,break=OldBreak}=St0) ->
     {B,St1} = new_label(St0),
-    {Mis,St2} = match_cg(M, St1#cg.bfail, St1#cg{break=B}),
-    {BreakVars,St} = new_ssa_vars(Rs, St2),
-    {Mis ++ [{label,B},#cg_phi{vars=BreakVars}],
-     St#cg{bfail=St0#cg.bfail,break=St1#cg.break}}.
+    {Mis,St2} = match_cg(M, Bfail, St1#cg{break=B}),
+    St3 = St2#cg{break=OldBreak},
+    {BreakVars,St} = new_ssa_vars(Rs, St3),
+    {Mis ++ [{label,B},#cg_phi{vars=BreakVars}],St}.
 
 %% match_cg(Match, Fail, State) -> {[Ainstr],State}.
 %%  Generate code for a match tree.
@@ -270,7 +266,7 @@ select_cons(#k_val_clause{val=#k_cons{hd=Hd,tl=Tl},body=B},
     {Is,St} = make_cond_branch(is_nonempty_list, [Src], Tf, St2),
     {Is ++ Eis ++ Bis,St}.
 
-select_nil(#k_val_clause{val=#k_nil{},body=B}, V, Tf, Vf, St0) ->
+select_nil(#k_val_clause{val=#k_literal{val=[]},body=B}, V, Tf, Vf, St0) ->
     {Bis,St1} = match_cg(B, Vf, St0),
     Src = ssa_arg(V, St1),
     {Is,St} = make_cond_branch({bif,'=:='}, [Src,#b_literal{val=[]}], Tf, St1),
@@ -282,7 +278,8 @@ select_binary(#k_val_clause{val=#k_binary{segs=#k_var{name=Ctx0}},body=B},
     {Bis0,St2} = match_cg(B, Vf, St1),
     {TestIs,St} = make_succeeded(Ctx, {guard, Tf}, St2),
     Bis1 = [#b_set{op=bs_start_match,dst=Ctx,
-                   args=[ssa_arg(Src, St)]}] ++ TestIs ++ Bis0,
+                   args=[#b_literal{val=new},
+                         ssa_arg(Src, St)]}] ++ TestIs ++ Bis0,
     Bis = finish_bs_matching(Bis1),
     {Bis,St}.
 
@@ -408,12 +405,12 @@ select_extract_bin(#k_var{name=Hd}, Size0, Unit, Type, Flags, Vf,
     Size = ssa_arg(Size0, St0),
     build_bs_instr(Anno, Type, Vf, Ctx, Size, Unit, Flags, Dst, St1).
 
-select_extract_int(#k_var{name=Tl}, 0, #k_int{val=0}, _U, _Fs, _Vf,
+select_extract_int(#k_var{name=Tl}, 0, #k_literal{val=0}, _U, _Fs, _Vf,
                    Ctx, St0) ->
     St = set_ssa_var(Tl, Ctx, St0),
     {[],St};
-select_extract_int(#k_var{name=Tl}, Val, #k_int{val=Sz}, U, Fs, Vf,
-                   Ctx, St0) ->
+select_extract_int(#k_var{name=Tl}, Val, #k_literal{val=Sz}, U, Fs, Vf,
+                   Ctx, St0) when is_integer(Sz) ->
     {Dst,St1} = new_ssa_var(Tl, St0),
     Bits = U*Sz,
     Bin = case member(big, Fs) of
@@ -446,17 +443,10 @@ build_bs_instr(Anno, Type, Fail, Ctx, Size, Unit0, Flags0, Dst, St0) ->
     {[Get|Is],St}.
 
 select_val(#k_val_clause{val=#k_tuple{es=Es},body=B}, V, Vf, St0) ->
-    #k{us=Used} = k_get_anno(B),
-    {Eis,St1} = select_extract_tuple(V, Es, Used, St0),
+    {Eis,St1} = select_extract_tuple(V, Es, St0),
     {Bis,St2} = match_cg(B, Vf, St1),
     {length(Es),Eis ++ Bis,St2};
-select_val(#k_val_clause{val=Val0,body=B}, _V, Vf, St0) ->
-    Val = case Val0 of
-              #k_atom{val=Lit} -> Lit;
-              #k_float{val=Lit} -> Lit;
-              #k_int{val=Lit} -> Lit;
-              #k_literal{val=Lit} -> Lit
-          end,
+select_val(#k_val_clause{val=#k_literal{val=Val},body=B}, _V, Vf, St0) ->
     {Bis,St1} = match_cg(B, Vf, St0),
     {Val,Bis,St1}.
 
@@ -468,17 +458,18 @@ select_val(#k_val_clause{val=Val0,body=B}, _V, Vf, St0) ->
 %%  It is probably worthwhile because it is common to extract only a
 %%  few elements from a huge record.
 
-select_extract_tuple(Src, Vs, Used, St0) ->
+select_extract_tuple(Src, Vs, St0) ->
     Tuple = ssa_arg(Src, St0),
-    F = fun (#k_var{name=V}, {Elem,S0}) ->
-                case member(V, Used) of
+    F = fun (#k_var{anno=Anno,name=V}, {Elem,S0}) ->
+                case member(unused, Anno) of
                     true ->
+                        {[],{Elem+1,S0}};
+                    false ->
                         Args = [Tuple,#b_literal{val=Elem}],
                         {Dst,S} = new_ssa_var(V, S0),
-                        Get = #b_set{op=get_tuple_element,dst=Dst,args=Args},
-                        {[Get],{Elem+1,S}};
-                    false ->
-                        {[],{Elem+1,S0}}
+                        Get = #b_set{op=get_tuple_element,
+                                     dst=Dst,args=Args},
+                        {[Get],{Elem+1,S}}
                 end
         end,
     {Es,{_,St}} = flatmapfoldl(F, {0,St0}, Vs),
@@ -531,10 +522,19 @@ guard_clause_cg(#k_guard_clause{guard=G,body=B}, Fail, St0) ->
 %%  the correct exit point.  Primops and tests all go to the next
 %%  instruction on success or jump to a failure label.
 
-guard_cg(#k_protected{arg=Ts,ret=Rs,inner=Inner}, Fail, St) ->
-    protected_cg(Ts, Rs, Inner, Fail, St);
+guard_cg(#k_try{arg=Ts,vars=[],body=#k_break{args=[]},
+                evars=[],handler=#k_break{args=[]}},
+         Fail,
+         #cg{bfail=OldBfail,break=OldBreak}=St0) ->
+    %% Do a try/catch without return value for effect. The return
+    %% value is not checked; success passes on to the next instruction
+    %% and failure jumps to Fail.
+    {Next,St1} = new_label(St0),
+    {Tis,St2} = guard_cg(Ts, Fail, St1#cg{bfail=Fail,break=Next}),
+    Is = Tis ++ [{label,Next},#cg_phi{vars=[]}],
+    {Is,St2#cg{bfail=OldBfail,break=OldBreak}};
 guard_cg(#k_test{op=Test0,args=As}, Fail, St0) ->
-    #k_remote{mod=#k_atom{val=erlang},name=#k_atom{val=Test}} = Test0,
+    #k_remote{mod=#k_literal{val=erlang},name=#k_literal{val=Test}} = Test0,
     test_cg(Test, false, As, Fail, St0);
 guard_cg(#k_seq{arg=Arg,body=Body}, Fail, St0) ->
     {ArgIs,St1} = guard_cg(Arg, Fail, St0),
@@ -576,29 +576,6 @@ test_is_record_cg(Fail, Tuple, TagVal, ArityVal, St0) ->
     {Is2,St} = make_cond_branch({bif,'=:='}, [Tag,TagVal], Fail, St4),
     Is = Is0 ++ [GetArity] ++ Is1 ++ [GetTag] ++ Is2,
     {Is,St}.
-
-%% protected_cg([Kexpr], [Ret], Fail, St) -> {[Ainstr],St}.
-%%  Do a protected.  Protecteds without return values are just done
-%%  for effect, the return value is not checked, success passes on to
-%%  the next instruction and failure jumps to Fail.  If there are
-%%  return values then these must be set to 'false' on failure,
-%%  control always passes to the next instruction.
-
-protected_cg(Ts, [], _, Fail, St0) ->
-    %% Protect these calls, revert when done.
-    {Tis,St1} = guard_cg(Ts, Fail, St0#cg{bfail=Fail}),
-    {Tis,St1#cg{bfail=St0#cg.bfail}};
-protected_cg(Ts, Rs, Inner0, _Fail, St0) ->
-    {Pfail,St1} = new_label(St0),
-    {Br,St2} = new_label(St1),
-    Prot = duplicate(length(Rs), #b_literal{val=false}),
-    {Tis,St3} = guard_cg(Ts, Pfail, St2#cg{break=Pfail,bfail=Pfail}),
-    Inner = ssa_args(Inner0, St3),
-    {BreakVars,St} = new_ssa_vars(Rs, St3),
-    Is = Tis ++ [#cg_break{args=Inner,phi=Br},
-                 {label,Pfail},#cg_break{args=Prot,phi=Br},
-                 {label,Br},#cg_phi{vars=BreakVars}],
-    {Is,St#cg{break=St0#cg.break,bfail=St0#cg.bfail}}.
 
 %% match_fmf(Fun, LastFail, State, [Clause]) -> {Is,State}.
 %%  This is a special flatmapfoldl for match code gen where we
@@ -644,23 +621,22 @@ fail_context(#cg{catch_label=Catch,bfail=Fail,ultimate_failure=Ult}) ->
 
 call_cg(Func, As, [], Le, St) ->
     call_cg(Func, As, [#k_var{name='@ssa_ignored'}], Le, St);
-call_cg(Func0, As, [#k_var{name=R}|MoreRs]=Rs, Le, St0) ->
+call_cg(Func, As, [#k_var{name=R}|MoreRs]=Rs, Le, St0) ->
     case fail_context(St0) of
         {guard,Fail} ->
             %% Inside a guard. The only allowed function call is to
             %% erlang:error/1,2. We will generate a branch to the
             %% failure branch.
-            #k_remote{mod=#k_atom{val=erlang},
-                      name=#k_atom{val=error}} = Func0, %Assertion.
+            #k_remote{mod=#k_literal{val=erlang},
+                      name=#k_literal{val=error}} = Func, %Assertion.
             [#k_var{name=DestVar}] = Rs,
             St = set_ssa_var(DestVar, #b_literal{val=unused}, St0),
             {[make_uncond_branch(Fail),#cg_unreachable{}],St};
         FailCtx ->
             %% Ordinary function call in a function body.
-            Args = ssa_args(As, St0),
+            Args = ssa_args([Func|As], St0),
             {Ret,St1} = new_ssa_var(R, St0),
-            Func = call_target(Func0, Args, St0),
-            Call = #b_set{anno=line_anno(Le),op=call,dst=Ret,args=[Func|Args]},
+            Call = #b_set{anno=line_anno(Le),op=call,dst=Ret,args=Args},
 
             %% If this is a call to erlang:error(), MoreRs could be a
             %% nonempty list of variables that each need a value.
@@ -672,60 +648,31 @@ call_cg(Func0, As, [#k_var{name=R}|MoreRs]=Rs, Le, St0) ->
             {[Call|TestIs],St}
     end.
 
-enter_cg(Func0, As0, Le, St0) ->
-    Anno = line_anno(Le),
-    Func = call_target(Func0, As0, St0),
-    As = ssa_args(As0, St0),
+enter_cg(Func, As0, Le, St0) ->
+    %% Adding a trampoline here would give us greater freedom in rewriting
+    %% calls, but doing so makes it difficult to tell tail calls apart from
+    %% body calls during code generation.
+    %%
+    %% We therefore skip the trampoline, reasoning that we've already left the
+    %% current function by the time an exception is thrown.
+    As = ssa_args([Func|As0], St0),
     {Ret,St} = new_ssa_var('@ssa_ret', St0),
-    Call = #b_set{anno=Anno,op=call,dst=Ret,args=[Func|As]},
+    Call = #b_set{anno=line_anno(Le),op=call,dst=Ret,args=As},
     {[Call,#b_ret{arg=Ret}],St}.
-
-call_target(Func, As, St) ->
-    Arity = length(As),
-    case Func of
-        #k_remote{mod=Mod0,name=Name0} ->
-            Mod = ssa_arg(Mod0, St),
-            Name = ssa_arg(Name0, St),
-            #b_remote{mod=Mod,name=Name,arity=Arity};
-        #k_local{name=Name} when is_atom(Name) ->
-            #b_local{name=#b_literal{val=Name},arity=Arity};
-        #k_var{}=Var ->
-            ssa_arg(Var, St)
-    end.
 
 %% bif_cg(#k_bif{}, Le,State) -> {[Ainstr],State}.
 %%  Generate code for a guard BIF or primop.
 
-bif_cg(#k_bif{op=#k_internal{name=Name},args=As,ret=Rs}, Le, St) ->
-    internal_cg(Name, As, Rs, Le, St);
-bif_cg(#k_bif{op=#k_remote{mod=#k_atom{val=erlang},name=#k_atom{val=Name}},
+bif_cg(#k_bif{op=#k_internal{name=Name},args=As,ret=Rs}, _Le, St) ->
+    internal_cg(Name, As, Rs, St);
+bif_cg(#k_bif{op=#k_remote{mod=#k_literal{val=erlang},name=#k_literal{val=Name}},
               args=As,ret=Rs}, Le, St) ->
     bif_cg(Name, As, Rs, Le, St).
 
 %% internal_cg(Bif, [Arg], [Ret], Le, State) ->
 %%      {[Ainstr],State}.
 
-internal_cg(make_fun, [Name0,Arity0|As], Rs, _Le, St0) ->
-    #k_atom{val=Name} = Name0,
-    #k_int{val=Arity} = Arity0,
-    [#k_var{name=Dst0}] = Rs,
-    {Dst,St} = new_ssa_var(Dst0, St0),
-    Args = ssa_args(As, St),
-    Local = #b_local{name=#b_literal{val=Name},arity=Arity},
-    MakeFun = #b_set{op=make_fun,dst=Dst,args=[Local|Args]},
-    {[MakeFun],St};
-internal_cg(bs_init_writable=I, As, [#k_var{name=Dst0}], _Le, St0) ->
-    %% This behaves like a function call.
-    {Dst,St} = new_ssa_var(Dst0, St0),
-    Args = ssa_args(As, St),
-    Set = #b_set{op=I,dst=Dst,args=Args},
-    {[Set],St};
-internal_cg(build_stacktrace=I, As, [#k_var{name=Dst0}], _Le, St0) ->
-    {Dst,St} = new_ssa_var(Dst0, St0),
-    Args = ssa_args(As, St),
-    Set = #b_set{op=I,dst=Dst,args=Args},
-    {[Set],St};
-internal_cg(raise, As, [#k_var{name=Dst0}], _Le, St0) ->
+internal_cg(raise, As, [#k_var{name=Dst0}], St0) ->
     Args = ssa_args(As, St0),
     {Dst,St} = new_ssa_var(Dst0, St0),
     Resume = #b_set{op=resume,dst=Dst,args=Args},
@@ -736,11 +683,11 @@ internal_cg(raise, As, [#k_var{name=Dst0}], _Le, St0) ->
             Is = [Resume,make_uncond_branch(Catch),#cg_unreachable{}],
             {Is,St}
     end;
-internal_cg(raw_raise=I, As, [#k_var{name=Dst0}], _Le, St0) ->
+internal_cg(Op, As, [#k_var{name=Dst0}], St0) when is_atom(Op) ->
     %% This behaves like a function call.
     {Dst,St} = new_ssa_var(Dst0, St0),
     Args = ssa_args(As, St),
-    Set = #b_set{op=I,dst=Dst,args=Args},
+    Set = #b_set{op=Op,dst=Dst,args=Args},
     {[Set],St}.
 
 bif_cg(Bif, As0, [#k_var{name=Dst0}], Le, St0) ->
@@ -784,6 +731,15 @@ bif_is_record_cg(Dst, Tuple, TagVal, ArityVal, St0) ->
 %% recv_loop_cg(TimeOut, ReceiveVar, ReceiveMatch, TimeOutExprs,
 %%              [Ret], Le, St) -> {[Ainstr],St}.
 
+recv_loop_cg(Te, _Rvar, #k_receive_next{}, Tes, Rs, _Le, St0) ->
+    {Tl,St1} = new_label(St0),
+    {Bl,St2} = new_label(St1),
+    St3 = St2#cg{break=Bl,recv=Tl},
+    {Wis,St4} = cg_recv_wait(Te, Tes, St3),
+    {BreakVars,St} = new_ssa_vars(Rs, St4),
+    {[make_uncond_branch(Tl),{label,Tl}] ++ Wis ++
+         [{label,Bl},#cg_phi{vars=BreakVars}],
+     St#cg{break=St0#cg.break,recv=St0#cg.recv}};
 recv_loop_cg(Te, Rvar, Rm, Tes, Rs, Le, St0) ->
     %% Get labels.
     {Rl,St1} = new_label(St0),
@@ -812,7 +768,7 @@ cg_recv_mesg(#k_var{name=R}, Rm, Tl, Le, St0) ->
 
 %% cg_recv_wait(Te, Tes, St) -> {[Ainstr],St}.
 
-cg_recv_wait(#k_int{val=0}, Es, St0) ->
+cg_recv_wait(#k_literal{val=0}, Es, St0) ->
     {Tis,St} = cg(Es, St0),
     {[#b_set{op=timeout}|Tis],St};
 cg_recv_wait(Te, Es, St0) ->
@@ -837,24 +793,59 @@ try_cg(Ta, Vs, Tb, Evs, Th, Rs, St0) ->
     {SsaVs,St6} = new_ssa_vars(Vs, St5),
     {SsaEvs,St7} = new_ssa_vars(Evs, St6),
     {Ais,St8} = cg(Ta, St7#cg{break=B,catch_label=H}),
-    St9 = St8#cg{break=E,catch_label=St7#cg.catch_label},
-    {Bis,St10} = cg(Tb, St9),
-    {His,St11} = cg(Th, St10),
-    {BreakVars,St12} = new_ssa_vars(Rs, St11),
-    {CatchedAgg,St} = new_ssa_var('@ssa_agg', St12),
-    ExtractVs = extract_vars(SsaEvs, CatchedAgg, 0),
-    KillTryTag = #b_set{op=kill_try_tag,args=[TryTag]},
-    Args = [#b_literal{val='try'},TryTag],
-    Handler = [{label,H},
-               #b_set{op=landingpad,dst=CatchedAgg,args=Args}] ++
-        ExtractVs ++ [KillTryTag],
-    {[#b_set{op=new_try_tag,dst=TryTag,args=[#b_literal{val='try'}]},
-      #b_br{bool=TryTag,succ=Next,fail=H},
-      {label,Next}] ++ Ais ++
-         [{label,B},#cg_phi{vars=SsaVs},KillTryTag] ++ Bis ++
-         Handler ++ His ++
-         [{label,E},#cg_phi{vars=BreakVars}],
-     St#cg{break=St0#cg.break}}.
+    case {Vs,Tb,Th,is_guard_cg_safe_list(Ais)} of
+        {[#k_var{name=X}],#k_break{args=[#k_var{name=X}]},
+         #k_break{args=[#k_literal{}]},true} ->
+            %% There are no instructions that will clobber X registers
+            %% and the exception is not matched. Therefore, a
+            %% try/catch is not needed. This code is probably located
+            %% in a guard.
+            {ProtIs,St9} = guard_cg(Ta, H, St7#cg{break=B,bfail=H}),
+            {His,St10} = cg(Th, St9),
+            {RetVars,St} = new_ssa_vars(Rs, St10),
+            Is = ProtIs ++ [{label,H}] ++ His ++
+                [{label,B},#cg_phi{vars=RetVars}],
+            {Is,St#cg{break=St0#cg.break,bfail=St7#cg.bfail}};
+        {_,_,_,_} ->
+            %% The general try/catch (not in a guard).
+            St9 = St8#cg{break=E,catch_label=St7#cg.catch_label},
+            {Bis,St10} = cg(Tb, St9),
+            {His,St11} = cg(Th, St10),
+            {BreakVars,St12} = new_ssa_vars(Rs, St11),
+            {CatchedAgg,St13} = new_ssa_var('@ssa_agg', St12),
+            ExtractVs = extract_vars(SsaEvs, CatchedAgg, 0),
+            KillTryTag = #b_set{op=kill_try_tag,args=[TryTag]},
+            Args = [#b_literal{val='try'},TryTag],
+            Handler = [{label,H},
+                       #b_set{op=landingpad,dst=CatchedAgg,args=Args}] ++
+                ExtractVs ++ [KillTryTag],
+            {[#b_set{op=new_try_tag,dst=TryTag,args=[#b_literal{val='try'}]},
+              #b_br{bool=TryTag,succ=Next,fail=H},
+              {label,Next}] ++ Ais ++
+                 [{label,B},#cg_phi{vars=SsaVs},KillTryTag] ++ Bis ++
+                 Handler ++ His ++
+                 [{label,E},#cg_phi{vars=BreakVars}],
+             St13#cg{break=St0#cg.break}}
+    end.
+
+is_guard_cg_safe_list(Is) ->
+    all(fun is_guard_cg_safe/1, Is).
+
+is_guard_cg_safe(#b_set{op=call,args=Args}) ->
+    case Args of
+        [#b_remote{mod=#b_literal{val=erlang},
+                   name=#b_literal{val=error},
+                   arity=1}|_] ->
+            true;
+        _ ->
+            false
+    end;
+is_guard_cg_safe(#b_set{}=I) -> not beam_ssa:clobbers_xregs(I);
+is_guard_cg_safe(#b_br{}) -> true;
+is_guard_cg_safe(#b_switch{}) -> true;
+is_guard_cg_safe(#cg_break{}) -> true;
+is_guard_cg_safe(#cg_phi{}) -> true;
+is_guard_cg_safe({label,_}) -> true.
 
 try_enter_cg(Ta, Vs, Tb, Evs, Th, St0) ->
     {B,St1} = new_label(St0),			%Body label
@@ -979,7 +970,7 @@ put_cg_map(LineAnno, Op, SrcMap, Dst, List, St0) ->
 cg_binary(Dst, Segs0, FailCtx, Le, St0) ->
     {PutCode0,SzCalc0,St1} = cg_bin_put(Segs0, FailCtx, St0),
     LineAnno = line_anno(Le),
-    Anno = Le#k.a,
+    Anno = Le,
     case PutCode0 of
         [#b_set{op=bs_put,dst=Bool,args=[_,_,Src,#b_literal{val=all}|_]},
          #b_br{bool=Bool},
@@ -1144,12 +1135,14 @@ fold_size_calc([], Bits, Acc) ->
 ssa_args(As, St) ->
     [ssa_arg(A, St) || A <- As].
 
-ssa_arg(#k_var{name=V}, #cg{vars=Vars}) -> maps:get(V, Vars);
+ssa_arg(#k_var{name=V}, #cg{vars=Vars}) -> map_get(V, Vars);
 ssa_arg(#k_literal{val=V}, _) -> #b_literal{val=V};
-ssa_arg(#k_atom{val=V}, _) -> #b_literal{val=V};
-ssa_arg(#k_float{val=V}, _) -> #b_literal{val=V};
-ssa_arg(#k_int{val=V}, _) -> #b_literal{val=V};
-ssa_arg(#k_nil{}, _) -> #b_literal{val=[]}.
+ssa_arg(#k_remote{mod=Mod0,name=Name0,arity=Arity}, St) ->
+    Mod = ssa_arg(Mod0, St),
+    Name = ssa_arg(Name0, St),
+    #b_remote{mod=Mod,name=Name,arity=Arity};
+ssa_arg(#k_local{name=Name,arity=Arity}, _) when is_atom(Name) ->
+    #b_local{name=#b_literal{val=Name},arity=Arity}.
 
 new_ssa_vars(Vs, St) ->
     mapfoldl(fun(#k_var{name=V}, S) ->
@@ -1183,23 +1176,20 @@ new_label(#cg{lcount=Next}=St) ->
 %%  current filename and line number.  The annotation should be
 %%  included in any operation that could cause an exception.
 
-line_anno(#k{a=Anno}) ->
-    line_anno_1(Anno).
-
-line_anno_1([Line,{file,Name}]) when is_integer(Line) ->
-    line_anno_2(Name, Line);
-line_anno_1([_|_]=A) ->
+line_anno([Line,{file,Name}]) when is_integer(Line) ->
+    line_anno_1(Name, Line);
+line_anno([_|_]=A) ->
     {Name,Line} = find_loc(A, no_file, 0),
-    line_anno_2(Name, Line);
-line_anno_1([]) ->
+    line_anno_1(Name, Line);
+line_anno([]) ->
     #{}.
 
-line_anno_2(no_file, _) ->
+line_anno_1(no_file, _) ->
     #{};
-line_anno_2(_, 0) ->
+line_anno_1(_, 0) ->
     %% Missing line number or line number 0.
     #{};
-line_anno_2(Name, Line) ->
+line_anno_1(Name, Line) ->
     #{location=>{Name,Line}}.
 
 find_loc([Line|T], File, _) when is_integer(Line) ->
@@ -1317,5 +1307,3 @@ drop_upto_label([#cg_break{phi=Target}|Is], Map) ->
     drop_upto_label(Is, Map#{Target=>Pairs});
 drop_upto_label([_|Is], Map) ->
     drop_upto_label(Is, Map).
-
-k_get_anno(Thing) -> element(2, Thing).

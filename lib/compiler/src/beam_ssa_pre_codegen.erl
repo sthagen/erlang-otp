@@ -258,25 +258,26 @@ bs_pos_bsm3(Linear0, CtxChain, Count0) ->
     S = sofs:to_external(S1),
 
     {SavePoints,Count1} = make_bs_pos_dict(S, Count0, []),
-    {Gets,Count2} = make_bs_setpos_map(Rs, SavePoints, Count1, []),
-    {Sets,Count} = make_bs_getpos_map(maps:to_list(Rs0), SavePoints, Count2, []),
+
+    {Gets,Count2} = make_bs_getpos_map(Rs, SavePoints, Count1, []),
+    {Sets,Count} = make_bs_setpos_map(maps:to_list(Rs0), SavePoints, Count2, []),
 
     %% Now insert all saves and restores.
-    {bs_insert_bsm3(Linear0, Gets, Sets, SavePoints),Count}.
+    {bs_insert_bsm3(Linear0, Gets, Sets), Count}.
 
-make_bs_setpos_map([{Ctx,Save}=Ps|T], SavePoints, Count, Acc) ->
+make_bs_getpos_map([{Ctx,Save}=Ps|T], SavePoints, Count, Acc) ->
     SavePoint = get_savepoint(Ps, SavePoints),
     I = #b_set{op=bs_get_position,dst=SavePoint,args=[Ctx]},
-    make_bs_setpos_map(T, SavePoints, Count+1, [{Save,I}|Acc]);
-make_bs_setpos_map([], _, Count, Acc) ->
+    make_bs_getpos_map(T, SavePoints, Count+1, [{Save,I}|Acc]);
+make_bs_getpos_map([], _, Count, Acc) ->
     {maps:from_list(Acc),Count}.
 
-make_bs_getpos_map([{Bef,{Ctx,_}=Ps}|T], SavePoints, Count, Acc) ->
+make_bs_setpos_map([{Bef,{Ctx,_}=Ps}|T], SavePoints, Count, Acc) ->
     Ignored = #b_var{name={'@ssa_ignored',Count}},
     Args = [Ctx, get_savepoint(Ps, SavePoints)],
     I = #b_set{op=bs_set_position,dst=Ignored,args=Args},
-    make_bs_getpos_map(T, SavePoints, Count+1, [{Bef,I}|Acc]);
-make_bs_getpos_map([], _, Count, Acc) ->
+    make_bs_setpos_map(T, SavePoints, Count+1, [{Bef,I}|Acc]);
+make_bs_setpos_map([], _, Count, Acc) ->
     {maps:from_list(Acc),Count}.
 
 get_savepoint({_,_}=Ps, SavePoints) ->
@@ -399,30 +400,37 @@ join_positions_1(MapPos0, MapPos1) ->
 %%
 
 bs_restores_is([#b_set{op=bs_start_match,dst=Start}|Is],
-               CtxChain, SPos0, FPos, Rs) ->
-    %% We only allow one match per block.
-    SPos0 = FPos,                               %Assertion.
+               CtxChain, SPos0, _FPos, Rs) ->
+    %% Match instructions leave the position unchanged on failure, so
+    %% FPos must be the SPos we entered the *instruction* with, and not the
+    %% *block*.
+    %%
+    %% This is important when we have multiple matches in a single block where
+    %% all but the last are guaranteed to succeed; the upcoming fail block must
+    %% restore to the position of the next-to-last match, not the position we
+    %% entered the current block with.
+    FPos = SPos0,
     SPos = SPos0#{Start=>Start},
     bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
 bs_restores_is([#b_set{op=bs_match,dst=NewPos,args=Args}=I|Is],
-               CtxChain, SPos0, FPos0, Rs0) ->
-    SPos0 = FPos0,                              %Assertion.
+               CtxChain, SPos0, _FPos, Rs0) ->
     Start = bs_subst_ctx(NewPos, CtxChain),
     [_,FromPos|_] = Args,
     case SPos0 of
         #{Start:=FromPos} ->
             %% Same position, no restore needed.
             SPos = case bs_match_type(I) of
-                         plain ->
-                             %% Update position to new position.
-                             SPos0#{Start:=NewPos};
-                         _ ->
-                             %% Position will not change (test_unit
-                             %% instruction or no instruction at
-                             %% all).
-                             SPos0#{Start:=FromPos}
-                     end,
-            bs_restores_is(Is, CtxChain, SPos, FPos0, Rs0);
+                       plain ->
+                            %% Update position to new position.
+                            SPos0#{Start:=NewPos};
+                        _ ->
+                            %% Position will not change (test_unit
+                            %% instruction or no instruction at
+                            %% all).
+                            SPos0
+                   end,
+            FPos = SPos0,
+            bs_restores_is(Is, CtxChain, SPos, FPos, Rs0);
         #{Start:=_} ->
             %% Different positions, might need a restore instruction.
             case bs_match_type(I) of
@@ -430,50 +438,71 @@ bs_restores_is([#b_set{op=bs_match,dst=NewPos,args=Args}=I|Is],
                     %% This is a tail test that will be optimized away.
                     %% There's no need to do a restore, and all
                     %% positions are unchanged.
-                    bs_restores_is(Is, CtxChain, SPos0, FPos0, Rs0);
+                    FPos = SPos0,
+                    bs_restores_is(Is, CtxChain, SPos0, FPos, Rs0);
                 test_unit ->
                     %% This match instruction will be replaced by
                     %% a test_unit instruction. We will need a
                     %% restore. The new position will be the position
                     %% restored to (NOT NewPos).
                     SPos = SPos0#{Start:=FromPos},
-                    FPos = FPos0#{Start:=FromPos},
+                    FPos = SPos,
                     Rs = Rs0#{NewPos=>{Start,FromPos}},
                     bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
                 plain ->
                     %% Match or skip. Position will be changed.
                     SPos = SPos0#{Start:=NewPos},
-                    FPos = FPos0#{Start:=FromPos},
+                    FPos = SPos0#{Start:=FromPos},
                     Rs = Rs0#{NewPos=>{Start,FromPos}},
                     bs_restores_is(Is, CtxChain, SPos, FPos, Rs)
             end
     end;
 bs_restores_is([#b_set{op=bs_extract,args=[FromPos|_]}|Is],
-               CtxChain, SPos, FPos, Rs) ->
+               CtxChain, SPos, _FPos, Rs) ->
     Start = bs_subst_ctx(FromPos, CtxChain),
+
     #{Start:=FromPos} = SPos,                   %Assertion.
-    #{Start:=FromPos} = FPos,                   %Assertion.
+    FPos = SPos,
+
     bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
 bs_restores_is([#b_set{op=call,dst=Dst,args=Args}|Is],
-               CtxChain, SPos0, FPos0, Rs0) ->
-    {Rs, SPos1, FPos1} = bs_restore_args(Args, SPos0, FPos0, CtxChain, Dst, Rs0),
-    {SPos, FPos} = bs_invalidate_pos(Args, SPos1, FPos1, CtxChain),
+               CtxChain, SPos0, _FPos, Rs0) ->
+    {SPos1, Rs} = bs_restore_args(Args, SPos0, CtxChain, Dst, Rs0),
+
+    SPos = bs_invalidate_pos(Args, SPos1, CtxChain),
+    FPos = SPos,
+
     bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
-bs_restores_is([#b_set{op=landingpad}|Is], CtxChain, SPos0, FPos0, Rs) ->
+bs_restores_is([#b_set{op=landingpad}|Is], CtxChain, SPos0, _FPos, Rs) ->
     %% We can land here from any point, so all positions are invalid.
     Invalidate = fun(_Start,_Pos) -> unknown end,
+
     SPos = maps:map(Invalidate, SPos0),
-    FPos = maps:map(Invalidate, FPos0),
+    FPos = SPos,
+
     bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
 bs_restores_is([#b_set{op=Op,dst=Dst,args=Args}|Is],
-               CtxChain, SPos0, FPos0, Rs0)
+               CtxChain, SPos0, _FPos, Rs0)
   when Op =:= bs_test_tail;
        Op =:= bs_get_tail ->
-    {Rs, SPos, FPos} = bs_restore_args(Args, SPos0, FPos0, CtxChain, Dst, Rs0),
+    {SPos, Rs} = bs_restore_args(Args, SPos0, CtxChain, Dst, Rs0),
+    FPos = SPos,
+
     bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
-bs_restores_is([_|Is], CtxChain, SPos, FPos, Rs) ->
+bs_restores_is([#b_set{op=succeeded,args=[Arg]}], CtxChain, SPos, FPos0, Rs) ->
+    %% If we're branching on a match operation, the positions will be different
+    %% depending on whether it succeeds.
+    Ctx = bs_subst_ctx(Arg, CtxChain),
+    FPos = case SPos of
+               #{ Ctx := _ } -> FPos0;
+               #{} -> SPos
+           end,
+    {SPos, FPos, Rs};
+bs_restores_is([_ | Is], CtxChain, SPos, _FPos, Rs) ->
+    FPos = SPos,
     bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
-bs_restores_is([], _CtxChain, SPos, FPos, Rs) ->
+bs_restores_is([], _CtxChain, SPos, _FPos, Rs) ->
+    FPos = SPos,
     {SPos, FPos, Rs}.
 
 bs_match_type(#b_set{args=[#b_literal{val=skip},_Ctx,
@@ -488,54 +517,52 @@ bs_match_type(_) ->
 
 %% Call instructions leave the match position in an undefined state,
 %% requiring us to invalidate each affected argument.
-bs_invalidate_pos([#b_var{}=Arg|Args], SPos0, FPos0, CtxChain) ->
+bs_invalidate_pos([#b_var{}=Arg|Args], Pos0, CtxChain) ->
     Start = bs_subst_ctx(Arg, CtxChain),
-    case SPos0 of
+    case Pos0 of
         #{Start:=_} ->
-            SPos = SPos0#{Start:=unknown},
-            FPos = FPos0#{Start:=unknown},
-            bs_invalidate_pos(Args, SPos, FPos, CtxChain);
+            Pos = Pos0#{Start:=unknown},
+            bs_invalidate_pos(Args, Pos, CtxChain);
         #{} ->
             %% Not a match context.
-            bs_invalidate_pos(Args, SPos0, FPos0, CtxChain)
+            bs_invalidate_pos(Args, Pos0, CtxChain)
     end;
-bs_invalidate_pos([_|Args], SPos, FPos, CtxChain) ->
-    bs_invalidate_pos(Args, SPos, FPos, CtxChain);
-bs_invalidate_pos([], SPos, FPos, _CtxChain) ->
-    {SPos, FPos}.
+bs_invalidate_pos([_|Args], Pos, CtxChain) ->
+    bs_invalidate_pos(Args, Pos, CtxChain);
+bs_invalidate_pos([], Pos, _CtxChain) ->
+    Pos.
 
-bs_restore_args([#b_var{}=Arg|Args], SPos0, FPos0, CtxChain, Dst, Rs0) ->
+bs_restore_args([#b_var{}=Arg|Args], Pos0, CtxChain, Dst, Rs0) ->
     Start = bs_subst_ctx(Arg, CtxChain),
-    case SPos0 of
+    case Pos0 of
         #{Start:=Arg} ->
             %% Same position, no restore needed.
-            bs_restore_args(Args, SPos0, FPos0, CtxChain, Dst, Rs0);
+            bs_restore_args(Args, Pos0, CtxChain, Dst, Rs0);
         #{Start:=_} ->
             %% Different positions, need a restore instruction.
-            SPos = SPos0#{Start:=Arg},
-            FPos = FPos0#{Start:=Arg},
+            Pos = Pos0#{Start:=Arg},
             Rs = Rs0#{Dst=>{Start,Arg}},
-            bs_restore_args(Args, SPos, FPos, CtxChain, Dst, Rs);
+            bs_restore_args(Args, Pos, CtxChain, Dst, Rs);
         #{} ->
             %% Not a match context.
-            bs_restore_args(Args, SPos0, FPos0, CtxChain, Dst, Rs0)
+            bs_restore_args(Args, Pos0, CtxChain, Dst, Rs0)
     end;
-bs_restore_args([_|Args], SPos, FPos, CtxChain, Dst, Rs) ->
-    bs_restore_args(Args, SPos, FPos, CtxChain, Dst, Rs);
-bs_restore_args([], SPos, FPos, _CtxChain, _Dst, Rs) ->
-    {Rs,SPos,FPos}.
+bs_restore_args([_|Args], Pos, CtxChain, Dst, Rs) ->
+    bs_restore_args(Args, Pos, CtxChain, Dst, Rs);
+bs_restore_args([], Pos, _CtxChain, _Dst, Rs) ->
+    {Pos, Rs}.
 
 %% Insert all bs_save and bs_restore instructions.
 
-bs_insert_bsm3(Blocks, Saves, Restores, SavePoints) ->
-    bs_insert_1(Blocks, Saves, Restores, SavePoints, fun(I) -> I end).
+bs_insert_bsm3(Blocks, Saves, Restores) ->
+    bs_insert_1(Blocks, [], Saves, Restores, fun(I) -> I end).
 
-bs_insert_bsm2(Blocks, Saves, Restores, SavePoints) ->
+bs_insert_bsm2(Blocks, Saves, Restores, Slots) ->
     %% The old instructions require bs_start_match to be annotated with the
     %% number of position slots it needs.
-    bs_insert_1(Blocks, Saves, Restores, SavePoints,
+    bs_insert_1(Blocks, [], Saves, Restores,
                 fun(#b_set{op=bs_start_match,dst=Dst}=I0) ->
-                        NumSlots = case SavePoints of
+                        NumSlots = case Slots of
                                        #{Dst:=NumSlots0} -> NumSlots0;
                                        #{} -> 0
                                    end,
@@ -544,46 +571,38 @@ bs_insert_bsm2(Blocks, Saves, Restores, SavePoints) ->
                         I
                 end).
 
-bs_insert_1([{L,#b_blk{is=Is0}=Blk}|Bs0], Saves, Restores, Slots, XFrm) ->
-    Is = bs_insert_is_1(Is0, Restores, Slots, XFrm),
-    Bs = bs_insert_saves(Is, Bs0, Saves),
-    [{L,Blk#b_blk{is=Is}}|bs_insert_1(Bs, Saves, Restores, Slots, XFrm)];
-bs_insert_1([], _, _, _, _) -> [].
+bs_insert_1([{L,#b_blk{is=Is0}=Blk} | Bs], Deferred0, Saves, Restores, XFrm) ->
+    Is1 = bs_insert_deferred(Is0, Deferred0),
+    {Is, Deferred} = bs_insert_is(Is1, Saves, Restores, XFrm, []),
+    [{L,Blk#b_blk{is=Is}} | bs_insert_1(Bs, Deferred, Saves, Restores, XFrm)];
+bs_insert_1([], [], _, _, _) ->
+    [].
 
-bs_insert_is_1([#b_set{op=Op,dst=Dst}=I0|Is], Restores, SavePoints, XFrm) ->
+bs_insert_deferred([#b_set{op=bs_extract}=I | Is], Deferred) ->
+    [I | bs_insert_deferred(Is, Deferred)];
+bs_insert_deferred(Is, Deferred) ->
+    Deferred ++ Is.
+
+bs_insert_is([#b_set{dst=Dst}=I0|Is], Saves, Restores, XFrm, Acc0) ->
     I = XFrm(I0),
-    if
-        Op =:= bs_test_tail;
-        Op =:= bs_get_tail;
-        Op =:= bs_match;
-        Op =:= call ->
-            Rs = case Restores of
-                     #{Dst:=R} -> [R];
-                     #{} -> []
-                 end,
-            Rs ++ [I|bs_insert_is_1(Is, Restores, SavePoints, XFrm)];
-        true ->
-            [I|bs_insert_is_1(Is, Restores, SavePoints, XFrm)]
+    Pre = case Restores of
+              #{Dst:=R} -> [R];
+              #{} -> []
+          end,
+    Post = case Saves of
+               #{Dst:=S} -> [S];
+               #{} -> []
+           end,
+    Acc = [I | Pre] ++ Acc0,
+    case Is of
+        [#b_set{op=succeeded,args=[Dst]}] ->
+            %% Defer the save sequence to the success block.
+            {reverse(Acc, Is), Post};
+        _ ->
+            bs_insert_is(Is, Saves, Restores, XFrm, Post ++ Acc)
     end;
-bs_insert_is_1([], _, _, _) -> [].
-
-bs_insert_saves([#b_set{dst=Dst}|Is], Bs, Saves) ->
-    case Saves of
-        #{Dst:=S} ->
-            bs_insert_save(S, Bs);
-        #{} ->
-            bs_insert_saves(Is, Bs, Saves)
-    end;
-bs_insert_saves([], Bs, _) -> Bs.
-
-bs_insert_save(Save, [{L,#b_blk{is=Is0}=Blk}|Bs]) ->
-    Is = case Is0 of
-             [#b_set{op=bs_extract}=Ex|Is1] ->
-                 [Ex,Save|Is1];
-             _ ->
-                 [Save|Is0]
-         end,
-    [{L,Blk#b_blk{is=Is}}|Bs].
+bs_insert_is([], _, _, _, Acc) ->
+    {reverse(Acc), []}.
 
 %% Translate bs_match instructions to bs_get, bs_match_string,
 %% or bs_skip. Also rename match context variables to use the
@@ -615,8 +634,6 @@ bs_instrs_is([#b_set{op=Op,args=Args0}=I0|Is], CtxChain, Acc) ->
                 I1#b_set{op=bs_skip,args=[Type,Ctx|As]};
             {bs_match,[#b_literal{val=string},Ctx|As]} ->
                 I1#b_set{op=bs_match_string,args=[Ctx|As]};
-            {bs_get_tail,[Ctx|As]} ->
-                I1#b_set{op=bs_get_tail,args=[Ctx|As]};
             {_,_} ->
                 I1
         end,
@@ -1563,33 +1580,44 @@ find_loop_exit([_,_|_]=RmBlocks, Blocks) ->
     {Dominators,_} = beam_ssa:dominators(Blocks),
     RmSet = cerl_sets:from_list(RmBlocks),
     Rpo = beam_ssa:rpo(RmBlocks, Blocks),
-    find_loop_exit_1(Rpo, RmSet, Dominators);
+    find_loop_exit_1(Rpo, RmSet, Dominators, Blocks);
 find_loop_exit(_, _) ->
     %% There is (at most) a single clause. There is no common
     %% loop exit block.
     none.
 
-find_loop_exit_1([?EXCEPTION_BLOCK|Ls], RmSet, Dominators) ->
+find_loop_exit_1([?EXCEPTION_BLOCK|Ls], RmSet, Dominators, Blocks) ->
     %% ?EXCEPTION_BLOCK is a marker and not an actual block, so it is not
     %% the block we are looking for.
-    find_loop_exit_1(Ls, RmSet, Dominators);
-find_loop_exit_1([L|Ls], RmSet, Dominators) ->
+    find_loop_exit_1(Ls, RmSet, Dominators, Blocks);
+find_loop_exit_1([L|Ls0], RmSet, Dominators, Blocks) ->
     DomBy = map_get(L, Dominators),
     case any(fun(E) -> cerl_sets:is_element(E, RmSet) end, DomBy) of
         true ->
             %% This block is dominated by one of the remove_message blocks,
             %% which means that the block is part of only one clause.
             %% It is not the block we are looking for.
-            find_loop_exit_1(Ls, RmSet, Dominators);
+            find_loop_exit_1(Ls0, RmSet, Dominators, Blocks);
         false ->
             %% This block is the first block that is not dominated by
-            %% any of the blocks with remove_message instructions,
-            %% which means that at least two of the receive clauses
-            %% will ultimately transfer control to it. It is the block
-            %% we are looking for.
-            L
+            %% any of the blocks with remove_message instructions.
+            case map_get(L, Blocks) of
+                #b_blk{is=[#b_set{op=landingpad}|_]} ->
+                    %% This is the landing pad reached when an
+                    %% exception is caught. It is not the block
+                    %% we are looking for. Furthermore, none of the
+                    %% blocks reachable from this block can be
+                    %% the exit block we are looking for.
+                    Ls = Ls0 -- beam_ssa:rpo([L], Blocks),
+                    find_loop_exit_1(Ls, RmSet, Dominators, Blocks);
+                #b_blk{} ->
+                    %% This block is not dominated by any of the receive
+                    %% clauses and is not the landing pad for an exception.
+                    %% It is the common exit block we are looking for.
+                    L
+            end
     end;
-find_loop_exit_1([], _, _) ->
+find_loop_exit_1([], _, _, _) ->
     %% None of clauses transfers control to a common block after the receive
     %% statement. That means that the receive statement is a the end of a
     %% function (or that all clauses raise exceptions).
@@ -2116,13 +2144,6 @@ make_block_ranges([], _, Acc) -> Acc.
 live_interval_blk_1([#b_set{op=phi,dst=Dst}|Is], FirstNumber, Acc0) ->
     Acc = [{Dst,{def,FirstNumber}}|Acc0],
     live_interval_blk_1(Is, FirstNumber, Acc);
-live_interval_blk_1([#b_set{op=bs_start_match}=I|Is],
-                    FirstNumber, Acc0) ->
-    N = beam_ssa:get_anno(n, I),
-    #b_set{dst=Dst} = I,
-    Acc1 = [{Dst,{def,N}}|Acc0],
-    Acc = [{V,{use,N}} || V <- beam_ssa:used(I)] ++ Acc1,
-    live_interval_blk_1(Is, FirstNumber, Acc);
 live_interval_blk_1([I|Is], FirstNumber, Acc0) ->
     N = beam_ssa:get_anno(n, I),
     Acc1 = case I of
@@ -2382,68 +2403,69 @@ reserve_zregs(Blocks, Intervals, Res) ->
         end,
     beam_ssa:fold_rpo(F, [0], Res, Blocks).
 
-reserve_zreg([#b_set{op=Op,dst=Dst}],
-              #b_br{bool=Dst}, _ShortLived, A) when Op =:= call;
-                                                    Op =:= get_tuple_element ->
-    %% If type optimization has determined that the result of these
-    %% instructions can be used directly in a branch, we must avoid reserving a
-    %% z register or code generation will fail.
-    A;
 reserve_zreg([#b_set{op={bif,tuple_size},dst=Dst},
-              #b_set{op={bif,'=:='},args=[Dst,Val]}], Last, ShortLived, A0) ->
+              #b_set{op={bif,'=:='},args=[Dst,Val],dst=Bool}],
+             Last, ShortLived, A) ->
     case {Val,Last} of
-        {#b_literal{val=Arity},#b_br{bool=#b_var{}}} when Arity bsr 32 =:= 0 ->
+        {#b_literal{val=Arity},#b_br{bool=Bool}} when Arity bsr 32 =:= 0 ->
             %% These two instructions can be combined to a test_arity
             %% instruction provided that the arity variable is short-lived.
-            reserve_zreg_1(Dst, ShortLived, A0);
+            reserve_test_zreg(Dst, ShortLived, A);
         {_,_} ->
             %% Either the arity is too big, or the boolean value is not
             %% used in a conditional branch.
-            A0
+            A
     end;
 reserve_zreg([#b_set{op={bif,tuple_size},dst=Dst}],
-             #b_switch{}, ShortLived, A) ->
-    reserve_zreg_1(Dst, ShortLived, A);
-reserve_zreg([#b_set{op={bif,'xor'}}], _Last, _ShortLived, A) ->
-    %% There is no short, easy way to rewrite 'xor' to a series of
-    %% test instructions.
-    A;
-reserve_zreg([#b_set{op={bif,is_record}}], _Last, _ShortLived, A) ->
-    %% There is no short, easy way to rewrite is_record/2 to a series of
-    %% test instructions.
-    A;
-reserve_zreg([#b_set{op=Op,dst=Dst}|Is], Last, ShortLived, A0) ->
-    IsZReg = case Op of
-                 bs_match_string -> true;
-                 bs_save -> true;
-                 bs_restore -> true;
-                 bs_set_position -> true;
-                 {float,clearerror} -> true;
-                 kill_try_tag -> true;
-                 landingpad -> true;
-                 put_tuple_elements -> true;
-                 remove_message -> true;
-                 set_tuple_element -> true;
-                 succeeded -> true;
-                 timeout -> true;
-                 wait_timeout -> true;
-                 _ -> false
-             end,
-    A = case IsZReg of
-            true -> [{Dst,z}|A0];
-            false -> A0
-        end,
-    reserve_zreg(Is, Last, ShortLived, A);
-reserve_zreg([], #b_br{bool=Bool}, ShortLived, A) ->
-    reserve_zreg_1(Bool, ShortLived, A);
+             #b_switch{arg=Dst}, ShortLived, A) ->
+    reserve_test_zreg(Dst, ShortLived, A);
+reserve_zreg([#b_set{op=Op,dst=Dst}], #b_br{bool=Dst}, ShortLived, A) ->
+    case use_zreg(Op) of
+        yes -> [{Dst,z} | A];
+        no -> A;
+        maybe -> reserve_test_zreg(Dst, ShortLived, A)
+    end;
+reserve_zreg([#b_set{op=Op,dst=Dst} | Is], Last, ShortLived, A) ->
+    case use_zreg(Op) of
+        yes -> reserve_zreg(Is, Last, ShortLived, [{Dst,z} | A]);
+        _Other -> reserve_zreg(Is, Last, ShortLived, A)
+    end;
 reserve_zreg([], _, _, A) -> A.
 
-reserve_zreg_1(#b_var{}=V, ShortLived, A) ->
+use_zreg(bs_match_string) -> yes;
+use_zreg(bs_save) -> yes;
+use_zreg(bs_restore) -> yes;
+use_zreg(bs_set_position) -> yes;
+use_zreg({float,clearerror}) -> yes;
+use_zreg(kill_try_tag) -> yes;
+use_zreg(landingpad) -> yes;
+use_zreg(put_tuple_elements) -> yes;
+use_zreg(remove_message) -> yes;
+use_zreg(set_tuple_element) -> yes;
+use_zreg(succeeded) -> yes;
+use_zreg(timeout) -> yes;
+use_zreg(wait_timeout) -> yes;
+%% There's no way we can combine these into a test instruction, so we must
+%% avoid using a z register if their result is used directly in a branch.
+use_zreg(call) -> no;
+use_zreg({bif,is_map_key}) -> no;
+use_zreg({bif,is_record}) -> no;
+use_zreg({bif,map_get}) -> no;
+use_zreg({bif,'xor'}) -> no;
+use_zreg(get_hd) -> no;
+use_zreg(get_tl) -> no;
+use_zreg(get_tuple_element) -> no;
+%% Assume the instruction can use a z register, provided it's the last in its
+%% block and that the result is only used in the terminator.
+use_zreg(_) -> maybe.
+
+%% If V is defined just before a branch, we may be able to combine it into a
+%% test instruction.
+reserve_test_zreg(#b_var{}=V, ShortLived, A) ->
     case cerl_sets:is_element(V, ShortLived) of
         true -> [{V,z}|A];
         false -> A
-    end;
-reserve_zreg_1(#b_literal{}, _, A) -> A.
+    end.
 
 reserve_fregs(Blocks, Res) ->
     F = fun(_, #b_blk{is=Is}, A) ->
@@ -2990,11 +3012,9 @@ are_overlapping_1({_,_}, []) -> false.
 %%  Check whether the block is a loop header.
 
 is_loop_header(L, Blocks) ->
-    %% We KNOW that a loop header must start with a peek_message
-    %% instruction.
     case map_get(L, Blocks) of
-        #b_blk{is=[#b_set{op=peek_message}|_]} -> true;
-        _ -> false
+        #b_blk{is=[I|_]} -> beam_ssa:is_loop_header(I);
+        #b_blk{} -> false
     end.
 
 rel2fam(S0) ->

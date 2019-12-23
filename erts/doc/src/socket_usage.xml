@@ -69,6 +69,10 @@
       </taglist>
       <p>The caller can then make another
       call to the recv function and now expect data.</p>
+      <p>Note that all other users are <em>locked out</em> until the
+      'current user' has called the function (recv in this case). So either
+      immediately call the function or
+      <seealso marker="socket#cancel/2"><c>cancel</c></seealso>. </p>
       <p>The user must also be prepared to receive an abort message: </p>
       <taglist>
 	<!-- NOTE THAT THE EMPTY TAG IS INTENTIONAL -->
@@ -79,10 +83,6 @@
       for whatever reason (e.g. if the socket is closed "by someone else").
       The <c>Info</c> part contains the abort reason (in this case that
       the socket has been closed <c>Info = {SelectRef, closed}</c>). </p>
-      <p>Note that all other users are <em>locked out</em> until the
-      'current user' has called the function (recv in this case). So either
-      immediately call the function or
-      <seealso marker="socket#cancel/2"><c>cancel</c></seealso>. </p>
 
       <p>The general form of the 'socket' message is: </p>
       <taglist>
@@ -263,7 +263,10 @@
 	<cell>integer()</cell>
 	<cell>yes</cell>
 	<cell>yes</cell>
-	<cell>domain = local (unix)</cell>
+	<cell>domain = local (unix).
+	Currently disabled due to a possible infinite loop when
+	calling recv([peek]) the second time.
+	</cell>
       </row>
       <row>
 	<cell>priority</cell>
@@ -298,7 +301,16 @@
 	<cell>timeval()</cell>
 	<cell>yes</cell>
 	<cell>yes</cell>
-	<cell>none</cell>
+	<cell>
+	  Since our implementation is <em>nonblocking</em>,
+	  its unknown if and how this option works, or even if
+	  it may cause malfunctions.
+	  Therefor, we do not recommend setting this option.
+	  Instead, use the <c>Timeout</c> argument to, for instance,
+	  the
+	  <seealso marker="socket#recv/3"><c>recv/3</c></seealso>
+	  function.
+	</cell>
       </row>
       <row>
 	<cell>reuseaddr</cell>
@@ -333,7 +345,16 @@
 	<cell>timeval()</cell>
 	<cell>yes</cell>
 	<cell>yes</cell>
-	<cell>none</cell>
+	<cell>
+	  Since our implementation is <em>nonblocking</em>,
+	  its unknown if and how this option works, or even if
+	  it may cause malfunctions.
+	  Therefor, we do not recommend setting this option.
+	  Instead, use the <c>Timeout</c> argument to, for instance,
+	  the
+	  <seealso marker="socket#send/3"><c>send/3</c></seealso>
+	  function.
+	</cell>
       </row>
       <row>
 	<cell>timestamp</cell>
@@ -631,7 +652,11 @@
 	<cell>boolean()</cell>
 	<cell>yes</cell>
 	<cell>yes</cell>
-	<cell>type = dgram | raw, requires superuser privileges to update</cell>
+	<cell>type = dgram | raw.
+	On some platforms (e.g. FreeBSD) is used to set in order to
+	get <c>hoplimit</c> as a control message heeader.
+	On others (e.g. Linux), <c>recvhoplimit</c> is set in order to get
+	<c>hoplimit</c>. </cell>
       </row>
       <row>
 	<cell>hopopts</cell>
@@ -683,11 +708,35 @@
 	<cell>none</cell>
       </row>
       <row>
+	<cell>recvhoplimit</cell>
+	<cell>boolean()</cell>
+	<cell>yes</cell>
+	<cell>yes</cell>
+	<cell>type = dgram | raw.
+	On some platforms (e.g. Linux), <c>recvhoplimit</c>
+	is set in order to get <c>hoplimit</c></cell>
+      </row>
+      <row>
 	<cell>recvpktinfo | pktinfo</cell>
 	<cell>boolean()</cell>
 	<cell>yes</cell>
 	<cell>yes</cell>
-	<cell>type = dgram | raw</cell>
+	<cell>type = dgram | raw.
+	On some platforms (e.g. FreeBSD) is used to set in order to
+	get <c>hoplimit</c> as a control message heeader.
+	On others (e.g. Linux), <c>recvhoplimit</c> is set in order to get
+	<c>hoplimit</c>. </cell>
+      </row>
+      <row>
+	<cell>recvtclass</cell>
+	<cell>boolean()</cell>
+	<cell>yes</cell>
+	<cell>yes</cell>
+	<cell>type = dgram | raw.
+	On some platforms is used to set (=true) in order to
+	get the <c>tclass</c> control message heeader.
+	On others, <c>tclass</c> is set in order to get
+	<c>tclass</c> control message heeader. </cell>
       </row>
       <row>
 	<cell>router_alert</cell>
@@ -702,6 +751,17 @@
 	<cell>yes</cell>
 	<cell>yes</cell>
 	<cell>type = dgram | raw, requires superuser privileges to update</cell>
+      </row>
+      <row>
+	<cell>tclass</cell>
+	<cell>boolean()</cell>
+	<cell>yes</cell>
+	<cell>yes</cell>
+	<cell>type = dgram | raw.
+	On some platforms is used to set (=true) in order to
+	get the <c>tclass</c> control message heeader.
+	On others, <c>recvtclass</c> is set in order to get
+	<c>tclass</c> control message heeader. </cell>
       </row>
       <row>
 	<cell>unicast_hops</cell>
@@ -741,7 +801,7 @@
 	<cell>integer()</cell>
 	<cell>yes</cell>
 	<cell>yes</cell>
-	<cell>none</cell>
+	<cell>Set not allowed on all platforms.</cell>
       </row>
       <row>
 	<cell>nodelay</cell>

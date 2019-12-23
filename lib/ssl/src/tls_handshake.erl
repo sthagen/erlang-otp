@@ -51,18 +51,18 @@
 %%====================================================================
 %%--------------------------------------------------------------------
 -spec client_hello(ssl:host(), inet:port_number(), ssl_record:connection_states(),
-		   ssl_options(), integer(), atom(), boolean(), der_cert(),
-                   #key_share_client_hello{} | undefined) ->
+		   ssl_options(), binary(), boolean(), der_cert(),
+                   #key_share_client_hello{} | undefined, tuple() | undefined) ->
 			  #client_hello{}.
 %%
 %% Description: Creates a client hello message.
 %%--------------------------------------------------------------------
-client_hello(Host, Port, ConnectionStates,
+client_hello(_Host, _Port, ConnectionStates,
 	     #{versions := Versions,
                ciphers := UserSuites,
                fallback := Fallback
               } = SslOpts,
-	     Cache, CacheCb, Renegotiation, OwnCert, KeyShare) ->
+	     Id, Renegotiation, _OwnCert, KeyShare, TicketData) ->
     Version = tls_record:highest_protocol_version(Versions),
 
     %% In TLS 1.3, the client indicates its version preferences in the
@@ -83,9 +83,9 @@ client_hello(Host, Port, ConnectionStates,
 						       AvailableCipherSuites,
 						       SslOpts, ConnectionStates, 
                                                        Renegotiation,
-                                                       KeyShare),
+                                                       KeyShare,
+                                                       TicketData),
     CipherSuites = ssl_handshake:cipher_suites(AvailableCipherSuites, Renegotiation, Fallback),
-    Id = ssl_session:client_id({Host, Port, SslOpts}, Cache, CacheCb, OwnCert),    
     #client_hello{session_id = Id,
 		  client_version = LegacyVersion,
 		  cipher_suites = CipherSuites,
@@ -105,7 +105,7 @@ client_hello(Host, Port, ConnectionStates,
 		   {tls_record:tls_version(), {resumed | new, #session{}}, 
 		    ssl_record:connection_states(), binary() | undefined, 
                     HelloExt::map(), {ssl:hash(), ssl:sign_algo()} | 
-                    undefined} | {atom(), atom()} |#alert{}.
+                    undefined} | {atom(), atom()} | {atom(), atom(), tuple()} | #alert{}.
 %%
 %% Description: Handles a received hello message
 %%--------------------------------------------------------------------
@@ -175,9 +175,9 @@ hello(#server_hello{server_version = LegacyVersion,
                             handle_server_hello_extensions(Version, SessionId, Random, CipherSuite,
                                                            Compression, HelloExt, SslOpt,
                                                            ConnectionStates0, Renegotiation);
-                        {3,4} ->
+                        SelectedVersion ->
                             %% TLS 1.3
-                            {next_state, wait_sh}
+                            {next_state, wait_sh, SelectedVersion}
                     end;
                 false ->
                     ?ALERT_REC(?FATAL, ?ILLEGAL_PARAMETER)

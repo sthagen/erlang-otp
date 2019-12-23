@@ -27,6 +27,7 @@
          flatmapfold_instrs_rpo/4,
          fold_po/3,fold_po/4,fold_rpo/3,fold_rpo/4,
          fold_instrs_rpo/4,
+         is_loop_header/1,
          linearize/1,
          mapfold_blocks_rpo/4,
          mapfold_instrs_rpo/4,
@@ -124,7 +125,7 @@
                       'put_tuple_element' | 'put_tuple_elements' |
                       'set_tuple_element'.
 
--import(lists, [foldl/3,keyfind/3,mapfoldl/3,member/2,reverse/1]).
+-import(lists, [foldl/3,keyfind/3,mapfoldl/3,member/2,reverse/1,sort/1]).
 
 -spec add_anno(Key, Value, Construct) -> Construct when
       Key :: atom(),
@@ -175,6 +176,8 @@ clobbers_xregs(#b_set{op=Op}) ->
         make_fun -> true;
         peek_message -> true;
         raw_raise -> true;
+        timeout -> true;
+        wait_timeout -> true;
         _ -> false
     end.
 
@@ -209,6 +212,18 @@ no_side_effect(#b_set{op=Op}) ->
         put_list -> true;
         put_tuple -> true;
         succeeded -> true;
+        _ -> false
+    end.
+
+%% is_loop_header(#b_set{}) -> true|false.
+%%  Test whether this instruction is a loop header.
+
+-spec is_loop_header(b_set()) -> boolean().
+
+is_loop_header(#b_set{op=Op}) ->
+    case Op of
+        peek_message -> true;
+        wait_timeout -> true;
         _ -> false
     end.
 
@@ -300,7 +315,7 @@ normalize(#b_switch{arg=Arg,fail=Fail,list=List}=Sw) ->
         #b_var{} when List =:= [] ->
             #b_br{bool=#b_literal{val=true},succ=Fail,fail=Fail};
         #b_var{} ->
-            Sw
+            Sw#b_switch{list=sort(List)}
     end;
 normalize(#b_ret{}=Ret) ->
     Ret.

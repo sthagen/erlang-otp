@@ -48,8 +48,13 @@
          do_wait_finished/2,
          do_wait_sh/2,
          do_wait_ee/2,
-         do_wait_cert_cr/2]).
+         do_wait_cert_cr/2,
+         get_ticket_data/3,
+         maybe_add_binders/3,
+         maybe_add_binders/4,
+         maybe_automatic_session_resumption/1]).
 
+-export([is_valid_binder/4]).
 
 %% crypto:hash(sha256, "HelloRetryRequest").
 -define(HELLO_RETRY_REQUEST_RANDOM, <<207,33,173,116,229,154,97,17,
@@ -61,10 +66,10 @@
 %% Create handshake messages
 %%====================================================================
 
-server_hello(MsgType, SessionId, KeyShare, ConnectionStates) ->
+server_hello(MsgType, SessionId, KeyShare, PSK, ConnectionStates) ->
     #{security_parameters := SecParams} =
 	ssl_record:pending_connection_state(ConnectionStates, read),
-    Extensions = server_hello_extensions(MsgType, KeyShare),
+    Extensions = server_hello_extensions(MsgType, KeyShare, PSK),
     #server_hello{server_version = {3,3}, %% legacy_version
 		  cipher_suite = SecParams#security_parameters.cipher_suite,
                   compression_method = 0, %% legacy attribute
@@ -81,13 +86,19 @@ server_hello(MsgType, SessionId, KeyShare, ConnectionStates) ->
 %% extensions that were not first offered by the client in its
 %% ClientHello, with the exception of optionally the "cookie" (see
 %% Section 4.2.2) extension.
-server_hello_extensions(hello_retry_request = MsgType, KeyShare) ->
+server_hello_extensions(hello_retry_request = MsgType, KeyShare, _) ->
     SupportedVersions = #server_hello_selected_version{selected_version = {3,4}},
     Extensions = #{server_hello_selected_version => SupportedVersions},
     ssl_handshake:add_server_share(MsgType, Extensions, KeyShare);
-server_hello_extensions(MsgType, KeyShare) ->
+server_hello_extensions(MsgType, KeyShare, undefined) ->
     SupportedVersions = #server_hello_selected_version{selected_version = {3,4}},
     Extensions = #{server_hello_selected_version => SupportedVersions},
+    ssl_handshake:add_server_share(MsgType, Extensions, KeyShare);
+server_hello_extensions(MsgType, KeyShare, {SelectedIdentity, _}) ->
+    SupportedVersions = #server_hello_selected_version{selected_version = {3,4}},
+    PreSharedKey = #pre_shared_key_server_hello{selected_identity = SelectedIdentity},
+    Extensions = #{server_hello_selected_version => SupportedVersions,
+                   pre_shared_key => PreSharedKey},
     ssl_handshake:add_server_share(MsgType, Extensions, KeyShare).
 
 
@@ -271,9 +282,11 @@ encode_handshake(#new_session_ticket{
                     ticket = Ticket,           
                     extensions = Exts}) ->
     TicketSize = byte_size(Ticket),
+    NonceSize = byte_size(Nonce),
     BinExts = encode_extensions(Exts),
     {?NEW_SESSION_TICKET, <<?UINT32(LifeTime), ?UINT32(Age),
-                            ?BYTE(Nonce), ?UINT16(TicketSize), Ticket/binary,
+                            ?BYTE(NonceSize), Nonce/binary,
+                            ?UINT16(TicketSize), Ticket/binary,
                             BinExts/binary>>};
 encode_handshake(#end_of_early_data{}) ->
     {?END_OF_EARLY_DATA, <<>>};
@@ -351,6 +364,18 @@ decode_handshake(?KEY_UPDATE, <<?BYTE(Update)>>) ->
     #key_update{request_update = Update};
 decode_handshake(Tag, HandshakeMsg) ->
     ssl_handshake:decode_handshake({3,4}, Tag, HandshakeMsg).
+
+is_valid_binder(Binder, HHistory, PSK, Hash) ->
+    case HHistory of
+        [ClientHello2, HRR, MessageHash|_] ->
+            Truncated = truncate_client_hello(ClientHello2),
+            FinishedKey = calculate_finished_key(PSK, Hash),
+            Binder == calculate_binder(FinishedKey, Hash, [MessageHash, HRR, Truncated]);
+        [ClientHello1|_] ->
+            Truncated = truncate_client_hello(ClientHello1),
+            FinishedKey = calculate_finished_key(PSK, Hash),
+            Binder == calculate_binder(FinishedKey, Hash, Truncated)
+    end.
 
 %%--------------------------------------------------------------------
 %%% Internal functions
@@ -515,6 +540,8 @@ do_start(#client_hello{cipher_suites = ClientCiphers,
     ClientShares0 = maps:get(key_share, Extensions, undefined),
     ClientShares = get_key_shares(ClientShares0),
 
+    OfferedPSKs = get_offered_psks(Extensions),
+
     ClientALPN0 = maps:get(alpn, Extensions, undefined),
     ClientALPN = ssl_handshake:decode_alpn(ClientALPN0),
 
@@ -534,6 +561,7 @@ do_start(#client_hello{cipher_suites = ClientCiphers,
         %% and a signature algorithm/certificate pair to authenticate itself to
         %% the client.
         Cipher = Maybe(select_cipher_suite(HonorCipherOrder, ClientCiphers, ServerCiphers)),
+
         Groups = Maybe(select_common_groups(ServerGroups, ClientGroups)),
         Maybe(validate_client_key_share(ClientGroups, ClientShares)),
 
@@ -569,10 +597,14 @@ do_start(#client_hello{cipher_suites = ClientCiphers,
         %% message if it is able to find an acceptable set of parameters but the
         %% ClientHello does not contain sufficient information to proceed with
         %% the handshake.
-        Maybe(send_hello_retry_request(State1, ClientPubKey, KeyShare, SessionId))
-
-        %% TODO: session handling
-
+        case Maybe(send_hello_retry_request(State1, ClientPubKey, KeyShare, SessionId)) of
+            {_, start} = NextStateTuple ->
+                NextStateTuple;
+            {_, negotiated} = NextStateTuple ->
+                %% Exclude any incompatible PSKs.
+                PSK = Maybe(handle_pre_shared_key(State1, OfferedPSKs, Cipher)),
+                Maybe(session_resumption(NextStateTuple, PSK))
+        end
     catch
         {Ref, {insufficient_security, no_suitable_groups}} ->
             ?ALERT_REC(?FATAL, ?INSUFFICIENT_SECURITY, no_suitable_groups);
@@ -590,20 +622,18 @@ do_start(#client_hello{cipher_suites = ClientCiphers,
 %% TLS Client
 do_start(#server_hello{cipher_suite = SelectedCipherSuite,
                        session_id = SessionId,
-                       extensions = Extensions} = _ServerHello,
+                       extensions = Extensions},
          #state{static_env = #static_env{role = client,
                                          host = Host,
                                          port = Port,
                                          transport_cb = Transport,
-                                         socket = Socket,
-                                         session_cache = Cache,
-                                         session_cache_cb = CacheCb},
-                handshake_env = #handshake_env{renegotiation = {Renegotiation, _},
-                                               tls_handshake_history = _HHistory} = HsEnv,
-                connection_env = CEnv,
+                                         socket = Socket},
+                handshake_env = #handshake_env{renegotiation = {Renegotiation, _}} = HsEnv,
+                connection_env = #connection_env{negotiated_version = NegotiatedVersion},
                 ssl_options = #{ciphers := ClientCiphers,
                                 supported_groups := ClientGroups0,
-                                versions := Versions,
+                                use_ticket := UseTicket,
+                                session_tickets := SessionTickets,
                                 log_level := LogLevel} = SslOpts,
                 session = #session{own_certificate = Cert} = Session0,
                 connection_states = ConnectionStates0
@@ -632,10 +662,10 @@ do_start(#server_hello{cipher_suite = SelectedCipherSuite,
         %% new KeyShareEntry for the group indicated in the selected_group field
         %% of the triggering HelloRetryRequest.
         ClientKeyShare = ssl_cipher:generate_client_shares([SelectedGroup]),
-        Hello = tls_handshake:client_hello(Host, Port, ConnectionStates0, SslOpts,
-                                           Cache, CacheCb, Renegotiation, Cert, ClientKeyShare),
-
-        HelloVersion = tls_record:hello_version(Versions),
+        TicketData = get_ticket_data(self(), SessionTickets, UseTicket),
+        Hello0 = tls_handshake:client_hello(Host, Port, ConnectionStates0, SslOpts,
+                                           SessionId, Renegotiation, Cert, ClientKeyShare,
+                                           TicketData),
 
         %% Update state
         State1 = update_start_state(State0,
@@ -646,19 +676,21 @@ do_start(#server_hello{cipher_suite = SelectedCipherSuite,
 
         %% Replace ClientHello1 with a special synthetic handshake message
         State2 = replace_ch1_with_message_hash(State1),
-        #state{handshake_env = #handshake_env{tls_handshake_history = HHistory}} = State2,
+        #state{handshake_env = #handshake_env{tls_handshake_history = HHistory0}} = State2,
 
-        {BinMsg, ConnectionStates, Handshake} =
-            tls_connection:encode_handshake(Hello,  HelloVersion, ConnectionStates0, HHistory),
+        %% Update pre_shared_key extension with binders (TLS 1.3)
+        Hello = tls_handshake_1_3:maybe_add_binders(Hello0, HHistory0, TicketData, NegotiatedVersion),
+
+        {BinMsg, ConnectionStates, HHistory} =
+            tls_connection:encode_handshake(Hello,  NegotiatedVersion, ConnectionStates0, HHistory0),
         tls_socket:send(Transport, Socket, BinMsg),
         ssl_logger:debug(LogLevel, outbound, 'handshake', Hello),
         ssl_logger:debug(LogLevel, outbound, 'record', BinMsg),
 
         State = State2#state{
                   connection_states = ConnectionStates,
-                  connection_env = CEnv#connection_env{negotiated_version = HelloVersion}, %% Requested version
                   session = Session0#session{session_id = Hello#client_hello.session_id},
-                  handshake_env = HsEnv#handshake_env{tls_handshake_history = Handshake},
+                  handshake_env = HsEnv#handshake_env{tls_handshake_history = HHistory},
                   key_share = ClientKeyShare},
 
         {State, wait_sh}
@@ -669,36 +701,32 @@ do_start(#server_hello{cipher_suite = SelectedCipherSuite,
     end.
 
 
-do_negotiated(start_handshake,
+do_negotiated({start_handshake, PSK0},
               #state{connection_states = ConnectionStates0,
                      session = #session{session_id = SessionId,
-                                        own_certificate = OwnCert,
                                         ecc = SelectedGroup,
-                                        sign_alg = SignatureScheme,
                                         dh_public_value = ClientPublicKey},
                      ssl_options = #{} = SslOpts,
-                     key_share = KeyShare,
-                     handshake_env = #handshake_env{tls_handshake_history = _HHistory0},
-                     connection_env = #connection_env{private_key = CertPrivateKey},
-                     static_env = #static_env{
-                                     cert_db = CertDbHandle,
-                                     cert_db_ref = CertDbRef,
-                                     socket = _Socket,
-                                     transport_cb = _Transport}
-                    } = State0) ->
+                     key_share = KeyShare} = State0) ->
     ServerPrivateKey = get_server_private_key(KeyShare),
 
-    {Ref,Maybe} = maybe(),
+    #{security_parameters := SecParamsR} =
+        ssl_record:pending_connection_state(ConnectionStates0, read),
+    #security_parameters{prf_algorithm = HKDF} = SecParamsR,
 
+
+    {Ref,Maybe} = maybe(),
     try
         %% Create server_hello
-        %% Extensions: supported_versions, key_share, (pre_shared_key)
-        ServerHello = server_hello(server_hello, SessionId, KeyShare, ConnectionStates0),
+        ServerHello = server_hello(server_hello, SessionId, KeyShare, PSK0, ConnectionStates0),
 
         {State1, _} = tls_connection:send_handshake(ServerHello, State0),
 
+        PSK = get_pre_shared_key(PSK0, HKDF),
+
         State2 =
-            calculate_handshake_secrets(ClientPublicKey, ServerPrivateKey, SelectedGroup, State1),
+            calculate_handshake_secrets(ClientPublicKey, ServerPrivateKey, SelectedGroup,
+                                        PSK, State1),
 
         State3 = ssl_record:step_encryption_state(State2),
 
@@ -709,19 +737,13 @@ do_negotiated(start_handshake,
         State4 = tls_connection:queue_handshake(EncryptedExtensions, State3),
 
         %% Create and send CertificateRequest ({verify, verify_peer})
-        {State5, NextState} = maybe_send_certificate_request(State4, SslOpts),
+        {State5, NextState} = maybe_send_certificate_request(State4, SslOpts, PSK0),
 
-        %% Create Certificate
-        Certificate = Maybe(certificate(OwnCert, CertDbHandle, CertDbRef, <<>>, server)),
+        %% Create and send Certificate (if PSK is undefined)
+        State6 = Maybe(maybe_send_certificate(State5, PSK0)),
 
-        %% Encode Certificate
-        State6 = tls_connection:queue_handshake(Certificate, State5),
-
-        %% Create CertificateVerify
-        CertificateVerify = Maybe(certificate_verify(CertPrivateKey, SignatureScheme,
-                                                     State6, server)),
-        %% Encode CertificateVerify
-        State7 = tls_connection:queue_handshake(CertificateVerify, State6),
+        %% Create and send CertificateVerify (if PSK is undefined)
+        State7 = Maybe(maybe_send_certificate_verify(State6, PSK0)),
 
         %% Create Finished
         Finished = finished(State7),
@@ -779,17 +801,19 @@ do_wait_cv(#certificate_verify_1_3{} = CertificateVerify, State0) ->
 %% TLS Server
 do_wait_finished(#finished{verify_data = VerifyData},
                  #state{static_env = #static_env{role = server}} = State0) ->
-
     {Ref,Maybe} = maybe(),
 
     try
         Maybe(validate_client_finished(State0, VerifyData)),
 
         State1 = calculate_traffic_secrets(State0),
+        State2 = maybe_calculate_resumption_master_secret(State1),
 
         %% Configure traffic keys
-        ssl_record:step_encryption_state(State1)
+        State3 = ssl_record:step_encryption_state(State2),
 
+        %% Send session ticket
+        maybe_send_session_ticket(State3, 3)
 
     catch
         {Ref, decrypt_error} ->
@@ -816,9 +840,10 @@ do_wait_finished(#finished{verify_data = _VerifyData},
         {State3, _} = tls_connection:send_handshake_flight(State2),
 
         State4 = calculate_traffic_secrets(State3),
+        State5 = maybe_calculate_resumption_master_secret(State4),
 
         %% Configure traffic keys
-        ssl_record:step_encryption_state(State4)
+        ssl_record:step_encryption_state(State5)
 
     catch
         {Ref, decrypt_error} ->
@@ -835,9 +860,13 @@ do_wait_sh(#server_hello{cipher_suite = SelectedCipherSuite,
                          extensions = Extensions} = ServerHello,
            #state{key_share = ClientKeyShare0,
                   ssl_options = #{ciphers := ClientCiphers,
-                                  supported_groups := ClientGroups0}} = State0) ->
+                                  supported_groups := ClientGroups0,
+                                  session_tickets := SessionTickets,
+                                  use_ticket := UseTicket}} = State0) ->
     ClientGroups = get_supported_groups(ClientGroups0),
     ServerKeyShare0 = maps:get(key_share, Extensions, undefined),
+    ServerPreSharedKey = maps:get(pre_shared_key, Extensions, undefined),
+    SelectedIdentity = get_selected_identity(ServerPreSharedKey),
     ClientKeyShare = get_key_shares(ClientKeyShare0),
 
     {Ref,Maybe} = maybe(),
@@ -845,6 +874,8 @@ do_wait_sh(#server_hello{cipher_suite = SelectedCipherSuite,
         %% Go to state 'start' if server replies with 'HelloRetryRequest'.
         Maybe(maybe_hello_retry_request(ServerHello, State0)),
 
+        %% Resumption and PSK
+        State1 = handle_resumption(State0, SelectedIdentity),
         ServerKeyShare = get_key_shares(ServerKeyShare0),
 
         Maybe(validate_cipher_suite(SelectedCipherSuite, ClientCiphers)),
@@ -856,18 +887,24 @@ do_wait_sh(#server_hello{cipher_suite = SelectedCipherSuite,
         {_, ClientPrivateKey} = get_client_private_key([SelectedGroup], ClientKeyShare),
 
         %% Update state
-        State1 = update_start_state(State0,
+        State2 = update_start_state(State1,
                                     #{cipher => SelectedCipherSuite,
                                      key_share => ClientKeyShare0,
                                      session_id => SessionId,
                                      group => SelectedGroup,
                                      peer_public_key => ServerPublicKey}),
 
-        State2 = calculate_handshake_secrets(ServerPublicKey, ClientPrivateKey, SelectedGroup, State1),
+        #state{connection_states = ConnectionStates} = State2,
+        #{security_parameters := SecParamsR} =
+        ssl_record:pending_connection_state(ConnectionStates, read),
+        #security_parameters{prf_algorithm = HKDFAlgo} = SecParamsR,
 
-        State3 = ssl_record:step_encryption_state(State2),
+        PSK = Maybe(get_pre_shared_key(SessionTickets, UseTicket, HKDFAlgo, SelectedIdentity)),
+        State3 = calculate_handshake_secrets(ServerPublicKey, ClientPrivateKey, SelectedGroup,
+                                             PSK, State2),
+        State4 = ssl_record:step_encryption_state(State3),
 
-        {State3, wait_ee}
+        {State4, wait_ee}
 
     catch
         {Ref, {State, StateName, ServerHello}} ->
@@ -890,9 +927,12 @@ do_wait_ee(#encrypted_extensions{extensions = Extensions}, State0) ->
     ALPNProtocol0 = maps:get(alpn, Extensions, undefined),
     ALPNProtocol = get_alpn(ALPNProtocol0),
 
-    {Ref,_Maybe} = maybe(),
+    {Ref, Maybe} = maybe(),
 
     try
+        %% Go to state 'wait_finished' if using PSK.
+        Maybe(maybe_resumption(State0)),
+
         %% Update state
         #state{handshake_env = HsEnv} = State0,
         State1 = State0#state{handshake_env = HsEnv#handshake_env{alpn = ALPNProtocol}},
@@ -908,7 +948,9 @@ do_wait_ee(#encrypted_extensions{extensions = Extensions}, State0) ->
         {Ref, {insufficient_security, no_suitable_signature_algorithm}} ->
             ?ALERT_REC(?FATAL, ?INSUFFICIENT_SECURITY, "No suitable signature algorithm");
         {Ref, {insufficient_security, no_suitable_public_key}} ->
-            ?ALERT_REC(?FATAL, ?INSUFFICIENT_SECURITY, no_suitable_public_key)
+            ?ALERT_REC(?FATAL, ?INSUFFICIENT_SECURITY, no_suitable_public_key);
+        {Ref, {State, StateName}} ->
+            {State, StateName}
     end.
 
 
@@ -972,6 +1014,19 @@ maybe_hello_retry_request(#server_hello{random = ?HELLO_RETRY_REQUEST_RANDOM} = 
     {error, {State0, start, ServerHello}};
 maybe_hello_retry_request(_, _) ->
     ok.
+
+
+maybe_resumption(#state{handshake_env = #handshake_env{resumption = true}} = State) ->
+    {error, {State, wait_finished}};
+maybe_resumption(_) ->
+    ok.
+
+
+handle_resumption(State, undefined) ->
+    State;
+handle_resumption(#state{handshake_env = HSEnv0} = State, _) ->
+    HSEnv = HSEnv0#handshake_env{resumption = true},
+    State#state{handshake_env = HSEnv}.
 
 
 maybe_queue_cert_cert_cv(#state{client_certificate_requested = false} = State) ->
@@ -1054,7 +1109,7 @@ compare_verify_data(_, _) ->
 
 send_hello_retry_request(#state{connection_states = ConnectionStates0} = State0,
                          no_suitable_key, KeyShare, SessionId) ->
-    ServerHello = server_hello(hello_retry_request, SessionId, KeyShare, ConnectionStates0),
+    ServerHello = server_hello(hello_retry_request, SessionId, KeyShare, undefined, ConnectionStates0),
     {State1, _} = tls_connection:send_handshake(ServerHello, State0),
 
     %% Update handshake history
@@ -1065,15 +1120,71 @@ send_hello_retry_request(State0, _, _, _) ->
     %% Suitable key found.
     {ok, {State0, negotiated}}.
 
+session_resumption({#state{ssl_options = #{session_tickets := disabled}} = State, negotiated}, _) ->
+    {ok, {State, negotiated}};
+session_resumption({#state{ssl_options = #{session_tickets := Tickets}} = State, negotiated}, undefined)
+  when Tickets =/= disabled ->
+    {ok, {State, negotiated}};
+session_resumption({#state{ssl_options = #{session_tickets := Tickets}} = State0, negotiated}, PSK)
+  when Tickets =/= disabled ->
+    State = handle_resumption(State0, ok),
+    {ok, {State, negotiated, PSK}}.
 
-maybe_send_certificate_request(State, #{verify := verify_none}) ->
+
+%% Do not send CR during session resumption
+maybe_send_certificate_request(State, _, PSK) when PSK =/= undefined ->
+    {State, wait_finished};
+maybe_send_certificate_request(State, #{verify := verify_none}, _) ->
     {State, wait_finished};
 maybe_send_certificate_request(State, #{verify := verify_peer,
                                         signature_algs := SignAlgs,
-                                        signature_algs_cert := SignAlgsCert}) ->
+                                        signature_algs_cert := SignAlgsCert}, _) ->
     CertificateRequest = certificate_request(SignAlgs, SignAlgsCert),
     {tls_connection:queue_handshake(CertificateRequest, State), wait_cert}.
 
+
+maybe_send_certificate(State, PSK) when  PSK =/= undefined ->
+    {ok, State};
+maybe_send_certificate(#state{session = #session{own_certificate = OwnCert},
+                              static_env = #static_env{
+                                              cert_db = CertDbHandle,
+                                              cert_db_ref = CertDbRef}} = State, _) ->
+    case certificate(OwnCert, CertDbHandle, CertDbRef, <<>>, server) of
+        {ok, Certificate} ->
+            {ok, tls_connection:queue_handshake(Certificate, State)};
+        Error ->
+            Error
+    end.
+
+
+maybe_send_certificate_verify(State, PSK) when  PSK =/= undefined ->
+    {ok, State};
+maybe_send_certificate_verify(#state{session = #session{sign_alg = SignatureScheme},
+                                     connection_env = #connection_env{
+                                                         private_key = CertPrivateKey}} = State, _) ->
+    case certificate_verify(CertPrivateKey, SignatureScheme, State, server) of
+        {ok, CertificateVerify} ->
+            {ok, tls_connection:queue_handshake(CertificateVerify, State)};
+        Error ->
+            Error
+    end.
+
+
+maybe_send_session_ticket(#state{ssl_options = #{session_tickets := disabled}} = State, _) ->
+    %% Do nothing!
+    State;
+maybe_send_session_ticket(State, 0) ->
+    State;
+maybe_send_session_ticket(#state{connection_states = ConnectionStates,
+                                 static_env = #static_env{trackers = Trackers}} = State0, N) ->
+    Tracker = proplists:get_value(session_tickets_tracker, Trackers),
+    #{security_parameters := SecParamsR} =
+        ssl_record:current_connection_state(ConnectionStates, read),
+    #security_parameters{prf_algorithm = HKDF,
+                         resumption_master_secret = RMS} = SecParamsR, 
+    Ticket = tls_server_session_ticket:new(Tracker, HKDF, RMS),
+    {State, _} = tls_connection:send_handshake(Ticket, State0),
+    maybe_send_session_ticket(State, N - 1).
 
 process_certificate_request(#certificate_request_1_3{},
                             #state{session = #session{own_certificate = undefined}} = State) ->
@@ -1186,6 +1297,7 @@ validate_certificate_chain(Certs, CertDbHandle, CertDbRef,
                              verify_fun := VerifyFun,
                              customize_hostname_check := CustomizeHostnameCheck,
                              crl_check := CrlCheck,
+                             log_level := LogLevel,
                              depth := Depth} = SslOptions,
                            CRLDbHandle, Role, Host) ->
     ServerName = ssl_handshake:server_name(ServerNameIndication, Host, Role),
@@ -1198,7 +1310,7 @@ validate_certificate_chain(Certs, CertDbHandle, CertDbRef,
             ssl_handshake:validation_fun_and_state(VerifyFun, Role,
                                      CertDbHandle, CertDbRef, ServerName,
                                      CustomizeHostnameCheck,
-                                     CrlCheck, CRLDbHandle, CertPath),
+                                     CrlCheck, CRLDbHandle, CertPath, LogLevel),
         Options = [{max_path_length, Depth},
                    {verify_fun, ValidationFunAndState}],
         %% TODO: Validate if Certificate is using a supported signature algorithm
@@ -1271,7 +1383,7 @@ message_hash(ClientHello1, HKDFAlgo) ->
      crypto:hash(HKDFAlgo, ClientHello1)].
 
 
-calculate_handshake_secrets(PublicKey, PrivateKey, SelectedGroup,
+calculate_handshake_secrets(PublicKey, PrivateKey, SelectedGroup, PSK,
                               #state{connection_states = ConnectionStates,
                                      handshake_env =
                                          #handshake_env{
@@ -1280,9 +1392,6 @@ calculate_handshake_secrets(PublicKey, PrivateKey, SelectedGroup,
         ssl_record:pending_connection_state(ConnectionStates, read),
     #security_parameters{prf_algorithm = HKDFAlgo,
                          cipher_suite = CipherSuite} = SecParamsR,
-
-    %% Calculate handshake_secret
-    PSK = binary:copy(<<0>>, ssl_cipher:hash_size(HKDFAlgo)),
     EarlySecret = tls_v1:key_schedule(early_secret, HKDFAlgo , {psk, PSK}),
 
     IKM = calculate_shared_secret(PublicKey, PrivateKey, SelectedGroup),
@@ -1305,9 +1414,61 @@ calculate_handshake_secrets(PublicKey, PrivateKey, SelectedGroup,
     ReadFinishedKey = tls_v1:finished_key(ClientHSTrafficSecret, HKDFAlgo),
     WriteFinishedKey = tls_v1:finished_key(ServerHSTrafficSecret, HKDFAlgo),
 
-    update_pending_connection_states(State0, HandshakeSecret,
+    update_pending_connection_states(State0, HandshakeSecret, undefined,
                                      ReadKey, ReadIV, ReadFinishedKey,
                                      WriteKey, WriteIV, WriteFinishedKey).
+
+
+%% Server
+get_pre_shared_key(undefined, HKDFAlgo) ->
+    binary:copy(<<0>>, ssl_cipher:hash_size(HKDFAlgo));
+get_pre_shared_key({_, PSK}, _) ->
+    PSK.
+%%
+%% Client
+%% Server initiates a full handshake
+get_pre_shared_key(_, _, HKDFAlgo, undefined) ->
+    {ok, binary:copy(<<0>>, ssl_cipher:hash_size(HKDFAlgo))};
+%% Session resumption not configured
+get_pre_shared_key(undefined, _, HKDFAlgo, _) ->
+    {ok, binary:copy(<<0>>, ssl_cipher:hash_size(HKDFAlgo))};
+get_pre_shared_key(_, undefined, HKDFAlgo, _) ->
+    {ok, binary:copy(<<0>>, ssl_cipher:hash_size(HKDFAlgo))};
+%% Session resumption
+get_pre_shared_key(enabled = SessionTickets, UseTicket, HKDFAlgo, SelectedIdentity) ->
+    TicketData = get_ticket_data(self(), SessionTickets, UseTicket),
+    case choose_psk(TicketData, SelectedIdentity) of
+        undefined -> %% full handshake, default PSK
+            {ok, binary:copy(<<0>>, ssl_cipher:hash_size(HKDFAlgo))};
+        illegal_parameter ->
+            {error, illegal_parameter};
+        {_, PSK} ->
+            {ok, PSK}
+    end;
+get_pre_shared_key(auto = SessionTickets, UseTicket, HKDFAlgo, SelectedIdentity) ->
+    TicketData = get_ticket_data(self(), SessionTickets, UseTicket),
+    case choose_psk(TicketData, SelectedIdentity) of
+        undefined -> %% full handshake, default PSK
+            tls_client_ticket_store:unlock_tickets(self(), UseTicket),
+            {ok, binary:copy(<<0>>, ssl_cipher:hash_size(HKDFAlgo))};
+        illegal_parameter ->
+            tls_client_ticket_store:unlock_tickets(self(), UseTicket),
+            {error, illegal_parameter};
+        {Key, PSK} ->
+            tls_client_ticket_store:remove_tickets([Key]),  %% Remove single-use ticket
+            tls_client_ticket_store:unlock_tickets(self(), UseTicket -- [Key]),
+            {ok, PSK}
+    end.
+
+
+choose_psk(undefined, _) ->
+    undefined;
+choose_psk([], _) ->
+    illegal_parameter;
+choose_psk([{Key, SelectedIdentity, _, PSK, _, _}|_], SelectedIdentity) ->
+    {Key, PSK};
+choose_psk([_|T], SelectedIdentity) ->
+    choose_psk(T, SelectedIdentity).
 
 
 calculate_traffic_secrets(#state{
@@ -1339,7 +1500,7 @@ calculate_traffic_secrets(#state{
     {ReadKey, ReadIV} = tls_v1:calculate_traffic_keys(HKDFAlgo, Cipher, ClientAppTrafficSecret0),
     {WriteKey, WriteIV} = tls_v1:calculate_traffic_keys(HKDFAlgo, Cipher, ServerAppTrafficSecret0),
 
-    update_pending_connection_states(State0, MasterSecret,
+    update_pending_connection_states(State0, MasterSecret, undefined,
                                      ReadKey, ReadIV, undefined,
                                      WriteKey, WriteIV, undefined).
 
@@ -1374,17 +1535,35 @@ calculate_shared_secret(OthersKey, MyKey = #'ECPrivateKey'{}, _Group)
     public_key:compute_key(Point, MyKey).
 
 
+maybe_calculate_resumption_master_secret(#state{ssl_options = #{session_tickets := disabled}} = State) ->
+    State;
+maybe_calculate_resumption_master_secret(#state{
+                             ssl_options = #{session_tickets := SessionTickets},
+                             connection_states = ConnectionStates,
+                             handshake_env =
+                                 #handshake_env{
+                                    tls_handshake_history = HHistory}} = State)
+  when SessionTickets =/= disabled  ->
+    #{security_parameters := SecParamsR} =
+        ssl_record:pending_connection_state(ConnectionStates, read),
+    #security_parameters{master_secret = MasterSecret,
+                         prf_algorithm = HKDFAlgo} = SecParamsR,
+    {Messages0, _} = HHistory,
+    RMS = tls_v1:resumption_master_secret(HKDFAlgo, MasterSecret, lists:reverse(Messages0)),
+    update_resumption_master_secret(State, RMS).
+
+
 update_pending_connection_states(#state{
                                     static_env = #static_env{role = server},
                                     connection_states =
                                         CS = #{pending_read := PendingRead0,
                                                pending_write := PendingWrite0}} = State,
-                                 HandshakeSecret,
+                                 HandshakeSecret, ResumptionMasterSecret,
                                  ReadKey, ReadIV, ReadFinishedKey,
                                  WriteKey, WriteIV, WriteFinishedKey) ->
-    PendingRead = update_connection_state(PendingRead0, HandshakeSecret,
+    PendingRead = update_connection_state(PendingRead0, HandshakeSecret, ResumptionMasterSecret,
                                           ReadKey, ReadIV, ReadFinishedKey),
-    PendingWrite = update_connection_state(PendingWrite0, HandshakeSecret,
+    PendingWrite = update_connection_state(PendingWrite0, HandshakeSecret, ResumptionMasterSecret,
                                            WriteKey, WriteIV, WriteFinishedKey),
     State#state{connection_states = CS#{pending_read => PendingRead,
                                         pending_write => PendingWrite}};
@@ -1393,22 +1572,23 @@ update_pending_connection_states(#state{
                                     connection_states =
                                         CS = #{pending_read := PendingRead0,
                                                pending_write := PendingWrite0}} = State,
-                                 HandshakeSecret,
+                                 HandshakeSecret, ResumptionMasterSecret,
                                  ReadKey, ReadIV, ReadFinishedKey,
                                  WriteKey, WriteIV, WriteFinishedKey) ->
-    PendingRead = update_connection_state(PendingRead0, HandshakeSecret,
+    PendingRead = update_connection_state(PendingRead0, HandshakeSecret, ResumptionMasterSecret,
                                           WriteKey, WriteIV, WriteFinishedKey),
-    PendingWrite = update_connection_state(PendingWrite0, HandshakeSecret,
+    PendingWrite = update_connection_state(PendingWrite0, HandshakeSecret, ResumptionMasterSecret,
                                            ReadKey, ReadIV, ReadFinishedKey),
     State#state{connection_states = CS#{pending_read => PendingRead,
                                         pending_write => PendingWrite}}.
 
 
 update_connection_state(ConnectionState = #{security_parameters := SecurityParameters0},
-                        HandshakeSecret, Key, IV, FinishedKey) ->
+                        HandshakeSecret, ResumptionMasterSecret, Key, IV, FinishedKey) ->
     %% Store secret
     SecurityParameters = SecurityParameters0#security_parameters{
-                           master_secret = HandshakeSecret},
+                           master_secret = HandshakeSecret,
+                           resumption_master_secret = ResumptionMasterSecret},
     ConnectionState#{security_parameters => SecurityParameters,
                      cipher_state => cipher_init(Key, IV, FinishedKey)}.
 
@@ -1449,6 +1629,21 @@ update_start_state(#state{connection_states = ConnectionStates0,
                                           dh_public_value = PeerPublicKey,
                                           cipher_suite = Cipher},
                 connection_env = CEnv#connection_env{negotiated_version = {3,4}}}.
+
+
+update_resumption_master_secret(#state{connection_states = ConnectionStates0} = State,
+                                ResumptionMasterSecret) ->
+    #{security_parameters := SecParamsR0} = PendingRead =
+        maps:get(pending_read, ConnectionStates0),
+    #{security_parameters := SecParamsW0} = PendingWrite =
+        maps:get(pending_write, ConnectionStates0),
+
+    SecParamsR = SecParamsR0#security_parameters{resumption_master_secret = ResumptionMasterSecret},
+    SecParamsW = SecParamsW0#security_parameters{resumption_master_secret = ResumptionMasterSecret},
+    ConnectionStates =
+        ConnectionStates0#{pending_read => PendingRead#{security_parameters => SecParamsR},
+                           pending_write => PendingWrite#{security_parameters => SecParamsW}},
+    State#state{connection_states = ConnectionStates}.
 
 
 cipher_init(Key, IV, FinishedKey) ->
@@ -1882,6 +2077,42 @@ get_key_shares(#key_share_client_hello{client_shares = ClientShares}) ->
 get_key_shares(#key_share_server_hello{server_share = ServerShare}) ->
     ServerShare.
 
+get_selected_identity(undefined) ->
+    undefined;
+get_selected_identity(#pre_shared_key_server_hello{selected_identity = SelectedIdentity}) ->
+    SelectedIdentity.
+
+get_offered_psks(Extensions) ->
+    PSK = maps:get(pre_shared_key, Extensions, undefined),
+    case PSK of
+        undefined ->
+            undefined;
+        #pre_shared_key_client_hello{offered_psks = OfferedPSKs} ->
+            OfferedPSKs
+    end.
+
+
+%% Prior to accepting PSK key establishment, the server MUST validate
+%% the corresponding binder value (see Section 4.2.11.2 below).  If this
+%% value is not present or does not validate, the server MUST abort the
+%% handshake.  Servers SHOULD NOT attempt to validate multiple binders;
+%% rather, they SHOULD select a single PSK and validate solely the
+%% binder that corresponds to that PSK.
+%%
+%% If no acceptable PSKs are found, the server SHOULD perform a non-PSK
+%% handshake if possible.
+handle_pre_shared_key(_, undefined, _) ->
+    {ok, undefined};
+handle_pre_shared_key(#state{ssl_options = #{session_tickets := disabled}}, _, _) ->
+    {ok, undefined};
+handle_pre_shared_key(#state{ssl_options = #{session_tickets := Tickets},
+                             handshake_env = #handshake_env{tls_handshake_history =  {HHistory, _}},
+                             static_env = #static_env{trackers = Trackers}}, 
+                      OfferedPreSharedKeys, Cipher) when Tickets =/= disabled ->
+    Tracker = proplists:get_value(session_tickets_tracker, Trackers),
+    #{prf := CipherHash} = ssl_cipher_format:suite_bin_to_map(Cipher),
+    tls_server_session_ticket:use(Tracker, OfferedPreSharedKeys, CipherHash, HHistory).
+
 get_selected_group(#key_share_hello_retry_request{selected_group = SelectedGroup}) ->
     SelectedGroup.
 
@@ -1901,3 +2132,195 @@ maybe() ->
                  throw({Ref,Reason})
          end,
     {Ref,Ok}.
+
+
+%% If the handshake includes a HelloRetryRequest, the initial
+%% ClientHello and HelloRetryRequest are included in the transcript
+%% along with the new ClientHello.  For instance, if the client sends
+%% ClientHello1, its binder will be computed over:
+%%
+%%    Transcript-Hash(Truncate(ClientHello1))
+%%
+%% Where Truncate() removes the binders list from the ClientHello.
+%%
+%% If the server responds with a HelloRetryRequest and the client then
+%% sends ClientHello2, its binder will be computed over:
+%%
+%%    Transcript-Hash(ClientHello1,
+%%                    HelloRetryRequest,
+%%                    Truncate(ClientHello2))
+%%
+%% The full ClientHello1/ClientHello2 is included in all other handshake
+%% hash computations.  Note that in the first flight,
+%% Truncate(ClientHello1) is hashed directly, but in the second flight,
+%% ClientHello1 is hashed and then reinjected as a "message_hash"
+%% message, as described in Section 4.4.1.
+maybe_add_binders(Hello, undefined, _) ->
+    Hello;
+maybe_add_binders(Hello0, TicketData, Version) when Version =:= {3,4} ->
+    HelloBin0 = tls_handshake:encode_handshake(Hello0, Version),
+    HelloBin1 = iolist_to_binary(HelloBin0),
+    Truncated = truncate_client_hello(HelloBin1),
+    Binders = create_binders([Truncated], TicketData),
+    update_binders(Hello0, Binders);
+maybe_add_binders(Hello, _, Version) when Version =< {3,3} ->
+    Hello.
+%%
+%% HelloRetryRequest
+maybe_add_binders(Hello, _, undefined, _) ->
+    Hello;
+maybe_add_binders(Hello0, {[HRR,MessageHash|_], _}, TicketData, Version) when Version =:= {3,4} ->
+    HelloBin0 = tls_handshake:encode_handshake(Hello0, Version),
+    HelloBin1 = iolist_to_binary(HelloBin0),
+    Truncated = truncate_client_hello(HelloBin1),
+    Binders = create_binders([MessageHash,HRR,Truncated], TicketData),
+    update_binders(Hello0, Binders);
+maybe_add_binders(Hello, _, _, Version) when Version =< {3,3} ->
+    Hello.
+
+
+create_binders(Context, TicketData) ->
+    create_binders(Context, TicketData, []).
+%%
+create_binders(_, [], Acc) ->
+    lists:reverse(Acc);
+create_binders(Context, [{_, _, _, PSK, _, HKDF}|T], Acc) ->
+    FinishedKey = calculate_finished_key(PSK, HKDF),
+    Binder = calculate_binder(FinishedKey, HKDF, Context),
+    create_binders(Context, T, [Binder|Acc]).
+
+
+%% Removes the binders list from the ClientHello.
+%% opaque PskBinderEntry<32..255>;
+%%
+%% struct {
+%%     PskIdentity identities<7..2^16-1>;
+%%     PskBinderEntry binders<33..2^16-1>;
+%% } OfferedPsks;
+truncate_client_hello(HelloBin0) ->
+    HelloBin1 = remove_binders(HelloBin0),
+    {Truncated, _} = split_binary(HelloBin1, size(HelloBin1) - 2),
+    Truncated.
+
+
+remove_binders(Binary0) ->
+    OrigSize = byte_size(Binary0),
+    HashSize256 = ssl_cipher:hash_size(sha256),
+    HashSize384 = ssl_cipher:hash_size(sha384),
+    HashSize512 = ssl_cipher:hash_size(sha512),
+
+    NewSize256 = OrigSize - HashSize256 - 1,
+    NewSize384 = OrigSize - HashSize384 - 1,
+    NewSize512 = OrigSize - HashSize512 - 1,
+    case Binary0 of
+        <<Binary:NewSize256/binary,?BYTE(HashSize256),_:HashSize256/binary>> ->
+            remove_binders(Binary);
+        <<Binary:NewSize384/binary,?BYTE(HashSize384),_:HashSize384/binary>> ->
+            remove_binders(Binary);
+        <<Binary:NewSize512/binary,?BYTE(HashSize512),_:HashSize512/binary>> ->
+            remove_binders(Binary);
+        Else ->
+            Else
+    end.
+
+
+%% The PskBinderEntry is computed in the same way as the Finished
+%% message (Section 4.4.4) but with the BaseKey being the binder_key
+%% derived via the key schedule from the corresponding PSK which is
+%% being offered (see Section 7.1).
+calculate_finished_key(PSK, HKDFAlgo) ->
+    EarlySecret = tls_v1:key_schedule(early_secret, HKDFAlgo , {psk, PSK}),
+    PRK = tls_v1:resumption_binder_key(HKDFAlgo, EarlySecret),
+    tls_v1:finished_key(PRK, HKDFAlgo).
+
+
+calculate_binder(BinderKey, HKDF, Truncated) ->
+  tls_v1:finished_verify_data(BinderKey, HKDF, [Truncated]).
+
+
+update_binders(#client_hello{extensions =
+                                #{pre_shared_key := PreSharedKey0} = Extensions0} = Hello, Binders) ->
+    #pre_shared_key_client_hello{
+       offered_psks =
+           #offered_psks{identities = Identities}} = PreSharedKey0,
+
+    PreSharedKey =
+        #pre_shared_key_client_hello{
+           offered_psks =
+               #offered_psks{identities = Identities,
+                             binders = Binders}},
+
+    Extensions = Extensions0#{pre_shared_key => PreSharedKey},
+    Hello#client_hello{extensions = Extensions}.
+
+%% Configure a suitable session ticket
+maybe_automatic_session_resumption(#state{
+                                      ssl_options = #{versions := [Version|_],
+                                                      ciphers := UserSuites,
+                                                      session_tickets := SessionTickets} = SslOpts0
+                                     } = State0)
+  when Version >= {3,4} andalso
+       SessionTickets =:= auto ->
+    AvailableCipherSuites = ssl_handshake:available_suites(UserSuites, Version),
+    HashAlgos = cipher_hash_algos(AvailableCipherSuites),
+    UseTicket = tls_client_ticket_store:find_ticket(self(), HashAlgos),
+    tls_client_ticket_store:lock_tickets(self(), [UseTicket]),
+    State = State0#state{ssl_options = SslOpts0#{use_ticket => [UseTicket]}},
+    {[UseTicket], State};
+maybe_automatic_session_resumption(#state{
+                                      ssl_options = #{use_ticket := UseTicket}
+                                     } = State) ->
+    {UseTicket, State}.
+
+
+cipher_hash_algos(Ciphers) ->
+    Fun = fun(Cipher) ->
+                  #{prf := Hash} = ssl_cipher_format:suite_bin_to_map(Cipher),
+                  Hash
+          end,
+    lists:map(Fun, Ciphers).
+
+
+get_ticket_data(_, undefined, _) ->
+    undefined;
+get_ticket_data(_, _, undefined) ->
+    undefined;
+get_ticket_data(_, enabled, UseTicket) ->
+    process_user_tickets(UseTicket);
+get_ticket_data(Pid, auto, UseTicket) ->
+    tls_client_ticket_store:get_tickets(Pid, UseTicket).
+
+
+process_user_tickets(UseTicket) ->
+    process_user_tickets(UseTicket, [], 0).
+%%
+process_user_tickets([], Acc, _) ->
+    lists:reverse(Acc);
+process_user_tickets([H|T], Acc, N) ->
+    #{hkdf := HKDF,
+      sni := _SNI,
+      psk := PSK,
+      timestamp := Timestamp,
+      ticket := NewSessionTicket} = erlang:binary_to_term(H),
+    #new_session_ticket{
+       ticket_lifetime = _LifeTime,
+       ticket_age_add = AgeAdd,
+       ticket_nonce = Nonce,
+       ticket = Ticket,
+       extensions = _Extensions
+      } = NewSessionTicket,
+    TicketAge =  erlang:system_time(seconds) - Timestamp,
+    ObfuscatedTicketAge = obfuscate_ticket_age(TicketAge, AgeAdd),
+    Identity = #psk_identity{
+                  identity = Ticket,
+                  obfuscated_ticket_age = ObfuscatedTicketAge},
+    process_user_tickets(T, [{undefined, N, Identity, PSK, Nonce, HKDF}|Acc], N + 1).
+
+
+%% The "obfuscated_ticket_age"
+%% field of each PskIdentity contains an obfuscated version of the
+%% ticket age formed by taking the age in milliseconds and adding the
+%% "ticket_age_add" value that was included with the ticket
+%% (see Section 4.6.1), modulo 2^32.
+obfuscate_ticket_age(TicketAge, AgeAdd) ->
+    (TicketAge + AgeAdd) rem round(math:pow(2,32)).

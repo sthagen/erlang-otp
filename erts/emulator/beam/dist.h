@@ -46,9 +46,10 @@
 #define DFLAG_BIG_CREATION        0x40000
 #define DFLAG_SEND_SENDER         0x80000
 #define DFLAG_BIG_SEQTRACE_LABELS 0x100000
-#define DFLAG_NO_MAGIC            0x200000 /* internal for pending connection */
+#define DFLAG_PENDING_CONNECT     0x200000 /* internal for pending connection */
 #define DFLAG_EXIT_PAYLOAD        0x400000
 #define DFLAG_FRAGMENTS           0x800000
+#define DFLAG_SPAWN               0x1000000
 
 /* Mandatory flags for distribution */
 #define DFLAG_DIST_MANDATORY (DFLAG_EXTENDED_REFERENCES         \
@@ -65,7 +66,8 @@
 #define DFLAG_DIST_HOPEFULLY (DFLAG_EXPORT_PTR_TAG              \
                               | DFLAG_BIT_BINARIES              \
                               | DFLAG_DIST_MONITOR              \
-                              | DFLAG_DIST_MONITOR_NAME)
+                              | DFLAG_DIST_MONITOR_NAME         \
+                              | DFLAG_SPAWN)
 
 /* Our preferred set of flags. Used for connection setup handshake */
 #define DFLAG_DIST_DEFAULT (DFLAG_DIST_MANDATORY | DFLAG_DIST_HOPEFULLY \
@@ -79,7 +81,8 @@
                             | DFLAG_SEND_SENDER               \
                             | DFLAG_BIG_SEQTRACE_LABELS       \
                             | DFLAG_EXIT_PAYLOAD              \
-                            | DFLAG_FRAGMENTS)
+                            | DFLAG_FRAGMENTS                 \
+                            | DFLAG_SPAWN)
 
 /* Flags addable by local distr implementations */
 #define DFLAG_DIST_ADDABLE    DFLAG_DIST_DEFAULT
@@ -87,6 +90,7 @@
 /* Flags rejectable by local distr implementation */
 #define DFLAG_DIST_REJECTABLE (DFLAG_DIST_HDR_ATOM_CACHE         \
                                | DFLAG_HIDDEN_ATOM_CACHE         \
+                               | DFLAG_FRAGMENTS                 \
                                | DFLAG_ATOM_CACHE)
 
 /* Flags for all features needing strict order delivery */
@@ -130,8 +134,16 @@ enum dop {
     DOP_PAYLOAD_EXIT_TT        = 25,
     DOP_PAYLOAD_EXIT2          = 26,
     DOP_PAYLOAD_EXIT2_TT       = 27,
-    DOP_PAYLOAD_MONITOR_P_EXIT = 28
+    DOP_PAYLOAD_MONITOR_P_EXIT = 28,
+
+    DOP_SPAWN_REQUEST       = 29,
+    DOP_SPAWN_REQUEST_TT    = 30,
+    DOP_SPAWN_REPLY         = 31,
+    DOP_SPAWN_REPLY_TT      = 32
 };
+
+#define ERTS_DIST_SPAWN_FLAG_LINK       (1 << 0)
+#define ERTS_DIST_SPAWN_FLAG_MONITOR    (1 << 1)
 
 /* distribution trap functions */
 extern Export* dmonitor_node_trap;
@@ -144,7 +156,7 @@ typedef enum {
 
 /* Must be larger or equal to 16 */
 #ifdef DEBUG
-#define ERTS_DIST_FRAGMENT_SIZE 16
+#define ERTS_DIST_FRAGMENT_SIZE 1024
 #else
 /* This should be made configurable */
 #define ERTS_DIST_FRAGMENT_SIZE (64 * 1024)
@@ -175,6 +187,9 @@ extern int erts_is_alive;
 /* dist_ctrl_{g,s}et_option/2 */
 #define ERTS_DIST_CTRL_OPT_GET_SIZE     ((Uint32) (1 << 0))
 
+/* for emulator internal testing... */
+extern int erts_dflags_test_remove_hopefull_flags;
+
 #ifdef DEBUG
 #define ERTS_DBG_CHK_NO_DIST_LNK(D, R, L) \
     erts_dbg_chk_no_dist_proc_link((D), (R), (L))
@@ -195,20 +210,72 @@ typedef enum { TTBSize, TTBEncode, TTBCompress } TTBState;
 typedef struct TTBSizeContext_ {
     Uint flags;
     int level;
+    Sint vlen;
+    int iovec;
+    Uint fragment_size;
+    Uint last_result;
+    Uint extra_size;
     Uint result;
     Eterm obj;
     ErtsWStack wstack;
 } TTBSizeContext;
 
+#define ERTS_INIT_TTBSizeContext(Ctx, Flags)                    \
+    do {                                                        \
+        (Ctx)->wstack.wstart = NULL;                            \
+        (Ctx)->flags = (Flags);                                 \
+        (Ctx)->level = 0;                                       \
+        (Ctx)->vlen = -1;                                       \
+        (Ctx)->fragment_size = ~((Uint) 0);                     \
+        (Ctx)->extra_size = 0;                                  \
+        (Ctx)->last_result = 0;                                 \
+    } while (0)
+
 typedef struct TTBEncodeContext_ {
     Uint flags;
     Uint hopefull_flags;
+    byte *hopefull_flagsp;
     int level;
     byte* ep;
     Eterm obj;
     ErtsWStack wstack;
     Binary *result_bin;
+    byte *cptr;
+    Sint vlen;
+    Uint size;
+    byte *payload_ixp;
+    byte *hopefull_ixp;
+    SysIOVec* iov;
+    ErlDrvBinary** binv;
+    Eterm *termv;
+    int iovec;
+    Uint fragment_size;
+    Sint frag_ix;
+    ErlIOVec **fragment_eiovs;
+#ifdef DEBUG
+    int debug_fragments;
+    int debug_vlen;
+#endif
 } TTBEncodeContext;
+
+#define ERTS_INIT_TTBEncodeContext(Ctx, Flags)                  \
+    do {                                                        \
+        (Ctx)->wstack.wstart = NULL;                            \
+        (Ctx)->flags = (Flags);                                 \
+        (Ctx)->level = 0;                                       \
+        (Ctx)->vlen = 0;                                        \
+        (Ctx)->size = 0;                                        \
+        (Ctx)->termv = NULL;                                    \
+        (Ctx)->iov = NULL;                                      \
+        (Ctx)->binv = NULL;                                     \
+        (Ctx)->fragment_size = ~((Uint) 0);                     \
+        if ((Flags) & DFLAG_PENDING_CONNECT) {                  \
+            (Ctx)->hopefull_flags = 0;                          \
+            (Ctx)->hopefull_flagsp = NULL;                      \
+            (Ctx)->hopefull_ixp = NULL;                         \
+            (Ctx)->payload_ixp = NULL;                          \
+        }                                                       \
+    } while (0)
 
 typedef struct {
     Uint real_size;
@@ -246,7 +313,7 @@ typedef struct erts_dsig_send_context {
     Eterm ctl;
     Eterm msg;
     Eterm from;
-    Eterm ctl_heap[6];
+    Eterm ctl_heap[8]; /* 7-tuple (SPAWN_REQUEST_TT) */
     Eterm return_term;
 
     DistEntry *dep;
@@ -258,11 +325,12 @@ typedef struct erts_dsig_send_context {
     enum erts_dsig_send_phase phase;
     Sint reds;
 
-    Uint32 max_finalize_prepend;
     Uint data_size, dhdr_ext_size;
+    byte *dhdrp, *extp;
     ErtsAtomCacheMap *acmp;
     ErtsDistOutputBuf *obuf;
-    Uint fragments;
+    Uint alloced_fragments, fragments;
+    Sint vlen;
     Uint32 flags;
     Process *c_p;
     union {
@@ -295,7 +363,7 @@ struct dist_sequences {
 #define ERTS_DSIG_SEND_TOO_LRG  3
 
 extern int erts_dsig_send_msg(ErtsDSigSendContext*, Eterm, Eterm);
-extern int erts_dsig_send_reg_msg(ErtsDSigSendContext*, Eterm, Eterm);
+extern int erts_dsig_send_reg_msg(ErtsDSigSendContext*, Eterm, Eterm, Eterm);
 extern int erts_dsig_send_link(ErtsDSigSendContext *, Eterm, Eterm);
 extern int erts_dsig_send_exit_tt(ErtsDSigSendContext *, Eterm, Eterm, Eterm, Eterm);
 extern int erts_dsig_send_unlink(ErtsDSigSendContext *, Eterm, Eterm);
@@ -305,6 +373,7 @@ extern int erts_dsig_send_exit2(ErtsDSigSendContext *, Eterm, Eterm, Eterm);
 extern int erts_dsig_send_demonitor(ErtsDSigSendContext *, Eterm, Eterm, Eterm);
 extern int erts_dsig_send_monitor(ErtsDSigSendContext *, Eterm, Eterm, Eterm);
 extern int erts_dsig_send_m_exit(ErtsDSigSendContext *, Eterm, Eterm, Eterm, Eterm);
+extern int erts_dsig_send_spawn_reply(ErtsDSigSendContext *, Eterm, Eterm, Eterm, Eterm, Eterm);
 
 extern int erts_dsig_send(ErtsDSigSendContext *dsdp);
 extern int erts_dsend_context_dtor(Binary*);
@@ -316,7 +385,7 @@ extern void erts_kill_dist_connection(DistEntry *dep, Uint32);
 
 extern Uint erts_dist_cache_size(void);
 
-extern Sint erts_abort_connection_rwunlock(DistEntry *dep);
+extern Sint erts_abort_pending_connection_rwunlock(DistEntry *dep, int *);
 
 extern void erts_debug_dist_seq_tree_foreach(
     DistEntry *dep,
@@ -333,4 +402,8 @@ extern int erts_dsig_prepare(ErtsDSigSendContext *,
 
 void erts_dist_print_procs_suspended_on_de(fmtfn_t to, void *to_arg);
 int erts_auto_connect(DistEntry* dep, Process *proc, ErtsProcLocks proc_locks);
+
+Uint erts_ttb_iov_size(int use_termv, Sint vlen, Uint fragments);
+ErlIOVec **erts_ttb_iov_init(TTBEncodeContext *ctx, int use_termv, char *ptr,
+                             Sint vlen, Uint fragments, Uint fragments_size);
 #endif

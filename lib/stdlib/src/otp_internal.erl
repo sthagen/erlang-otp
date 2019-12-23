@@ -66,6 +66,26 @@ obsolete_1(erlang, now, 0) ->
 obsolete_1(calendar, local_time_to_universal_time, 1) ->
     {deprecated, {calendar, local_time_to_universal_time_dst, 1}};
 
+%% *** inets added in OTP 23 ***
+
+obsolete_1(http_uri, parse, 1) ->
+    {deprecated, "deprecated; use uri_string functions instead"};
+
+obsolete_1(http_uri, parse, 2) ->
+    {deprecated,  "deprecated; use uri_string functions instead"};
+
+obsolete_1(http_uri, encode, 1) ->
+    {deprecated,  "deprecated; use uri_string functions instead"};
+
+obsolete_1(http_uri, decode, 1) ->
+    {deprecated,  "deprecated; use uri_string functions instead"};
+
+obsolete_1(http_uri, scheme_defaults, 0) ->
+    {deprecated,  "deprecated; use uri_string functions instead"};
+
+obsolete_1(httpd, parse_query, 1) ->
+    {deprecated, {uri_string, dissect_query, 1}};
+
 %% *** STDLIB added in OTP 22 ***
 
 obsolete_1(sys, get_debug, 3) ->
@@ -122,6 +142,81 @@ obsolete_1(gen_fsm, cancel_timer, 1) ->
     {deprecated, {erlang, cancel_timer, 1}};
 obsolete_1(gen_fsm, send_event_after, 2) ->
     {deprecated, {erlang, send_after, 3}};
+
+%% *** CRYPTO added in OTP 22.2 ***
+
+obsolete_1(crypto, next_iv, 2) ->
+    {deprecated,
+     "Deprecated. See the 'New and Old API' chapter of the CRYPTO User's Guide."
+    };
+obsolete_1(crypto, next_iv, 3) ->
+    {deprecated,
+     "Deprecated. See the 'New and Old API' chapter of the CRYPTO User's Guide."
+    };
+
+obsolete_1(crypto, hmac, 3) ->
+    {deprecated, {crypto, mac, 4}};
+obsolete_1(crypto, hmac, 4) ->
+    {deprecated, {crypto, macN, 5}};
+
+obsolete_1(crypto, hmac_init, 2) ->
+    {deprecated, {crypto, mac_init, 3}};
+obsolete_1(crypto, hmac_update, 2) ->
+    {deprecated, {crypto, mac_update, 2}};
+obsolete_1(crypto, hmac_final, 1) ->
+    {deprecated, {crypto, mac_final, 1}};
+obsolete_1(crypto, hmac_final_n, 2) ->
+    {deprecated, {crypto, mac_finalN, 2}};
+
+obsolete_1(crypto, cmac, 3) ->
+    {deprecated, {crypto, mac, 4}};
+obsolete_1(crypto, cmac, 4) ->
+    {deprecated, {crypto, macN, 5}};
+
+obsolete_1(crypto, poly1305, 2) ->
+    {deprecated, {crypto, mac, 3}};
+
+obsolete_1(crypto, stream_init, 2) ->
+    {deprecated,
+     "Deprecated and will be removed in a future release; "
+     "Use crypto:crypto_init/3 + crypto:crypto_update/2 + crypto:crypto_final/1 or "
+     "crypto:crypto_one_time/4."
+    };
+obsolete_1(crypto, stream_init, 3) ->
+    {deprecated,
+     "Deprecated and will be removed in a future release; "
+     "Use crypto:crypto_init/4 + crypto:crypto_update/2 + crypto:crypto_final/1 or "
+     "crypto:crypto_one_time/5."
+    };
+obsolete_1(crypto, stream_encrypt, 2) ->
+    {deprecated, {crypto, crypto_update, 2}};
+obsolete_1(crypto, stream_decrypt, 2) ->
+    {deprecated, {crypto, crypto_update, 2}};
+
+obsolete_1(crypto, block_encrypt, 3) ->
+    {deprecated,
+     "Deprecated and will be removed in a future release; "
+     "Use crypto:crypto_one_time/4 "
+     "or crypto:crypto_init/3 + crypto:crypto_update/2 + crypto:crypto_final/1."
+    };
+obsolete_1(crypto, block_encrypt, 4) ->
+    {deprecated,
+     "Deprecated. and will be removed in a future release; "
+     "Use crypto:crypto_one_time/5, crypto:crypto_one_time_aead/6,7 "
+     "or crypto:crypto_(dyn_iv)?_init + crypto:crypto_(dyn_iv)?_update + crypto:crypto_final."
+    };
+obsolete_1(crypto, block_decrypt, 3) ->
+    {deprecated,
+     "Deprecated and will be removed in a future release; "
+     "Use crypto:crypto_one_time/4 "
+     "or crypto:crypto_init/3 + crypto:crypto_update/2 + crypto:crypto_final/1."
+    };
+obsolete_1(crypto, block_decrypt, 4) ->
+    {deprecated,
+     "Deprecated and will be removed in a future release; "
+     "Use crypto:crypto_one_time/5, crypto:crypto_one_time_aead/6,7 "
+     "or crypto:crypto_(dyn_iv)?_init + crypto:crypto_(dyn_iv)?_update + crypto:crypto_final."
+    };
 
 %% *** CRYPTO added in OTP 20 ***
 
@@ -444,17 +539,17 @@ obsolete_1(ssl, connection_info, 1) ->
     {removed, "removed in 20.0; use ssl:connection_information/[1,2] instead"};
 
 obsolete_1(httpd_conf, check_enum, 2) ->
-    {deprecated, "deprecated; use lists:member/2 instead"};
+    {removed, "removed; use lists:member/2 instead"};
 obsolete_1(httpd_conf, clean, 1) ->
-    {deprecated, "deprecated; use sting:strip/1 instead or possible the re module"};
+    {removed, "removed; use sting:strip/1 instead or possible the re module"};
 obsolete_1(httpd_conf, custom_clean, 3) ->
-    {deprecated, "deprecated; use sting:strip/3 instead or possible the re module"};
+    {removed, "removed; use sting:strip/3 instead or possible the re module"};
 obsolete_1(httpd_conf, is_directory, 1) ->
-    {deprecated, "deprecated; use filelib:is_dir/1 instead"};
+    {removed, "removed; use filelib:is_dir/1 instead"};
 obsolete_1(httpd_conf, is_file, 1) ->
-    {deprecated, "deprecated; use filelib:is_file/1 instead"};
+    {removed, "removed; use filelib:is_file/1 instead"};
 obsolete_1(httpd_conf, make_integer, 1) ->
-    {deprecated, "deprecated; use erlang:list_to_integer/1 instead"};
+    {removed, "removed; use erlang:list_to_integer/1 instead"};
 
 %% Added in OTP 19.
 

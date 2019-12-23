@@ -35,13 +35,14 @@
 		prim_zip,
                 atomics,
                 counters,
+                persistent_term,
 		zlib,
 		%ESOCK_MODS%
 	    ]},
 	{registered, []},
 	{applications, []},
 	{env, []},
-	{runtime_dependencies, ["stdlib-3.5", "kernel-6.1", "sasl-3.3"]}
+	{runtime_dependencies, ["stdlib-@OTP-15251@", "kernel-@OTP-15251@", "sasl-3.3"]}
     ]}.
 
 %% vim: ft=erlang

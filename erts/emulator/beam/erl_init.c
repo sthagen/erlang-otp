@@ -429,6 +429,7 @@ erl_first_process_otp(char* mod_name, int argc, char** argv)
     args = CONS(hp, boot_mod, args);
 
     so.flags = erts_default_spo_flags;
+    so.opts = NIL;
     res = erl_spawn_system_process(&parent, am_erl_init, am_start, args, &so);
     ASSERT(is_internal_pid(res));
 
@@ -462,6 +463,7 @@ erl_system_process_otp(Eterm parent_pid, char* modname, int off_heap_msgq, int p
     so.priority       = prio;
     so.max_gen_gcs    = (Uint16) erts_atomic32_read_nob(&erts_max_gen_gcs);
     so.scheduler      = 0;
+    so.opts = NIL;
 
     res = erl_spawn_system_process(parent, mod, am_start, NIL, &so);
     ASSERT(is_internal_pid(res));
@@ -484,6 +486,7 @@ Eterm erts_internal_spawn_system_process_3(BIF_ALIST_3) {
     ASSERT(erts_list_length(args) >= 0);
 
     so.flags = erts_default_spo_flags;
+    so.opts = NIL;
     res = erl_spawn_system_process(BIF_P, mod, func, args, &so);
 
     if (is_non_value(res)) {
@@ -774,6 +777,7 @@ early_init(int *argc, char **argv) /*
     int ncpu;
     int ncpuonln;
     int ncpuavail;
+    int ncpuquota;
     int schdlrs;
     int schdlrs_onln;
     int schdlrs_percentage = 100;
@@ -811,7 +815,8 @@ early_init(int *argc, char **argv) /*
                                      &max_reader_groups,
 				     &ncpu,
 				     &ncpuonln,
-				     &ncpuavail);
+				     &ncpuavail,
+				     &ncpuquota);
 
     ignore_break = 0;
     replace_intr = 0;
@@ -838,9 +843,18 @@ early_init(int *argc, char **argv) /*
      * can initialize the allocators.
      */
     no_schedulers = (Uint) (ncpu > 0 ? ncpu : 1);
-    no_schedulers_online = (ncpuavail > 0
-			    ? ncpuavail
-			    : (ncpuonln > 0 ? ncpuonln : no_schedulers));
+
+    if (ncpuavail > 0) {
+        if (ncpuquota > 0) {
+            no_schedulers_online = MIN(ncpuquota, ncpuavail);
+        } else {
+            no_schedulers_online = ncpuavail;
+        }
+    } else if (ncpuonln > 0) {
+        no_schedulers_online = ncpuonln;
+    } else {
+        no_schedulers_online = no_schedulers;
+    }
 
     schdlrs = no_schedulers;
     schdlrs_onln = no_schedulers_online;

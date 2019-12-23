@@ -43,7 +43,8 @@ MODULES = \
 	ssl_dist_test_lib \
 	ssl_api_SUITE\
 	tls_api_SUITE\
-	ssl_basic_SUITE \
+	dtls_api_SUITE\
+        ssl_basic_SUITE \
 	ssl_bench_SUITE \
 	ssl_cipher_SUITE \
         ssl_cipher_suite_SUITE \
@@ -71,6 +72,7 @@ MODULES = \
 	ssl_pem_cache_SUITE \
 	ssl_session_SUITE \
 	ssl_session_cache_SUITE	\
+	ssl_session_ticket_SUITE \
 	openssl_session_SUITE \
 	ssl_ECC_SUITE \
 	ssl_ECC_openssl_SUITE \

@@ -195,6 +195,8 @@ type	DB_DMC_ERR_INFO	ETS		ETS		db_dmc_error_info
 type	DB_TERM		ETS		ETS		db_term
 type	DB_PROC_CLEANUP SHORT_LIVED	ETS		db_proc_cleanup_state
 type	ETS_ALL_REQ	SHORT_LIVED	ETS		ets_all_request
+type	ETS_CTRS	ETS             ETS		ets_decentralized_ctrs
+type	ETS_I_LST_TRAP	SHORT_LIVED	ETS		ets_insert_list_bif_trap_state
 type	LOGGER_DSBUF	TEMPORARY	SYSTEM		logger_dsbuf
 type	TMP_DSBUF	TEMPORARY	SYSTEM		tmp_dsbuf
 type	INFO_DSBUF	SYSTEM		SYSTEM		info_dsbuf
@@ -250,6 +252,7 @@ type	MINDIRECTION	FIXED_SIZE	SYSTEM		magic_indirection
 type	BINARY_FIND	SHORT_LIVED	PROCESSES	binary_find
 type	CRASH_DUMP	STANDARD	SYSTEM		crash_dump
 type	DIST_TRANSCODE  SHORT_LIVED	SYSTEM		dist_transcode_context
+type	RLA_BLOCK_CNTRS	LONG_LIVED	SYSTEM		release_literal_area_block_counters
 
 type	THR_Q_EL	STANDARD   	SYSTEM		thr_q_element
 type	THR_Q_EL_SL	FIXED_SIZE	SYSTEM		sl_thr_q_element
@@ -285,6 +288,8 @@ type	ENVIRONMENT	SYSTEM		SYSTEM		environment
 type	PERSISTENT_TERM	LONG_LIVED	CODE		persisten_term
 type	PERSISTENT_LOCK_Q SHORT_LIVED	SYSTEM		persistent_lock_q
 type	PERSISTENT_TERM_TMP SHORT_LIVED	SYSTEM		persistent_term_tmp_table
+
+type	T2B_VEC	  	SHORT_LIVED	PROCESSES	term_to_binary_vector 
 
 #
 # Types used for special emulators

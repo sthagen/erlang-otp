@@ -116,6 +116,7 @@ atom awaiting_load
 atom awaiting_unload
 atom backtrace backtrace_depth
 atom badarg badarith badarity badfile badfun badkey badmap badmatch badsig
+atom badopt
 atom bag
 atom band
 atom big
@@ -193,6 +194,7 @@ atom current_location
 atom current_stacktrace
 atom data
 atom debug_flags
+atom decentralized_counters
 atom decimals
 atom default
 atom delay_trap
@@ -212,7 +214,9 @@ atom discard
 atom dist
 atom dist_cmd
 atom dist_ctrl_put_data
+atom dist_ctrlr
 atom dist_data
+atom dist_spawn_init
 atom Div='/'
 atom div
 atom dmonitor_node
@@ -290,6 +294,8 @@ atom gc_minor_start
 atom Ge='>='
 atom generational
 atom get_all_trap
+atom get_iovec
+atom get_internal_state_blocked
 atom get_seq_token
 atom get_size
 atom get_tcw
@@ -341,6 +347,8 @@ atom is_constant
 atom is_seq_trace
 atom iterator
 atom io
+atom iodata
+atom iovec
 atom keypos
 atom kill
 atom killed
@@ -450,6 +458,7 @@ atom noeol
 atom noproc
 atom normal
 atom nosuspend
+atom no_fail
 atom no_float
 atom no_integer
 atom no_network
@@ -548,10 +557,12 @@ atom register
 atom registered_name
 atom reload
 atom rem
+atom reply_tag
 atom report_errors
 atom reset
 atom reset_seq_trace
 atom restart
+atom resume
 atom return_from
 atom return_to
 atom return_trace
@@ -610,6 +621,10 @@ atom silent
 atom size
 atom spawn_executable
 atom spawn_driver
+atom spawn_init
+atom spawn_reply
+atom spawn_request
+atom spawn_request_yield
 atom spawned
 atom ssl_tls
 atom stack_size
@@ -676,6 +691,7 @@ atom unload_cancelled
 atom value
 atom version
 atom visible
+atom wait_release_literal_area_switch
 atom waiting
 atom wall_clock
 atom warning

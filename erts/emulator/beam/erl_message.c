@@ -456,6 +456,24 @@ erts_queue_message(Process* receiver, ErtsProcLocks receiver_locks,
 }
 
 /**
+ *
+ * @brief Send one message from *NOT* a local process.
+ *
+ * But with a token!
+ */
+void
+erts_queue_message_token(Process* receiver, ErtsProcLocks receiver_locks,
+                         ErtsMessage* mp, Eterm msg, Eterm from, Eterm token)
+{
+    ASSERT(is_not_internal_pid(from));
+    ERL_MESSAGE_TERM(mp) = msg;
+    ERL_MESSAGE_FROM(mp) = from;
+    ERL_MESSAGE_TOKEN(mp) = token;
+    queue_messages(receiver, receiver_locks, mp, &mp->next, 1);
+}
+
+
+/**
  * @brief Send one message from a local process.
  *
  * It is up to the caller of this function to set the
@@ -913,7 +931,7 @@ erts_move_messages_off_heap(Process *c_p)
 
     ASSERT(erts_atomic32_read_nob(&c_p->state)
 	   & ERTS_PSFLG_OFF_HEAP_MSGQ);
-    ASSERT(c_p->flags & F_OFF_HEAP_MSGQ_CHNG);
+    ASSERT(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG);
 
     for (i = 0; i < sizeof(msgq)/sizeof(msgq[0]); i++) {
         ErtsMessage *mp;
@@ -983,7 +1001,7 @@ erts_complete_off_heap_message_queue_change(Process *c_p)
     int reds = 1;
 
     ERTS_LC_ASSERT(ERTS_PROC_LOCK_MAIN == erts_proc_lc_my_proc_locks(c_p));
-    ASSERT(c_p->flags & F_OFF_HEAP_MSGQ_CHNG);
+    ASSERT(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG);
     ASSERT(erts_atomic32_read_nob(&c_p->state) & ERTS_PSFLG_OFF_HEAP_MSGQ);
 
     /*
@@ -995,7 +1013,7 @@ erts_complete_off_heap_message_queue_change(Process *c_p)
      * consistent with that.
      */
 
-    if (!(c_p->flags & F_OFF_HEAP_MSGQ))
+    if (!(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ))
 	erts_atomic32_read_band_nob(&c_p->state,
 					~ERTS_PSFLG_OFF_HEAP_MSGQ);
     else {
@@ -1005,7 +1023,7 @@ erts_complete_off_heap_message_queue_change(Process *c_p)
 	erts_proc_unlock(c_p, ERTS_PROC_LOCK_MSGQ);
 	reds += erts_move_messages_off_heap(c_p);
     }
-    c_p->flags &= ~F_OFF_HEAP_MSGQ_CHNG;
+    c_p->sig_qs.flags &= ~FS_OFF_HEAP_MSGQ_CHNG;
     return reds;
 }
 
@@ -1038,12 +1056,12 @@ erts_change_message_queue_management(Process *c_p, Eterm new_state)
     Eterm res;
 
 #ifdef DEBUG
-    if (c_p->flags & F_OFF_HEAP_MSGQ) {
+    if (c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ) {
 	ASSERT(erts_atomic32_read_nob(&c_p->state)
 	       & ERTS_PSFLG_OFF_HEAP_MSGQ);
     }
     else {
-	if (c_p->flags & F_OFF_HEAP_MSGQ_CHNG) {
+	if (c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG) {
 	    ASSERT(erts_atomic32_read_nob(&c_p->state)
 		   & ERTS_PSFLG_OFF_HEAP_MSGQ);
 	}
@@ -1054,23 +1072,23 @@ erts_change_message_queue_management(Process *c_p, Eterm new_state)
     }
 #endif
 
-    switch (c_p->flags & (F_OFF_HEAP_MSGQ|F_ON_HEAP_MSGQ)) {
+    switch (c_p->sig_qs.flags & (FS_OFF_HEAP_MSGQ|FS_ON_HEAP_MSGQ)) {
 
-    case F_OFF_HEAP_MSGQ:
+    case FS_OFF_HEAP_MSGQ:
 	res = am_off_heap;
 
 	switch (new_state) {
 	case am_off_heap:
 	    break;
 	case am_on_heap:
-	    c_p->flags |= F_ON_HEAP_MSGQ;
-	    c_p->flags &= ~F_OFF_HEAP_MSGQ;
+	    c_p->sig_qs.flags |= FS_ON_HEAP_MSGQ;
+	    c_p->sig_qs.flags &= ~FS_OFF_HEAP_MSGQ;
 	    /*
 	     * We are not allowed to clear ERTS_PSFLG_OFF_HEAP_MSGQ
 	     * if a off heap change is ongoing. It will be adjusted
 	     * when the change completes...
 	     */
-	    if (!(c_p->flags & F_OFF_HEAP_MSGQ_CHNG)) {
+	    if (!(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG)) {
 		/* Safe to clear ERTS_PSFLG_OFF_HEAP_MSGQ... */
 		erts_atomic32_read_band_nob(&c_p->state,
 						~ERTS_PSFLG_OFF_HEAP_MSGQ);
@@ -1082,14 +1100,14 @@ erts_change_message_queue_management(Process *c_p, Eterm new_state)
 	}
 	break;
 
-    case F_ON_HEAP_MSGQ:
+    case FS_ON_HEAP_MSGQ:
 	res = am_on_heap;
 
 	switch (new_state) {
 	case am_on_heap:
 	    break;
 	case am_off_heap:
-	    c_p->flags &= ~F_ON_HEAP_MSGQ;
+	    c_p->sig_qs.flags &= ~FS_ON_HEAP_MSGQ;
 	    goto change_to_off_heap;
 	default:
 	    res = THE_NON_VALUE; /* badarg */
@@ -1107,13 +1125,13 @@ erts_change_message_queue_management(Process *c_p, Eterm new_state)
 
 change_to_off_heap:
 
-    c_p->flags |= F_OFF_HEAP_MSGQ;
+    c_p->sig_qs.flags |= FS_OFF_HEAP_MSGQ;
 
     /*
      * We do not have to schedule a change if
      * we have an ongoing off heap change...
      */
-    if (!(c_p->flags & F_OFF_HEAP_MSGQ_CHNG)) {
+    if (!(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG)) {
 	ErtsChangeOffHeapMessageQueue *cohmq;
 	/*
 	 * Need to set ERTS_PSFLG_OFF_HEAP_MSGQ and wait
@@ -1125,7 +1143,7 @@ change_to_off_heap:
 	 */
 	erts_atomic32_read_bor_nob(&c_p->state,
 				       ERTS_PSFLG_OFF_HEAP_MSGQ);
-	c_p->flags |= F_OFF_HEAP_MSGQ_CHNG;
+	c_p->sig_qs.flags |= FS_OFF_HEAP_MSGQ_CHNG;
 	cohmq = erts_alloc(ERTS_ALC_T_MSGQ_CHNG,
 			   sizeof(ErtsChangeOffHeapMessageQueue));
 	cohmq->pid = c_p->common.id;

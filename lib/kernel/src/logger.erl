@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2017-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2017-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -256,9 +256,8 @@ log(Level, FunOrFormat, Args, Metadata) ->
 -spec allow(Level,Module) -> boolean() when
       Level :: level(),
       Module :: module().
-allow(Level,Module) when ?IS_LEVEL(Level), is_atom(Module) ->
-    logger_config:allow(?LOGGER_TABLE,Level,Module).
-
+allow(Level,Module) when is_atom(Module) ->
+    logger_config:allow(Level,Module).
 
 -spec macro_log(Location,Level,StringOrReport)  -> ok when
       Location :: location(),
@@ -571,8 +570,8 @@ set_application_level(App,Level) ->
             {error, {not_loaded, App}}
     end.
 
--spec unset_application_level(Application) -> ok | {error, not_loaded} when
-      Application :: atom().
+-spec unset_application_level(Application) ->
+         ok | {error, {not_loaded, Application}} when Application :: atom().
 unset_application_level(App) ->
     case application:get_key(App, modules) of
         {ok, Modules} ->
@@ -595,7 +594,7 @@ get_module_level(Modules) when is_list(Modules) ->
       Module :: module(),
       Level :: level() | all | none.
 get_module_level() ->
-    logger_config:get_module_level(?LOGGER_TABLE).
+    logger_config:get_module_level().
 
 %%%-----------------------------------------------------------------
 %%% Misc
@@ -1027,14 +1026,14 @@ get_logger_env(App) ->
 %%%-----------------------------------------------------------------
 %%% Internal
 do_log(Level,Msg,#{mfa:={Module,_,_}}=Meta) ->
-    case logger_config:allow(?LOGGER_TABLE,Level,Module) of
+    case logger_config:allow(Level,Module) of
         true ->
             log_allowed(#{},Level,Msg,Meta);
         false ->
             ok
     end;
 do_log(Level,Msg,Meta) ->
-    case logger_config:allow(?LOGGER_TABLE,Level) of
+    case logger_config:allow(Level) of
         true ->
             log_allowed(#{},Level,Msg,Meta);
         false ->

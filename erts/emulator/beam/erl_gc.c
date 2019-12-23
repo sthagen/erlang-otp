@@ -153,7 +153,9 @@ static void grow_new_heap(Process *p, Uint new_sz, Eterm* objv, int nobj);
 static void sweep_off_heap(Process *p, int fullsweep);
 static void offset_heap(Eterm* hp, Uint sz, Sint offs, char* area, Uint area_size);
 static void offset_heap_ptr(Eterm* hp, Uint sz, Sint offs, char* area, Uint area_size);
+#ifdef HIPE
 static void offset_heap_ptr_nstack(Eterm* hp, Uint sz, Sint offs, char* area, Uint area_size);
+#endif
 static void offset_rootset(Process *p, Sint offs, char* area, Uint area_size,
 			   Eterm* objv, int nobj);
 static void offset_off_heap(Process* p, Sint offs, char* area, Uint area_size);
@@ -416,7 +418,8 @@ erts_gc_after_bif_call_lhf(Process* p, ErlHeapFragment *live_hf_end,
 {
     int cost;
 
-    if (p->flags & (F_HIBERNATE_SCHED|F_HIPE_RECV_LOCKED)) {
+    if ((p->flags & F_HIBERNATE_SCHED) ||
+        (p->sig_qs.flags & FS_HIPE_RECV_LOCKED)) {
 	/*
 	 * We just hibernated. We do *not* want to mess
 	 * up the hibernation by an ordinary GC...
@@ -589,7 +592,7 @@ young_gen_usage(Process *p, Uint *ext_msg_usage)
 
     hsz = p->mbuf_sz;
 
-    if (p->flags & F_ON_HEAP_MSGQ) {
+    if (p->sig_qs.flags & FS_ON_HEAP_MSGQ) {
         ERTS_FOREACH_SIG_PRIVQS(
             p, mp,
             {
@@ -654,7 +657,7 @@ check_for_possibly_long_gc(Process *p, Uint ygen_usage)
 
     sz = ygen_usage;
     sz += p->hend - p->stop;
-    if (p->flags & F_ON_HEAP_MSGQ)
+    if (p->sig_qs.flags & FS_ON_HEAP_MSGQ)
         sz += erts_proc_sig_privqs_len(p);
     if (major)
 	sz += p->old_htop - p->old_heap;
@@ -1328,13 +1331,13 @@ erts_garbage_collect_literals(Process* p, Eterm* literals,
             case REFC_BINARY_SUBTAG:
                 {
                     Binary* bptr = ((ProcBin*)ptr)->val;
-                    erts_refc_inc(&bptr->intern.refc, 1);
+                    erts_refc_inc(&bptr->intern.refc, 2);
                     break;
                 }
             case FUN_SUBTAG:
                 {
                     ErlFunEntry* fe = ((ErlFunThing*)ptr)->fe;
-                    erts_refc_inc(&fe->refc, 1);
+                    erts_refc_inc(&fe->refc, 2);
                     break;
                 }
             case REF_SUBTAG:
@@ -1342,7 +1345,7 @@ erts_garbage_collect_literals(Process* p, Eterm* literals,
                     ErtsMagicBinary *bptr;
                     ASSERT(is_magic_ref_thing(ptr));
                     bptr = ((ErtsMRefThing *) ptr)->mb;
-                    erts_refc_inc(&bptr->intern.refc, 1);
+                    erts_refc_inc(&bptr->intern.refc, 2);
                     break;
                 }
             default:
@@ -1350,7 +1353,7 @@ erts_garbage_collect_literals(Process* p, Eterm* literals,
                     ExternalThing *etp;
                     ASSERT(is_external_header(ptr->thing_word));
                     etp = (ExternalThing *) ptr;
-                    erts_ref_node_entry(etp->node, 1,
+                    erts_ref_node_entry(etp->node, 2,
                                         make_boxed(&oh->thing_word));
                     break;
                 }
@@ -1468,7 +1471,7 @@ minor_collection(Process* p, ErlHeapFragment *live_hf_end,
         do_minor(p, live_hf_end, (char *) mature, mature_size*sizeof(Eterm),
 		 new_sz, objv, nobj);
 
-	if (p->flags & F_ON_HEAP_MSGQ)
+	if (p->sig_qs.flags & FS_ON_HEAP_MSGQ)
 	    move_msgs_to_heap(p);
 
 	new_mature = p->old_htop - prev_old_htop;
@@ -1853,7 +1856,7 @@ major_collection(Process* p, ErlHeapFragment *live_hf_end,
 
     HIGH_WATER(p) = HEAP_TOP(p);
 
-    if (p->flags & F_ON_HEAP_MSGQ)
+    if (p->sig_qs.flags & FS_ON_HEAP_MSGQ)
 	move_msgs_to_heap(p);
 
     ErtsGcQuickSanityCheck(p);
@@ -2593,12 +2596,12 @@ setup_rootset(Process *p, Eterm *objv, int nobj, Rootset *rootset)
 
     ASSERT(n <= rootset->size);
 
-    switch (p->flags & (F_OFF_HEAP_MSGQ|F_OFF_HEAP_MSGQ_CHNG)) {
-    case F_OFF_HEAP_MSGQ|F_OFF_HEAP_MSGQ_CHNG:
+    switch (p->sig_qs.flags & (FS_OFF_HEAP_MSGQ|FS_OFF_HEAP_MSGQ_CHNG)) {
+    case FS_OFF_HEAP_MSGQ|FS_OFF_HEAP_MSGQ_CHNG:
 	(void) erts_move_messages_off_heap(p);
-    case F_OFF_HEAP_MSGQ:
+    case FS_OFF_HEAP_MSGQ:
 	break;
-    case F_OFF_HEAP_MSGQ_CHNG:
+    case FS_OFF_HEAP_MSGQ_CHNG:
     case 0: {
         Sint len;
 	/*
@@ -3206,7 +3209,7 @@ offset_message(ErtsMessage *mp, Sint offs, char* area, Uint area_size)
 static void
 offset_mqueue(Process *p, Sint offs, char* area, Uint area_size)
 {
-    if ((p->flags & (F_OFF_HEAP_MSGQ|F_OFF_HEAP_MSGQ_CHNG)) != F_OFF_HEAP_MSGQ)
+    if ((p->sig_qs.flags & (FS_OFF_HEAP_MSGQ|FS_OFF_HEAP_MSGQ_CHNG)) != FS_OFF_HEAP_MSGQ)
         ERTS_FOREACH_SIG_PRIVQS(p, mp, offset_message(mp, offs, area, area_size));
 }
 
@@ -3440,7 +3443,7 @@ erts_process_gc_info(Process *p, Uint *sizep, Eterm **hpp,
         values[6] = htop - heap;
     }
 
-    if (p->flags & F_ON_HEAP_MSGQ) {
+    if (p->sig_qs.flags & FS_ON_HEAP_MSGQ) {
         /* If on heap messages in the internal queue are counted
            as being part of the heap, so we have to add them to the
            am_mbuf_size value. process_info(total_heap_size) should

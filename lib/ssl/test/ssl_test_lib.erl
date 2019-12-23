@@ -120,9 +120,7 @@ do_run_server(ListenSocket, AcceptSocket, Opts) ->
 	    ct:log("~p:~p~nServer closing  ~p ~n", [?MODULE,?LINE, self()]),
 	    Result = Transport:close(AcceptSocket),
 	    Result1 = Transport:close(ListenSocket),
-	    ct:log("~p:~p~nResult ~p : ~p ~n", [?MODULE,?LINE, Result, Result1]);
-	{ssl_closed, _} ->
-	    ok
+	    ct:log("~p:~p~nResult ~p : ~p ~n", [?MODULE,?LINE, Result, Result1])
     end.
 
 %%% To enable to test with s_client -reconnect
@@ -537,13 +535,17 @@ check_server_alert(Pid, Alert) ->
             check_server_txt(STxt),
             ok;
         {Pid, {error, closed}} ->
-            ok
+            ok;
+        {Pid, {ok, _}} ->
+            ct:fail("Successful connection during negative test.")
     end.
 check_server_alert(Server, Client, Alert) ->
     receive
 	{Server, {error, {tls_alert, {Alert, STxt}}}} ->
             check_server_txt(STxt),
-            check_client_alert(Client, Alert)
+            check_client_alert(Client, Alert);
+        {Server, {ok, _}} ->
+            ct:fail("Successful connection during negative test.")
     end.
 check_client_alert(Pid, Alert) ->
     receive
@@ -554,7 +556,9 @@ check_client_alert(Pid, Alert) ->
             check_client_txt(CTxt),
             ok;
         {Pid, {error, closed}} ->
-            ok
+            ok;
+        {Pid, {ok, _}} ->
+            ct:fail("Successful connection during negative test.")
     end.
 check_client_alert(Server, Client, Alert) ->
     receive
@@ -565,7 +569,9 @@ check_client_alert(Server, Client, Alert) ->
             check_client_txt(CTxt),
             ok;
         {Client, {error, closed}} ->
-            ok
+            ok;
+        {Client, {ok, _}} ->
+            ct:fail("Successful connection during negative test.")
     end.
 check_server_txt("TLS server" ++ _) ->
     ok;
@@ -1832,6 +1838,7 @@ state([{data,[{"StateData", State}]} | _]) -> %% gen_fsm
 state([_ | Rest]) ->
     state(Rest).
 
+%% TODO: DTLS considered tls version in this use maybe rename
 is_tls_version('dtlsv1.2') ->
     true;
 is_tls_version('dtlsv1') ->
@@ -1847,6 +1854,13 @@ is_tls_version('tlsv1') ->
 is_tls_version('sslv3') ->
     true;
 is_tls_version(_) ->
+    false.
+
+is_dtls_version('dtlsv1.2') ->
+    true;
+is_dtls_version('dtlsv1') ->
+    true;
+is_dtls_version(_) ->
     false.
 
 init_tls_version(Version, Config)
@@ -1935,6 +1949,69 @@ send_recv_result_active_once(Socket) ->
     Data = "Hello world",
     ssl:send(Socket, Data),
     active_once_recv_list(Socket, length(Data)).
+
+verify_active_session_resumption(Socket, SessionResumption) ->
+    verify_active_session_resumption(Socket, SessionResumption, wait_reply, no_tickets).
+%%
+verify_active_session_resumption(Socket, SessionResumption, WaitReply) ->
+    verify_active_session_resumption(Socket, SessionResumption, WaitReply, no_tickets).
+%%
+verify_active_session_resumption(Socket, SessionResumption, WaitForReply, TicketOption) ->
+    case ssl:connection_information(Socket, [session_resumption]) of
+        {ok, [{session_resumption, SessionResumption}]} ->
+            Msg = boolean_to_log_msg(SessionResumption),
+            ct:log("~p:~p~nSession resumption verified! (expected ~p, got ~p)!",
+                   [?MODULE, ?LINE, Msg, Msg]);
+        {ok, [{session_resumption, Got0}]} ->
+            Expected = boolean_to_log_msg(SessionResumption),
+            Got = boolean_to_log_msg(Got0),
+            ct:fail("~p:~p~nFailed to verify session resumption! (expected ~p, got ~p)",
+                    [?MODULE, ?LINE, Expected, Got])
+    end,
+
+    Data =  "Hello world",
+    ssl:send(Socket, Data),
+    case WaitForReply of
+        wait_reply ->
+            Data = active_recv(Socket, length(Data));
+        no_reply ->
+            ok;
+        Else1 ->
+            ct:fail("~p:~p~nFaulty parameter: ~p", [?MODULE, ?LINE, Else1])
+    end,
+    case TicketOption of
+        {tickets, N} ->
+            receive_tickets(N);
+        no_tickets ->
+            ok;
+        Else2 ->
+            ct:fail("~p:~p~nFaulty parameter: ~p", [?MODULE, ?LINE, Else2])
+    end.
+
+boolean_to_log_msg(true) ->
+    "OK";
+boolean_to_log_msg(false) ->
+    "FAIL".
+
+receive_tickets(N) ->
+    receive_tickets(N, []).
+%%
+receive_tickets(0, Acc) ->
+    Acc;
+receive_tickets(N, Acc) ->
+    receive
+        {ssl, session_ticket, {_, Ticket}} ->
+            receive_tickets(N - 1, [Ticket|Acc])
+    end.
+
+check_tickets(Client) ->
+    receive
+        {Client, Tickets} ->
+            Tickets
+    after
+        5000 ->
+            ct:fail("~p:~p~nNo tickets received!", [?MODULE, ?LINE])
+    end.
 
 active_recv(Socket, N) ->
     active_recv(Socket, N, []).
@@ -2219,7 +2296,7 @@ openssl_allows_client_renegotaite(Config) ->
      case os:cmd("openssl version") of  
 	"OpenSSL 1.1" ++ _ ->
 	    {skip, "OpenSSL does not allow client renegotiation"};
-	"LibreSSL 2" ++ _ ->
+	"LibreSSL" ++ _ ->
 	    {skip, "LibreSSL does not allow client renegotiation"};
          _ ->
              Config
@@ -2794,6 +2871,18 @@ new_config(PrivDir, ServerOpts0) ->
 openssl_sane_dtls_alpn() ->
     case os:cmd("openssl version") of
         "OpenSSL 1.1.0g" ++ _ ->
+            false;
+        "OpenSSL 1.1.1 " ++ _ ->
+            false;
+        "OpenSSL 1.1.1a" ++ _ ->
+            false;
+        _->
+            openssl_sane_dtls()
+    end.
+
+openssl_sane_dtls_session_reuse() ->
+    case os:cmd("openssl version") of
+        "OpenSSL 1.1.1 " ++ _ ->
             false;
         "OpenSSL 1.1.1a" ++ _ ->
             false;

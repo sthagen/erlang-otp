@@ -20,6 +20,7 @@
 -module(erl_distribution_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("kernel/include/dist.hrl").
 
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
 	 init_per_group/2,end_per_group/2]).
@@ -41,7 +42,9 @@
 	 monitor_nodes_combinations/1,
 	 monitor_nodes_cleanup/1,
 	 monitor_nodes_many/1,
-         dist_ctrl_proc_smoke/1]).
+         monitor_nodes_down_up/1,
+         dist_ctrl_proc_smoke/1,
+         dist_ctrl_proc_reject/1]).
 
 %% Performs the test at another node.
 -export([get_socket_priorities/0,
@@ -53,7 +56,7 @@
 
 -export([init_per_testcase/2, end_per_testcase/2]).
 
--export([dist_cntrlr_output_test/2]).
+-export([dist_cntrlr_output_test_size/2]).
 
 -export([pinger/1]).
 
@@ -72,6 +75,7 @@ suite() ->
 
 all() -> 
     [dist_ctrl_proc_smoke,
+     dist_ctrl_proc_reject,
      tick, tick_change, nodenames, hostnames, illegal_nodenames,
      connect_node,
      hidden_node, setopts,
@@ -85,13 +89,16 @@ groups() ->
        monitor_nodes_node_type, monitor_nodes_misc,
        monitor_nodes_otp_6481, monitor_nodes_errors,
        monitor_nodes_combinations, monitor_nodes_cleanup,
-       monitor_nodes_many]}].
+       monitor_nodes_many,
+       monitor_nodes_down_up]}].
 
 init_per_suite(Config) ->
+    start_gen_tcp_dist_test_type_server(),
     Config.
 
 end_per_suite(_Config) ->
     [slave:stop(N) || N <- nodes()],
+    kill_gen_tcp_dist_test_type_server(),
     ok.
 
 init_per_group(_GroupName, Config) ->
@@ -275,7 +282,7 @@ test_node(Name, Illigal, ExtraArgs) ->
         end,
     net_kernel:monitor_nodes(true),
     BinCommand = unicode:characters_to_binary(Command, utf8),
-    Prt = open_port({spawn, BinCommand}, [stream,{cd,"hostnames_nodedir"}]),
+    _Prt = open_port({spawn, BinCommand}, [stream,{cd,"hostnames_nodedir"}]),
     Node = list_to_atom(Name),
     receive
         {nodeup, Node} ->
@@ -1456,89 +1463,268 @@ monitor_nodes_many(DCfg, _Config) ->
     MonNodeState = monitor_node_state(),
     ok.
 
+%% Test order of messages nodedown and nodeup.
+monitor_nodes_down_up(Config) when is_list(Config) ->
+    [An] = get_nodenames(1, monitor_nodeup),
+    {ok, A} = ct_slave:start(An),
+
+    try
+        monitor_nodes_yoyo(A)
+    after
+        catch ct_slave:stop(A)
+    end.
+
+monitor_nodes_yoyo(A) ->
+    net_kernel:monitor_nodes(true),
+    Papa = self(),
+
+    %% Spawn lots of processes doing one erlang:monitor_node(A,true) each
+    %% just to get lots of other monitors to fire when connection goes down
+    %% and thereby give time for {nodeup,A} to race before {nodedown,A}.
+    NodeMonCnt = 10000,
+    NodeMons = [my_spawn_opt(fun F() ->
+                                     monitor_node = receive_any(),
+                                     monitor_node(A, true),
+                                     Papa ! ready,
+                                     {nodedown, A} =  receive_any(),
+                                     F()
+                             end,
+                             [link, monitor, {priority, low}])
+                ||
+                   _ <- lists:seq(1, NodeMonCnt)],
+
+    %% Spawn message spamming process to trigger new connection setups
+    %% as quick as possible.
+    Spammer = my_spawn_opt(fun F() ->
+                                   {dummy, A} ! trigger_auto_connect,
+                                   F()
+                           end,
+                           [link, monitor]),
+
+    %% Now bring connection down and verify we get {nodedown,A} before {nodeup,A}.
+    Yoyos = 20,
+    [begin
+         [P ! monitor_node || P <- NodeMons],
+         [receive ready -> ok end || _ <- NodeMons],
+
+         Owner = get_conn_owner(A),
+         exit(Owner, kill),
+
+         {nodedown, A} = receive_any(),
+         {nodeup, A} = receive_any()
+     end
+     || _ <- lists:seq(1,Yoyos)],
+
+    unlink(Spammer),
+    exit(Spammer, die),
+    receive {'DOWN',_,process,Spammer,_} -> ok end,
+
+    [begin unlink(P), exit(P, die) end || P <- NodeMons],
+    [receive {'DOWN',_,process,P,_} -> ok end || P <- NodeMons],
+
+    net_kernel:monitor_nodes(false),
+    ok.
+
+receive_any() ->
+    receive_any(infinity).
+
+receive_any(Timeout) ->
+    receive
+        M -> M
+    after
+        Timeout -> timeout
+    end.
+
+my_spawn_opt(Fun, Opts) ->
+    case spawn_opt(Fun, Opts) of
+        {Pid, _Mref} -> Pid;
+        Pid -> Pid
+    end.
+
+get_conn_owner(Node) ->
+    {ok, NodeInfo} = net_kernel:node_info(Node),
+    {value,{owner, Owner}} = lists:keysearch(owner, 1, NodeInfo),
+    Owner.
+
 dist_ctrl_proc_smoke(Config) when is_list(Config) ->
+    dist_ctrl_proc_test(get_nodenames(2, ?FUNCTION_NAME)).
+
+dist_ctrl_proc_reject(Config) when is_list(Config) ->
+    ToReject = combinations(dist_util:rejectable_flags()),
+    lists:map(fun(Flags) ->
+                      ct:log("Try to reject ~p",[Flags]),
+                      dist_ctrl_proc_test(get_nodenames(2, ?FUNCTION_NAME),
+                        "-gen_tcp_dist_reject_flags " ++ integer_to_list(Flags))
+              end, ToReject).
+
+combinations([H | T]) ->
+    lists:flatten([[(1 bsl H) bor C || C <- combinations(T)] | combinations(T)]);
+combinations([]) ->
+    [0];
+combinations(BitField) ->
+    lists:sort(combinations(bits(BitField, 0))).
+
+bits(0, _) ->
+    [];
+bits(BitField, Cnt) when BitField band 1 == 1 ->
+    [Cnt | bits(BitField bsr 1, Cnt + 1)];
+bits(BitField, Cnt) ->
+    bits(BitField bsr 1, Cnt + 1).
+
+dist_ctrl_proc_test(Nodes) ->
+    dist_ctrl_proc_test(Nodes,"").
+
+dist_ctrl_proc_test([Name1,Name2], Extra) ->
     ThisNode = node(),
-    [Name1, Name2] = get_nodenames(2, dist_ctrl_proc_example_smoke),
-    GetSizeArg = " -gen_tcp_dist_output_loop "
-        ++ atom_to_list(?MODULE) ++ " "
-        ++ "dist_cntrlr_output_test",
+    GenTcpOptProlog = "-proto_dist gen_tcp "
+        "-gen_tcp_dist_output_loop " ++ atom_to_list(?MODULE) ++ " " ++
+        "dist_cntrlr_output_test_size " ++ Extra,
     {ok, Node1} = start_node("", Name1, "-proto_dist gen_tcp"),
-    {ok, Node2} = start_node("", Name2, "-proto_dist gen_tcp" ++ GetSizeArg),
-    pong = rpc:call(Node1, net_adm, ping, [Node2]),
-    NL1 = lists:sort([ThisNode, Node2]),
-    NL2 = lists:sort([ThisNode, Node1]),
-    NL1 = lists:sort(rpc:call(Node1, erlang, nodes, [])),
-    NL2 = lists:sort(rpc:call(Node2, erlang, nodes, [])),
+    {ok, Node2} = start_node("", Name2, GenTcpOptProlog),
+    NL = lists:sort([ThisNode, Node1, Node2]),
+    wait_until(fun () ->
+                       NL == lists:sort([node()|nodes()])
+               end),
+    wait_until(fun () ->
+                       NL == lists:sort([rpc:call(Node1,erlang, node, [])
+                                         | rpc:call(Node1, erlang, nodes, [])])
+               end),
+    wait_until(fun () ->
+                       NL == lists:sort([rpc:call(Node2,erlang, node, [])
+                                         | rpc:call(Node2, erlang, nodes, [])])
+               end),
 
-    %% Verify that we actually are executing the distribution
-    %% module we expect and also massage message passing over
-    %% it a bit...
-    Ps1 = rpc:call(Node1, erlang, processes, []),
-    try
-        lists:foreach(
-          fun (P) ->
-                  case rpc:call(Node1, erlang, process_info, [P, current_stacktrace]) of
-                      undefined ->
-                          ok;
-                      {current_stacktrace, StkTrace} ->
-                          lists:foreach(fun ({gen_tcp_dist,
-                                              dist_cntrlr_output_loop,
-                                              2, _}) ->
-                                                io:format("~p ~p~n", [P, StkTrace]),
-                                                throw(found_it);
-                                            (_) ->
-                                                ok
-                                        end, StkTrace)
-                  end
-          end, Ps1),
-        exit({missing, dist_cntrlr_output_loop})
-    catch
-        throw:found_it -> ok
-    end,
-
-    Ps2 = rpc:call(Node2, erlang, processes, []),
-    try
-        lists:foreach(
-          fun (P) ->
-                  case rpc:call(Node2, erlang, process_info, [P, current_stacktrace]) of
-                      undefined ->
-                          ok;
-                      {current_stacktrace, StkTrace} ->
-                          lists:foreach(fun ({erl_distribution_SUITE,
-                                              dist_cntrlr_output_loop,
-                                              2, _}) ->
-                                                io:format("~p ~p~n", [P, StkTrace]),
-                                                throw(found_it);
-                                            (_) ->
-                                                ok
-                                        end, StkTrace)
-                  end
-          end, Ps2),
-        exit({missing, dist_cntrlr_output_loop})
-    catch
-        throw:found_it -> ok
-    end,
+    smoke_communicate(Node1, gen_tcp_dist, dist_cntrlr_output_loop),
+    smoke_communicate(Node2, erl_distribution_SUITE, dist_cntrlr_output_loop_size),
 
     stop_node(Node1),
     stop_node(Node2),
     ok.
 
+smoke_communicate(Node, OLoopMod, OLoopFun) ->
+    %% Verify that we actually are executing the distribution
+    %% module we expect and also massage message passing over
+    %% the connection a bit...
+    Ps = rpc:call(Node, erlang, processes, []),
+    try
+        lists:foreach(
+          fun (P) ->
+                  case rpc:call(Node, erlang, process_info, [P, current_stacktrace]) of
+                      undefined ->
+                          ok;
+                      {current_stacktrace, StkTrace} ->
+                          lists:foreach(fun ({Mod, Fun, 2, _}) when Mod == OLoopMod,
+                                                                    Fun == OLoopFun ->
+                                                io:format("~p ~p~n", [P, StkTrace]),
+                                                throw(found_it);
+                                            (_) ->
+                                                ok
+                                        end, StkTrace)
+                  end
+          end, Ps),
+        exit({missing, {OLoopMod, OLoopFun}})
+    catch
+        throw:found_it -> ok
+    end,
+    Bin = list_to_binary(lists:duplicate(1000,100)),
+    BitStr = <<0:7999>>,
+    List = [[Bin], atom, [BitStr|Bin], make_ref(), [[[BitStr|"hopp"]]],
+            4711, 111122222211111111111111,"hej", fun () -> ok end, BitStr,
+            self(), fun erlang:node/1],
+    Pid = spawn_link(Node, fun () -> receive {From1, Msg1} -> From1 ! Msg1 end,
+                                     receive {From2, Msg2} -> From2 ! Msg2 end
+                           end),
+    R = make_ref(),
+    Pid ! {self(), [R, List]},
+    receive [R, L1] -> List = L1 end,
+
+    %% Send a huge message in order to trigger message fragmentation if enabled
+    FragBin = <<0:(2*(1024*64*8))>>,
+    Pid ! {self(), [R, List, FragBin]},
+    receive [R, L2, B] -> List = L2, FragBin = B end,
+
+    unlink(Pid),
+    exit(Pid, kill),
+    ok.
+
 %% Misc. functions
 
 run_dist_configs(Func, Config) ->
-    GetSizeArg = " -gen_tcp_dist_output_loop "
-        ++ atom_to_list(?MODULE) ++ " "
-        ++ "dist_cntrlr_output_test",
+    GetOptProlog = "-proto_dist gen_tcp -gen_tcp_dist_output_loop "
+        ++ atom_to_list(?MODULE) ++ " ",
+    GenTcpDistTest = case get_gen_tcp_dist_test_type() of
+                         default ->
+                             {"gen_tcp_dist", "-proto_dist gen_tcp"};
+                         size ->
+                             {"gen_tcp_dist (get_size)",
+                              GetOptProlog ++ "dist_cntrlr_output_test_size"}
+                     end,
     lists:map(fun ({DCfgName, DCfg}) ->
                       io:format("~n~n=== Running ~s configuration ===~n~n",
                                 [DCfgName]),
                       Func(DCfg, Config)
               end,
-              [{"default", ""},
-               {"gen_tcp_dist", "-proto_dist gen_tcp"},
-               {"gen_tcp_dist (get_size)", "-proto_dist gen_tcp" ++ GetSizeArg}]).
+              [{"default", ""}, GenTcpDistTest]).
 
-dist_cntrlr_output_test(DHandle, Socket) ->
+start_gen_tcp_dist_test_type_server() ->
+    Me = self(),
+    Go = make_ref(),
+    io:format("STARTING: gen_tcp_dist_test_type_server~n",[]),
+    {P, M} = spawn_monitor(fun () ->
+                                   register(gen_tcp_dist_test_type_server, self()),
+                                   Me ! Go,
+                                   gen_tcp_dist_test_type_server()
+                           end),
+    receive
+        Go ->
+            ok;
+        {'DOWN', M, process, P, _} ->
+            start_gen_tcp_dist_test_type_server()
+    end.
+
+kill_gen_tcp_dist_test_type_server() ->
+    case whereis(gen_tcp_dist_test_type_server) of
+        undefined ->
+            ok;
+        Pid ->
+            exit(Pid,kill),
+            %% Sync death, before continuing...
+            false = erlang:is_process_alive(Pid)
+    end.
+
+gen_tcp_dist_test_type_server() ->
+    Type = case abs(erlang:monotonic_time(second)) rem 2 of
+               0 -> default;
+               1 -> size
+           end,
+    gen_tcp_dist_test_type_server(Type).
+
+gen_tcp_dist_test_type_server(Type) ->
+    receive
+        {From, Ref} ->
+            From ! {Ref, Type},
+            NewType = case Type of
+                          default -> size;
+                          size -> default
+                      end,
+            gen_tcp_dist_test_type_server(NewType)
+    end.
+
+get_gen_tcp_dist_test_type() ->
+    Ref = make_ref(),
+    try
+        gen_tcp_dist_test_type_server ! {self(), Ref},
+        receive
+            {Ref, Type} ->
+                Type
+        end
+    catch
+        error:badarg ->
+            start_gen_tcp_dist_test_type_server(),
+            get_gen_tcp_dist_test_type()
+    end.
+
+dist_cntrlr_output_test_size(DHandle, Socket) ->
     false = erlang:dist_ctrl_get_opt(DHandle, get_size),
     false = erlang:dist_ctrl_set_opt(DHandle, get_size, true),
     true = erlang:dist_ctrl_get_opt(DHandle, get_size),
@@ -1546,27 +1732,33 @@ dist_cntrlr_output_test(DHandle, Socket) ->
     false = erlang:dist_ctrl_get_opt(DHandle, get_size),
     false = erlang:dist_ctrl_set_opt(DHandle, get_size, true),
     true = erlang:dist_ctrl_get_opt(DHandle, get_size),
-    dist_cntrlr_output_loop(DHandle, Socket).
-    
-dist_cntrlr_send_data(DHandle, Socket) ->
+    dist_cntrlr_output_loop_size(DHandle, Socket).
+
+dist_cntrlr_output_loop_size(DHandle, Socket) ->
+    receive
+        dist_data ->
+            %% Outgoing data from this node...
+            dist_cntrlr_send_data_size(DHandle, Socket);
+        _ ->
+            ok %% Drop garbage message...
+    end,
+    dist_cntrlr_output_loop_size(DHandle, Socket).
+
+dist_cntrlr_send_data_size(DHandle, Socket) ->
     case erlang:dist_ctrl_get_data(DHandle) of
         none ->
             erlang:dist_ctrl_get_data_notification(DHandle);
         {Size, Data} ->
+            ok = ensure_iovec(Data),
             Size = erlang:iolist_size(Data),
             ok = gen_tcp:send(Socket, Data),
-            dist_cntrlr_send_data(DHandle, Socket)
+            dist_cntrlr_send_data_size(DHandle, Socket)
     end.
 
-dist_cntrlr_output_loop(DHandle, Socket) ->
-    receive
-        dist_data ->
-            %% Outgoing data from this node...
-            dist_cntrlr_send_data(DHandle, Socket);
-        _ ->
-            ok %% Drop garbage message...
-    end,
-    dist_cntrlr_output_loop(DHandle, Socket).
+ensure_iovec([]) ->
+    ok;
+ensure_iovec([X|Y]) when is_binary(X) ->
+    ensure_iovec(Y).
 
 monitor_node_state() ->
     erts_debug:set_internal_state(available_internal_state, true),
@@ -1593,7 +1785,7 @@ print_my_messages() ->
 
 sleep(T) -> receive after T * 1000 -> ok end.	
 
-start_node(DCfg, Name, Param, this) ->
+start_node(_DCfg, Name, Param, this) ->
     NewParam = Param ++ " -pa " ++ filename:dirname(code:which(?MODULE)),
     test_server:start_node(Name, peer, [{args, NewParam}, {erl, [this]}]);
 start_node(DCfg, Name, Param, "this") ->
@@ -1671,3 +1863,5 @@ block_emu(Ms) ->
     Res = erts_debug:set_internal_state(block, Ms),
     erts_debug:set_internal_state(available_internal_state, false),
     Res.
+
+    

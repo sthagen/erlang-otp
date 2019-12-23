@@ -154,14 +154,16 @@ assert_exception_block(Blocks) ->
     end.
 
 add_parameter_annos([{label, _}=Entry | Body], Anno) ->
-    ParamInfo = maps:get(parameter_type_info, Anno, #{}),
+    ParamTypes = maps:get(parameter_info, Anno, #{}),
+
     Annos = maps:fold(
-        fun(K, V, Acc) when is_map_key(K, ParamInfo) ->
-                TypeInfo = maps:get(K, ParamInfo),
-                [{'%', {type_info, V, TypeInfo}} | Acc];
+        fun(K, V, Acc) when is_map_key(K, ParamTypes) ->
+                Info = map_get(K, ParamTypes),
+                [{'%', {var_info, V, Info}} | Acc];
            (_K, _V, Acc) ->
                 Acc
         end, [], maps:get(registers, Anno)),
+
     [Entry | sort(Annos)] ++ Body.
 
 cg_fun(Blocks, St0) ->
@@ -366,7 +368,7 @@ classify_heap_need(bs_save) -> neutral;
 classify_heap_need(bs_get_position) -> gc;
 classify_heap_need(bs_set_position) -> neutral;
 classify_heap_need(bs_skip) -> gc;
-classify_heap_need(bs_start_match) -> neutral;
+classify_heap_need(bs_start_match) -> gc;
 classify_heap_need(bs_test_tail) -> neutral;
 classify_heap_need(bs_utf16_size) -> neutral;
 classify_heap_need(bs_utf8_size) -> neutral;
@@ -1144,7 +1146,10 @@ cg_block([#cg_set{op=bs_init,dst=Dst0,args=Args0,anno=Anno}=I,
             Is = [Line,{bs_append,Fail,Bits,Alloc,Live,Unit,Src,Flags,Dst}],
             {Is,St}
     end;
-cg_block([#cg_set{anno=Anno,op=bs_start_match,dst=Ctx0,args=[Bin0]}=I,
+cg_block([#cg_set{anno=Anno,
+                  op=bs_start_match,
+                  dst=Ctx0,
+                  args=[#b_literal{val=new},Bin0]}=I,
           #cg_set{op=succeeded,dst=Bool}], {Bool,Fail}, St) ->
     [Dst,Bin1] = beam_args([Ctx0,Bin0], St),
     {Bin,Pre} = force_reg(Bin1, Dst),
@@ -1213,8 +1218,9 @@ cg_block([#cg_set{op=is_tagged_tuple,dst=Bool,args=Args0}], {Bool,Fail}, St) ->
 cg_block([#cg_set{op=is_nonempty_list,dst=Bool,args=Args0}], {Bool,Fail}, St) ->
     Args = beam_args(Args0, St),
     {[{test,is_nonempty_list,ensure_label(Fail, St),Args}],St};
-cg_block([#cg_set{op=has_map_field,dst=Bool,args=Args0}], {Bool,Fail}, St) ->
+cg_block([#cg_set{op=has_map_field,dst=Bool,args=Args0}], {Bool,Fail0}, St) ->
     [Src,Key] = beam_args(Args0, St),
+    Fail = ensure_label(Fail0, St),
     {[{test,has_map_fields,Fail,Src,{list,[Key]}}],St};
 cg_block([#cg_set{op=call}=Call], {_Bool,_Fail}=Context, St0) ->
     {Is0,St1} = cg_call(Call, body, none, St0),
@@ -1232,15 +1238,24 @@ cg_block([#cg_set{op=call}=Call|T], Context, St0) ->
     {Is0,St1} = cg_call(Call, body, none, St0),
     {Is1,St} = cg_block(T, Context, St1),
     {Is0++Is1,St};
-cg_block([#cg_set{op=make_fun,dst=Dst0,args=[Local|Args0]}|T],
+cg_block([#cg_set{anno=Anno,op=make_fun,dst=Dst0,args=[Local|Args0]}|T],
          Context, St0) ->
     #b_local{name=#b_literal{val=Func},arity=Arity} = Local,
     [Dst|Args] = beam_args([Dst0|Args0], St0),
     {FuncLbl,St1} = local_func_label(Func, Arity, St0),
     Is0 = setup_args(Args) ++
         [{make_fun2,{f,FuncLbl},0,0,length(Args)}|copy({x,0}, Dst)],
-    {Is1,St} = cg_block(T, Context, St1),
-    {Is0++Is1,St};
+
+    Is1 = case Anno of
+             #{ result_type := Type } ->
+                 Info = {var_info, Dst, [{fun_type, Type}]},
+                 Is0 ++ [{'%', Info}];
+             #{} ->
+                 Is0
+          end,
+
+    {Is2,St} = cg_block(T, Context, St1),
+    {Is1++Is2,St};
 cg_block([#cg_set{op=copy}|_]=T0, Context, St0) ->
     {Is0,T} = cg_copy(T0, St0),
     {Is1,St} = cg_block(T, Context, St0),
@@ -1506,8 +1521,9 @@ cg_call(#cg_set{anno=Anno,op=call,dst=Dst0,args=[#b_local{}=Func0|Args0]},
     Call = build_call(call, Arity, {f,FuncLbl}, Context, Dst),
     Is = setup_args(Args, Anno, Context, St) ++ Line ++ Call,
     case Anno of
-        #{ result_type := Info } ->
-            {Is ++ [{'%', {type_info, Dst, Info}}], St};
+        #{ result_type := Type } ->
+            Info = {var_info, Dst, [{type,Type}]},
+            {Is ++ [{'%', Info}], St};
         #{} ->
             {Is, St}
     end;
@@ -1543,7 +1559,13 @@ cg_call(#cg_set{anno=Anno,op=call,dst=Dst0,args=Args0},
     Arity = length(Args),
     Call = build_call(call_fun, Arity, Func, Context, Dst),
     Is = setup_args(Args++[Func], Anno, Context, St) ++ Line ++ Call,
-    {Is,St}.
+    case Anno of
+        #{ result_type := Type } ->
+            Info = {var_info, Dst, [{type,Type}]},
+            {Is ++ [{'%', Info}], St};
+        #{} ->
+            {Is, St}
+    end.
 
 cg_match_fail([{atom,function_clause}|Args], Line, Fc) ->
     case Fc of
@@ -1619,6 +1641,13 @@ build_apply(Arity, {return,Val,N}, _Dst) when is_integer(N) ->
 build_apply(Arity, none, Dst) ->
     [{apply,Arity}|copy({x,0}, Dst)].
 
+cg_instr(bs_start_match, [{atom,resume}, Src], Dst, Set) ->
+    Live = get_live(Set),
+    [{bs_start_match4,{atom,resume},Live,Src,Dst}];
+cg_instr(bs_start_match, [{atom,new}, Src0], Dst, Set) ->
+    {Src, Pre} = force_reg(Src0, Dst),
+    Live = get_live(Set),
+    Pre ++ [{bs_start_match4,{atom,no_fail},Live,Src,Dst}];
 cg_instr(bs_get_tail, [Src], Dst, Set) ->
     Live = get_live(Set),
     [{bs_get_tail,Src,Dst,Live}];

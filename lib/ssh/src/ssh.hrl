@@ -163,6 +163,8 @@
                             'aes128-ctr' |
                             'aes128-gcm@openssh.com' |
                             'aes192-ctr' |
+                            'aes192-cbc' |
+                            'aes256-cbc' |
                             'aes256-ctr' |
                             'aes256-gcm@openssh.com' |
                             'chacha20-poly1305@openssh.com'
@@ -171,6 +173,7 @@
 -type mac_alg()          :: 'AEAD_AES_128_GCM' |
                             'AEAD_AES_256_GCM' |
                             'hmac-sha1' |
+                            'hmac-sha1-96' |
                             'hmac-sha2-256' |
                             'hmac-sha2-512'
                             .
@@ -317,17 +320,20 @@
 -type subsystem_daemon_option() :: {subsystems, subsystem_specs()}.
 -type subsystem_specs() :: [ subsystem_spec() ].
 
--type shell_daemon_option()     :: {shell, mod_fun_args() | 'shell_fun/1'()  | 'shell_fun/2'() }.
+-type shell_daemon_option()     :: {shell, shell_spec()} .
+-type shell_spec() :: mod_fun_args() | shell_fun() | disabled .
+-type shell_fun() :: 'shell_fun/1'()  | 'shell_fun/2'() .
 -type 'shell_fun/1'() :: fun((User::string()) -> pid()) .
 -type 'shell_fun/2'() :: fun((User::string(),  PeerAddr::inet:ip_address()) -> pid()).
 
 -type exec_daemon_option()      :: {exec, exec_spec()} .
--type exec_spec()               :: {direct, exec_fun()} .
+-type exec_spec()               :: {direct, exec_fun()} | disabled | deprecated_exec_opt().
 -type exec_fun()                :: 'exec_fun/1'() | 'exec_fun/2'() | 'exec_fun/3'().
 -type 'exec_fun/1'() :: fun((Cmd::string()) -> exec_result()) .
 -type 'exec_fun/2'() :: fun((Cmd::string(), User::string()) -> exec_result()) .
 -type 'exec_fun/3'() :: fun((Cmd::string(), User::string(), ClientAddr::ip_port()) -> exec_result()) .
 -type exec_result()  :: {ok,Result::term()} | {error,Reason::term()} .
+-type deprecated_exec_opt() :: fun() | mod_fun_args() .
 
 -type ssh_cli_daemon_option()   :: {ssh_cli, mod_args() | no_cli }.
 

@@ -17,7 +17,8 @@
 %% %CopyrightEnd%
 %%
 -module(map_SUITE).
--export([all/0, suite/0, init_per_suite/1, end_per_suite/1]).
+-export([all/0, suite/0, init_per_suite/1, end_per_suite/1,
+         groups/0]).
 
 -export([t_build_and_match_literals/1, t_build_and_match_literals_large/1,
          t_update_literals/1, t_update_literals_large/1,
@@ -100,62 +101,77 @@
 
 suite() -> [].
 
-all() -> [t_build_and_match_literals, t_build_and_match_literals_large,
-          t_update_literals, t_update_literals_large,
-          t_match_and_update_literals, t_match_and_update_literals_large,
-          t_update_map_expressions,
-          t_update_assoc, t_update_assoc_large,
-          t_update_exact, t_update_exact_large,
-          t_guard_bifs,
-          t_guard_sequence, t_guard_sequence_large,
-          t_guard_update, t_guard_update_large,
-          t_guard_receive, t_guard_receive_large,
-          t_guard_fun, t_list_comprehension,
-          t_update_deep,
-          t_map_equal, t_map_compare,
-          t_map_sort_literals,
+all() ->
+    run_once() ++ [{group,main}].
 
-          %% Specific Map BIFs
-          t_bif_map_get,t_bif_map_find,t_bif_map_is_key,
-          t_bif_map_keys, t_bif_map_merge, t_bif_map_new,
-          t_bif_map_put,
-          t_bif_map_remove,
-          t_bif_map_take, t_bif_map_take_large,
-          t_bif_map_update,
-          t_bif_map_values,
-          t_bif_map_to_list, t_bif_map_from_list,
-          t_bif_map_next,
+groups() ->
+    [{main,[],
+      [t_build_and_match_literals, t_build_and_match_literals_large,
+       t_update_literals, t_update_literals_large,
+       t_match_and_update_literals, t_match_and_update_literals_large,
+       t_update_map_expressions,
+       t_update_assoc, t_update_assoc_large,
+       t_update_exact, t_update_exact_large,
+       t_guard_bifs,
+       t_guard_sequence, t_guard_sequence_large,
+       t_guard_update, t_guard_update_large,
+       t_guard_receive, t_guard_receive_large,
+       t_guard_fun, t_list_comprehension,
+       t_update_deep,
+       t_map_equal, t_map_compare,
+       t_map_sort_literals,
 
-          %% erlang
-          t_erlang_hash, t_map_encode_decode,
-          t_gc_rare_map_overflow,
-          t_map_size, t_map_get, t_is_map,
+       %% Specific Map BIFs
+       t_bif_map_get,t_bif_map_find,t_bif_map_is_key,
+       t_bif_map_keys, t_bif_map_merge, t_bif_map_new,
+       t_bif_map_put,
+       t_bif_map_remove,
+       t_bif_map_take, t_bif_map_take_large,
+       t_bif_map_update,
+       t_bif_map_values,
+       t_bif_map_to_list, t_bif_map_from_list,
+       t_bif_map_next,
 
-          %% non specific BIF related
-          t_bif_build_and_check,
-          t_bif_merge_and_check,
+       %% erlang
+       t_erlang_hash, t_map_encode_decode,
+       t_gc_rare_map_overflow,
+       t_map_size, t_map_get, t_is_map,
 
-          %% maps module
-          t_maps_fold, t_maps_map,
-          t_maps_size, t_maps_without,
+       %% non specific BIF related
+       t_bif_build_and_check,
+       t_bif_merge_and_check,
+
+       %% maps module
+       t_maps_fold, t_maps_map,
+       t_maps_size, t_maps_without,
 
 
-          %% Other functions
-          t_hashmap_balance,
-          t_erts_internal_order,
-          t_erts_internal_hash,
-          t_pdict,
-          t_ets,
-          t_tracing,
-          t_hash_entropy,
+       %% Other functions
+       t_hashmap_balance,
+       t_erts_internal_order,
+       t_erts_internal_hash,
+       t_pdict,
+       t_ets,
+       t_tracing,
+       t_hash_entropy,
 
-          %% instruction-level tests
-          t_has_map_fields,
-          y_regs,
-          badmap_17,
+       %% instruction-level tests
+       t_has_map_fields,
+       y_regs,
 
-          %% Bugs
-          t_large_unequal_bins_same_hash_bug].
+       %% Bugs
+       t_large_unequal_bins_same_hash_bug]},
+     {once,[],[badmap_17]}].
+
+run_once() ->
+    case ?MODULE of
+	map_SUITE ->
+            %% Canononical module name. Run these cases.
+            [{group,once}];
+        _ ->
+            %% Cloned module. Don't run.
+            []
+    end.
 
 init_per_suite(Config) ->
     A0 = case application:start(sasl) of
@@ -1856,15 +1872,18 @@ t_bif_map_get(Config) when is_list(Config) ->
     "v3" = maps:get(<<"k2">>, M1),
 
     %% error cases
+    %%
+    %% Note that the stack trace is ignored because the compiler may have
+    %% rewritten maps:get/2 to map_get.
     do_badmap(fun(T) ->
-		      {'EXIT',{{badmap,T},[{maps,get,_,_}|_]}} =
+		      {'EXIT',{{badmap,T},_}} =
 			  (catch maps:get(a, T))
 	      end),
 
-    {'EXIT',{{badkey,{1,1}},[{maps,get,_,_}|_]}} =
+    {'EXIT',{{badkey,{1,1}},_}} =
 	(catch maps:get({1,1}, #{{1,1.0} => "tuple"})),
-    {'EXIT',{{badkey,a},[{maps,get,_,_}|_]}} = (catch maps:get(a, #{})),
-    {'EXIT',{{badkey,a},[{maps,get,_,_}|_]}} =
+    {'EXIT',{{badkey,a},_}} = (catch maps:get(a, #{})),
+    {'EXIT',{{badkey,a},_}} =
 	(catch maps:get(a, #{b=>1, c=>2})),
     ok.
 
@@ -1926,8 +1945,11 @@ t_bif_map_is_key(Config) when is_list(Config) ->
     false = maps:is_key(1.0, maps:put(1, "number", M1)),
 
     %% error case
+    %%
+    %% Note that the stack trace is ignored because the compiler may have
+    %% rewritten maps:is_key/2 to is_map_key.
     do_badmap(fun(T) ->
-		      {'EXIT',{{badmap,T},[{maps,is_key,_,_}|_]}} =
+		      {'EXIT',{{badmap,T},_}} =
 			  (catch maps:is_key(a, T))
 	      end),
     ok.
@@ -3163,12 +3185,6 @@ do_badmap(Test) ->
 %% Test that a module compiled with the OTP 17 compiler will
 %% generate the correct 'badmap' exception.
 badmap_17(Config) ->
-    case ?MODULE of
-	map_SUITE -> do_badmap_17(Config);
-	_ -> {skip,"Run in map_SUITE"}
-    end.
-
-do_badmap_17(Config) ->
     Mod = badmap_17,
     DataDir = test_server:lookup_config(data_dir, Config),
     Beam = filename:join(DataDir, Mod),

@@ -32,6 +32,109 @@
   <p>This document describes the changes made to the Compiler
     application.</p>
 
+<section><title>Compiler 7.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed a bug in the linter where list and binary
+	    comprehensions could suppress unsafe variable errors.</p>
+          <p>
+	    Own Id: OTP-16053 Aux Id: ERL-1039 </p>
+        </item>
+        <item>
+	    <p>When a compilation starts from Core Erlang code, the
+	    <c>core_lint</c> pass will always be run and the
+	    compilation will be aborted if any errors are found.</p>
+          <p>
+	    Own Id: OTP-16181 Aux Id: ERL-1065 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The warning message that appears when the compiler
+	    detects a non-utf-8 encoded source file without an
+	    encoding string in the beginning of the file has been
+	    changed to contain information about that support for
+	    latin1 encoded source files without an encoding string
+	    will be removed in Erlang/OTP 24.</p>
+          <p>
+	    Own Id: OTP-16054 Aux Id: OTP-11791 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Compiler 7.4.9</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed a performance bug that caused repeated matches
+	    of large records to take a very long time to compile.</p>
+          <p>
+	    Own Id: OTP-16259 Aux Id: ERIERL-436 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Compiler 7.4.8</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>The compiler could do an unsafe optimization of
+	    receives, which would cause a receive to only scan part
+	    of the message queue.</p>
+	    <p>This bug fix in the compiler fixes a bug in the socket
+	    module.</p>
+          <p>
+	    Own Id: OTP-16219 Aux Id: ERL-1076 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Compiler 7.4.7</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed a bug where the compiler could generate
+	    incorrect code for a '<c>receive</c>' statement inside a
+	    '<c>try</c>'.</p>
+          <p>
+	    Own Id: OTP-16199</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Compiler 7.4.6</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed a bug in the bit-syntax optimization pass that
+	    could crash the compiler.</p>
+          <p>
+	    Own Id: OTP-16103 Aux Id: ERL-1050 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Compiler 7.4.5</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>

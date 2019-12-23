@@ -464,16 +464,25 @@
 
   <!-- Datatype -->
   <xsl:template match="datatype">
-    <xsl:variable name="id" select="concat('type-',name/@name)"/>
     <div class="data-types-body">
-      <div class="data-type-name"
-           onMouseOver="document.getElementById('ghlink-{$id}').style.visibility = 'visible';"
-           onMouseOut="document.getElementById('ghlink-{$id}').style.visibility = 'hidden';">
-        <xsl:call-template name="ghlink">
-          <xsl:with-param name="id" select="$id"/>
-        </xsl:call-template>
-        <xsl:apply-templates select="name"/>
-      </div>
+      <xsl:choose>
+        <xsl:when test="string-length(name/@name) > 0">
+            <xsl:variable name="id" select="concat('type-',name/@name)"/>
+            <div class="data-type-name"
+                 onMouseOver="document.getElementById('ghlink-{$id}').style.visibility = 'visible';"
+                 onMouseOut="document.getElementById('ghlink-{$id}').style.visibility = 'hidden';">
+              <xsl:call-template name="ghlink">
+                <xsl:with-param name="id" select="$id"/>
+              </xsl:call-template>
+              <xsl:apply-templates select="name"/>
+            </div>
+        </xsl:when>
+        <xsl:otherwise>
+          <div class="data-type-name">
+            <xsl:apply-templates select="name"/>
+          </div>
+        </xsl:otherwise>
+      </xsl:choose>
       <div class="data-type-desc"><xsl:apply-templates select="desc"/></div>
     </div>
   </xsl:template>
@@ -1226,17 +1235,18 @@
   <!-- Code -->
   <xsl:template match="code">
     <xsl:param name="chapnum"/>
+    <xsl:variable name="type" select="@type"/>
     <xsl:variable name="codenum">
       <xsl:number level="any" from="chapter" count="code"/>
     </xsl:variable>
-      <xsl:choose> 
-	<xsl:when test="not(descendant::anno)">
- 	   <div class="example"><pre><xsl:value-of select="erl:code_trim(text())"/></pre></div>
- 	</xsl:when>
-	<xsl:otherwise>    
-	   <div class="example"><pre><xsl:apply-templates/></pre></div>
-	</xsl:otherwise>
-      </xsl:choose>	
+    <xsl:choose>
+      <xsl:when test="not(descendant::anno)">
+ 	<div class="example example-{$type}"><pre><xsl:value-of select="erl:code_trim(text())"/></pre></div>
+      </xsl:when>
+      <xsl:otherwise>
+	<div class="example example-{$type}"><pre><xsl:apply-templates/></pre></div>
+      </xsl:otherwise>
+    </xsl:choose>
   </xsl:template>
 
   <!-- Pre -->

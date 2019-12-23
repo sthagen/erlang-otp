@@ -261,6 +261,39 @@ __decl_noreturn void __noreturn erl_assert_error(const char* expr, const char *f
 #endif
 
 /*
+ * ERTS_GCC_DIAG_ON and ERTS_GCC_DIAG_OFF can be used to temporarly
+ * disable a gcc or clang warning in a file.
+ *
+ * Example:
+ * GCC_DIAG_OFF(unused-function)
+ * static int test(){ return 0;}
+ * GCC_DIAG_ON(unused-function)
+ *
+ * These macros were orginally authored by Jonathan Wakely and has
+ * been modified by Patrick Horgan.
+ *
+ * Source: http://dbp-consulting.com/tutorials/SuppressingGCCWarnings.html
+ *
+ */
+#if ((__GNUC__ * 100) + __GNUC_MINOR__) >= 402
+#define ERTS_GCC_DIAG_STR(s) #s
+#define ERTS_GCC_DIAG_JOINSTR(x,y) ERTS_GCC_DIAG_STR(x ## y)
+# define ERTS_GCC_DIAG_DO_PRAGMA(x) _Pragma (#x)
+# define ERTS_GCC_DIAG_PRAGMA(x) ERTS_GCC_DIAG_DO_PRAGMA(GCC diagnostic x)
+# if ((__GNUC__ * 100) + __GNUC_MINOR__) >= 406
+#  define ERTS_GCC_DIAG_OFF(x) ERTS_GCC_DIAG_PRAGMA(push) \
+      ERTS_GCC_DIAG_PRAGMA(ignored ERTS_GCC_DIAG_JOINSTR(-W,x))
+#  define ERTS_GCC_DIAG_ON(x) ERTS_GCC_DIAG_PRAGMA(pop)
+# else
+#  define ERTS_GCC_DIAG_OFF(x) ERTS_GCC_DIAG_PRAGMA(ignored ERTS_GCC_DIAG_JOINSTR(-W,x))
+#  define ERTS_GCC_DIAG_ON(x)  ERTS_GCC_DIAG_PRAGMA(warning ERTS_GCC_DIAG_JOINSTR(-W,x))
+# endif
+#else
+# define ERTS_GCC_DIAG_OFF(x)
+# define ERTS_GCC_DIAG_ON(x)
+#endif
+
+/*
  * Compile time assert
  * (the actual compiler error msg can be a bit confusing)
  */
@@ -917,6 +950,9 @@ ERTS_GLB_INLINE void erts_refc_inc(erts_refc_t *refcp, erts_aint_t min_val);
 ERTS_GLB_INLINE erts_aint_t erts_refc_inc_unless(erts_refc_t *refcp,
                                                  erts_aint_t unless_val,
                                                  erts_aint_t min_val);
+ERTS_GLB_INLINE void erts_refc_inc_if(erts_refc_t *refcp,
+                                      erts_aint_t if_val,
+                                      erts_aint_t min_val);
 ERTS_GLB_INLINE erts_aint_t erts_refc_inctest(erts_refc_t *refcp,
 					      erts_aint_t min_val);
 ERTS_GLB_INLINE void erts_refc_dec(erts_refc_t *refcp, erts_aint_t min_val);
@@ -958,7 +994,7 @@ erts_refc_inc_unless(erts_refc_t *refcp,
     while (1) {
         erts_aint_t exp, new;
 #ifdef ERTS_REFC_DEBUG
-        if (val < 0)
+        if (val < min_val)
             erts_exit(ERTS_ABORT_EXIT,
                       "erts_refc_inc_unless(): Bad refc found (refc=%ld < %ld)!\n",
                       val, min_val);
@@ -970,6 +1006,27 @@ erts_refc_inc_unless(erts_refc_t *refcp,
         val = erts_atomic_cmpxchg_nob((erts_atomic_t *) refcp, new, exp);
         if (val == exp)
             return new;
+    }
+}
+
+ERTS_GLB_INLINE void
+erts_refc_inc_if(erts_refc_t *refcp,
+                 erts_aint_t if_val,
+                 erts_aint_t min_val)
+{
+    erts_aint_t val = erts_atomic_read_nob((erts_atomic_t *) refcp);
+#ifdef ERTS_REFC_DEBUG
+    if (val < min_val)
+        erts_exit(ERTS_ABORT_EXIT,
+                  "erts_refc_inc_unless(): Bad refc found (refc=%ld < %ld)!\n",
+                  val, min_val);
+#endif
+    if (val == if_val) {
+        erts_atomic_cmpxchg_nob((erts_atomic_t *) refcp, val+1, val);
+        /*
+         * Ignore failure, as it means someone else took care of 'if_val'.
+         * Could be this function racing with itself.
+         */
     }
 }
 

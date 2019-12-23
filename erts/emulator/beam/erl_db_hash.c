@@ -85,12 +85,53 @@
 
 #include "erl_db_hash.h"
 
-#define ADD_NITEMS(DB, TO_ADD)                                          \
-    erts_flxctr_add(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID, TO_ADD)
-#define INC_NITEMS(DB)                                                  \
-    erts_flxctr_inc_read_centralized(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID)
-#define DEC_NITEMS(DB)                                                  \
-    erts_flxctr_dec_read_centralized(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID)
+#define IS_DECENTRALIZED_CTRS(DB) ((DB)->common.counters.is_decentralized)
+
+#define NITEMS_ESTIMATE_FROM_LCK_CTR(LCK_CTR_P)   \
+    (LCK_CTR_P->nitems <= 0 ? 1: LCK_CTR_P->nitems)
+
+#define NITEMS_ESTIMATE(DB, LCK_CTR, HASH)                              \
+    (IS_DECENTRALIZED_CTRS(DB) ?                                        \
+     (DB_HASH_LOCK_CNT *                                                \
+      (LCK_CTR != NULL ?                                                \
+       NITEMS_ESTIMATE_FROM_LCK_CTR(LCK_CTR) :                          \
+       NITEMS_ESTIMATE_FROM_LCK_CTR(GET_LOCK_AND_CTR(DB, HASH)))) :     \
+     erts_flxctr_read_centralized(&(DB)->common.counters,               \
+                                  ERTS_DB_TABLE_NITEMS_COUNTER_ID))
+
+#define ADD_NITEMS(DB, LCK_CTR, HASH, TO_ADD)                           \
+    do {                                                                \
+        if (IS_DECENTRALIZED_CTRS(DB)) {                                \
+            if (LCK_CTR != NULL) {                                      \
+                LCK_CTR->nitems += TO_ADD;                              \
+            } else {                                                    \
+                GET_LOCK_AND_CTR(DB,HASH)->nitems += TO_ADD;            \
+            }                                                           \
+        }                                                               \
+        erts_flxctr_add(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID, TO_ADD); \
+    } while(0)
+#define INC_NITEMS(DB, LCK_CTR, HASH)                                   \
+    do {                                                                \
+        if (IS_DECENTRALIZED_CTRS(DB)) {                                \
+            if (LCK_CTR != NULL) {                                      \
+                LCK_CTR->nitems++;                                      \
+            } else {                                                    \
+                GET_LOCK_AND_CTR(DB,HASH)->nitems++;                    \
+            }                                                           \
+        }                                                               \
+        erts_flxctr_inc(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID); \
+    } while(0)
+#define DEC_NITEMS(DB, LCK_CTR, HASH)                                   \
+    do {                                                                \
+        if (IS_DECENTRALIZED_CTRS(DB)) {                                \
+            if (LCK_CTR != NULL) {                                      \
+                LCK_CTR->nitems--;                                      \
+            } else {                                                    \
+                GET_LOCK_AND_CTR(DB,HASH)->nitems--;                    \
+            }                                                           \
+        }                                                               \
+        erts_flxctr_dec(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID); \
+    } while(0)
 #define RESET_NITEMS(DB)                                                \
     erts_flxctr_reset(&(DB)->common.counters, ERTS_DB_TABLE_NITEMS_COUNTER_ID)
 
@@ -127,9 +168,6 @@
      : ((struct segment**) erts_atomic_read_nob(&(tb)->segtab)))
 #endif
 #define NACTIVE(tb) ((int)erts_atomic_read_nob(&(tb)->nactive))
-#define NITEMS(tb) \
-    ((Sint)erts_flxctr_read_centralized(&(tb)->common.counters,             \
-                                        ERTS_DB_TABLE_NITEMS_COUNTER_ID))
 
 #define SLOT_IX_TO_SEG_IX(i) (((i)+(EXT_SEGSZ-FIRST_SEGSZ)) >> EXT_SEGSZ_EXP)
 
@@ -227,7 +265,8 @@ static ERTS_INLINE int is_pseudo_deleted(HashDbTerm* p)
       make_internal_hash(term, 0)) & MAX_HASH_MASK)
 
 #  define DB_HASH_LOCK_MASK (DB_HASH_LOCK_CNT-1)
-#  define GET_LOCK(tb,hval) (&(tb)->locks->lck_vec[(hval) & DB_HASH_LOCK_MASK].lck)
+#  define GET_LOCK(tb,hval) (&(tb)->locks->lck_vec[(hval) & DB_HASH_LOCK_MASK].lck_ctr.lck)
+#  define GET_LOCK_AND_CTR(tb,hval) (&(tb)->locks->lck_vec[(hval) & DB_HASH_LOCK_MASK].lck_ctr)
 #  define GET_LOCK_MAYBE(tb,hval) ((tb)->common.is_thread_safe ? NULL : GET_LOCK(tb,hval))
 
 /* Fine grained read lock */
@@ -255,6 +294,20 @@ static ERTS_INLINE erts_rwmtx_t* WLOCK_HASH(DbTableHash* tb, HashValue hval)
     }
 }
 
+/* Fine grained write lock */
+static ERTS_INLINE
+DbTableHashLockAndCounter* WLOCK_HASH_GET_LCK_AND_CTR(DbTableHash* tb, HashValue hval)
+{
+    if (tb->common.is_thread_safe) {
+	return NULL;
+    } else {
+        DbTableHashLockAndCounter* lck_ctr = GET_LOCK_AND_CTR(tb,hval);
+	ASSERT(tb->common.type & DB_FINE_LOCKED);
+	erts_rwmtx_rwlock(&lck_ctr->lck);
+	return lck_ctr;
+    }
+}
+
 static ERTS_INLINE void RUNLOCK_HASH(erts_rwmtx_t* lck)
 {
     if (lck != NULL) {
@@ -269,12 +322,19 @@ static ERTS_INLINE void WUNLOCK_HASH(erts_rwmtx_t* lck)
     }
 }
 
+static ERTS_INLINE void WUNLOCK_HASH_LCK_CTR(DbTableHashLockAndCounter* lck_ctr)
+{
+    if (lck_ctr != NULL) {
+	erts_rwmtx_rwunlock(&lck_ctr->lck);
+    }
+}
+
 
 #ifdef ERTS_ENABLE_LOCK_CHECK
 #  define IFN_EXCL(tb,cmd) (((tb)->common.is_thread_safe) || (cmd))
 #  define IS_HASH_RLOCKED(tb,hval) IFN_EXCL(tb,erts_lc_rwmtx_is_rlocked(GET_LOCK(tb,hval)))
 #  define IS_HASH_WLOCKED(tb,lck) IFN_EXCL(tb,erts_lc_rwmtx_is_rwlocked(lck))
-#  define IS_TAB_WLOCKED(tb) erts_lc_rwmtx_is_rwlocked(&(tb)->common.rwlock)
+#  define IS_TAB_WLOCKED(tb) (DB_LOCK_FREE(tb) || erts_lc_rwmtx_is_rwlocked(&(tb)->common.rwlock))
 #else
 #  define IS_HASH_RLOCKED(tb,hval) (1)
 #  define IS_HASH_WLOCKED(tb,hval) (1)
@@ -471,15 +531,22 @@ db_lookup_dbterm_hash(Process *p, DbTable *tbl, Eterm key, Eterm obj,
                       DbUpdateHandle* handle);
 static void
 db_finalize_dbterm_hash(int cret, DbUpdateHandle* handle);
+static void* db_eterm_to_dbterm_hash(int compress, int keypos, Eterm obj);
+static void* db_dbterm_list_prepend_hash(void* list, void* db_term);
+static void* db_dbterm_list_remove_first_hash(void** list);
+static int db_put_dbterm_hash(DbTable* tb,
+                              void* obj,
+                              int key_clash_fail);
+static void db_free_dbterm_hash(int compressed, void* obj);
+static Eterm db_get_dbterm_key_hash(DbTable* tb, void* db_term);
 
 static int
 db_get_binary_info_hash(Process *p, DbTable *tbl, Eterm key, Eterm *ret);
 static int db_raw_first_hash(Process* p, DbTable *tbl, Eterm *ret);
 static int db_raw_next_hash(Process* p, DbTable *tbl, Eterm key, Eterm *ret);
 
-static ERTS_INLINE void try_shrink(DbTableHash* tb)
+static ERTS_INLINE void try_shrink(DbTableHash* tb, Sint nitems)
 {
-    int nitems = NITEMS(tb);
     if (nitems < SHRINK_LIMIT(tb) && !IS_FIXED(tb)) {
 	shrink(tb, nitems);
     }
@@ -513,16 +580,36 @@ static ERTS_INLINE int has_key(DbTableHash* tb, HashDbTerm* b,
     }
 }
 
-static ERTS_INLINE HashDbTerm* new_dbterm(DbTableHash* tb, Eterm obj)
+static ERTS_INLINE HashDbTerm* new_dbterm_hash(DbTableCommon* tb, Eterm obj)
 {
     HashDbTerm* p;
-    if (tb->common.compress) {
-	p = db_store_term_comp(&tb->common, NULL, offsetof(HashDbTerm,dbterm), obj);
+    if (tb->compress) {
+	p = db_store_term_comp(tb, tb->keypos, NULL, offsetof(HashDbTerm,dbterm), obj);
     }
     else {
-	p = db_store_term(&tb->common, NULL, offsetof(HashDbTerm,dbterm), obj);
+	p = db_store_term(tb, NULL, offsetof(HashDbTerm,dbterm), obj);
     }
     return p;
+}
+
+/*
+ * This function only differ from new_dbterm_hash in that it does not
+ * adjust the memory size of a given table.
+ */
+static ERTS_INLINE HashDbTerm* new_dbterm_hash_no_tab(int compress, int keypos, Eterm obj)
+{
+    HashDbTerm* p;
+    if (compress) {
+	p = db_store_term_comp(NULL, keypos, NULL, offsetof(HashDbTerm,dbterm), obj);
+    } else {
+	p = db_store_term(NULL, NULL, offsetof(HashDbTerm,dbterm), obj);
+    }
+    return p;
+}
+
+static ERTS_INLINE HashDbTerm* new_dbterm(DbTableHash* tb, Eterm obj)
+{
+    return new_dbterm_hash(&tb->common, obj);
 }
 
 static ERTS_INLINE HashDbTerm* replace_dbterm(DbTableHash* tb, HashDbTerm* old,
@@ -531,10 +618,17 @@ static ERTS_INLINE HashDbTerm* replace_dbterm(DbTableHash* tb, HashDbTerm* old,
     HashDbTerm* ret;
     ASSERT(old != NULL);
     if (tb->common.compress) {
-	ret = db_store_term_comp(&tb->common, &(old->dbterm), offsetof(HashDbTerm,dbterm), obj);
+	ret = db_store_term_comp(&tb->common,
+                                 tb->common.keypos,
+                                 &(old->dbterm),
+                                 offsetof(HashDbTerm,dbterm),
+                                 obj);
     }
     else {
-	ret = db_store_term(&tb->common, &(old->dbterm), offsetof(HashDbTerm,dbterm), obj);
+	ret = db_store_term(&tb->common,
+                            &(old->dbterm),
+                            offsetof(HashDbTerm,dbterm),
+                            obj);
     }
     return ret;
 }
@@ -576,6 +670,12 @@ DbTableMethod db_hash =
     db_foreach_offheap_hash,
     db_lookup_dbterm_hash,
     db_finalize_dbterm_hash,
+    db_eterm_to_dbterm_hash,
+    db_dbterm_list_prepend_hash,
+    db_dbterm_list_remove_first_hash,
+    db_put_dbterm_hash,
+    db_free_dbterm_hash,
+    db_get_dbterm_key_hash,
     db_get_binary_info_hash,
     db_raw_first_hash,
     db_raw_next_hash
@@ -629,7 +729,7 @@ SWord db_unfix_table_hash(DbTableHash *tb)
     FixedDeletion* fixdel;
     SWord work = 0;
 
-    ERTS_LC_ASSERT(erts_lc_rwmtx_is_rwlocked(&tb->common.rwlock)
+    ERTS_LC_ASSERT(IS_TAB_WLOCKED(tb)
                    || (erts_lc_rwmtx_is_rlocked(&tb->common.rwlock)
                        && !tb->common.is_thread_safe));
 restart:
@@ -717,8 +817,9 @@ int db_create_hash(Process *p, DbTable *tbl)
                                                           (DbTable *) tb,
                                                           sizeof(DbTableHashFineLocks));
 	for (i=0; i<DB_HASH_LOCK_CNT; ++i) {
-            erts_rwmtx_init_opt(&tb->locks->lck_vec[i].lck, &rwmtx_opt,
+            erts_rwmtx_init_opt(&tb->locks->lck_vec[i].lck_ctr.lck, &rwmtx_opt,
                 "db_hash_slot", tb->common.the_name, ERTS_LOCK_FLAGS_CATEGORY_DB);
+            tb->locks->lck_vec[i].lck_ctr.nitems = 0;
 	}
 	/* This important property is needed to guarantee the two buckets
     	 * involved in a grow/shrink operation it protected by the same lock:
@@ -798,7 +899,48 @@ static int db_next_hash(Process *p, DbTable *tbl, Eterm key, Eterm *ret)
     return DB_ERROR_NONE;
 }    
 
-int db_put_hash(DbTable *tbl, Eterm obj, int key_clash_fail)
+static int db_eq_terms_comp(DbTableCommon* tb, DbTerm* a, DbTerm* b)
+{
+    ErlOffHeap tmp_offheap_a;
+    Eterm* allocp_a;
+    Eterm* hp_a;
+    Eterm tmp_a;
+    ErlOffHeap tmp_offheap_b;
+    Eterm* allocp_b;
+    Eterm* hp_b;
+    Eterm tmp_b;
+    int is_eq;
+
+    ASSERT(tb->compress);
+    hp_a = allocp_a = erts_alloc(ERTS_ALC_T_TMP, b->size*sizeof(Eterm));
+    tmp_offheap_a.first = NULL;
+    tmp_a = db_copy_from_comp(tb, a, &hp_a, &tmp_offheap_a);
+
+    hp_b = allocp_b = erts_alloc(ERTS_ALC_T_TMP, b->size*sizeof(Eterm));
+    tmp_offheap_b.first = NULL;
+    tmp_b = db_copy_from_comp(tb, b, &hp_b, &tmp_offheap_b);
+
+    is_eq = eq(tmp_a,tmp_b);
+    erts_cleanup_offheap(&tmp_offheap_a);
+    erts_free(ERTS_ALC_T_TMP, allocp_a);
+    erts_cleanup_offheap(&tmp_offheap_b);
+    erts_free(ERTS_ALC_T_TMP, allocp_b);
+    return is_eq;
+}
+
+static ERTS_INLINE int db_terms_eq(DbTableCommon* tb, DbTerm* a, DbTerm* b)
+{
+    if (!tb->compress) {
+	return EQ(make_tuple(a->tpl), make_tuple(b->tpl));
+    }
+    else {
+	return db_eq_terms_comp(tb, a, b);
+    }
+}
+
+static int db_put_dbterm_hash(DbTable* tbl,
+                              void* ob,
+                              int key_clash_fail)
 {
     DbTableHash *tb = &tbl->hash;
     HashValue hval;
@@ -807,13 +949,16 @@ int db_put_hash(DbTable *tbl, Eterm obj, int key_clash_fail)
     HashDbTerm** bp;
     HashDbTerm* b;
     HashDbTerm* q;
-    erts_rwmtx_t* lck;
+    DbTableHashLockAndCounter* lck_ctr;
     int nitems;
     int ret = DB_ERROR_NONE;
-
-    key = GETKEY(tb, tuple_val(obj));
+    HashDbTerm *value_to_insert = ob;
+    Uint size_to_insert = db_term_size(tbl, value_to_insert, offsetof(HashDbTerm, dbterm));
+    ERTS_DB_ALC_MEM_UPDATE_(tbl, 0, size_to_insert);
+    key = GETKEY(tb, value_to_insert->dbterm.tpl);
     hval = MAKE_HASH(key);
-    lck = WLOCK_HASH(tb, hval);
+    value_to_insert->hvalue = hval;
+    lck_ctr = WLOCK_HASH_GET_LCK_AND_CTR(tb, hval);
     ix = hash_to_ix(tb, hval);
     bp = &BUCKET(tb, ix);
     b = *bp;
@@ -833,7 +978,115 @@ int db_put_hash(DbTable *tbl, Eterm obj, int key_clash_fail)
     if (tb->common.status & DB_SET) {
 	HashDbTerm* bnext = b->next;
 	if (is_pseudo_deleted(b)) {
-            INC_NITEMS(tb);
+            INC_NITEMS(tb, lck_ctr, hval);
+            b->pseudo_deleted = 0;
+	}
+	else if (key_clash_fail) {
+	    ret = DB_ERROR_BADKEY;
+	    goto Ldone;
+	}
+        value_to_insert->pseudo_deleted = b->pseudo_deleted;
+        free_term(tb, b);
+        q = value_to_insert;
+	q->next = bnext;
+	ASSERT(q->hvalue == hval);
+	*bp = q;
+	goto Ldone;
+    }
+    else if (key_clash_fail) { /* && (DB_BAG || DB_DUPLICATE_BAG) */
+	q = b;
+	do {
+	    if (!is_pseudo_deleted(q)) {
+		ret = DB_ERROR_BADKEY;
+		goto Ldone;
+	    }
+	    q = q->next;
+	}while (q != NULL && has_key(tb,q,key,hval));
+    }
+    else if (tb->common.status & DB_BAG) {
+	HashDbTerm** qp = bp;
+	q = b;
+	do {
+	    if (db_terms_eq(&tb->common,
+                            &value_to_insert->dbterm,
+                            &q->dbterm)) {
+		if (is_pseudo_deleted(q)) {
+                    INC_NITEMS(tb, lck_ctr, hval);
+                    q->pseudo_deleted = 0;
+		    ASSERT(q->hvalue == hval);
+		    if (q != b) { /* must move to preserve key insertion order */
+			*qp = q->next;
+			q->next = b;
+			*bp = q;
+		    }
+		}
+                free_term(tb, value_to_insert);
+		goto Ldone;
+	    }
+	    qp = &q->next;
+	    q = *qp;
+	}while (q != NULL && has_key(tb,q,key,hval));
+    }
+    /*else DB_DUPLICATE_BAG */
+
+Lnew:
+    q = value_to_insert;
+    q->hvalue = hval;
+    q->pseudo_deleted = 0;
+    q->next = b;
+    *bp = q;
+    INC_NITEMS(tb, lck_ctr, hval);
+    nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
+    WUNLOCK_HASH_LCK_CTR(lck_ctr);
+    {
+	int nactive = NACTIVE(tb);
+	if (nitems > GROW_LIMIT(nactive) && !IS_FIXED(tb)) {
+	    grow(tb, nitems);
+	}
+    }
+    return DB_ERROR_NONE;
+
+Ldone:
+    WUNLOCK_HASH_LCK_CTR(lck_ctr);
+    return ret;
+}
+
+int db_put_hash(DbTable *tbl, Eterm obj, int key_clash_fail)
+{
+    DbTableHash *tb = &tbl->hash;
+    HashValue hval;
+    int ix;
+    Eterm key;
+    HashDbTerm** bp;
+    HashDbTerm* b;
+    HashDbTerm* q;
+    DbTableHashLockAndCounter* lck_ctr;
+    Sint nitems;
+    int ret = DB_ERROR_NONE;
+
+    key = GETKEY(tb, tuple_val(obj));
+    hval = MAKE_HASH(key);
+    lck_ctr = WLOCK_HASH_GET_LCK_AND_CTR(tb, hval);
+    ix = hash_to_ix(tb, hval);
+    bp = &BUCKET(tb, ix);
+    b = *bp;
+
+    for (;;) {
+	if (b == NULL) {
+	    goto Lnew;
+	}
+	if (has_key(tb,b,key,hval)) {
+	    break;
+	}
+	bp = &b->next;
+	b = b->next;
+    }
+    /* Key found
+    */
+    if (tb->common.status & DB_SET) {
+	HashDbTerm* bnext = b->next;
+	if (is_pseudo_deleted(b)) {
+            INC_NITEMS(tb, lck_ctr, hval);
             b->pseudo_deleted = 0;
 	}
 	else if (key_clash_fail) {
@@ -862,7 +1115,7 @@ int db_put_hash(DbTable *tbl, Eterm obj, int key_clash_fail)
 	do {
 	    if (db_eq(&tb->common,obj,&q->dbterm)) {
 		if (is_pseudo_deleted(q)) {
-		    INC_NITEMS(tb);
+		    INC_NITEMS(tb, lck_ctr, hval);
                     q->pseudo_deleted = 0;
 		    ASSERT(q->hvalue == hval);
 		    if (q != b) { /* must move to preserve key insertion order */
@@ -885,10 +1138,11 @@ Lnew:
     q->pseudo_deleted = 0;
     q->next = b;
     *bp = q;
-    nitems = INC_NITEMS(tb);
-    WUNLOCK_HASH(lck);
+    INC_NITEMS(tb, lck_ctr, hval);
+    nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
+    WUNLOCK_HASH_LCK_CTR(lck_ctr);
     {
-	int nactive = NACTIVE(tb);       
+	int nactive = NACTIVE(tb);
 	if (nitems > GROW_LIMIT(nactive) && !IS_FIXED(tb)) {
 	    grow(tb, nitems);
 	}
@@ -896,7 +1150,7 @@ Lnew:
     return DB_ERROR_NONE;
 
 Ldone:
-    WUNLOCK_HASH(lck);	
+    WUNLOCK_HASH_LCK_CTR(lck_ctr);
     return ret;
 }
 
@@ -1050,11 +1304,11 @@ int db_erase_hash(DbTable *tbl, Eterm key, Eterm *ret)
     HashDbTerm** bp;
     HashDbTerm* b;
     HashDbTerm* free_us = NULL;
-    erts_rwmtx_t* lck;
+    DbTableHashLockAndCounter* lck_ctr;
     int nitems_diff = 0;
-
+    Sint nitems;
     hval = MAKE_HASH(key);
-    lck = WLOCK_HASH(tb,hval);
+    lck_ctr = WLOCK_HASH_GET_LCK_AND_CTR(tb,hval);
     ix = hash_to_ix(tb, hval);
     bp = &BUCKET(tb, ix);
     b = *bp;
@@ -1081,10 +1335,13 @@ int db_erase_hash(DbTable *tbl, Eterm key, Eterm *ret)
 	bp = &b->next;
 	b = b->next;
     }
-    WUNLOCK_HASH(lck);
     if (nitems_diff) {
-        ADD_NITEMS(tb, nitems_diff);
-	try_shrink(tb);
+        ADD_NITEMS(tb, lck_ctr, hval, nitems_diff);
+        nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
+    }
+    WUNLOCK_HASH_LCK_CTR(lck_ctr);
+    if (nitems_diff) {
+	try_shrink(tb, nitems);
     }
     free_term_list(tb, free_us);
     *ret = am_true;
@@ -1102,14 +1359,15 @@ static int db_erase_object_hash(DbTable *tbl, Eterm object, Eterm *ret)
     HashDbTerm** bp;
     HashDbTerm* b;
     HashDbTerm* free_us = NULL;
-    erts_rwmtx_t* lck;
+    DbTableHashLockAndCounter* lck_ctr;
     int nitems_diff = 0;
+    Sint nitems;
     int nkeys = 0;
     Eterm key;
 
     key = GETKEY(tb, tuple_val(object));
     hval = MAKE_HASH(key);
-    lck = WLOCK_HASH(tb,hval);
+    lck_ctr = WLOCK_HASH_GET_LCK_AND_CTR(tb,hval);
     ix = hash_to_ix(tb, hval);
     bp = &BUCKET(tb, ix);
     b = *bp;
@@ -1142,10 +1400,13 @@ static int db_erase_object_hash(DbTable *tbl, Eterm object, Eterm *ret)
 	bp = &b->next;
 	b = b->next;
     }
-    WUNLOCK_HASH(lck);
     if (nitems_diff) {
-        ADD_NITEMS(tb, nitems_diff);
-	try_shrink(tb);
+        ADD_NITEMS(tb, lck_ctr, hval, nitems_diff);
+        nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
+    }
+    WUNLOCK_HASH_LCK_CTR(lck_ctr);
+    if (nitems_diff) {
+	try_shrink(tb, nitems);
     }
     free_term_list(tb, free_us);
     *ret = am_true;
@@ -2032,9 +2293,11 @@ static int select_delete_on_match_res(traverse_context_t* ctx_base, Sint slot_ix
     HashDbTerm** current_ptr = *current_ptr_ptr;
     select_delete_context_t* ctx = (select_delete_context_t*) ctx_base;
     HashDbTerm* del;
+    DbTableHashLockAndCounter* lck_ctr;
+    Uint32 hval;
     if (match_res != am_true)
         return 0;
-
+    hval = (*current_ptr)->hvalue;
     if (NFIXED(ctx->base.tb) > ctx->fixated_by_me) { /* fixated by others? */
         if (slot_ix != ctx->last_pseudo_delete) {
             if (!add_fixed_deletion(ctx->base.tb, slot_ix, ctx->fixated_by_me))
@@ -2050,9 +2313,27 @@ static int select_delete_on_match_res(traverse_context_t* ctx_base, Sint slot_ix
         del->next = ctx->free_us;
         ctx->free_us = del;
     }
-    DEC_NITEMS(ctx->base.tb);
+    lck_ctr = GET_LOCK_AND_CTR(ctx->base.tb,slot_ix);
+    DEC_NITEMS(ctx->base.tb, lck_ctr, hval);
 
     return 1;
+}
+
+/* This function is only safe to call while the table lock is held in
+   write mode */
+static Sint get_nitems_from_locks_or_counter(DbTableHash* tb)
+{
+    if (IS_DECENTRALIZED_CTRS(tb)) {
+        int i;
+        Sint total = 0;
+        for (i=0; i < DB_HASH_LOCK_CNT; ++i) {
+            total += tb->locks->lck_vec[i].lck_ctr.nitems;
+        }
+        return total;
+    } else {
+        return erts_flxctr_read_centralized(&tb->common.counters,
+                                            ERTS_DB_TABLE_NITEMS_COUNTER_ID);
+    }
 }
 
 static int select_delete_on_loop_ended(traverse_context_t* ctx_base,
@@ -2061,12 +2342,29 @@ static int select_delete_on_loop_ended(traverse_context_t* ctx_base,
                                        Eterm* ret)
 {
     select_delete_context_t* ctx = (select_delete_context_t*) ctx_base;
-    free_term_list(ctx->base.tb, ctx->free_us);
+    DbTableHash* tb = ctx->base.tb;
+    free_term_list(tb, ctx->free_us);
     ctx->free_us = NULL;
     ASSERT(iterations_left <= MAX_SELECT_DELETE_ITERATIONS);
     BUMP_REDS(ctx->base.p, MAX_SELECT_DELETE_ITERATIONS - iterations_left);
     if (got) {
-	try_shrink(ctx->base.tb);
+        Sint nitems;
+        if (IS_DECENTRALIZED_CTRS(tb)) {
+            /* Get a random hash value so we can get an nitems
+               estimate from a random lock */
+            HashValue hval =
+                (HashValue)&ctx +
+                (HashValue)iterations_left +
+                (HashValue)erts_get_scheduler_data()->reductions;
+            erts_rwmtx_t* lck = RLOCK_HASH(tb, hval);
+            DbTableHashLockAndCounter* lck_ctr = GET_LOCK_AND_CTR(tb, hval);
+            nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
+            RUNLOCK_HASH(lck);
+        } else {
+            nitems = erts_flxctr_read_centralized(&tb->common.counters,
+                                                  ERTS_DB_TABLE_NITEMS_COUNTER_ID);
+        }
+	try_shrink(tb, nitems);
     }
     *ret = erts_make_integer(got, ctx->base.p);
     return DB_ERROR_NONE;
@@ -2297,9 +2595,10 @@ static int db_take_hash(Process *p, DbTable *tbl, Eterm key, Eterm *ret)
     HashDbTerm **bp, *b;
     HashDbTerm *free_us = NULL;
     HashValue hval = MAKE_HASH(key);
-    erts_rwmtx_t *lck = WLOCK_HASH(tb, hval);
+    DbTableHashLockAndCounter *lck_ctr = WLOCK_HASH_GET_LCK_AND_CTR(tb, hval);
     int ix = hash_to_ix(tb, hval);
     int nitems_diff = 0;
+    Sint nitems;
 
     *ret = NIL;
     for (bp = &BUCKET(tb, ix), b = *bp; b; bp = &b->next, b = b->next) {
@@ -2325,10 +2624,13 @@ static int db_take_hash(Process *p, DbTable *tbl, Eterm key, Eterm *ret)
             break;
         }
     }
-    WUNLOCK_HASH(lck);
     if (nitems_diff) {
-        ADD_NITEMS(tb, nitems_diff);
-        try_shrink(tb);
+        ADD_NITEMS(tb, lck_ctr, hval, nitems_diff);
+        nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
+    }
+    WUNLOCK_HASH_LCK_CTR(lck_ctr);
+    if (nitems_diff) {
+        try_shrink(tb, nitems);
     }
     free_term_list(tb, free_us);
     return DB_ERROR_NONE;
@@ -2452,7 +2754,7 @@ static void db_print_hash(fmtfn_t to, void *to_arg, int show, DbTable *tbl)
 
 static int db_free_empty_table_hash(DbTable *tbl)
 {
-    ASSERT(NITEMS(tbl) == 0);
+    ASSERT(get_nitems_from_locks_or_counter(&tbl->hash) == 0);
     while (db_free_table_continue_hash(tbl, ERTS_SWORD_MAX) < 0)
 	;
     return 0;
@@ -2495,8 +2797,11 @@ static SWord db_free_table_continue_hash(DbTable *tbl, SWord reds)
 		     (void*)tb->locks, sizeof(DbTableHashFineLocks));
 	tb->locks = NULL;
     }
-    ASSERT(sizeof(DbTable) == erts_flxctr_read_approx(&tb->common.counters,
-                                                      ERTS_DB_TABLE_MEM_COUNTER_ID));
+    ASSERT(erts_flxctr_is_snapshot_ongoing(&tb->common.counters) ||
+           ((sizeof(DbTable) +
+             erts_flxctr_nr_of_allocated_bytes(&tb->common.counters)) ==
+            erts_flxctr_read_approx(&tb->common.counters,
+                                    ERTS_DB_TABLE_MEM_COUNTER_ID)));
     return reds;			/* Done */
 }
 
@@ -2678,11 +2983,40 @@ static struct ext_segtab* alloc_ext_segtab(DbTableHash* tb, unsigned seg_ix)
 static void calc_shrink_limit(DbTableHash* tb)
 {
     erts_aint_t shrink_limit;
+    int sample_size_is_enough = 1;
 
-    if (tb->nslots >= (FIRST_SEGSZ + 2*EXT_SEGSZ)) {
+    if (IS_DECENTRALIZED_CTRS(tb)) {
         /*
-         * Start shrink when we can remove one extra segment
-         * and still remain below 50% load.
+           Cochran’s Sample Size Formula indicates that we will get
+           good estimates if we have 100 buckets or more per lock (see
+           calculations below)
+        */
+        /* square of z-score 95% confidence */
+        /* const double z2 = 1.96*1.96; */
+        /* Estimated propotion used buckets */
+        /* const double p = 0.5; */
+        /* margin of error */
+        /* const double moe = 0.1; */
+        /* const double moe2 = moe*moe; */
+        /* Cochran’s Sample Size Formula x=96.040 */
+        /* const double x = (z2 * p * (1-p)) / moe2; */
+        /* Modification for smaller populations */
+        /* for(int n = 10; n < 1000; n = n + 100){ */
+        /*   const double d = n*x / (x + n - 1) + 1; */
+        /*   printf("Cochran_formula=%f size=%d mod_with_size=%f\n", x, n, d); */
+        /* } */
+        const int needed_slots = 100 * DB_HASH_LOCK_CNT;
+        if (tb->nslots < needed_slots) {
+            sample_size_is_enough = 0;
+        }
+    }
+
+    if (sample_size_is_enough && tb->nslots >= (FIRST_SEGSZ + 2*EXT_SEGSZ)) {
+        /*
+         * Start shrink when the sample size is big enough for
+         * decentralized counters if decentralized counters are used
+         * and when we can remove one extra segment and still remain
+         * below 50% load.
          */
         shrink_limit = (tb->nslots - EXT_SEGSZ) / 2;
     }
@@ -2912,10 +3246,12 @@ static Eterm build_term_list(Process* p, HashDbTerm* ptr1, HashDbTerm* ptr2,
 static ERTS_INLINE int
 begin_resizing(DbTableHash* tb)
 {
-    if (DB_USING_FINE_LOCKING(tb))
-	return !erts_atomic_xchg_acqb(&tb->is_resizing, 1);
-    else
-        ERTS_LC_ASSERT(erts_lc_rwmtx_is_rwlocked(&tb->common.rwlock));
+    if (DB_USING_FINE_LOCKING(tb)) {
+	return
+            !erts_atomic_read_acqb(&tb->is_resizing) &&
+            !erts_atomic_xchg_acqb(&tb->is_resizing, 1);
+    } else
+        ERTS_LC_ASSERT(IS_TAB_WLOCKED(tb));
     return 1;
 }
 
@@ -3159,13 +3495,13 @@ db_lookup_dbterm_hash(Process *p, DbTable *tbl, Eterm key, Eterm obj,
     DbTableHash *tb = &tbl->hash;
     HashValue hval;
     HashDbTerm **bp, *b;
-    erts_rwmtx_t* lck;
+    DbTableHashLockAndCounter* lck_ctr;
     int flags = 0;
 
     ASSERT(tb->common.status & DB_SET);
 
     hval = MAKE_HASH(key);
-    lck = WLOCK_HASH(tb, hval);
+    lck_ctr = WLOCK_HASH_GET_LCK_AND_CTR(tb, hval);
     bp = &BUCKET(tb, hash_to_ix(tb, hval));
     b = *bp;
 
@@ -3184,7 +3520,7 @@ db_lookup_dbterm_hash(Process *p, DbTable *tbl, Eterm key, Eterm obj,
     }
 
     if (obj == THE_NON_VALUE) {
-        WUNLOCK_HASH(lck);
+        WUNLOCK_HASH_LCK_CTR(lck_ctr);
         return 0;
     }
 
@@ -3217,7 +3553,7 @@ db_lookup_dbterm_hash(Process *p, DbTable *tbl, Eterm key, Eterm obj,
             ASSERT(q->hvalue == hval);
             q->pseudo_deleted = 0;
             *bp = b = q;
-            INC_NITEMS(tb);
+            INC_NITEMS(tb, lck_ctr, hval);
         }
 
         HRelease(p, hend, htop);
@@ -3230,7 +3566,7 @@ Ldone:
     handle->dbterm = &b->dbterm;
     handle->flags = flags;
     handle->new_size = b->dbterm.size;
-    handle->u.hash.lck = lck;
+    handle->u.hash.lck_ctr = lck_ctr;
     return 1;
 }
 
@@ -3243,10 +3579,12 @@ db_finalize_dbterm_hash(int cret, DbUpdateHandle* handle)
     DbTableHash *tb = &tbl->hash;
     HashDbTerm **bp = (HashDbTerm **) handle->bp;
     HashDbTerm *b = *bp;
-    erts_rwmtx_t* lck = handle->u.hash.lck;
+    Uint32 hval = b->hvalue;
+    DbTableHashLockAndCounter* lck_ctr = handle->u.hash.lck_ctr;
     HashDbTerm* free_me = NULL;
+    Sint nitems;
 
-    ERTS_LC_ASSERT(IS_HASH_WLOCKED(tb, lck));  /* locked by db_lookup_dbterm_hash */
+    ERTS_LC_ASSERT(IS_HASH_WLOCKED(tb, &lck_ctr->lck));  /* locked by db_lookup_dbterm_hash */
 
     ASSERT((&b->dbterm == handle->dbterm) == !(tb->common.compress && handle->flags & DB_MUST_RESIZE));
 
@@ -3258,10 +3596,10 @@ db_finalize_dbterm_hash(int cret, DbUpdateHandle* handle)
             *bp = b->next;
             free_me = b;
         }
-
-        WUNLOCK_HASH(lck);
-        DEC_NITEMS(tb);
-        try_shrink(tb);
+        DEC_NITEMS(tb, lck_ctr, hval);
+        nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
+        WUNLOCK_HASH_LCK_CTR(lck_ctr);
+        try_shrink(tb, nitems);
     } else {
         if (handle->flags & DB_MUST_RESIZE) {
             db_finalize_resize(handle, offsetof(HashDbTerm,dbterm));
@@ -3269,15 +3607,17 @@ db_finalize_dbterm_hash(int cret, DbUpdateHandle* handle)
         }
         if (handle->flags & DB_INC_TRY_GROW) {
             int nactive;
-            int nitems = INC_NITEMS(tb);
-            WUNLOCK_HASH(lck);
+            int nitems;
+            INC_NITEMS(tb, lck_ctr, hval);
+            nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
+            WUNLOCK_HASH_LCK_CTR(lck_ctr);
             nactive = NACTIVE(tb);
 
             if (nitems > GROW_LIMIT(nactive) && !IS_FIXED(tb)) {
                 grow(tb, nitems);
             }
         } else {
-            WUNLOCK_HASH(lck);
+            WUNLOCK_HASH_LCK_CTR(lck_ctr);
         }
     }
 
@@ -3296,9 +3636,7 @@ static SWord db_delete_all_objects_hash(Process* p,
                                         Eterm* nitems_holder_wb)
 {
     if (nitems_holder_wb != NULL) {
-        Uint nr_of_items =
-            erts_flxctr_read_centralized(&tbl->common.counters,
-                                         ERTS_DB_TABLE_NITEMS_COUNTER_ID);
+        Uint nr_of_items = get_nitems_from_locks_or_counter(&tbl->hash);
         *nitems_holder_wb = erts_make_integer(nr_of_items, p);
     }
     if (IS_FIXED(tbl)) {
@@ -3506,6 +3844,49 @@ static int db_raw_next_hash(Process *p, DbTable *tbl, Eterm key, Eterm *ret)
     return DB_ERROR_NONE;
 }
 
+static void* db_eterm_to_dbterm_hash(int compress, int keypos, Eterm obj)
+{
+    HashDbTerm* term = new_dbterm_hash_no_tab(compress, keypos, obj);
+    term->next = NULL;
+    return term;
+}
+
+static void* db_dbterm_list_prepend_hash(void* list, void* db_term)
+{
+    HashDbTerm* l = list;
+    HashDbTerm* t = db_term;
+    t->next = l;
+    return t;
+}
+
+static void* db_dbterm_list_remove_first_hash(void** list)
+{
+    if (*list == NULL) {
+        return NULL;
+    } else {
+        HashDbTerm* t = (*list);
+        HashDbTerm* l = t->next;
+        *list = l;
+        return t;
+    }
+}
+
+/*
+ * Frees a HashDbTerm without updating the memory footprint of the
+ * table.
+ */
+static void db_free_dbterm_hash(int compressed, void* obj)
+{
+    HashDbTerm* p = obj;
+    db_free_term_no_tab(compressed, p, offsetof(HashDbTerm, dbterm));
+}
+
+static Eterm db_get_dbterm_key_hash(DbTable* tb, void* db_term)
+{
+    HashDbTerm *value_to_insert = db_term;
+    return GETKEY(tb, value_to_insert->dbterm.tpl);
+}
+
 /* For testing only */
 Eterm erts_ets_hash_sizeof_ext_segtab(void)
 {
@@ -3527,7 +3908,7 @@ void erts_lcnt_enable_db_hash_lock_count(DbTableHash *tb, int enable) {
     }
 
     for(i = 0; i < DB_HASH_LOCK_CNT; i++) {
-        erts_lcnt_ref_t *ref = &tb->locks->lck_vec[i].lck.lcnt;
+        erts_lcnt_ref_t *ref = &tb->locks->lck_vec[i].lck_ctr.lck.lcnt;
 
         if(enable) {
             erts_lcnt_install_new_lock_info(ref, "db_hash_slot", tb->common.the_name,

@@ -20,6 +20,7 @@
 %% Purpose: Run the Erlang compiler.
 
 -module(compile).
+-compile([{nowarn_deprecated_function,{crypto,block_encrypt,4}}]).
 
 %% High-level interface.
 -export([file/1,file/2,noenv_file/2,format_error/1,iofile/1]).
@@ -253,7 +254,11 @@ expand_opt(return, Os) ->
     [return_errors,return_warnings|Os];
 expand_opt(no_bsm3, Os) ->
     %% The new bsm pass requires bsm3 instructions.
-    [no_bsm3,no_bsm_opt|Os];
+    [no_bsm3,no_bsm_opt|expand_opt(no_bsm4, Os)];
+expand_opt(no_bsm4, Os) ->
+    %% bsm4 instructions are only used when type optimization has determined
+    %% that a match instruction won't fail.
+    expand_opt(no_type_opt, Os);
 expand_opt(r16, Os) ->
     expand_opt_before_21(Os);
 expand_opt(r17, Os) ->
@@ -268,7 +273,8 @@ expand_opt(r21, Os) ->
     [no_shared_fun_wrappers,
      no_swap, no_put_tuple2 | expand_opt(no_bsm3, Os)];
 expand_opt(r22, Os) ->
-    [no_shared_fun_wrappers, no_swap | Os];
+    [no_shared_fun_wrappers,
+     no_swap | expand_opt(no_bsm4, Os)];
 expand_opt({debug_info_key,_}=O, Os) ->
     [encrypt_debug_info,O|Os];
 expand_opt(no_type_opt=O, Os) ->
@@ -337,7 +343,7 @@ format_error({bad_return,Pass,Reason}) ->
 format_error({module_name,Mod,Filename}) ->
     io_lib:format("Module name '~s' does not match file name '~ts'", [Mod,Filename]);
 format_error(reparsing_invalid_unicode) ->
-    "Non-UTF-8 character(s) detected, but no encoding declared. Encode the file in UTF-8 or add \"%% coding: latin-1\" at the beginning of the file. Retrying with latin-1 encoding.".
+    "Non-UTF-8 character(s) detected, but no encoding declared. Encode the file in UTF-8 or add \"%% coding: latin-1\" at the beginning of the file. Note: The compiler will remove support for latin-1 encoded source files without the \"%% coding: latin-1\" string at the beginning of the file in Erlang/OTP 24! Retrying with latin-1 encoding.".
 
 format_error_reason({Reason, Stack}) when is_list(Stack) ->
     StackFun = fun
@@ -601,7 +607,7 @@ passes_1([]) ->
     {".erl",[?pass(parse_module)|standard_passes()]}.
 
 pass(from_core) ->
-    {".core",[?pass(parse_core)|core_passes()]};
+    {".core",[?pass(parse_core)|core_passes(mandatory_core_lint)]};
 pass(from_asm) ->
     {".S",[?pass(beam_consult_asm)|asm_passes()]};
 pass(from_beam) ->
@@ -799,11 +805,17 @@ standard_passes() ->
      ?pass(core),
      {iff,'dcore',{listing,"core"}},
      {iff,'to_core0',{done,"core"}}
-     | core_passes()].
+     | core_passes(optional_core_lint)].
 
-core_passes() ->
+core_passes(LintOpt) ->
     %% Optimization and transforms of Core Erlang code.
-    [{iff,clint0,?pass(core_lint_module)},
+    CoreLint = case LintOpt of
+                   mandatory_core_lint ->
+                       ?pass(core_lint_module);
+                   optional_core_lint ->
+                       {iff,clint0,?pass(core_lint_module)}
+               end,
+    [CoreLint,
      {delay,
       [{unless,no_copt,
        [{core_old_inliner,fun test_old_inliner/1,fun core_old_inliner/2},
@@ -2103,6 +2115,7 @@ pre_load() ->
 	 beam_call_types,
 	 beam_clean,
 	 beam_dict,
+	 beam_digraph,
 	 beam_flatten,
 	 beam_jump,
 	 beam_kernel_to_ssa,

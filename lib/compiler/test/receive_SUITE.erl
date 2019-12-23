@@ -26,7 +26,8 @@
 	 init_per_testcase/2,end_per_testcase/2,
 	 export/1,recv/1,coverage/1,otp_7980/1,ref_opt/1,
 	 wait/1,recv_in_try/1,double_recv/1,receive_var_zero/1,
-         match_built_terms/1,elusive_common_exit/1]).
+         match_built_terms/1,elusive_common_exit/1,
+         return_before_receive/1,trapping/1]).
 
 -include_lib("common_test/include/ct.hrl").
 
@@ -41,14 +42,15 @@ suite() ->
      {timetrap,{minutes,2}}].
 
 all() -> 
-    [{group,p}].
+    slow_group() ++ [{group,p}].
 
 groups() -> 
     [{p,test_lib:parallel(),
-      [recv,coverage,otp_7980,ref_opt,export,wait,
+      [recv,coverage,otp_7980,export,wait,
        recv_in_try,double_recv,receive_var_zero,
-       match_built_terms,elusive_common_exit]}].
-
+       match_built_terms,elusive_common_exit,
+       return_before_receive,trapping]},
+     {slow,[],[ref_opt]}].
 
 init_per_suite(Config) ->
     test_lib:recompile(?MODULE),
@@ -62,6 +64,16 @@ init_per_group(_GroupName, Config) ->
 
 end_per_group(_GroupName, Config) ->
     Config.
+
+slow_group() ->
+    case ?MODULE of
+	receive_SUITE ->
+            %% Canononical module name. Run slow cases.
+            [{group,slow}];
+        _ ->
+            %% Cloned module. Don't run.
+            []
+    end.
 
 -record(state, {ena = true}).
 
@@ -124,6 +136,11 @@ coverage(Config) when is_list(Config) ->
 
     {'EXIT',{{badmap,[]},_}} = (catch monitor_plus_badmap(self())),
 
+
+    self() ! {data,no_data},
+    ok = receive_sink_tuple({any,pattern}),
+    {b,a} = receive_sink_tuple({a,b}),
+
     ok.
 
 monitor_plus_badmap(Pid) ->
@@ -172,6 +189,16 @@ tuple_to_values(Timeout, X) ->
 	    end,
     A+B.
 
+%% Cover a help function for beam_ssa_opt:ssa_opt_sink/1.
+receive_sink_tuple({Line,Pattern}) ->
+    receive
+        {data,_} ->
+            ok
+    after 1 ->
+            id({Pattern,Line})
+    end.
+
+
 %% OTP-7980. Thanks to Vincent de Phily. The following code would
 %% be inccorrectly optimized by beam_jump.
 
@@ -190,12 +217,6 @@ otp_7980_add_clients(Count) ->
 		end, Count, [1,2,3]).
 
 ref_opt(Config) when is_list(Config) ->
-    case ?MODULE of
-	receive_SUITE -> ref_opt_1(Config);
-	_ -> {skip,"Enough to run this case once."}
-    end.
-
-ref_opt_1(Config) ->
     DataDir = proplists:get_value(data_dir, Config),
     PrivDir = proplists:get_value(priv_dir, Config),
     Sources = filelib:wildcard(filename:join([DataDir,"ref_opt","*.{erl,S}"])),
@@ -483,5 +504,56 @@ elusive2(Acc) ->
     end,
     %% Common code.
     elusive2([Pid | Acc]).
+
+return_before_receive(_Config) ->
+    ref_received = do_return_before_receive(),
+    ok.
+
+do_return_before_receive() ->
+    Ref = make_ref(),
+    self() ! {ref,Ref},
+    maybe_receive(id(false)),
+    receive
+        {ref,Ref} ->
+            ref_received
+    after 1 ->
+            %% Can only be reached if maybe_receive/1 returned
+            %% with the receive marker set.
+            timeout
+    end.
+
+maybe_receive(Bool) ->
+    NewRef = make_ref(),
+    case Bool of
+        true ->
+            receive
+                NewRef ->
+                    ok
+            end;
+        false ->
+            %% The receive marker must not be set when
+            %% leaving this function.
+            ok
+    end.
+
+trapping(_Config) ->
+    ok = do_trapping(0),
+    ok = do_trapping(1),
+    ok.
+
+%% Simplified from emulator's binary_SUITE:trapping/1.
+do_trapping(N) ->
+    Ref = make_ref(),
+    self() ! Ref,
+    case N rem 2 of
+	0 ->
+            %% Would generate recv_set _, label _, wait_timeout _ _,
+            %% which the loader can't handle.
+            receive after 1 -> ok end;
+	1 ->
+            void
+    end,
+    receive Ref -> ok end,
+    receive after 1 -> ok end.
 
 id(I) -> I.

@@ -48,7 +48,11 @@
          key_material/1, signature_algorithm_to_scheme/1]).
 
 %% RFC 8446 TLS 1.3
--export([generate_client_shares/1, generate_server_share/1, add_zero_padding/2]).
+-export([generate_client_shares/1,
+         generate_server_share/1,
+         add_zero_padding/2,
+         encrypt_ticket/3,
+         decrypt_ticket/3]).
 
 -compile(inline).
 
@@ -104,7 +108,7 @@ security_parameters_1_3(SecParams, CipherSuite) ->
 %% Description: Initializes the #cipher_state according to BCA
 %%-------------------------------------------------------------------
 cipher_init(?RC4, IV, Key) ->
-    State = crypto:stream_init(rc4, Key),
+    State = {stream_init,rc4,Key,IV},
     #cipher_state{iv = IV, key = Key, state = State};
 cipher_init(Type, IV, Key) when Type == ?AES_GCM;
                                 Type == ?AES_CCM ->
@@ -133,38 +137,53 @@ nonce_seed(Seed, CipherState) ->
 %%-------------------------------------------------------------------
 cipher(?NULL, CipherState, <<>>, Fragment, _Version) ->
     {iolist_to_binary(Fragment), CipherState};
-cipher(?RC4, CipherState = #cipher_state{state = State0}, Mac, Fragment, _Version) ->
+cipher(CipherEnum, CipherState = #cipher_state{state = {stream_init,rc4,Key,_IV}}, Mac, Fragment, Version) ->
+    State = crypto:crypto_init(rc4, Key, true),
+    cipher(CipherEnum,  CipherState#cipher_state{state = State}, Mac, Fragment, Version);
+cipher(?RC4, CipherState = #cipher_state{state = State}, Mac, Fragment, _Version) ->
     GenStreamCipherList = [Fragment, Mac],
-    {State1, T} = crypto:stream_encrypt(State0, GenStreamCipherList),
-    {iolist_to_binary(T), CipherState#cipher_state{state = State1}};
+    T = crypto:crypto_update(State, GenStreamCipherList),
+    {iolist_to_binary(T), CipherState};
 cipher(?DES, CipherState, Mac, Fragment, Version) ->
     block_cipher(fun(Key, IV, T) ->
-			 crypto:block_encrypt(des_cbc, Key, IV, T)
+			 crypto:crypto_one_time(des_cbc, Key, IV, T, true)
 		 end, block_size(des_cbc), CipherState, Mac, Fragment, Version);
 cipher(?'3DES', CipherState, Mac, Fragment, Version) ->
-    block_cipher(fun(<<K1:8/binary, K2:8/binary, K3:8/binary>>, IV, T) ->
-			 crypto:block_encrypt(des3_cbc, [K1, K2, K3], IV, T)
-		 end, block_size(des_cbc), CipherState, Mac, Fragment, Version);
+    block_cipher(fun(Key, IV, T) ->
+			 crypto:crypto_one_time(des_ede3_cbc, Key, IV, T, true)
+		 end, block_size(des_ede3_cbc), CipherState, Mac, Fragment, Version);
 cipher(?AES_CBC, CipherState, Mac, Fragment, Version) ->
     block_cipher(fun(Key, IV, T) when byte_size(Key) =:= 16 ->
-			 crypto:block_encrypt(aes_cbc128, Key, IV, T);
+			 crypto:crypto_one_time(aes_128_cbc, Key, IV, T, true);
 		    (Key, IV, T) when byte_size(Key) =:= 32 ->
-			 crypto:block_encrypt(aes_cbc256, Key, IV, T)
+			 crypto:crypto_one_time(aes_256_cbc, Key, IV, T, true)
 		 end, block_size(aes_128_cbc), CipherState, Mac, Fragment, Version).
 
 aead_encrypt(Type, Key, Nonce, Fragment, AdditionalData, TagLen) ->
-    crypto:block_encrypt(aead_type(Type), Key, Nonce, {AdditionalData, Fragment, TagLen}).
+    crypto:crypto_one_time_aead(aead_type(Type,size(Key)), Key, Nonce, Fragment, AdditionalData, TagLen, true).
 
 aead_decrypt(Type, Key, Nonce, CipherText, CipherTag, AdditionalData) ->
-    crypto:block_decrypt(aead_type(Type), Key, Nonce, {AdditionalData, CipherText, CipherTag}).
+    crypto:crypto_one_time_aead(aead_type(Type,size(Key)), Key, Nonce, CipherText, AdditionalData, CipherTag, false).
 
-aead_type(?AES_GCM) ->
-    aes_gcm;
-aead_type(?AES_CCM) ->
-    aes_ccm;
-aead_type(?AES_CCM_8) ->
-    aes_ccm;
-aead_type(?CHACHA20_POLY1305) ->
+aead_type(?AES_GCM, 16) ->
+    aes_128_gcm;
+aead_type(?AES_GCM, 24) ->
+    aes_192_gcm;
+aead_type(?AES_GCM, 32) ->
+    aes_256_gcm;
+aead_type(?AES_CCM, 16) ->
+    aes_128_ccm;
+aead_type(?AES_CCM, 24) ->
+    aes_192_ccm;
+aead_type(?AES_CCM, 32) ->
+    aes_256_ccm;
+aead_type(?AES_CCM_8, 16) ->
+    aes_128_ccm;
+aead_type(?AES_CCM_8, 24) ->
+    aes_192_ccm;
+aead_type(?AES_CCM_8, 32) ->
+    aes_256_ccm;
+aead_type(?CHACHA20_POLY1305, _) ->
     chacha20_poly1305.
 
 build_cipher_block(BlockSz, Mac, Fragment) ->
@@ -207,12 +226,16 @@ block_cipher(Fun, BlockSz, #cipher_state{key=Key, iv=IV, state = IV_Cache0} = CS
 %%-------------------------------------------------------------------
 decipher(?NULL, _HashSz, CipherState, Fragment, _, _) ->
     {Fragment, <<>>, CipherState};
-decipher(?RC4, HashSz, CipherState = #cipher_state{state = State0}, Fragment, _, _) ->
-    try crypto:stream_decrypt(State0, Fragment) of
-	{State, Text} ->
+decipher(CipherEnum, HashSz, CipherState = #cipher_state{state = {stream_init,rc4,Key,_IV}},
+         Fragment, Version, PaddingCheck) ->
+    State = crypto:crypto_init(rc4, Key, false),
+    decipher(CipherEnum, HashSz, CipherState#cipher_state{state = State}, Fragment, Version, PaddingCheck);
+decipher(?RC4, HashSz, CipherState = #cipher_state{state = State}, Fragment, _, _) ->
+    try crypto:crypto_update(State, Fragment) of
+	Text ->
 	    GSC = generic_stream_cipher_from_bin(Text, HashSz),
 	    #generic_stream_cipher{content = Content, mac = Mac} = GSC,
-	    {Content, Mac, CipherState#cipher_state{state = State}}
+	    {Content, Mac, CipherState}
     catch
 	_:_ ->
 	    %% This is a DECRYPTION_FAILED but
@@ -225,17 +248,17 @@ decipher(?RC4, HashSz, CipherState = #cipher_state{state = State0}, Fragment, _,
 
 decipher(?DES, HashSz, CipherState, Fragment, Version, PaddingCheck) ->
     block_decipher(fun(Key, IV, T) ->
-			   crypto:block_decrypt(des_cbc, Key, IV, T)
+                           crypto:crypto_one_time(des_cbc, Key, IV, T, false)
 		   end, CipherState, HashSz, Fragment, Version, PaddingCheck);
 decipher(?'3DES', HashSz, CipherState, Fragment, Version, PaddingCheck) ->
-    block_decipher(fun(<<K1:8/binary, K2:8/binary, K3:8/binary>>, IV, T) ->
-			   crypto:block_decrypt(des3_cbc, [K1, K2, K3], IV, T)
+    block_decipher(fun(Key, IV, T) ->
+                           crypto:crypto_one_time(des_ede3_cbc, Key, IV, T, false)
 		   end, CipherState, HashSz, Fragment, Version, PaddingCheck);
 decipher(?AES_CBC, HashSz, CipherState, Fragment, Version, PaddingCheck) ->
     block_decipher(fun(Key, IV, T) when byte_size(Key) =:= 16 ->
-			   crypto:block_decrypt(aes_cbc128, Key, IV, T);
+                           crypto:crypto_one_time(aes_128_cbc, Key, IV, T, false);
 		      (Key, IV, T) when byte_size(Key) =:= 32 ->
-			   crypto:block_decrypt(aes_cbc256, Key, IV, T)
+                           crypto:crypto_one_time(aes_256_cbc, Key, IV, T, false)
 		   end, CipherState, HashSz, Fragment, Version, PaddingCheck).
 
 block_decipher(Fun, #cipher_state{key=Key, iv=IV} = CipherState0, 
@@ -641,24 +664,12 @@ is_acceptable_cipher(null, _Algos) ->
     true;
 is_acceptable_cipher(rc4_128, Algos) ->
     proplists:get_bool(rc4, Algos);
-is_acceptable_cipher(des_cbc, Algos) ->
-    proplists:get_bool(des_cbc, Algos);
 is_acceptable_cipher('3des_ede_cbc', Algos) ->
-    proplists:get_bool(des_ede3, Algos);
-is_acceptable_cipher(aes_128_cbc, Algos) ->
-    proplists:get_bool(aes_cbc128, Algos);
-is_acceptable_cipher(aes_256_cbc, Algos) ->
-    proplists:get_bool(aes_cbc256, Algos);
-is_acceptable_cipher(Cipher, Algos)
-  when Cipher == aes_128_gcm;
-       Cipher == aes_256_gcm ->
-    proplists:get_bool(aes_gcm, Algos);
-is_acceptable_cipher(Cipher, Algos)
-  when Cipher == aes_128_ccm;
-       Cipher == aes_256_ccm;
-       Cipher == aes_128_ccm_8;
-       Cipher == aes_256_ccm_8 ->
-    proplists:get_bool(aes_ccm, Algos);
+    proplists:get_bool(des_ede3_cbc, Algos);
+is_acceptable_cipher(aes_128_ccm_8, Algos) ->
+    proplists:get_bool(aes_128_ccm, Algos);
+is_acceptable_cipher(aes_256_ccm_8, Algos) ->
+    proplists:get_bool(aes_256_ccm, Algos);
 is_acceptable_cipher(Cipher, Algos) ->
     proplists:get_bool(Cipher, Algos).
 
@@ -859,6 +870,7 @@ iv_size(Cipher) ->
     block_size(Cipher).
 
 block_size(Cipher) when Cipher == des_cbc;
+			Cipher == des_ede3_cbc;
 			Cipher == '3des_ede_cbc' -> 
     8;
 block_size(Cipher) when Cipher == aes_128_cbc;
@@ -1386,3 +1398,63 @@ add_zero_padding(Bin, PrimeSize)
     Bin;
 add_zero_padding(Bin, PrimeSize) ->
     add_zero_padding(<<0, Bin/binary>>, PrimeSize).
+
+
+%% Functions for handling self-encrypted session tickets (TLS 1.3).
+%%
+encrypt_ticket(#stateless_ticket{
+                  hash = Hash,
+                  pre_shared_key = PSK,
+                  ticket_age_add = TicketAgeAdd,
+                  lifetime = Lifetime,
+                  timestamp = Timestamp
+                 }, Shard, IV) ->
+    Plaintext = <<(ssl_cipher:hash_algorithm(Hash)):8,PSK/binary,
+                   ?UINT64(TicketAgeAdd),?UINT32(Lifetime),?UINT32(Timestamp)>>,
+    encrypt_ticket_data(Plaintext, Shard, IV).
+
+
+decrypt_ticket(CipherFragment, Shard, IV) ->
+    case decrypt_ticket_data(CipherFragment, Shard, IV) of
+        error ->
+            error;
+        Plaintext ->
+            <<?BYTE(HKDF),T/binary>> = Plaintext,
+            Hash = hash_algorithm(HKDF),
+            HashSize = hash_size(Hash),
+            <<PSK:HashSize/binary,?UINT64(TicketAgeAdd),?UINT32(Lifetime),?UINT32(Timestamp),_/binary>> = T,
+            #stateless_ticket{
+               hash = Hash,
+               pre_shared_key = PSK,
+               ticket_age_add = TicketAgeAdd,
+               lifetime = Lifetime,
+               timestamp = Timestamp
+              }
+    end.
+
+
+encrypt_ticket_data(Plaintext, Shard, IV) ->
+    AAD = additional_data(erlang:iolist_size(Plaintext) + 16), %% TagLen = 16
+    {OTP, Key} = make_otp_key(Shard),
+    {Content, CipherTag} = crypto:crypto_one_time_aead(aes_256_gcm, Key, IV, Plaintext, AAD, 16, true),
+    <<Content/binary,CipherTag/binary,OTP/binary>>.
+
+
+decrypt_ticket_data(CipherFragment, Shard, IV) ->
+    Size = byte_size(Shard),
+    AAD = additional_data(erlang:iolist_size(CipherFragment) - Size),
+    Len = byte_size(CipherFragment) - Size - 16,
+    <<Encrypted:Len/binary,CipherTag:16/binary,OTP:Size/binary>> = CipherFragment,
+    Key = crypto:exor(OTP, Shard),
+    crypto:crypto_one_time_aead(aes_256_gcm, Key, IV, Encrypted, AAD, CipherTag, false).
+
+
+additional_data(Length) ->
+    <<"ticket",?UINT16(Length)>>.
+
+
+make_otp_key(Shard) ->
+    Size = byte_size(Shard),
+    OTP = crypto:strong_rand_bytes(Size),
+    Key = crypto:exor(OTP, Shard),
+    {OTP, Key}.

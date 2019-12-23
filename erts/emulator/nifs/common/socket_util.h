@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2018-2018. All Rights Reserved.
+ * Copyright Ericsson AB 2018-2019. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -104,6 +104,14 @@ char* esock_encode_sockaddr_un(ErlNifEnv*          env,
                                ERL_NIF_TERM*       eSockAddr);
 #endif
 
+#ifdef HAVE_NETPACKET_PACKET_H
+extern
+char* esock_encode_sockaddr_ll(ErlNifEnv*          env,
+                               struct sockaddr_ll* sockAddrP,
+                               unsigned int        addrLen,
+                               ERL_NIF_TERM*       eSockAddr);
+#endif
+
 extern
 char* esock_decode_ip4_address(ErlNifEnv*      env,
                                ERL_NIF_TERM    eAddr,
@@ -158,6 +166,24 @@ char* esock_encode_protocol(ErlNifEnv*    env,
                             ERL_NIF_TERM* eProtocol);
 
 extern
+void esock_encode_packet_protocol(ErlNifEnv*     env,
+                                  unsigned short protocol,
+                                  ERL_NIF_TERM*  eProtocol);
+extern
+void esock_encode_packet_hatype(ErlNifEnv*     env,
+                                unsigned short hatype,
+                                ERL_NIF_TERM*  eHaType);
+extern
+void esock_encode_packet_pkttype(ErlNifEnv*     env,
+                                 unsigned short pkttype,
+                                 ERL_NIF_TERM*  ePktType);
+extern
+void esock_encode_packet_addr(ErlNifEnv*     env,
+                              unsigned char  len,
+                              unsigned char* addr,
+                              ERL_NIF_TERM*  eAddr);
+
+extern
 char* esock_decode_bufsz(ErlNifEnv*   env,
                          ERL_NIF_TERM eVal,
                          size_t       defSz,
@@ -187,6 +213,9 @@ void esock_abort(const char* expr,
                  int         line);
 
 extern
+ERL_NIF_TERM esock_self(ErlNifEnv* env);
+
+extern
 ERL_NIF_TERM esock_make_ok2(ErlNifEnv* env, ERL_NIF_TERM any);
 extern
 ERL_NIF_TERM esock_make_ok3(ErlNifEnv* env, ERL_NIF_TERM val1, ERL_NIF_TERM val2);
@@ -199,7 +228,13 @@ extern
 ERL_NIF_TERM esock_make_error_errno(ErlNifEnv* env, int err);
 
 extern
-BOOLEAN_T esock_timestamp(char *buf, unsigned int len);
+ErlNifTime esock_timestamp(void);
+
+extern
+BOOLEAN_T esock_timestamp_str(char *buf, unsigned int len);
+
+extern
+BOOLEAN_T esock_format_timestamp(ErlNifTime timestamp, char *buf, unsigned int len);
 
 extern
 void esock_warning_msg(const char* format, ... );

@@ -22,32 +22,58 @@
 -include("ssl_internal.hrl").
 -include("ssl_api.hrl").
 
--export([send/3, listen/2, accept/3, connect/4, socket/4, setopts/3, getopts/3, getstat/3, 
-	 peername/2, sockname/2, port/2, close/2]).
--export([emulated_options/0, emulated_options/1, internal_inet_values/0, default_inet_values/0, default_cb_info/0]).
+-export([send/3,
+         listen/2,
+         accept/3,
+         connect/4,
+         socket/4,
+         setopts/3,
+         getopts/3,
+         getstat/3,
+	 peername/2,
+         sockname/2,
+         port/2,
+         close/2]).
+
+-export([emulated_options/0,
+         emulated_options/1,
+         internal_inet_values/0,
+         default_inet_values/0,
+         default_cb_info/0]).
 
 send(Transport, {{IP,Port},Socket}, Data) ->
     Transport:send(Socket, IP, Port, Data).
 
 listen(Port, #config{transport_info = TransportInfo,
                            ssl = SslOpts, 
-                           emulated = EmOpts,
+                           emulated = EmOpts0,
                            inet_user = Options} = Config) ->
     
-    
-    case dtls_listener_sup:start_child([Port, TransportInfo, emulated_socket_options(EmOpts, #socket_options{}), 
-				   Options ++ internal_inet_values(), SslOpts]) of
-	{ok, Pid} ->
-        Socket = #sslsocket{pid = {dtls, Config#config{dtls_handler = {Pid, Port}}}},
-        check_active_n(EmOpts, Socket),
+    Result = case dtls_listener_sup:lookup_listner(Port) of
+                 undefined ->
+                     Result0 = {ok, Listner0} = dtls_listener_sup:start_child([Port, TransportInfo, emulated_socket_options(EmOpts0, #socket_options{}), 
+                                                                          Options ++ internal_inet_values(), SslOpts]),
+                     dtls_listener_sup:register_listner({self(), Listner0}, Port),
+                     Result0;
+                 {ok, Listner0} = Result0 ->
+                     dtls_packet_demux:set_all_opts(Listner0, {Options, emulated_socket_options(EmOpts0, #socket_options{}), SslOpts}),
+                     dtls_listener_sup:register_listner({self(), Listner0}, Port),
+                     Result0;
+                 Result0 ->
+                     Result0
+             end,
+    case Result of
+        {ok, Listner} ->
+            Socket = #sslsocket{pid = {dtls, Config#config{dtls_handler = {Listner, Port}}}},
+            check_active_n(EmOpts0, Socket),
 	    {ok, Socket};
-	Err = {error, _} ->
-	    Err
+        Err ->
+            Err
     end.
 
 accept(dtls, #config{transport_info = {Transport,_,_,_,_},
-		    connection_cb = ConnectionCb,
-		    dtls_handler = {Listner, _}}, _Timeout) -> 
+                     connection_cb = ConnectionCb,
+                     dtls_handler = {Listner, _}}, _Timeout) -> 
     case dtls_packet_demux:accept(Listner, self()) of
 	{ok, Pid, Socket} ->
 	    {ok, socket([Pid], Transport, {Listner, Socket}, ConnectionCb)};
@@ -70,6 +96,8 @@ connect(Address, Port, #config{transport_info = {Transport, _, _, _, _} = CbInfo
 	    Error
     end.
 
+close(_, dtls) ->
+    ok;
 close(gen_udp, {_Client, _Socket}) ->
     ok;
 close(Transport, {_Client, Socket}) ->
@@ -139,8 +167,12 @@ getopts(gen_udp, {_,Socket}, Options) ->
     inet:getopts(Socket, Options);
 getopts(Transport, Socket, Options) ->
     Transport:getopts(Socket, Options).
-getstat(gen_udp, {_,Socket}, Options) ->
-	inet:getstat(Socket, Options);
+getstat(gen_udp, Pid, Options) when is_pid(Pid) ->
+    dtls_packet_demux:getstat(Pid, Options);
+getstat(gen_udp, {_,{_, Socket}}, Options) ->
+    inet:getstat(Socket, Options);
+getstat(gen_udp, Socket, Options) ->
+    inet:getstat(Socket, Options);
 getstat(Transport, Socket, Options) ->
 	Transport:getstat(Socket, Options).
 peername(_, undefined) ->

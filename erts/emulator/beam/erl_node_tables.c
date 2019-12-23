@@ -176,6 +176,8 @@ dist_table_alloc(void *dep_tmpl)
     erts_atomic_init_nob(&dep->input_handler, (erts_aint_t) NIL);
     dep->connection_id			= 0;
     dep->state				= ERTS_DE_STATE_IDLE;
+    dep->pending_nodedown               = 0;
+    dep->suspended_nodeup               = NULL;
     dep->flags				= 0;
     dep->opts                           = 0;
     dep->version			= 0;
@@ -201,7 +203,6 @@ dist_table_alloc(void *dep_tmpl)
     erts_port_task_handle_init(&dep->dist_cmd);
     dep->send				= NULL;
     dep->cache				= NULL;
-    dep->transcode_ctx                  = NULL;
     dep->sequences                      = NULL;
 
     /* Link in */
@@ -287,18 +288,16 @@ static ERTS_INLINE DistEntry *find_dist_entry(Eterm sysname,
         if (connected_only && is_nil(res->cid))
             res = NULL;
         else {
-            int pend_delete;
             erts_aint_t refc;
             if (inc_refc) {
                 refc = de_refc_inc_read(res, 1);
-                pend_delete = refc < 2;
+                if (refc < 2) /* Pending delete */
+                    de_refc_inc(res, 1);
             }
             else {
-                refc = de_refc_read(res, 0);
-                pend_delete = refc < 1;
+                /* Inc from 0 to 1 for pending delete */
+                erts_refc_inc_if(&ErtsDistEntry2Bin(res)->intern.refc, 0, 0);
             }
-            if (pend_delete) /* Pending delete */
-                de_refc_inc(res, 1);
         }
     }
     erts_rwmtx_runlock(&erts_dist_table_rwmtx);
@@ -398,6 +397,7 @@ erts_build_dhandle(Eterm **hpp, ErlOffHeap* ohp,
     Eterm mref, dhandle;
     ASSERT(bin);
     ASSERT(ERTS_MAGIC_BIN_DESTRUCTOR(bin) == erts_dist_entry_destructor);
+    erts_refc_inc_if(&bin->intern.refc, 0, 0); /* inc for pending delete */
     mref = erts_mk_magic_ref(hpp, ohp, bin);
     dhandle = TUPLE2(*hpp, make_small(conn_id), mref);
     *hpp += 3;
@@ -493,7 +493,7 @@ static void try_delete_dist_entry(DistEntry* dep)
 
         if (dep->state != ERTS_DE_STATE_PENDING)
             ERTS_INTERNAL_ERROR("Garbage collecting connected distribution entry");
-        erts_abort_connection_rwunlock(dep);
+        erts_abort_pending_connection_rwunlock(dep, NULL);
         report_gc_active_dist_entry(sysname, state);
     }
     else
@@ -701,7 +701,7 @@ erts_set_dist_entry_pending(DistEntry *dep)
     erts_no_of_not_connected_dist_entries--;
 
     dep->state = ERTS_DE_STATE_PENDING;
-    dep->flags = (DFLAG_DIST_MANDATORY | DFLAG_DIST_HOPEFULLY | DFLAG_NO_MAGIC);
+    dep->flags = (DFLAG_DIST_MANDATORY | DFLAG_DIST_HOPEFULLY | DFLAG_PENDING_CONNECT);
     dep->connection_id = (dep->connection_id + 1) & ERTS_DIST_CON_ID_MASK;
 
     ASSERT(!dep->mld);
@@ -732,6 +732,7 @@ erts_set_dist_entry_connected(DistEntry *dep, Eterm cid, Uint flags)
     ASSERT(dep != erts_this_dist_entry);
     ASSERT(is_nil(dep->cid));
     ASSERT(dep->state == ERTS_DE_STATE_PENDING);
+    ASSERT(!dep->pending_nodedown);
     ASSERT(is_internal_port(cid) || is_internal_pid(cid));
 
     if(dep->prev) {
@@ -750,7 +751,7 @@ erts_set_dist_entry_connected(DistEntry *dep, Eterm cid, Uint flags)
     erts_no_of_pending_dist_entries--;
 
     dep->state = ERTS_DE_STATE_CONNECTED;
-    dep->flags = flags & ~DFLAG_NO_MAGIC;
+    dep->flags = flags & ~DFLAG_PENDING_CONNECT;
     dep->cid = cid;
     erts_atomic_set_nob(&dep->input_handler,
                             (erts_aint_t) cid);
@@ -891,8 +892,8 @@ ErlNode *erts_find_or_insert_node(Eterm sysname, Uint32 creation, Eterm book)
     erts_rwmtx_rlock(&erts_node_table_rwmtx);
     res = hash_get(&erts_node_table, (void *) &ne);
     if (res && res != erts_this_node) {
-	erts_aint_t refc = erts_ref_node_entry(res, 0, book);
-	if (refc < 2) /* New or pending delete */
+	erts_aint_t refc = erts_ref_node_entry(res, 1, book);
+	if (refc < 2) /* Pending delete */
             erts_ref_node_entry(res, 1, THE_NON_VALUE);
     }
     erts_rwmtx_runlock(&erts_node_table_rwmtx);

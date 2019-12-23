@@ -47,7 +47,8 @@
 -export([is_process_executing_dirty/1]).
 -export([dirty_process_handle_signals/1]).
 
--export([release_literal_area_switch/0]).
+-export([release_literal_area_switch/0, wait_release_literal_area_switch/1]).
+
 -export([purge_module/2]).
 
 -export([flush_monitor_messages/3]).
@@ -67,7 +68,7 @@
 
 -export([get_dflags/0]).
 -export([new_connection/1]).
--export([abort_connection/2]).
+-export([abort_pending_connection/2]).
 
 -export([scheduler_wall_time/1, system_flag_scheduler_wall_time/1,
          gather_sched_wall_time_result/1,
@@ -101,6 +102,12 @@
 
 -export([ets_lookup_binary_info/2, ets_super_user/1, ets_info_binary/1,
          ets_raw_first/1, ets_raw_next/2]).
+
+-export([get_internal_state_blocked/1]).
+
+-export([spawn_request/4, spawn_init/1, dist_spawn_request/4, dist_spawn_init/1]).
+
+-export([crasher/6]).
 
 %%
 %% Await result of send to port
@@ -347,6 +354,15 @@ dirty_process_handle_signals(_Pid) ->
 release_literal_area_switch() ->
     erlang:nif_error(undefined).
 
+-spec wait_release_literal_area_switch(WaitMsg) -> 'true' | 'false' when
+      WaitMsg :: term().
+
+wait_release_literal_area_switch(WaitMsg) ->
+    %% release_literal_area_switch() traps to here
+    %% when it needs to wait
+    receive WaitMsg -> ok end,
+    erts_internal:release_literal_area_switch().
+
 -spec purge_module(Module, Op) -> boolean() when
       Module :: module(),
       Op :: 'prepare' | 'prepare_on_load' | 'abort' | 'complete'.
@@ -558,10 +574,10 @@ get_dflags() ->
 new_connection(_Node) ->
     erlang:nif_error(undefined).
 
--spec erts_internal:abort_connection(Node, ConnId) -> boolean() when
+-spec erts_internal:abort_pending_connection(Node, ConnId) -> boolean() when
       Node :: atom(),
       ConnId :: {integer(), erlang:dist_handle()}.
-abort_connection(_Node, _ConnId) ->
+abort_pending_connection(_Node, _ConnId) ->
     erlang:nif_error(undefined).
 
 %% Scheduler wall time
@@ -806,3 +822,97 @@ ets_info_binary_iter(Tab, Key, Acc) ->
                  [_|_] = BIL -> BIL ++ Acc
              end,
     ets_info_binary_iter(Tab, erts_internal:ets_raw_next(Tab, Key), NewAcc).
+
+-spec get_internal_state_blocked(Arg :: term()) -> term().
+
+get_internal_state_blocked(Arg) ->
+    erlang:system_flag(multi_scheduling, block),
+    Result = try
+                 erts_debug:get_internal_state({Arg,
+                                                blocked})
+             after
+                 erlang:system_flag(multi_scheduling, unblock)
+             end,
+    Result.
+
+-spec spawn_request(Module, Function, Args, Opts) -> Res when
+      Module :: module(),
+      Function :: atom(),
+      Args :: [term()],
+      Opts :: [term()],
+      Res :: reference() | 'badarg'.
+
+spawn_request(_Module, _Function, _Args, _Opts) ->
+    erlang:nif_error(undef).
+
+-spec spawn_init({Module, Function, Args}) -> Res when
+      Module :: module(),
+      Function :: atom(),
+      Args :: [term()],
+      Res :: term().
+
+spawn_init({M, F, A}) ->
+    apply(M, F, A).
+
+-spec dist_spawn_request(Node, MFA, Opts, spawn_request) -> Res when
+      Node :: node(),
+      MFA :: {Module, Function, Args},
+      Module :: module(),
+      Function :: atom(),
+      Args :: [term()],
+      Opts :: [term()],
+      Res :: reference() | 'badarg';
+                        (Node, MFA, Opts, spawn_opt) -> Res when
+      Node :: node(),
+      MFA :: {Module, Function, Args},
+      Module :: module(),
+      Function :: atom(),
+      Args :: [term()],
+      Opts :: [term()],
+      Res :: {reference(), boolean()} | 'badarg'.
+
+dist_spawn_request(_Node, _MFA, _Opts, _Type) ->
+    erlang:nif_error(undef).
+
+-spec dist_spawn_init(MFA) -> Res when
+      MFA :: {Module, Function, non_neg_integer()},
+      Module :: module(),
+      Function :: atom(),
+      Res :: term().
+
+dist_spawn_init(MFA) ->
+    %%
+    %% The argument list is passed as a message
+    %% to the newly created process. This since
+    %% it might be large and require a substantial
+    %% amount of work to decode. This way we put
+    %% this work on the newly created process
+    %% (which can execute in parallel with all
+    %% other tasks) instead of on the distribution
+    %% channel code which is a bottleneck in the
+    %% system.
+    %% 
+    %% erl_create_process() ensures that the
+    %% argument list to use in apply is
+    %% guaranteed to be the first message in the
+    %% message queue.
+    %%
+    {M, F, _NoA} = MFA,
+    receive
+        A ->
+            erlang:apply(M, F, A)
+    end.
+
+%%
+%% Failed distributed spawn(), spawn_link(), spawn_monitor(), spawn_opt()
+%% spawns a dummy process executing the crasher/6 function...
+%%
+
+crasher(Node,Mod,Fun,Args,[],Reason) ->
+    error_logger:warning_msg("** Can not start ~w:~w,~w on ~w **~n",
+			     [Mod,Fun,Args,Node]),
+    erlang:exit(Reason);
+crasher(Node,Mod,Fun,Args,Opts,Reason) ->
+    error_logger:warning_msg("** Can not start ~w:~w,~w (~w) on ~w **~n",
+			     [Mod,Fun,Args,Opts,Node]),
+    erlang:exit(Reason).
