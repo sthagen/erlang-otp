@@ -1971,7 +1971,10 @@ verify_active_session_resumption(Socket, SessionResumption, WaitForReply, Ticket
             Expected = boolean_to_log_msg(SessionResumption),
             Got = boolean_to_log_msg(Got0),
             ct:fail("~p:~p~nFailed to verify session resumption! (expected ~p, got ~p)",
-                    [?MODULE, ?LINE, Expected, Got])
+                    [?MODULE, ?LINE, Expected, Got]);
+        {error, Reason} ->
+            ct:fail("~p:~p~nFailed to verify session resumption! Reason: ~p",
+                    [?MODULE, ?LINE, Reason])
     end,
 
     Data =  "Hello world",
@@ -2256,8 +2259,9 @@ check_sane_openssl_version(Version) ->
 	false ->
 	    false
     end.
-check_sane_openssl_renegotaite(Config, Version) when Version == 'tlsv1.1';
-						     Version == 'tlsv1.2' ->
+check_sane_openssl_renegotaite(Config, Version) when  Version == 'tlsv1';
+                                                      Version == 'tlsv1.1';
+                                                      Version == 'tlsv1.2' ->
     case os:cmd("openssl version") of     
 	"OpenSSL 1.0.1c" ++ _ ->
 	    {skip, "Known renegotiation bug in OpenSSL"};
@@ -2267,7 +2271,9 @@ check_sane_openssl_renegotaite(Config, Version) when Version == 'tlsv1.1';
 	    {skip, "Known renegotiation bug in OpenSSL"};
 	"OpenSSL 1.0.1 " ++ _ ->
 	    {skip, "Known renegotiation bug in OpenSSL"};
-	_ ->
+        "LibreSSL 3.0.2" ++ _ ->
+	    {skip, "Known renegotiation bug in OpenSSL"};
+        _ ->
 	    check_sane_openssl_renegotaite(Config)
     end;
 check_sane_openssl_renegotaite(Config, _) ->
@@ -2889,4 +2895,16 @@ openssl_sane_dtls_session_reuse() ->
             false;
         _->
             openssl_sane_dtls()
+    end.
+
+-define(BIG_BUF, 10000000).
+%% Workaround data delivery issues on solaris | openbsd  when kernel buffers are small
+bigger_buffers() ->
+    case os:type() of
+        {unix,sunos} ->
+            [{recbuf, ?BIG_BUF},{sndbuf, ?BIG_BUF}];
+        {unix,openbsd} ->
+            [{recbuf, ?BIG_BUF},{sndbuf, ?BIG_BUF}];
+        _ ->
+            []
     end.

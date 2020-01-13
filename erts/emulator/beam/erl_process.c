@@ -7461,11 +7461,16 @@ msb_scheduler_type_switch(ErtsSchedType sched_type,
 }
 
 static ERTS_INLINE void
-suspend_normal_scheduler_sleep(ErtsSchedulerData *esdp)
+suspend_scheduler_sleep(ErtsSchedulerData *esdp,
+                        int normal_sched,
+                        ErtsMonotonicTime initial_time,
+                        ErtsMonotonicTime timeout_time)
 {
     ErtsSchedulerSleepInfo *ssi = esdp->ssi;
     erts_aint32_t flgs = sched_spin_suspended(ssi,
                                               ERTS_SCHED_SUSPEND_SLEEP_SPINCOUNT);
+    ASSERT(!normal_sched || esdp->type == ERTS_SCHED_NORMAL);
+    ASSERT(esdp->type != ERTS_SCHED_NORMAL || normal_sched);
     if (flgs == (ERTS_SSI_FLG_SLEEPING
                  | ERTS_SSI_FLG_WAITING
                  | ERTS_SSI_FLG_SUSPENDED)) {
@@ -7474,19 +7479,32 @@ suspend_normal_scheduler_sleep(ErtsSchedulerData *esdp)
                      | ERTS_SSI_FLG_TSE_SLEEPING
                      | ERTS_SSI_FLG_WAITING
                      | ERTS_SSI_FLG_SUSPENDED)) {
-            int res;
+            if (!normal_sched) {
+                while (1) {
+                    int res = erts_tse_wait(ssi->event);
+                    if (res != EINTR)
+                        break;
+                }
+            }
+            else {
+                ErtsMonotonicTime current_time = initial_time;
+                while (1) {
+                    int res;
+                    Sint64 timeout;
 
-            do {
-                res = erts_tse_wait(ssi->event);
-            } while (res == EINTR);
+                    timeout = ERTS_MONOTONIC_TO_NSEC(timeout_time
+                                                     - current_time
+                                                     - 1) + 1;
+                    res = erts_tse_twait(ssi->event, timeout);
+                    if (res != EINTR)
+                        break;
+                    current_time = erts_get_monotonic_time(esdp);
+                    if (current_time >= timeout_time)
+                        break;
+                }
+            }
         }
     }
-}
-
-static ERTS_INLINE void
-suspend_dirty_scheduler_sleep(ErtsSchedulerData *esdp)
-{
-    suspend_normal_scheduler_sleep(esdp);
 }
 
 static void
@@ -7589,18 +7607,31 @@ suspend_scheduler(ErtsSchedulerData *esdp)
 		for (i = 0; msb[i]; i++) {
 		    erts_aint32_t clr_flg = 0;
 
-		    if (msb[i] == &schdlr_sspnd.nmsb
-			&& schdlr_sspnd_get_nscheds(&schdlr_sspnd.active,
-						    ERTS_SCHED_NORMAL) == 1) {
-			clr_flg = ERTS_SCHDLR_SSPND_CHNG_NMSB;
+                    if (!msb[i]->ongoing)
+                        continue;
+
+		    if (msb[i] == &schdlr_sspnd.nmsb) {
+			if (schdlr_sspnd_get_nscheds(&schdlr_sspnd.active,
+                                                     ERTS_SCHED_NORMAL) == 1) {
+                            clr_flg = ERTS_SCHDLR_SSPND_CHNG_NMSB;
+                        }
 		    }
-		    else if (schdlr_sspnd_get_nscheds(&schdlr_sspnd.active,
-                                                      ERTS_SCHED_NORMAL) == 1
-                             && schdlr_sspnd_get_nscheds(&schdlr_sspnd.active,
-                                                         ERTS_SCHED_DIRTY_CPU) == 0
-                             && schdlr_sspnd_get_nscheds(&schdlr_sspnd.active,
-                                                         ERTS_SCHED_DIRTY_IO) == 0) {
-                        clr_flg = ERTS_SCHDLR_SSPND_CHNG_MSB;
+		    else {
+                        ASSERT(msb[i] == &schdlr_sspnd.msb);
+                        if (schdlr_sspnd_get_nscheds(&schdlr_sspnd.active,
+                                                     ERTS_SCHED_NORMAL) == 1
+                            && schdlr_sspnd_get_nscheds(&schdlr_sspnd.active,
+                                                        ERTS_SCHED_DIRTY_CPU) == 0
+                            && schdlr_sspnd_get_nscheds(&schdlr_sspnd.active,
+                                                        ERTS_SCHED_DIRTY_IO) == 0) {
+
+                            clr_flg = ERTS_SCHDLR_SSPND_CHNG_MSB;
+                            
+                            /* Begin switching between scheduler types executing... */
+                            ERTS_RUNQ_FLGS_SET_NOB(ERTS_RUNQ_IX(0), ERTS_RUNQ_FLG_MSB_EXEC);
+                            erts_atomic32_read_bor_nob(&ERTS_RUNQ_IX(0)->scheduler->ssi->flags,
+                                                       ERTS_SSI_FLG_MSB_EXEC);
+                        }
 		    }
 
 		    if (clr_flg) {
@@ -7683,7 +7714,7 @@ suspend_scheduler(ErtsSchedulerData *esdp)
 
 	    while (1) {
 		if (sched_type != ERTS_SCHED_NORMAL)
-                    suspend_dirty_scheduler_sleep(esdp);
+                    suspend_scheduler_sleep(esdp, 0, 0, 0);
 		else
                 {
                     ErtsMonotonicTime current_time, timeout_time;
@@ -7728,7 +7759,7 @@ suspend_scheduler(ErtsSchedulerData *esdp)
                             sched_wall_time_change(esdp, 0);
                         }
                         erts_thr_progress_prepare_wait(erts_thr_prgr_data(NULL));
-                        suspend_normal_scheduler_sleep(esdp);
+                        suspend_scheduler_sleep(esdp, !0, current_time, timeout_time);
                         erts_thr_progress_finalize_wait(erts_thr_prgr_data(NULL));
                         current_time = erts_get_monotonic_time(esdp);
                     }
@@ -8234,9 +8265,6 @@ erts_block_multi_scheduling(Process *p, ErtsProcLocks plocks, int on, int normal
             }
 
             if (!normal) {
-                ERTS_RUNQ_FLGS_SET_NOB(ERTS_RUNQ_IX(0), ERTS_RUNQ_FLG_MSB_EXEC);
-                erts_atomic32_read_bor_nob(&ERTS_RUNQ_IX(0)->scheduler->ssi->flags,
-                                               ERTS_SSI_FLG_MSB_EXEC);
                 for (ix = 0; ix < erts_no_dirty_cpu_schedulers; ix++)
                     dcpu_sched_ix_suspend_wake(ix);
                 for (ix = 0; ix < erts_no_dirty_io_schedulers; ix++)
@@ -10482,6 +10510,34 @@ erts_execute_dirty_system_task(Process *c_p)
     Eterm cla_res = THE_NON_VALUE;
     ErtsProcSysTask *stasks;
 
+    ASSERT(erts_atomic32_read_nob(&c_p->state)
+           & ERTS_PSFLG_DIRTY_RUNNING_SYS);
+    /*
+     * Currently all dirty system tasks are handled while holding
+     * the main lock. The process is during this in the state
+     * ERTS_PSFLG_DIRTY_RUNNING_SYS. The dirty signal handlers
+     * (erts/preloaded/src/erts_dirty_process_signal_handler.erl)
+     * cannot execute any signal handling on behalf of a process
+     * executing dirty unless they will be able to acquire the
+     * main lock. If they try to, they will just end up in a
+     * busy wait until the lock has been released.
+     *
+     * We now therefore do not schedule any handling on dirty
+     * signal handlers while a process is in the state
+     * ERTS_PSFLG_DIRTY_RUNNING_SYS. We instead leave the work
+     * scheduled on the process an let it detect it itself
+     * when it leaves the ERTS_PSFLG_DIRTY_RUNNING_SYS state.
+     * See erts_proc_notify_new_sig() in erl_proc_sig_queue.h,
+     * request_system_task() (check_process_code) in
+     * erl_process.c, and maybe_elevate_sig_handling_prio()
+     * in erl_proc_sig_queue.c for scheduling points.
+     *
+     * If there are dirty system tasks introduced that execute
+     * without the main lock held, we most likely want to trigger
+     * handling of signals via dirty signal handlers for these
+     * states.
+     */
+
     /*
      * If multiple operations, perform them in the following
      * order (in order to avoid unnecessary GC):
@@ -10577,8 +10633,7 @@ dispatch_system_task(Process *c_p, erts_aint_t fail_state,
     switch (st->type) {
     case ERTS_PSTT_CPC:
 	rp = erts_dirty_process_signal_handler;
-	ASSERT(fail_state & (ERTS_PSFLG_DIRTY_RUNNING
-			     | ERTS_PSFLG_DIRTY_RUNNING_SYS));
+	ASSERT(fail_state & ERTS_PSFLG_DIRTY_RUNNING);
 	if (c_p == rp) {
 	    ERTS_BIF_PREP_RET(ret, am_dirty_execution);
 	    return ret;
@@ -10724,9 +10779,12 @@ request_system_task(Process *c_p, Eterm requester, Eterm target,
 	 * If the process should start executing dirty
 	 * code it is important that this task is
 	 * aborted. Therefore this strict fail state...
-	 */
-	fail_state |= (ERTS_PSFLG_DIRTY_RUNNING
-		       | ERTS_PSFLG_DIRTY_RUNNING_SYS);
+         *
+         * We ignore ERTS_PSFLG_DIRTY_RUNNING_SYS. For
+         * more info see erts_execute_dirty_system_task()
+         * in erl_process.c.
+         */
+	fail_state |= ERTS_PSFLG_DIRTY_RUNNING;
 	break;
 
     case am_copy_literals:
@@ -10749,8 +10807,7 @@ request_system_task(Process *c_p, Eterm requester, Eterm target,
 	noproc:
 	    failure = noproc_res;
 	}
-	else if (fail_state & (ERTS_PSFLG_DIRTY_RUNNING
-			       | ERTS_PSFLG_DIRTY_RUNNING_SYS)) {
+	else if (fail_state & ERTS_PSFLG_DIRTY_RUNNING) {
 	    ret = dispatch_system_task(c_p, fail_state, st,
 				       target, priority, operation);
 	    goto cleanup_return;
@@ -12681,7 +12738,7 @@ proc_exit_handle_pend_spawn_monitors(ErtsMonitor *mon, void *vctxt, Sint reds)
 
     code = erts_dist_pend_spawn_exit_parent_wait(c_p,
                                                  ERTS_PROC_LOCK_MAIN,
-                                                 &mdp->target);
+                                                 mon);
     if (code == 0) {
         /* Connection closing; cleanup... */
         mdp = NULL;
