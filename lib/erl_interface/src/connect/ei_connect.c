@@ -106,7 +106,8 @@ int ei_tracelevel = 0;
     (offsetof(ei_socket_callbacks, get_fd)              \
      + sizeof(int (*)(void *)))
 
-/* FIXME why not macro? */
+typedef EI_ULONGLONG DistFlags;
+
 static char *null_cookie = "";
 
 static int get_cookie(char *buf, int len);
@@ -120,15 +121,17 @@ static int send_status(ei_socket_callbacks *cbs, void *ctx,
                        int pkt_sz, char *status, unsigned ms);
 static int recv_status(ei_socket_callbacks *cbs, void *ctx,
                        int pkt_sz, unsigned ms);
-static int send_challenge(ei_socket_callbacks *cbs, void *ctx, int pkt_sz,
-                          char *nodename, unsigned challenge,
-                          unsigned version, unsigned ms);
+static int send_challenge(ei_cnode *ec, void *ctx, int pkt_sz,
+                          unsigned challenge,
+                          DistFlags version, unsigned ms);
 static int recv_challenge(ei_socket_callbacks *cbs, void *ctx, int pkt_sz,
                           unsigned *challenge, unsigned *version,
-			  unsigned *flags, char *namebuf, unsigned ms);
+			  DistFlags *flags, char *namebuf, unsigned ms);
 static int send_challenge_reply(ei_socket_callbacks *cbs, void *ctx,
                                 int pkt_sz, unsigned char digest[16], 
 				unsigned challenge, unsigned ms);
+static int recv_complement(ei_socket_callbacks *cbs, void *ctx,
+                           int pkt_sz, unsigned ms);
 static int recv_challenge_reply(ei_socket_callbacks *cbs, void *ctx,
                                 int pkt_sz, unsigned our_challenge,
 				char cookie[], 
@@ -139,12 +142,20 @@ static int send_challenge_ack(ei_socket_callbacks *cbs, void *ctx,
 static int recv_challenge_ack(ei_socket_callbacks *cbs, void *ctx, 
 			      int pkt_sz, unsigned our_challenge,
 			      char cookie[], unsigned ms);
-static int send_name(ei_socket_callbacks *cbs, void *ctx, int pkt_sz,
-                     char *nodename, unsigned version, unsigned ms); 
-
+static int send_name(ei_cnode *ec, void *ctx, int pkt_sz,
+                     unsigned version, unsigned ms);
+static int send_complement(ei_cnode *ec, void *ctx, int pkt_sz,
+                            unsigned epmd_says_version, DistFlags her_flags,
+                            unsigned ms);
 static int recv_name(ei_socket_callbacks *cbs, void *ctx, int pkt_sz,
-                     unsigned *version, unsigned *flags, char *namebuf,
-                     unsigned ms);
+                     char* send_name_tag, DistFlags *flags,
+                     char *namebuf, unsigned ms);
+static int ei_connect_helper(ei_cnode* ec,
+                             Erl_IpAddr ip_addr,
+                             char *alivename,
+                             unsigned ms,
+                             int rport,
+                             int epmd_says_version);
 
 static struct hostent*
 dyn_gethostbyname_r(const char *name, struct hostent *hostp, char **buffer_p,
@@ -874,78 +885,57 @@ struct hostent *dyn_gethostbyname_r(const char *name,
 #endif
 }
 
-  /* 
-  * Set up a connection to a given Node, and 
-  * interchange hand shake messages with it.
-  * Returns a valid file descriptor at success,
-  * otherwise a negative error code.
-*/
-int ei_connect_tmo(ei_cnode* ec, char *nodename, unsigned ms)
+/* Finds the the IP address for hostname and saves that IP address at
+   the location that ip_wb points to. Returns a negative error code if
+   the IP address cannot be found for the hostname. */
+static int ip_address_from_hostname(char* hostname,
+                                    char** buffer_p,
+                                    size_t buffer_size,
+                                    Erl_IpAddr* ip_wb)
 {
-    char *hostname, alivename[BUFSIZ];
     struct hostent *hp;
-#if !defined (__WIN32__) 
+#ifndef __WIN32__
     /* these are needed for the call to gethostbyname_r */
     struct hostent host;
-    char buffer[1024];
-    char *buf = buffer;
     int ei_h_errno;
-#endif /* !win32 */
-    int res;
-
-    if (strlen(nodename) > MAXNODELEN) {
-	EI_TRACE_ERR0("ei_connect","Too long nodename");
-	return ERL_ERROR;
-    }
-    
-    /* extract the host and alive parts from nodename */
-    if (!(hostname = strchr(nodename,'@'))) {
-	EI_TRACE_ERR0("ei_connect","Node name has no @ in name");
-	return ERL_ERROR;
-    } else {
-	strncpy(alivename, nodename, hostname - nodename);
-	alivename[hostname - nodename] = 0x0;
-	hostname++;
-    }
-    
-#ifndef __WIN32__
-    hp = dyn_gethostbyname_r(hostname,&host,&buf,sizeof(buffer),&ei_h_errno);
+    hp = dyn_gethostbyname_r(hostname,&host,buffer_p,buffer_size,&ei_h_errno);
     if (hp == NULL) {
 	char thishostname[EI_MAXHOSTNAMELEN+1];
         /* gethostname requies len to be max(hostname) + 1*/
 	if (gethostname(thishostname,EI_MAXHOSTNAMELEN+1) < 0) {
-	    EI_TRACE_ERR0("ei_connect_tmo",
+	    EI_TRACE_ERR0("ip_address_from_hostname",
 			  "Failed to get name of this host");
 	    erl_errno = EHOSTUNREACH;
 	    return ERL_ERROR;
 	} else {
 	    char *ct;
-	    /* We use a short node name */    
+	    /* We use a short node name */
 	    if ((ct = strchr(thishostname, '.')) != NULL) *ct = '\0';
 	}
 	if (strcmp(hostname,thishostname) == 0)
 	    /* Both nodes on same standalone host, use loopback */
-	    hp = dyn_gethostbyname_r("localhost",&host,&buf,sizeof(buffer),&ei_h_errno);
+	    hp = dyn_gethostbyname_r("localhost",&host,buffer_p,buffer_size,&ei_h_errno);
 	if (hp == NULL) {
 	    EI_TRACE_ERR2("ei_connect",
-			  "Can't find host for %s: %d\n",nodename,ei_h_errno);
+			  "Can't find host for %s: %d\n",hostname,ei_h_errno);
 	    erl_errno = EHOSTUNREACH;
 	    return ERL_ERROR;
 	}
     }
+    *ip_wb = (Erl_IpAddr) *hp->h_addr_list;
 #else /* __WIN32__ */
     if ((hp = ei_gethostbyname(hostname)) == NULL) {
 	char thishostname[EI_MAXHOSTNAMELEN+1];
         /* gethostname requires len to be max(hostname) + 1 */
 	if (gethostname(thishostname,EI_MAXHOSTNAMELEN+1) < 0) {
-	    EI_TRACE_ERR1("ei_connect_tmo",
-			  "Failed to get name of this host: %d", 
+	    EI_TRACE_ERR1("ip_address_from_hostname",
+			  "Failed to get name of this host: %d",
 			  WSAGetLastError());
 	    erl_errno = EHOSTUNREACH;
 	    return ERL_ERROR;
 	} else {
 	    char *ct;
-	    /* We use a short node name */    
+	    /* We use a short node name */
 	    if ((ct = strchr(thishostname, '.')) != NULL) *ct = '\0';
 	}
 	if (strcmp(hostname,thishostname) == 0)
@@ -955,42 +945,29 @@ int ei_connect_tmo(ei_cnode* ec, char *nodename, unsigned ms)
 	    char reason[1024];
 	    win32_error(reason,sizeof(reason));
 	    EI_TRACE_ERR2("ei_connect",
-			  "Can't find host for %s: %s",nodename,reason);
+			  "Can't find host for %s: %s",hostname,reason);
 	    erl_errno = EHOSTUNREACH;
 	    return ERL_ERROR;
 	}
     }
+    *ip_wb = (Erl_IpAddr) *hp->h_addr_list;
 #endif /* win32 */
-
-    res = ei_xconnect_tmo(ec, (Erl_IpAddr) *hp->h_addr_list, alivename, ms);
-
-#ifndef __WIN32__
-    if (buf != buffer)
-        free(buf);
-#endif
-    return res;
-} /* ei_connect */
-
-int ei_connect(ei_cnode* ec, char *nodename)
-{
-    return ei_connect_tmo(ec, nodename, 0);
+    return 0;
 }
 
-
- /* ip_addr is now in network byte order 
-  *
-  * first we have to get hold of the portnumber to
-  *  the node through epmd at that host 
-  *
-*/
-int ei_xconnect_tmo(ei_cnode* ec, Erl_IpAddr ip_addr, char *alivename, unsigned ms)
+/* Helper function for ei_connect family of functions */
+static int ei_connect_helper(ei_cnode* ec,
+                             Erl_IpAddr ip_addr,  /* network byte order */
+                             char *alivename,
+                             unsigned ms,
+                             int rport,
+                             int epmd_says_version)
 {
     ei_socket_callbacks *cbs = ec->cbs;
     void *ctx;
-    int rport = 0; /*uint16 rport = 0;*/
     int sockd;
-    int dist = 0;
-    unsigned her_flags, her_version;
+    unsigned her_version;
+    DistFlags her_flags;
     unsigned our_challenge, her_challenge;
     unsigned char our_digest[16];
     int err;
@@ -999,18 +976,18 @@ int ei_xconnect_tmo(ei_cnode* ec, Erl_IpAddr ip_addr, char *alivename, unsigned 
     unsigned tmo = ms == 0 ? EI_SCLBK_INF_TMO : ms;
     
     erl_errno = EIO;		/* Default error code */
-    
-    EI_TRACE_CONN1("ei_xconnect","-> CONNECT attempt to connect to %s",
-		   alivename);
-    
-    if ((rport = ei_epmd_port_tmo(ip_addr,alivename,&dist, tmo)) < 0) {
-	EI_TRACE_ERR0("ei_xconnect","-> CONNECT can't get remote port");
-	/* ei_epmd_port_tmo() has set erl_errno */
-	return ERL_NO_PORT;
+
+    if (alivename != NULL) {
+        EI_TRACE_CONN1("ei_xconnect","-> CONNECT attempt to connect to %s",
+                       alivename);
+    } else {
+        EI_TRACE_CONN1("ei_xconnect","-> CONNECT attempt to connect to port %d",
+                       rport);
     }
 
-    if (dist <= 4) {
-	EI_TRACE_ERR0("ei_xconnect","-> CONNECT remote version not compatible");
+    if (epmd_says_version < EI_DIST_LOW) {
+	EI_TRACE_ERR1("ei_xconnect","-> CONNECT remote version %d not compatible",
+                      epmd_says_version);
 	return ERL_ERROR;
     }
 
@@ -1050,21 +1027,24 @@ int ei_xconnect_tmo(ei_cnode* ec, Erl_IpAddr ip_addr, char *alivename, unsigned 
         goto error;
     }
         
-    if (send_name(cbs, ctx, pkt_sz, ec->thisnodename, (unsigned) dist, tmo))
+    if (send_name(ec, ctx, pkt_sz, epmd_says_version, tmo))
         goto error;
     if (recv_status(cbs, ctx, pkt_sz, tmo))
         goto error;
-    if (recv_challenge(cbs, ctx, pkt_sz, &her_challenge,
-                       &her_version, &her_flags, NULL, tmo))
+    if (recv_challenge(cbs, ctx, pkt_sz, &her_challenge, &her_version,
+                       &her_flags, NULL, tmo))
         goto error;
+    her_version = (her_flags & DFLAG_HANDSHAKE_23) ? EI_DIST_6 : EI_DIST_5;
     our_challenge = gen_challenge();
     gen_digest(her_challenge, ec->ei_connect_cookie, our_digest);
+    if (send_complement(ec, ctx, pkt_sz, epmd_says_version, her_flags, tmo))
+        goto error;
     if (send_challenge_reply(cbs, ctx, pkt_sz, our_digest, our_challenge, tmo))
         goto error;
     if (recv_challenge_ack(cbs, ctx, pkt_sz, our_challenge, 
                            ec->ei_connect_cookie, tmo))
         goto error;
-    if (put_ei_socket_info(sockd, dist, null_cookie, ec, cbs, ctx) != 0)
+    if (put_ei_socket_info(sockd, her_version, null_cookie, ec, cbs, ctx) != 0)
         goto error;
 
     if (cbs->connect_handshake_complete) {
@@ -1077,8 +1057,12 @@ int ei_xconnect_tmo(ei_cnode* ec, Erl_IpAddr ip_addr, char *alivename, unsigned 
             return ERL_ERROR;
         }
     }    
-    
-    EI_TRACE_CONN1("ei_xconnect","-> CONNECT (ok) remote = %s",alivename);
+
+    if (alivename != NULL) {
+        EI_TRACE_CONN1("ei_xconnect","-> CONNECT (ok) remote = %s",alivename);
+    } else {
+        EI_TRACE_CONN1("ei_xconnect","-> CONNECT (ok) remote port = %d",rport);
+    }
 
     erl_errno = 0;
     return sockd;
@@ -1089,9 +1073,101 @@ error:
     return ERL_ERROR;
 } /* ei_xconnect */
 
+  /* 
+  * Set up a connection to a given Node, and 
+  * interchange hand shake messages with it.
+  * Returns a valid file descriptor at success,
+  * otherwise a negative error code.
+*/
+int ei_connect_tmo(ei_cnode* ec, char *nodename, unsigned ms)
+{
+    char *hostname, alivename[BUFSIZ];
+    Erl_IpAddr ip;
+    int res;
+    char buffer[1024];
+    char* buf = buffer;
+
+    if (strlen(nodename) > MAXNODELEN) {
+	EI_TRACE_ERR0("ei_connect","Too long nodename");
+	return ERL_ERROR;
+    }
+    
+    /* extract the host and alive parts from nodename */
+    if (!(hostname = strchr(nodename,'@'))) {
+	EI_TRACE_ERR0("ei_connect","Node name has no @ in name");
+	return ERL_ERROR;
+    } else {
+	strncpy(alivename, nodename, hostname - nodename);
+	alivename[hostname - nodename] = 0x0;
+	hostname++;
+    }
+
+    res = ip_address_from_hostname(hostname, &buf, sizeof(buffer), &ip);
+
+    if (res < 0) {
+      return res;
+    }
+
+    res = ei_xconnect_tmo(ec, ip, alivename, ms);
+
+    if(buf != buffer) {
+        free(buf);
+    }
+
+    return res;
+} /* ei_connect */
+
+int ei_connect(ei_cnode* ec, char *nodename)
+{
+    return ei_connect_tmo(ec, nodename, 0);
+}
+
+int ei_connect_host_port_tmo(ei_cnode* ec, char *host, int port, unsigned ms)
+{
+    Erl_IpAddr ip;
+    char buffer[1024];
+    char* buf = buffer;
+    int res = ip_address_from_hostname(host, &buf, sizeof(buffer), &ip);
+    if (res < 0) {
+      return res;
+    }
+    if(buf != buffer) {
+        free(buf);
+    }
+    return ei_xconnect_host_port_tmo(ec, ip, port, ms);
+}
+
+int ei_connect_host_port(ei_cnode* ec, char *host, int port)
+{
+    return ei_connect_host_port_tmo(ec, host, port, 0);
+}
+
+int ei_xconnect_tmo(ei_cnode* ec, Erl_IpAddr ip_addr, char *alivename, unsigned ms)
+{
+    int epmd_says_version = 0;
+    int port;
+    unsigned tmo = ms == 0 ? EI_SCLBK_INF_TMO : ms;
+    if ((port = ei_epmd_port_tmo(ip_addr,alivename,&epmd_says_version, tmo)) < 0) {
+	EI_TRACE_ERR0("ei_xconnect","-> CONNECT can't get remote port");
+	/* ei_epmd_port_tmo() has set erl_errno */
+	return ERL_NO_PORT;
+    }
+    return ei_connect_helper(ec, ip_addr, alivename, ms, port, epmd_says_version);
+}
+
 int ei_xconnect(ei_cnode* ec, Erl_IpAddr ip_addr, char *alivename)
 {
     return ei_xconnect_tmo(ec, ip_addr, alivename, 0);
+}
+
+int ei_xconnect_host_port_tmo(ei_cnode* ec, Erl_IpAddr ip_addr, int port, unsigned ms)
+{
+    return ei_connect_helper(ec, ip_addr, NULL, ms, port, EI_DIST_LOW);
+}
+
+int ei_xconnect_host_port(ei_cnode* ec, Erl_IpAddr ip_addr, int port)
+{
+    return ei_xconnect_host_port_tmo(ec, ip_addr, port, 0);
 }
 
 int ei_listen(ei_cnode *ec, int *port, int backlog)
@@ -1209,8 +1285,9 @@ int ei_accept(ei_cnode* ec, int lfd, ErlConnect *conp)
 int ei_accept_tmo(ei_cnode* ec, int lfd, ErlConnect *conp, unsigned ms)
 {
     int fd;
-    unsigned her_version, her_flags;
+    DistFlags her_flags;
     char tmp_nodename[MAXNODELEN+1];
+    char send_name_tag;
     char *her_name;
     int pkt_sz, err;
     struct sockaddr_in addr;
@@ -1235,6 +1312,10 @@ int ei_accept_tmo(ei_cnode* ec, int lfd, ErlConnect *conp, unsigned ms)
         ctx = EI_FD_AS_CTX__(lfd);
     }
 
+    if (ec->cbs != cbs) {
+        EI_CONN_SAVE_ERRNO__(EINVAL);
+        return ERL_ERROR;
+    }
 
     EI_TRACE_CONN0("ei_accept","<- ACCEPT waiting for connection");
 
@@ -1281,16 +1362,14 @@ int ei_accept_tmo(ei_cnode* ec, int lfd, ErlConnect *conp, unsigned ms)
     
     EI_TRACE_CONN0("ei_accept","<- ACCEPT connected to remote");
     
-    if (recv_name(cbs, ctx, pkt_sz, &her_version, &her_flags, her_name, tmo)) {
+    if (recv_name(cbs, ctx, pkt_sz, &send_name_tag, &her_flags,
+                  her_name, tmo)) {
 	EI_TRACE_ERR0("ei_accept","<- ACCEPT initial ident failed");
 	goto error;
     }
     
-    if (her_version <= 4) {
-	EI_TRACE_ERR0("ei_accept","<- ACCEPT remote version not compatible");
-	goto error;
-    }
-    else {
+    {
+        unsigned her_version = (her_flags & DFLAG_HANDSHAKE_23) ? 6 : 5;
 	unsigned our_challenge;
 	unsigned her_challenge;
 	unsigned char our_digest[16];
@@ -1298,9 +1377,12 @@ int ei_accept_tmo(ei_cnode* ec, int lfd, ErlConnect *conp, unsigned ms)
 	if (send_status(cbs, ctx, pkt_sz, "ok", tmo))
 	    goto error;
 	our_challenge = gen_challenge();
-	if (send_challenge(cbs, ctx, pkt_sz, ec->thisnodename, 
-                           our_challenge, her_version, tmo))
+	if (send_challenge(ec, ctx, pkt_sz, our_challenge, her_flags, tmo))
 	    goto error;
+        if (send_name_tag == 'n' && (her_flags & DFLAG_HANDSHAKE_23)) {
+            if (recv_complement(cbs, ctx, pkt_sz, tmo))
+                goto error;
+        }
 	if (recv_challenge_reply(cbs, ctx, pkt_sz, our_challenge, 
                                  ec->ei_connect_cookie, &her_challenge, tmo))
 	    goto error;
@@ -1846,26 +1928,50 @@ error:
     return -1;
 }
 
-static int send_name_or_challenge(ei_socket_callbacks *cbs,
-                                  void *ctx,
-                                  int pkt_sz,
-                                  char *nodename,
-				  int f_chall,
-				  unsigned challenge,
-				  unsigned version,
-				  unsigned ms) 
+static DistFlags preferred_flags(void)
+{
+    DistFlags flags =
+        DFLAG_EXTENDED_REFERENCES
+        | DFLAG_DIST_MONITOR
+        | DFLAG_EXTENDED_PIDS_PORTS
+        | DFLAG_FUN_TAGS
+        | DFLAG_NEW_FUN_TAGS
+        | DFLAG_NEW_FLOATS
+        | DFLAG_SMALL_ATOM_TAGS
+        | DFLAG_UTF8_ATOMS
+        | DFLAG_MAP_TAG
+        | DFLAG_BIG_CREATION
+        | DFLAG_EXPORT_PTR_TAG
+        | DFLAG_BIT_BINARIES
+        | DFLAG_HANDSHAKE_23;
+    if (ei_internal_use_21_bitstr_expfun()) {
+        flags &= ~(DFLAG_EXPORT_PTR_TAG
+                   | DFLAG_BIT_BINARIES);
+    }
+    return flags;
+}
+
+static int send_name(ei_cnode *ec,
+                     void *ctx,
+                     int pkt_sz,
+                     unsigned version,
+                     unsigned ms)
 {
     char *buf;
     unsigned char *s;
     char dbuf[DEFBUF_SIZ];
-    int siz = pkt_sz + 1 + 2 + 4 + strlen(nodename);
-    const char* function[] = {"SEND_NAME", "SEND_CHALLENGE"};
+    const unsigned int nodename_len = strlen(ec->thisnodename);
+    int siz;
     int err;
     ssize_t len;
-    unsigned int flags;
+    DistFlags flags;
+    const char tag = (version == EI_DIST_5) ? 'n' : 'N';
 
-    if (f_chall)
-	siz += 4;
+    if (tag == 'n')
+        siz = pkt_sz + 1 + 2 + 4 + nodename_len;
+    else
+        siz = pkt_sz + 1 + 8 + 4 + 2 + nodename_len;
+
     buf = (siz > DEFBUF_SIZ) ? malloc(siz) : dbuf;
     if (!buf) {
 	erl_errno = ENOMEM;
@@ -1882,35 +1988,95 @@ static int send_name_or_challenge(ei_socket_callbacks *cbs,
     default:
         return -1;
     }
-    put8(s, 'n');
-    put16be(s, version);
-    flags = (DFLAG_EXTENDED_REFERENCES
-		| DFLAG_DIST_MONITOR
-		| DFLAG_EXTENDED_PIDS_PORTS
-		| DFLAG_FUN_TAGS
-		| DFLAG_NEW_FUN_TAGS
-                | DFLAG_NEW_FLOATS
-		| DFLAG_SMALL_ATOM_TAGS
-		| DFLAG_UTF8_ATOMS
-		| DFLAG_MAP_TAG
-		| DFLAG_BIG_CREATION
-                | DFLAG_EXPORT_PTR_TAG
-                | DFLAG_BIT_BINARIES);
-    if (ei_internal_use_21_bitstr_expfun()) {
-        flags &= ~(DFLAG_EXPORT_PTR_TAG
-                   | DFLAG_BIT_BINARIES);
+    flags = preferred_flags();
+
+    put8(s, tag);
+    if (tag == 'n') {
+        put16be(s, EI_DIST_5); /* some impl (jinterface) demand ver==5 */
+        put32be(s, flags);
     }
-    put32be(s, flags);
-    if (f_chall)
-	put32be(s, challenge);
-    memcpy(s, nodename, strlen(nodename));
+    else { /* tag == 'N' */
+        put64be(s, flags);
+        put32be(s, ec->creation);
+        put16be(s, nodename_len);
+    }
+    memcpy(s, ec->thisnodename, nodename_len);
     len = (ssize_t) siz;
-    err = ei_write_fill_ctx_t__(cbs, ctx, buf, &len, ms);
+    err = ei_write_fill_ctx_t__(ec->cbs, ctx, buf, &len, ms);
     if (!err && len != (ssize_t) siz)
         err = EIO;
     if (err) {
-	EI_TRACE_ERR1("send_name_or_challenge",
-		      "-> %s socket write failed", function[f_chall]);
+	EI_TRACE_ERR0("send_name", "SEND_NAME -> socket write failed");
+	if (buf != dbuf)
+	    free(buf);
+        EI_CONN_SAVE_ERRNO__(err);
+	return -1;
+    }
+
+    if (buf != dbuf)
+	free(buf);
+    return 0;
+}
+
+static int send_challenge(ei_cnode *ec,
+                          void *ctx,
+                          int pkt_sz,
+                          unsigned challenge,
+                          DistFlags her_flags,
+                          unsigned ms)
+{
+    char *buf;
+    unsigned char *s;
+    char dbuf[DEFBUF_SIZ];
+    const unsigned int nodename_len = strlen(ec->thisnodename);
+    int siz;
+    int err;
+    ssize_t len;
+    DistFlags flags;
+    const char tag = (her_flags & DFLAG_HANDSHAKE_23) ? 'N' : 'n';
+
+    if (tag == 'n')
+        siz = pkt_sz + 1 + 2 + 4 + 4 + nodename_len;
+    else
+        siz = pkt_sz + 1 + 8 + 4 + 4 + 2 + nodename_len;
+
+    buf = (siz > DEFBUF_SIZ) ? malloc(siz) : dbuf;
+    if (!buf) {
+	erl_errno = ENOMEM;
+	return -1;
+    }
+    s = (unsigned char *)buf;
+    switch (pkt_sz) {
+    case 2:
+        put16be(s,siz - 2);
+        break;
+    case 4:
+        put32be(s,siz - 4);
+        break;
+    default:
+        return -1;
+    }
+
+    flags = preferred_flags();
+    put8(s, tag);
+    if (tag == 'n') {
+        put16be(s, EI_DIST_5);  /* choosen version */
+        put32be(s, flags);
+        put32be(s, challenge);
+    }
+    else {
+        put64be(s, flags);
+        put32be(s, challenge);
+        put32be(s, ec->creation);
+        put16be(s, nodename_len);
+    }
+    memcpy(s, ec->thisnodename, nodename_len);
+    len = (ssize_t) siz;
+    err = ei_write_fill_ctx_t__(ec->cbs, ctx, buf, &len, ms);
+    if (!err && len != (ssize_t) siz)
+        err = EIO;
+    if (err) {
+	EI_TRACE_ERR0("send_challenge", "-> SEND_CHALLENGE socket write failed");
 	if (buf != dbuf)
 	    free(buf);
         EI_CONN_SAVE_ERRNO__(err);
@@ -1924,13 +2090,13 @@ static int send_name_or_challenge(ei_socket_callbacks *cbs,
 
 static int recv_challenge(ei_socket_callbacks *cbs, void *ctx,
                           int pkt_sz, unsigned *challenge, unsigned *version,
-			  unsigned *flags, char *namebuf, unsigned ms)
+			  DistFlags *flags, char *namebuf, unsigned ms)
 {
     char dbuf[DEFBUF_SIZ];
     char *buf = dbuf;
     int is_static = 1;
     int buflen = DEFBUF_SIZ;
-    int rlen;
+    int rlen, nodename_len;
     char *s;
     char tag;
     char tmp_nodename[MAXNODELEN+1];
@@ -1943,21 +2109,57 @@ static int recv_challenge(ei_socket_callbacks *cbs, void *ctx,
 		      "<- RECV_CHALLENGE socket read failed (%d)",rlen);
 	goto error;
     }
-    if ((rlen - 11) > MAXNODELEN) {
-	EI_TRACE_ERR1("recv_challenge",
-		      "<- RECV_CHALLENGE nodename too long (%d)",rlen - 11);
-	goto error;
-    }
     s = buf;
-    if ((tag = get8(s)) != 'n') {
+    tag = get8(s);
+    if (tag != 'n' && tag != 'N') {
 	EI_TRACE_ERR2("recv_challenge",
 		      "<- RECV_CHALLENGE incorrect tag, "
-		      "expected 'n' got '%c' (%u)",tag,tag);
+		      "expected 'n' or 'N', got '%c' (%u)",tag,tag);
 	goto error;
     }
-    *version = get16be(s);
-    *flags = get32be(s);
-    *challenge = get32be(s);
+    if (tag == 'n') { /* OLD */
+        unsigned int version;
+        if (rlen < 1+2+4+4) {
+            EI_TRACE_ERR1("recv_challenge","<- RECV_CHALLENGE 'n' packet too short (%d)",
+                          rlen)
+            goto error;
+        }
+
+        version = get16be(s);
+        if (version != EI_DIST_5) {
+            EI_TRACE_ERR1("recv_challenge",
+                          "<- RECV_CHALLENGE 'n' incorrect version=%d",
+                          version);
+            goto error;
+        }
+        *flags = get32be(s);
+        *challenge = get32be(s);
+        nodename_len = (buf + rlen) - s;
+    }
+    else { /* NEW */
+        if (rlen < 1+8+4+4+2) {
+            EI_TRACE_ERR1("recv_challenge","<- RECV_CHALLENGE 'N' packet too short (%d)",
+                          rlen)
+            goto error;
+        }
+        *version = EI_DIST_6;
+        *flags = get64be(s);
+        *challenge = get32be(s);
+        s += 4; /* ignore peer 'creation' */
+        nodename_len = get16be(s);
+        if (nodename_len > (buf + rlen) - s) {
+            EI_TRACE_ERR1("recv_challenge",
+                          "<- RECV_CHALLENGE 'N' nodename too long (%d)",
+                          nodename_len);
+            goto error;
+        }
+    }
+
+    if (nodename_len > MAXNODELEN) {
+        EI_TRACE_ERR1("recv_challenge",
+                      "<- RECV_CHALLENGE nodename too long (%d)", nodename_len);
+        goto error;
+    }
 
     if (!(*flags & DFLAG_EXTENDED_REFERENCES)) {
 	EI_TRACE_ERR0("recv_challenge","<- RECV_CHALLENGE peer cannot "
@@ -1981,8 +2183,8 @@ static int recv_challenge(ei_socket_callbacks *cbs, void *ctx,
     if (!namebuf)
         namebuf = &tmp_nodename[0];
     
-    memcpy(namebuf, s, rlen - 11);
-    namebuf[rlen - 11] = '\0';
+    memcpy(namebuf, s, nodename_len);
+    namebuf[nodename_len] = '\0';
     
     if (!is_static)
 	free(buf);
@@ -2002,6 +2204,63 @@ error:
 	free(buf);
     return -1;
 }
+
+static int send_complement(ei_cnode *ec,
+                            void *ctx,
+                            int pkt_sz,
+                            unsigned epmd_says_version,
+                            DistFlags her_flags,
+                            unsigned ms)
+{
+    if (epmd_says_version == EI_DIST_5 && (her_flags & DFLAG_HANDSHAKE_23)) {
+        char *buf;
+        unsigned char *s;
+        char dbuf[DEFBUF_SIZ];
+        int err;
+        ssize_t len;
+        unsigned int flagsHigh;
+        const int siz = pkt_sz + 1 + 4 + 4;
+
+        buf = (siz > DEFBUF_SIZ) ? malloc(siz) : dbuf;
+        if (!buf) {
+            erl_errno = ENOMEM;
+            return -1;
+        }
+        s = (unsigned char *)buf;
+        switch (pkt_sz) {
+        case 2:
+            put16be(s,siz - 2);
+            break;
+        case 4:
+            put32be(s,siz - 4);
+            break;
+        default:
+            return -1;
+        }
+        flagsHigh = preferred_flags() >> 32;
+
+        put8(s, 'c');
+        put32be(s, flagsHigh);
+        put32be(s, ec->creation);
+
+        len = (ssize_t) siz;
+        err = ei_write_fill_ctx_t__(ec->cbs, ctx, buf, &len, ms);
+        if (!err && len != (ssize_t) siz)
+            err = EIO;
+        if (err) {
+            EI_TRACE_ERR0("send_name", "SEND_NAME -> socket write failed");
+            if (buf != dbuf)
+                free(buf);
+            EI_CONN_SAVE_ERRNO__(err);
+            return -1;
+        }
+
+        if (buf != dbuf)
+            free(buf);
+    }
+    return 0;
+}
+
 
 static int send_challenge_reply(ei_socket_callbacks *cbs, void *ctx,
                                 int pkt_sz, unsigned char digest[16], 
@@ -2047,6 +2306,54 @@ static int send_challenge_reply(ei_socket_callbacks *cbs, void *ctx,
 		   challenge,hex((char*)digest, buffer));
     }
     return 0;
+}
+
+static int recv_complement(ei_socket_callbacks *cbs,
+                           void *ctx,
+                           int pkt_sz,
+                           unsigned ms)
+{
+    char dbuf[DEFBUF_SIZ];
+    char *buf = dbuf;
+    int is_static = 1;
+    int buflen = DEFBUF_SIZ;
+    int rlen;
+    char *s;
+    char tag;
+    unsigned int creation;
+
+    erl_errno = EIO;		/* Default */
+
+    if ((rlen = read_hs_package(cbs, ctx, pkt_sz, &buf, &buflen, &is_static, ms)) != 21) {
+	EI_TRACE_ERR1("recv_complement",
+		      "<- RECV_COMPLEMENT socket read failed (%d)",rlen);
+	goto error;
+    }
+
+    s = buf;
+    if ((tag = get8(s)) != 'c') {
+	EI_TRACE_ERR2("recv_complement",
+		      "<- RECV_COMPLEMENT incorrect tag, "
+		      "expected 'c' got '%c' (%u)",tag,tag);
+	goto error;
+    }
+    creation = get32be(s);
+    if (!is_static)
+	free(buf);
+
+    if (ei_tracelevel >= 3) {
+        EI_TRACE_CONN1("recv_complement",
+                       "<- RECV_COMPLEMENT (ok) creation = %u",
+                       creation);
+    }
+    /* We don't have any use for 'creation' of other node, so we drop it */
+    erl_errno = 0;
+    return 0;
+
+error:
+    if (!is_static)
+	free(buf);
+    return -1;
 }
 
 static int recv_challenge_reply(ei_socket_callbacks *cbs,
@@ -2204,30 +2511,16 @@ error:
     return -1;
 }
 
-static int send_name(ei_socket_callbacks *cbs, void *ctx, int pkt_sz,
-                     char *nodename, unsigned version, unsigned ms) 
-{
-    return send_name_or_challenge(cbs, ctx, pkt_sz, nodename, 0,
-                                  0, version, ms);
-}
-
-static int send_challenge(ei_socket_callbacks *cbs, void *ctx, int pkt_sz,
-                          char *nodename, unsigned challenge, unsigned version,
-                          unsigned ms)
-{
-    return send_name_or_challenge(cbs, ctx, pkt_sz, nodename, 1,
-                                  challenge, version, ms);
-}
-
 static int recv_name(ei_socket_callbacks *cbs, void *ctx,
-                     int pkt_sz, unsigned *version,
-		     unsigned *flags, char *namebuf, unsigned ms)
+                     int pkt_sz, char *send_name_tag,
+                     DistFlags *flags, char *namebuf, unsigned ms)
 {
     char dbuf[DEFBUF_SIZ];
     char *buf = dbuf;
     int is_static = 1;
     int buflen = DEFBUF_SIZ;
     int rlen;
+    unsigned int namelen;
     char *s;
     char tmp_nodename[MAXNODELEN+1];
     char tag;
@@ -2239,19 +2532,40 @@ static int recv_name(ei_socket_callbacks *cbs, void *ctx,
 	EI_TRACE_ERR1("recv_name","<- RECV_NAME socket read failed (%d)",rlen);
 	goto error;
     }
-    if ((rlen - 7) > MAXNODELEN) {
-	EI_TRACE_ERR1("recv_name","<- RECV_NAME nodename too long (%d)",rlen-7);
-	goto error;
-    }
     s = buf;
     tag = get8(s);
-    if (tag != 'n') {
+    *send_name_tag = tag;
+    if (tag != 'n' && tag != 'N') {
 	EI_TRACE_ERR2("recv_name","<- RECV_NAME incorrect tag, "
-		      "expected 'n' got '%c' (%u)",tag,tag);
+		      "expected 'n' or 'N', got '%c' (%u)",tag,tag);
 	goto error;
     }
-    *version = get16be(s);
-    *flags = get32be(s);
+    if (tag == 'n') {
+        unsigned int version;
+        if (rlen < 1+2+4) {
+            EI_TRACE_ERR1("recv_name","<- RECV_NAME 'n' packet too short (%d)",
+                          rlen)
+            goto error;
+        }
+        version = get16be(s);
+        if (version < EI_DIST_5) {
+            EI_TRACE_ERR1("recv_name","<- RECV_NAME 'n' invalid version=%d",
+                          version)
+            goto error;
+        }
+        *flags = get32be(s);
+        namelen = rlen - (1+2+4);
+    }
+    else { /* tag == 'N' */
+        if (rlen < 1+8+4+2) {
+            EI_TRACE_ERR1("recv_name","<- RECV_NAME 'N' packet too short (%d)",
+                          rlen)
+            goto error;
+        }
+        *flags = get64be(s);
+        s += 4; /* ignore peer 'creation' */
+        namelen = get16be(s);
+    }
 
     if (!(*flags & DFLAG_EXTENDED_REFERENCES)) {
 	EI_TRACE_ERR0("recv_name","<- RECV_NAME peer cannot handle"
@@ -2269,14 +2583,20 @@ static int recv_name(ei_socket_callbacks *cbs, void *ctx,
     if (!namebuf)
         namebuf = &tmp_nodename[0];
     
-    memcpy(namebuf, s, rlen - 7);
-    namebuf[rlen - 7] = '\0';
+    if (namelen > MAXNODELEN || s+namelen > buf+rlen) {
+        EI_TRACE_ERR2("recv_name","<- RECV_NAME '%c' nodename too long (%d)",
+                      tag, namelen);
+        goto error;
+    }
+
+    memcpy(namebuf, s, namelen);
+    namebuf[namelen] = '\0';
 
     if (!is_static)
 	free(buf);
     EI_TRACE_CONN3("recv_name",
-		   "<- RECV_NAME (ok) node = %s, version = %u, flags = %u",
-		   namebuf,*version,*flags);
+		   "<- RECV_NAME (ok) node = %s, tag = %c, flags = %u",
+		   namebuf,tag,*flags);
     erl_errno = 0;
     return 0;
     

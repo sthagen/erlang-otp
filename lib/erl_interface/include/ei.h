@@ -362,7 +362,7 @@ typedef struct ei_cnode_s {
 /* Currently this_ipaddr isn't used */
 /*    struct in_addr this_ipaddr; */
     char ei_connect_cookie[EI_MAX_COOKIE_SIZE+1];
-    short creation;
+    unsigned int creation;
     erlang_pid self;
     ei_socket_callbacks *cbs;
     void *setup_context;
@@ -404,8 +404,12 @@ int ei_connect_xinit_ussi(ei_cnode* ec, const char *thishostname,
 
 int ei_connect(ei_cnode* ec, char *nodename);
 int ei_connect_tmo(ei_cnode* ec, char *nodename, unsigned ms);
+int ei_connect_host_port(ei_cnode* ec, char *hostname, int port);
+int ei_connect_host_port_tmo(ei_cnode* ec, char *hostname, int port, unsigned ms);
 int ei_xconnect(ei_cnode* ec, Erl_IpAddr adr, char *alivename);
 int ei_xconnect_tmo(ei_cnode* ec, Erl_IpAddr adr, char *alivename, unsigned ms);
+int ei_xconnect_host_port(ei_cnode* ec, Erl_IpAddr adr, int port);
+int ei_xconnect_host_port_tmo(ei_cnode* ec, Erl_IpAddr adr, int port, unsigned ms);
 
 int ei_receive(int fd, unsigned char *bufp, int bufsize);
 int ei_receive_tmo(int fd, unsigned char *bufp, int bufsize, unsigned ms);
