@@ -31,6 +31,40 @@
   </header>
   <p>This document describes the changes made to the ERTS application.</p>
 
+<section><title>Erts 10.6.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    A process could end up in a state where it got endlessly
+	    rescheduled without making any progress. This occurred
+	    when a system task, such as check of process code (part
+	    of a code purge), was scheduled on a high priority
+	    process trying to execute on a dirty scheduler.</p>
+          <p>
+	    Own Id: OTP-16436 Aux Id: ERL-1152 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Improved signal handling for processes executing dirty.
+	    For example, avoid busy wait in dirty signal handler
+	    process when process is doing garbage collection on dirty
+	    scheduler.</p>
+          <p>
+	    Own Id: OTP-16358</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Erts 10.6.2</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -1487,6 +1521,35 @@
 	    -remsh bar </c></p>
           <p>
 	    Own Id: OTP-15794 Aux Id: PR-2219 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.3.5.9</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    A process could end up in a state where it got endlessly
+	    rescheduled without making any progress. This occurred
+	    when a system task, such as check of process code (part
+	    of a code purge), was scheduled on a high priority
+	    process trying to execute on a dirty scheduler.</p>
+          <p>
+	    Own Id: OTP-16436 Aux Id: ERL-1152 </p>
+        </item>
+        <item>
+          <p>
+	    Fixed bug in <c>erlang:list_to_ref/1</c> when called with
+	    a reference created by a remote note. Function
+	    <c>list_to_ref/1</c> is intended for debugging and not to
+	    be used in application programs. Bug exist since OTP
+	    20.0.</p>
+          <p>
+	    Own Id: OTP-16438</p>
         </item>
       </list>
     </section>
