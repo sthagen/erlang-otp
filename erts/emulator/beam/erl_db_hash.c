@@ -536,7 +536,8 @@ static void* db_dbterm_list_prepend_hash(void* list, void* db_term);
 static void* db_dbterm_list_remove_first_hash(void** list);
 static int db_put_dbterm_hash(DbTable* tb,
                               void* obj,
-                              int key_clash_fail);
+                              int key_clash_fail,
+                              SWord *consumed_reds_p);
 static void db_free_dbterm_hash(int compressed, void* obj);
 static Eterm db_get_dbterm_key_hash(DbTable* tb, void* db_term);
 
@@ -940,7 +941,8 @@ static ERTS_INLINE int db_terms_eq(DbTableCommon* tb, DbTerm* a, DbTerm* b)
 
 static int db_put_dbterm_hash(DbTable* tbl,
                               void* ob,
-                              int key_clash_fail)
+                              int key_clash_fail,
+                              SWord *consumed_reds_p)
 {
     DbTableHash *tb = &tbl->hash;
     HashValue hval;
@@ -1025,6 +1027,7 @@ static int db_put_dbterm_hash(DbTable* tbl,
 	    }
 	    qp = &q->next;
 	    q = *qp;
+            (*consumed_reds_p)++;
 	}while (q != NULL && has_key(tb,q,key,hval));
     }
     /*else DB_DUPLICATE_BAG */
@@ -1051,7 +1054,8 @@ Ldone:
     return ret;
 }
 
-int db_put_hash(DbTable *tbl, Eterm obj, int key_clash_fail)
+int db_put_hash(DbTable *tbl, Eterm obj, int key_clash_fail,
+                SWord *consumed_reds_p)
 {
     DbTableHash *tb = &tbl->hash;
     HashValue hval;
@@ -1127,8 +1131,10 @@ int db_put_hash(DbTable *tbl, Eterm obj, int key_clash_fail)
 		goto Ldone;
 	    }
 	    qp = &q->next;
-	    q = *qp;
-	}while (q != NULL && has_key(tb,q,key,hval)); 
+            q = *qp;
+            (*consumed_reds_p)++;
+        }while (q != NULL && has_key(tb,q,key,hval));
+
     }
     /*else DB_DUPLICATE_BAG */
 
@@ -3596,18 +3602,21 @@ db_finalize_dbterm_hash(int cret, DbUpdateHandle* handle)
             *bp = b->next;
             free_me = b;
         }
-        DEC_NITEMS(tb, lck_ctr, hval);
+        if (!(handle->flags & DB_INC_TRY_GROW))
+            DEC_NITEMS(tb, lck_ctr, hval);
         nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
         WUNLOCK_HASH_LCK_CTR(lck_ctr);
         try_shrink(tb, nitems);
     } else {
         if (handle->flags & DB_MUST_RESIZE) {
+            ASSERT(cret == DB_ERROR_NONE);
             db_finalize_resize(handle, offsetof(HashDbTerm,dbterm));
             free_me = b;
         }
         if (handle->flags & DB_INC_TRY_GROW) {
             int nactive;
             int nitems;
+            ASSERT(cret == DB_ERROR_NONE);
             INC_NITEMS(tb, lck_ctr, hval);
             nitems = NITEMS_ESTIMATE(tb, lck_ctr, hval);
             WUNLOCK_HASH_LCK_CTR(lck_ctr);

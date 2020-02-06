@@ -45,7 +45,7 @@
       addressing mechanism is required to ensure that it can be
       addressed by other applications, regardless on which node it
       currently executes. This issue is not addressed here, but the
-      <c>global</c> or <c>pg2</c> modules in Kernel
+      <c>global</c> or <c>pg</c> modules in Kernel
       can be used for this purpose.</p>
   </section>
 
@@ -61,7 +61,7 @@
     <list type="bulleted">
       <item>Specifies where the application <c>Application = atom()</c>
       can execute.</item>
-      <item>><c>NodeDesc = [Node | {Node,...,Node}]</c> is a list of
+      <item><c>NodeDesc = [Node | {Node,...,Node}]</c> is a list of
       node names in priority order. The order between nodes in a tuple
       is undefined.</item>
       <item><c>Timeout = integer()</c> specifies how many milliseconds

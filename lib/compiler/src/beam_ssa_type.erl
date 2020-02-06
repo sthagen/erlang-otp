@@ -268,9 +268,9 @@ sig_is([#b_set{op=make_fun,args=Args0,dst=Dst}=I0|Is],
     sig_is(Is, Ts, Ds, Ls, Fdb, Sub0, State);
 sig_is([I0 | Is], Ts0, Ds0, Ls, Fdb, Sub0, State) ->
     case simplify(I0, Ts0, Ds0, Ls, Sub0) of
-        {#b_set{}, Ts, Ds, Sub} ->
-            sig_is(Is, Ts, Ds, Ls, Fdb, Sub, State);
-        {_Value, Sub} ->
+        {#b_set{}, Ts, Ds} ->
+            sig_is(Is, Ts, Ds, Ls, Fdb, Sub0, State);
+        Sub when is_map(Sub) ->
             sig_is(Is, Ts0, Ds0, Ls, Fdb, Sub, State)
     end;
 sig_is([], Ts, Ds, _Ls, _Fdb, Sub, State) ->
@@ -493,9 +493,9 @@ opt_is([#b_set{op=make_fun,args=Args0,dst=Dst}=I0|Is],
     opt_is(Is, Ts, Ds, Ls, Fdb, Sub0, Meta, [I|Acc]);
 opt_is([I0 | Is], Ts0, Ds0, Ls, Fdb, Sub0, Meta, Acc) ->
     case simplify(I0, Ts0, Ds0, Ls, Sub0) of
-        {#b_set{}=I, Ts, Ds, Sub} ->
-            opt_is(Is, Ts, Ds, Ls, Fdb, Sub, Meta, [I | Acc]);
-        {_Value, Sub} ->
+        {#b_set{}=I, Ts, Ds} ->
+            opt_is(Is, Ts, Ds, Ls, Fdb, Sub0, Meta, [I | Acc]);
+        Sub when is_map(Sub) ->
             opt_is(Is, Ts0, Ds0, Ls, Fdb, Sub, Meta, Acc)
     end;
 opt_is([], Ts, Ds, _Ls, Fdb, Sub, _Meta, Acc) ->
@@ -621,34 +621,37 @@ simplify_terminator(#b_ret{arg=Arg}=Ret, Ts, Ds, Sub) ->
         #{} -> Ret#b_ret{arg=simplify_arg(Arg, Ts, Sub)}
     end.
 
-simplify(#b_set{op=phi,dst=Dst,args=Args0}=I0, Ts0, Ds0, Ls, Sub0) ->
+%%
+%% Simplifies an instruction, returning either a new instruction (with updated
+%% type and definition maps), or an updated substitution map if the instruction
+%% was redundant.
+%%
+
+simplify(#b_set{op=phi,dst=Dst,args=Args0}=I0, Ts0, Ds0, Ls, Sub) ->
     %% Simplify the phi node by removing all predecessor blocks that no
     %% longer exists or no longer branches to this block.
-    Args = [{simplify_arg(Arg, Ts0, Sub0), From} ||
+    Args = [{simplify_arg(Arg, Ts0, Sub), From} ||
                {Arg,From} <- Args0, maps:is_key(From, Ls)],
     case all_same(Args) of
         true ->
             %% Eliminate the phi node if there is just one source
             %% value or if the values are identical.
             [{Val,_}|_] = Args,
-            Sub = Sub0#{ Dst => Val },
-            {Val, Sub};
+            Sub#{ Dst => Val };
         false ->
             I = I0#b_set{args=Args},
             Ts = update_types(I, Ts0, Ds0),
             Ds = Ds0#{Dst=>I},
-            {I, Ts, Ds, Sub0}
+            {I, Ts, Ds}
     end;
-simplify(#b_set{op=succeeded,dst=Dst}=I0, Ts0, Ds0, _Ls, Sub0) ->
-    case will_succeed(I0, Ts0, Ds0, Sub0) of
+simplify(#b_set{op=succeeded,dst=Dst}=I0, Ts0, Ds0, _Ls, Sub) ->
+    case will_succeed(I0, Ts0, Ds0, Sub) of
         yes ->
             Lit = #b_literal{val=true},
-            Sub = Sub0#{ Dst => Lit },
-            {Lit, Sub};
+            Sub#{ Dst => Lit };
         no ->
             Lit = #b_literal{val=false},
-            Sub = Sub0#{ Dst => Lit },
-            {Lit, Sub};
+            Sub#{ Dst => Lit };
         maybe ->
             %% Note that we never simplify args; this instruction is specific
             %% to the operation being checked, and simplifying could break that
@@ -656,23 +659,40 @@ simplify(#b_set{op=succeeded,dst=Dst}=I0, Ts0, Ds0, _Ls, Sub0) ->
             I = beam_ssa:normalize(I0),
             Ts = Ts0#{ Dst => beam_types:make_boolean() },
             Ds = Ds0#{ Dst => I },
-            {I, Ts, Ds, Sub0}
+            {I, Ts, Ds}
     end;
-simplify(#b_set{dst=Dst,args=Args0}=I0, Ts0, Ds0, _Ls, Sub0) ->
-    Args = simplify_args(Args0, Ts0, Sub0),
+simplify(#b_set{op=bs_match,dst=Dst,args=Args0}=I0, Ts0, Ds0, _Ls, Sub) ->
+    Args = simplify_args(Args0, Ts0, Sub),
+    I1 = beam_ssa:normalize(I0#b_set{args=Args}),
+    I2 = case {Args0,Args} of
+             {[_,_,_,#b_var{},_],[Type,Val,Flags,#b_literal{val=all},Unit]} ->
+                 %% The size `all` is used for the size of the final binary
+                 %% segment in a pattern. Using `all` explicitly is not allowed,
+                 %% so we convert it to an obvious invalid size.
+                 I1#b_set{args=[Type,Val,Flags,#b_literal{val=bad_size},Unit]};
+             {_,_} ->
+                 I1
+         end,
+    %% We KNOW that simplify/2 will return a #b_set{} record when called with
+    %% a bs_match instruction.
+    #b_set{} = I3 = simplify(I2, Ts0),
+    I = beam_ssa:normalize(I3),
+    Ts = update_types(I, Ts0, Ds0),
+    Ds = Ds0#{ Dst => I },
+    {I, Ts, Ds};
+simplify(#b_set{dst=Dst,args=Args0}=I0, Ts0, Ds0, _Ls, Sub) ->
+    Args = simplify_args(Args0, Ts0, Sub),
     I1 = beam_ssa:normalize(I0#b_set{args=Args}),
     case simplify(I1, Ts0) of
         #b_set{}=I2 ->
             I = beam_ssa:normalize(I2),
             Ts = update_types(I, Ts0, Ds0),
             Ds = Ds0#{ Dst => I },
-            {I, Ts, Ds, Sub0};
+            {I, Ts, Ds};
         #b_literal{}=Lit ->
-            Sub = Sub0#{ Dst => Lit },
-            {Lit, Sub};
+            Sub#{ Dst => Lit };
         #b_var{}=Var ->
-            Sub = Sub0#{ Dst => Var },
-            {Var, Sub}
+            Sub#{ Dst => Var }
     end.
 
 simplify(#b_set{op={bif,'and'},args=Args}=I, Ts) ->
@@ -752,6 +772,13 @@ simplify(#b_set{op={bif,is_function},args=[Fun,#b_literal{val=Arity}]}=I, Ts)
             I;
         _ ->
             #b_literal{val=false}
+    end;
+simplify(#b_set{op={bif,is_map_key},args=[Key,Map]}=I, Ts) ->
+    case normalized_type(Map, Ts) of
+        #t_map{} ->
+            I#b_set{op=has_map_field,args=[Map,Key]};
+        _ ->
+            I
     end;
 simplify(#b_set{op={bif,Op0},args=Args}=I, Ts) when Op0 =:= '==';
                                                     Op0 =:= '/=' ->
@@ -938,10 +965,56 @@ will_succeed_1(#b_set{op=get_hd}, _Src, _Ts, _Sub) ->
     yes;
 will_succeed_1(#b_set{op=get_tl}, _Src, _Ts, _Sub) ->
     yes;
+will_succeed_1(#b_set{op=has_map_field}, _Src, _Ts, _Sub) ->
+    yes;
 will_succeed_1(#b_set{op=get_tuple_element}, _Src, _Ts, _Sub) ->
     yes;
 will_succeed_1(#b_set{op=put_tuple}, _Src, _Ts, _Sub) ->
     yes;
+
+%% Remove the success branch from binary operations with invalid
+%% sizes. That will remove subsequent bs_put and bs_match instructions,
+%% which are probably not loadable.
+will_succeed_1(#b_set{op=bs_add,args=[_,#b_literal{val=Size},_]},
+               _Src, _Ts, _Sub) ->
+    if
+        is_integer(Size), Size >= 0 ->
+            maybe;
+        true ->
+            no
+    end;
+will_succeed_1(#b_set{op=bs_init,
+                      args=[#b_literal{val=new},#b_literal{val=Size},_Unit]},
+               _Src, _Ts, _Sub) ->
+    if
+        is_integer(Size), Size >= 0 ->
+            maybe;
+        true ->
+            no
+    end;
+will_succeed_1(#b_set{op=bs_init,
+                      args=[#b_literal{},_,#b_literal{val=Size},_Unit]},
+               _Src, _Ts, _Sub) ->
+    if
+        is_integer(Size), Size >= 0 ->
+            maybe;
+        true ->
+            no
+    end;
+will_succeed_1(#b_set{op=bs_match,
+                      args=[#b_literal{val=Type},_,_,#b_literal{val=Size},_]},
+               _Src, _Ts, _Sub) ->
+    if
+        is_integer(Size), Size >= 0 ->
+            maybe;
+        Type =:= binary, Size =:= all ->
+            %% `all` is a legal size for binary segments at the end of
+            %% a binary pattern.
+            maybe;
+        true ->
+            %% Invalid size. Matching will fail.
+            no
+    end;
 
 %% These operations may fail even though we know their return value on success.
 will_succeed_1(#b_set{op=call}, _Src, _Ts, _Sub) ->
