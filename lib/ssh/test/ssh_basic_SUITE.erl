@@ -79,7 +79,8 @@ groups() ->
                             packet_size,
                             ssh_info_print,
                             {group, login_bad_pwd_no_retry},
-                            shell_exit_status
+                            shell_exit_status,
+                            setopts_getopts
                            ]},
 
      {ssh_renegotiate_SUITE, [?PARALLEL], [rekey0,
@@ -899,13 +900,34 @@ known_hosts(Config) when is_list(Config) ->
     {ok, _Channel} = ssh_connection:session_channel(ConnectionRef, infinity),
     ok = ssh:close(ConnectionRef),
     {ok, Binary} = file:read_file(KnownHosts),
+    ct:log("known_hosts:~n~p",[Binary]),
     Lines = string:tokens(binary_to_list(Binary), "\n"),
     [Line] = Lines,
     [HostAndIp, Alg, _KeyData] = string:tokens(Line, " "),
-    [StoredHost, _Ip] = string:tokens(HostAndIp, ","),
+    [StoredHost|_] = string:tokens(HostAndIp, ","),
     true = ssh_test_lib:match_ip(StoredHost, Host),
     "ssh-" ++ _ = Alg,
+    NLines = length(binary:split(Binary, <<"\n">>, [global,trim_all])),
+    ct:log("NLines = ~p~n~p", [NLines,Binary]),
+    if
+        NLines>1 -> ct:fail("wrong num lines", []);
+        NLines<1 -> ct:fail("wrong num lines", []);
+        true -> ok
+    end,
+
+    _ConnectionRef2 =
+	ssh_test_lib:connect(Host, Port, [{user_dir, PrivDir},
+					  {user_interaction, false},
+					  silently_accept_hosts]),
+    {ok, Binary2} = file:read_file(KnownHosts),
+    case Binary of
+        Binary2 -> ok;
+        _ -> ct:log("2nd differ~n~p", [Binary2]),
+             ct:fail("wrong num lines", [])
+    end,
+
     ssh:stop_daemon(Pid).
+
 %%--------------------------------------------------------------------
 
 %%% Test that we can use keyes protected by pass phrases
@@ -1438,6 +1460,43 @@ shell_exit_status(Config) when is_list(Config) ->
     ssh_test_lib:receive_exec_end(ConnectionRef, ChannelId),
     ssh:stop_daemon(Pid).
 
+
+%%----------------------------------------------------------------------------
+setopts_getopts(Config) ->
+    process_flag(trap_exit, true),
+    SystemDir = proplists:get_value(data_dir, Config),
+    UserDir = proplists:get_value(priv_dir, Config),
+
+    ShellFun = fun (_User) -> spawn(fun() -> ok end) end,
+    {Pid, Host, Port} = ssh_test_lib:daemon([{system_dir, SystemDir},
+                                             {user_dir, UserDir},
+                                             {user_passwords, [{"vego", "morot"}]},
+                                             {shell, ShellFun},
+                                             {failfun, fun ssh_test_lib:failfun/2}]),
+    ConnectionRef =
+        ssh_test_lib:connect(Host, Port, [{silently_accept_hosts, true},
+                                          {user_dir, UserDir},
+                                          {user, "vego"},
+                                          {password, "morot"},
+                                          {user_interaction, false}]),
+    %% Test get_sock_opts
+    {ok,[{active,once},{deliver,term},{mode,binary},{packet,0}]} =
+        ssh:get_sock_opts(ConnectionRef, [active, deliver, mode, packet]),
+
+    %% Test to set forbidden opts
+    {error,{not_allowed,[active,deliver,mode,packet]}} =
+        ssh:set_sock_opts(ConnectionRef, [{active,once},{deliver,term},{mode,binary},{packet,0}]),
+    
+    %% Test to set some other opt
+    {ok,[{delay_send,DS0},{reuseaddr,RA0}]} =
+        ssh:get_sock_opts(ConnectionRef, [delay_send, reuseaddr]),
+    DS1 = not DS0,
+    RA1 = not RA0,
+    ok = ssh:set_sock_opts(ConnectionRef, [{delay_send,DS1},{reuseaddr,RA1}]),
+    {ok,[{reuseaddr,RA1},{delay_send,DS1}]} =
+        ssh:get_sock_opts(ConnectionRef, [reuseaddr,delay_send]),
+    
+     ssh:stop_daemon(Pid).
 
 %%----------------------------------------------------------------------------
 %%% Idle timeout test

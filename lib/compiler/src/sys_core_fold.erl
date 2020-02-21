@@ -469,20 +469,8 @@ expr(#c_try{anno=A,arg=E0,vars=Vs0,body=B0,evars=Evs0,handler=H0}=Try, _, Sub0) 
 	false ->
 	    {Evs1,Sub2} = var_list(Evs0, Sub0),
 	    H1 = body(H0, value, Sub2),
-	    H2 = opt_try_handler(H1, lists:last(Evs1)),
-	    Try#c_try{arg=E1,vars=Vs1,body=B1,evars=Evs1,handler=H2}
+	    Try#c_try{arg=E1,vars=Vs1,body=B1,evars=Evs1,handler=H1}
     end.
-
-%% Attempts to convert old erlang:get_stacktrace/0 calls into the new
-%% three-argument catch, with possibility of further optimisations.
-opt_try_handler(#c_call{anno=A,module=#c_literal{val=erlang},name=#c_literal{val=get_stacktrace},args=[]}, Var) ->
-    #c_primop{anno=A,name=#c_literal{val=build_stacktrace},args=[Var]};
-opt_try_handler(#c_case{clauses=Cs0} = Case, Var) ->
-    Cs = [C#c_clause{body=opt_try_handler(B, Var)} || #c_clause{body=B} = C <- Cs0],
-    Case#c_case{clauses=Cs};
-opt_try_handler(#c_let{arg=Arg} = Let, Var) ->
-    Let#c_let{arg=opt_try_handler(Arg, Var)};
-opt_try_handler(X, _) -> X.
 
 %% If a fun or its application is used as an argument, then it's unsafe to
 %% handle it in effect context as the side-effects may rely on its return
@@ -683,15 +671,7 @@ eval_binary(#c_binary{anno=Anno,segments=Ss}=Bin) ->
 eval_binary_1([#c_bitstr{val=#c_literal{val=Val},size=#c_literal{val=Sz},
 			 unit=#c_literal{val=Unit},type=#c_literal{val=Type},
 			 flags=#c_literal{val=Flags}}|Ss], Acc0) ->
-    Endian = case member(big, Flags) of
-		 true ->
-		     big;
-		 false ->
-		     case member(little, Flags) of
-			 true -> little;
-			 false -> throw(impossible) %Native endian.
-		     end
-	     end,
+    Endian = bs_endian(Flags),
 
     %% Make sure that the size is reasonable.
     case Type of
@@ -739,6 +719,11 @@ eval_binary_1([#c_bitstr{val=#c_literal{val=Val},size=#c_literal{val=Sz},
 	utf32 -> ok;
 	_ ->
 	    throw(impossible)
+    end,
+
+    case Endian =:= native andalso Type =/= binary of
+        true -> throw(impossible);
+        false -> ok
     end,
 
     %% Evaluate the field.
@@ -803,6 +788,11 @@ eval_binary_2(Acc, Val, all, Unit, binary, _) ->
     end;
 eval_binary_2(Acc, Val, Size, Unit, binary, _) ->
     <<Acc/bitstring,Val:(Size*Unit)/bitstring>>.
+
+bs_endian([big=E|_]) -> E;
+bs_endian([little=E|_]) -> E;
+bs_endian([native=E|_]) -> E;
+bs_endian([_|Fs]) -> bs_endian(Fs).
 
 %% Count the number of bits approximately needed to store Int.
 %% (We don't need an exact result for this purpose.)
