@@ -380,15 +380,25 @@ join_positions([{L,MapPos0}|T], D) ->
     end;
 join_positions([], D) -> D.
 
-join_positions_1(MapPos0, MapPos1) ->
-    MapPos2 = maps:map(fun(Start, Pos) ->
-                               case MapPos0 of
-                                   #{Start:=Pos} -> Pos;
-                                   #{Start:=_} -> unknown;
-                                   #{} -> Pos
-                               end
-                       end, MapPos1),
-    maps:merge(MapPos0, MapPos2).
+join_positions_1(LHS, RHS) ->
+    if
+        map_size(LHS) < map_size(RHS) ->
+            join_positions_2(maps:keys(LHS), RHS, LHS);
+        true ->
+            join_positions_2(maps:keys(RHS), LHS, RHS)
+    end.
+
+join_positions_2([V | Vs], Bigger, Smaller) ->
+    case {Bigger, Smaller} of
+        {#{ V := Same }, #{ V := Same }} ->
+            join_positions_2(Vs, Bigger, Smaller);
+        {#{ V := _ }, #{ V := _ }} ->
+            join_positions_2(Vs, Bigger, Smaller#{ V := unknown });
+        {#{}, #{ V := _ }} ->
+            join_positions_2(Vs, Bigger, maps:remove(V, Smaller))
+    end;
+join_positions_2([], _Bigger, Smaller) ->
+    Smaller.
 
 %%
 %% Updates the restore and position maps according to the given instructions.
@@ -469,14 +479,6 @@ bs_restores_is([#b_set{op=call,dst=Dst,args=Args}|Is],
     {SPos1, Rs} = bs_restore_args(Args, SPos0, CtxChain, Dst, Rs0),
 
     SPos = bs_invalidate_pos(Args, SPos1, CtxChain),
-    FPos = SPos,
-
-    bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
-bs_restores_is([#b_set{op=landingpad}|Is], CtxChain, SPos0, _FPos, Rs) ->
-    %% We can land here from any point, so all positions are invalid.
-    Invalidate = fun(_Start,_Pos) -> unknown end,
-
-    SPos = maps:map(Invalidate, SPos0),
     FPos = SPos,
 
     bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
@@ -802,19 +804,17 @@ sanitize_is([#b_set{op={succeeded,Kind},args=[Arg0]} | Is],
             true = Kind =:= guard orelse Kind =:= body, %Assertion.
             sanitize_is(Is, Last, Count, Values, true, Acc)
     end;
-sanitize_is([#b_set{op=Op,dst=Dst,args=Args0}=I0|Is0],
-            Last, Count, Values, Changed0, Acc) ->
-    Args = sanitize_args(Args0, Values),
-    case sanitize_instr(Op, Args, I0) of
-        {value,Value0} ->
-            Value = #b_literal{val=Value0},
-            sanitize_is(Is0, Last, Count, Values#{Dst=>Value}, true, Acc);
-        {ok,I} ->
-            sanitize_is(Is0, Last, Count, Values, true, [I|Acc]);
-        ok ->
-            I = I0#b_set{args=Args},
-            Changed = Changed0 orelse Args =/= Args0,
-            sanitize_is(Is0, Last, Count, Values, Changed, [I|Acc])
+sanitize_is([#b_set{op=Op}=I|Is], Last, Count, Values, Changed, Acc) ->
+    case Last of
+        #b_br{succ=Same,fail=Same} ->
+            case is_test_op(Op) of
+                true ->
+                    sanitize_is(Is, Last, Count, Values, true, Acc);
+                false ->
+                    do_sanitize_is(I, Is,  Last, Count, Values, Changed, Acc)
+            end;
+        _ ->
+            do_sanitize_is(I, Is,  Last, Count, Values, Changed, Acc)
     end;
 sanitize_is([], Last, Count, Values, Changed, Acc) ->
     case Changed of
@@ -822,6 +822,25 @@ sanitize_is([], Last, Count, Values, Changed, Acc) ->
             {reverse(Acc), Last, Count, Values};
         false ->
             no_change
+    end.
+
+is_test_op(bs_put) -> true;
+is_test_op(bs_test_tail) -> true;
+is_test_op(_) -> false.
+    
+do_sanitize_is(#b_set{op=Op,dst=Dst,args=Args0}=I0,
+               Is, Last, Count, Values, Changed0, Acc) ->
+    Args = sanitize_args(Args0, Values),
+    case sanitize_instr(Op, Args, I0) of
+        {value,Value0} ->
+            Value = #b_literal{val=Value0},
+            sanitize_is(Is, Last, Count, Values#{Dst=>Value}, true, Acc);
+        {ok,I} ->
+            sanitize_is(Is, Last, Count, Values, true, [I|Acc]);
+        ok ->
+            I = I0#b_set{args=Args},
+            Changed = Changed0 orelse Args =/= Args0,
+            sanitize_is(Is, Last, Count, Values, Changed, [I|Acc])
     end.
 
 sanitize_args(Args, Values) ->
