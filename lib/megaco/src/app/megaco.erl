@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1999-2019. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2020. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -101,7 +101,7 @@
          formated_long_timestamp/0
         ]).
 
--deprecated([{format_versions,1,"use megaco:print_version_info/0,1 instead"}]).
+-deprecated([{format_versions, 1, "use megaco:print_version_info/0,1 instead."}]).
 
 -export_type([
               void/0
