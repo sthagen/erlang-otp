@@ -24,11 +24,11 @@
 %% Does translation of Erlang XML docs to EEP-48 doc chunks.
 %%----------------------------------------------------------------------
 -module(docgen_xml_to_chunk).
--export([main/1]).
+-export([main/1, func_to_tuple/1]).
 
 -include_lib("kernel/include/eep48.hrl").
 
-main([FromBeam, _Escript, ToChunk]) ->
+main([_Application, FromBeam, _Escript, ToChunk]) ->
     %% The given module is not documented, generate a hidden beam chunk file
     Name = filename:basename(filename:rootname(FromBeam)) ++ ".erl",
 
@@ -36,9 +36,9 @@ main([FromBeam, _Escript, ToChunk]) ->
                           module_doc = hidden, docs = []},
     ok = file:write_file(ToChunk, term_to_binary(EmptyDocs,[compressed])),
     ok;
-main([FromXML, FromBeam, _Escript, ToChunk]) ->
+main([Application, FromXML, FromBeam, _Escript, ToChunk]) ->
     _ = erlang:process_flag(max_heap_size,20 * 1000 * 1000),
-    case docs(FromXML, FromBeam) of
+    case docs(Application, FromXML, FromBeam) of
         {error, Reason} ->
             io:format("Failed to create chunks: ~p~n",[Reason]),
             erlang:halt(1);
@@ -181,7 +181,7 @@ build_dom({endElement, _Uri, LocalName, _QName},
                     title ->
                         lists:nth(SectionDepth+1,[h1,h2,h3]);
                     section when SectionDepth > 0 ->
-                        p;
+                        'div';
                     CName -> CName
                 end,
 
@@ -229,7 +229,9 @@ build_dom({ignorableWhitespace, String},
     case lists:member(Name,
                       [p,pre,input,code,quote,warning,
                        note,dont,do,c,i,em,strong,
-                       seealso,tag,item]) of
+                       seemfa,seeerl,seetype,seeapp,
+                       seecom,seecref,seefile,seeguide,
+                       tag,item]) of
         true ->
 %            io:format("Keep ign white: ~p ~p~n",[String, _E]),
             build_dom({characters, String}, State);
@@ -260,7 +262,7 @@ parse_attributes(_, [], _, Acc) ->
 parse_attributes(ElName, [{_Uri, _Prefix, LocalName, AttrValue} |As], N, Acc) ->
     parse_attributes(ElName, As, N+1, [{list_to_atom(LocalName), AttrValue} |Acc]).
 
-docs(OTPXml, FromBEAM)->
+docs(Application, OTPXml, FromBEAM)->
     case xmerl_sax_parser:file(OTPXml,
                                [skip_external_dtd,
                                 {event_fun,fun event/3},
@@ -268,6 +270,8 @@ docs(OTPXml, FromBEAM)->
         {ok,Tree,_} ->
             {ok, {Module, Chunks}} = beam_lib:chunks(FromBEAM,[exports,abstract_code]),
             Dom = get_dom(Tree),
+            put(application, Application),
+            put(module, filename:basename(filename:rootname(FromBEAM))),
             NewDom = transform(Dom,[]),
             Chunk = to_chunk(NewDom, OTPXml, Module, proplists:get_value(abstract_code, Chunks)),
             verify_chunk(Module,proplists:get_value(exports, Chunks), Chunk),
@@ -329,7 +333,7 @@ transform([{c,[],Content}|T],Acc) ->
 
 %% transform <code> to <pre><code>
 transform([{code,Attr,Content}|T],Acc) ->
-    transform(T, [{pre,[],[{code,Attr,transform(Content,[])}]}|Acc]);
+    transform(T, [{pre,[],[{code,a2b(Attr),transform(Content,[])}]}|Acc]);
 %% transform <pre> to <pre><code>
 transform([{pre,Attr,Content}|T],Acc) ->
     transform(T, [{pre,[],[{code,Attr,transform(Content,[])}]}|Acc]);
@@ -353,15 +357,15 @@ transform([{desc,_Attr,Content}|T],Acc) ->
 transform([{strong,Attr,Content}|T],Acc) ->
     transform([{em,Attr,Content}|T],Acc);
 %% transform <marker id="name"/>  to <a id="name"/>....
-transform([{marker,Attr,Content}|T],Acc) ->
-    transform(T,[{a,Attr,transform(Content,[])}|Acc]);
+transform([{marker,Attrs,Content}|T],Acc) ->
+    transform(T,[{a,a2b(Attrs),transform(Content,[])}|Acc]);
 %% transform <url href="external URL"> Content</url> to <a href....
-transform([{url,Attr,Content}|T],Acc) ->
-    transform(T,[{a,Attr,transform(Content,[])}|Acc]);
+transform([{url,Attrs,Content}|T],Acc) ->
+    transform(T,[{a,a2b(Attrs),transform(Content,[])}|Acc]);
 %% transform note/warning/do/don't to <p class="thing">
 transform([{What,[],Content}|T],Acc)
   when What =:= note; What =:= warning; What =:= do; What =:= dont ->
-    WhatP = {p,[{class,atom_to_list(What)}], transform(Content,[])},
+    WhatP = {'div',[{class,atom_to_binary(What)}], transform(Content,[])},
     transform(T,[WhatP|Acc]);
 
 transform([{type,_,[]}|_] = Dom,Acc) ->
@@ -384,21 +388,23 @@ transform([{type,_,[]}|_] = Dom,Acc) ->
                                        NameA < NameB
                                end
                        end,
-            transform(T,[{ul,[{class,"types"}],lists:sort(NameSort,Types)}|Acc])
+            transform(T,[{ul,[{class,<<"types">>}],lists:sort(NameSort,Types)}|Acc])
     end;
 transform([{type_desc,Attr,_Content}|T],Acc) ->
     %% We skip any type_desc with the variable attribute
     true = proplists:is_defined(variable, Attr),
     transform(T,Acc);
 transform([{type,[],Content}|T],Acc) ->
-    transform(T,[{ul,[{class,"types"}],transform(Content,[])}|Acc]);
+    transform(T,[{ul,[{class,<<"types">>}],transform(Content,[])}|Acc]);
 transform([{v,[],Content}|T],Acc) ->
-    transform(T, [{li,[{class,"type"}],transform(Content,[])}|Acc]);
+    transform(T, [{li,[{class,<<"type">>}],transform(Content,[])}|Acc]);
 transform([{d,[],Content}|T],Acc) ->
-    transform(T, [{li,[{class,"description"}],transform(Content,[])}|Acc]);
+    transform(T, [{li,[{class,<<"description">>}],transform(Content,[])}|Acc]);
 
-transform([Tag = {seealso,_Attr,_Content}|T],Acc) ->
-    transform([transform_seealso(Tag)|T],Acc);
+transform([Elem = {See,_Attr,_Content}|T],Acc)
+  when See =:= seemfa; See =:= seeerl; See =:= seetype; See =:= seeapp;
+       See =:= seecom; See =:= seecref; See =:= seefile; See =:= seeguide ->
+    transform([transform_see(Elem)|T],Acc);
 
 transform([{term,Attr,[]}|T],Acc) ->
     transform([list_to_binary(proplists:get_value(id,Attr))|T],Acc);
@@ -411,6 +417,11 @@ transform([{fsummary,_,_}|T],Acc) ->
 transform([{input,_,Content}|T],Acc) ->
     %% Just remove input as it is not used by anything
     transform(T,[transform(Content,[])|Acc]);
+
+transform([{p,Attr,Content}|T],Acc) ->
+    transform(T,[{p,a2b(Attr),transform(Content,[])}|Acc]);
+transform([{'div',Attr,Content}|T],Acc) ->
+    transform(T,[{'div',a2b(Attr),transform(Content,[])}|Acc]);
 
 %% Tag and Attr is used as is but Content is transformed
 transform([{Tag,Attr,Content}|T],Acc) ->
@@ -428,7 +439,7 @@ transform_list(_,Content) ->
 transform_types([{type,Attr,[]}|T],Acc) ->
     case proplists:is_defined(name,Attr) of
         true ->
-            transform_types(T, [{li,Attr,[]}|Acc]);
+            transform_types(T, [{li,a2b(Attr),[]}|Acc]);
         false ->
             true = proplists:is_defined(variable, Attr),
             transform_types(T, Acc)
@@ -437,7 +448,7 @@ transform_types([{type_desc,Attr,Content}|T],Acc) ->
     case proplists:is_defined(name,Attr) of
         true ->
             TypeDesc = transform(Content,[]),
-            transform_types(T, [{li,Attr ++ [{class,"description"}],TypeDesc}|Acc]);
+            transform_types(T, [{li,a2b(Attr) ++ [{class,<<"description">>}],TypeDesc}|Acc]);
         false ->
             true = proplists:is_defined(variable, Attr),
             transform_types(T, Acc)
@@ -463,6 +474,8 @@ transform_funcs([Func|T],Acc) ->
 transform_funcs([],Acc) ->
     lists:reverse(Acc).
 
+func2func({fsdescription,_Attr,_Contents}) ->
+    [];
 func2func({func,Attr,Contents}) ->
 
     ContentsNoName = [NC||NC <- Contents, element(1,NC) /= name],
@@ -596,8 +609,18 @@ transform_datatype(Dom,_Acc) ->
                          {signature,Signature}],ContentsNoName}
       end || N = {name,_,_} <- Dom].
 
-transform_seealso({seealso,Attr,_Content}) ->
-    {a, Attr, _Content}.
+transform_see({See,[{marker,Marker}],Content}) ->
+    AbsMarker =
+        case string:lexemes(Marker,"#") of
+            [Link] -> [get(application),":",get(module),"#",Link];
+            [AppMod, Link] ->
+                case string:lexemes(AppMod,":") of
+                    [Mod] -> [get(application),":",Mod,"#",Link];
+                    [App, Mod] -> [App,":",Mod,"#",Link]
+                end
+        end,
+    {a, [{href,iolist_to_binary(AbsMarker)},
+         {rel,<<"https://erlang.org/doc/link/",(atom_to_binary(See))/binary>>}], Content}.
 
 to_chunk(Dom, Source, Module, AST) ->
     [{module,MAttr,Mcontent}] = Dom,
@@ -756,3 +779,6 @@ find_spec(AST, Func, Arity) ->
             io:format("Could not find spec for ~p/~p~n",[Func,Arity]),
             exit(1)
     end.
+
+a2b(Attrs) ->
+    [{Tag,unicode:characters_to_binary(Value)} || {Tag,Value} <- Attrs].

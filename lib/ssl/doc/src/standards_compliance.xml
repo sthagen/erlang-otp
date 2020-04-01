@@ -146,7 +146,7 @@
       <item>Key and Initialization Vector Update is supported</item>
     </list>
     <p>For more detailed information see the
-    <seealso marker="#soc_table">Standards Compliance</seealso> below.</p>
+    <seeguide marker="#soc_table">Standards Compliance</seeguide> below.</p>
 
     <p> The following table describes the current state of standards compliance for TLS 1.3.</p>
     <p>(<em>C</em> = Compliant, <em>NC</em> = Non-Compliant, <em>PC</em> = Partially-Compliant,
@@ -197,7 +197,7 @@
 
       <row>
         <cell align="left" valign="middle">
-	  <url href="https://tools.ietf.org/html/rfc8446#section-2">
+	  <url href="https://tools.ietf.org/html/rfc8446#section/2">
 	    2. Protocol Overview
 	  </url>
 	</cell>
@@ -1908,7 +1908,7 @@
 
       <row>
         <cell align="left" valign="middle">
-	  <url href="https://tools.ietf.org/html/rfc8446#section-8">
+	  <url href="https://tools.ietf.org/html/rfc8446#section/8">
 	    8. 0-RTT and Anti-Replay
 	  </url>
 	</cell>
@@ -2336,8 +2336,8 @@
 	  </url>
 	</cell>
         <cell align="left" valign="middle"><em></em></cell>
-	<cell align="left" valign="middle"><em>PC</em></cell>
-	<cell align="left" valign="middle"><em>22</em></cell>
+	<cell align="left" valign="middle"><em>C</em></cell>
+	<cell align="left" valign="middle"><em>23</em></cell>
       </row>
 
       <row>
