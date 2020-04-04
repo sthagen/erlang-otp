@@ -160,7 +160,8 @@
 -removed([{mpint,1,"only needed by other removed functions"}]).
 
 %%%----------------------------------------------------------------
-%% Old interface. Now implemented with the New interface
+%% Old interface. Now implemented with the New interface.
+%% Remove in OTP-24.0 See OTP-16232
 
 -deprecated([{next_iv, '_',
               "see the 'New and Old API' chapter of the CRYPTO User's guide"}]).
@@ -208,6 +209,11 @@
          block_encrypt/3, block_encrypt/4,
          block_decrypt/3, block_decrypt/4
         ]).
+-deprecated_type([{retired_cbc_cipher_aliases, 0, "Use aes_*_cbc or des_ede3_cbc"},
+                  {retired_cfb_cipher_aliases, 0, "Use aes_*_cfb8, aes_*_cfb128 or des_ede3_cfb"},
+                  {retired_ctr_cipher_aliases, 0, "Use aes_*_ctr"},
+                  {retired_ecb_cipher_aliases, 0, "Use aes_*_ecb"}
+                 ]).
 
 %%%----------------------------------------------------------------
 %% New interface
@@ -655,7 +661,7 @@ stop() ->
                                       | {rsa_opts, RSAopts},
                              Hashs :: [sha1() | sha2() | sha3() | blake2() | ripemd160 | compatibility_only_hash()],
                              Ciphers :: [cipher()],
-                             PKs :: [rsa | dss | ecdsa | dh | ecdh | ec_gf2m],
+                             PKs :: [rsa | dss | ecdsa | dh | ecdh | eddh | ec_gf2m],
                              Macs :: [hmac | cmac | poly1305],
                              Curves :: [ec_named_curve() | edwards_curve_dh() | edwards_curve_ed()],
                              RSAopts :: [rsa_sign_verify_opt() | rsa_opt()] .
@@ -684,7 +690,7 @@ supports() ->
                                       | RSAopts,
                              Hashs :: [sha1() | sha2() | sha3() | blake2() | ripemd160 | compatibility_only_hash()],
                              Ciphers :: [cipher()],
-                             PKs :: [rsa | dss | ecdsa | dh | ecdh | ec_gf2m],
+                             PKs :: [rsa | dss | ecdsa | dh | ecdh | eddh | ec_gf2m],
                              Macs :: [hmac | cmac | poly1305],
                              Curves :: [ec_named_curve() | edwards_curve_dh() | edwards_curve_ed()],
                              RSAopts :: [rsa_sign_verify_opt() | rsa_opt()] .
@@ -2000,7 +2006,7 @@ pkey_crypt_nif(_Algorithm, _In, _Key, _Options, _IsPrivate, _IsEncrypt) -> ?nif_
 
 -spec generate_key(Type, Params)
                  -> {PublicKey, PrivKeyOut}
-                        when Type :: dh | ecdh | eddsa | rsa | srp,
+                        when Type :: dh | ecdh | eddh | eddsa | rsa | srp,
                              PublicKey :: dh_public() | ecdh_public() | rsa_public() | srp_public(),
                              PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
                              Params :: dh_params() | ecdh_params() | eddsa_params() | rsa_params() | srp_gen_params()
@@ -2010,7 +2016,7 @@ generate_key(Type, Params) ->
 
 -spec generate_key(Type, Params, PrivKeyIn)
                  -> {PublicKey, PrivKeyOut}
-                        when Type :: dh | ecdh | eddsa | rsa | srp,
+                        when Type :: dh | ecdh | eddh | eddsa | rsa | srp,
                              PublicKey :: dh_public() | ecdh_public() | rsa_public() | srp_public(),
                              PrivKeyIn :: undefined | dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
                              PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
@@ -2052,8 +2058,12 @@ generate_key(rsa, {ModulusSize, PublicExponent}, undefined) ->
             {lists:sublist(Private, 2), Private}
     end;
 
+generate_key(eddh, Curve, PrivKey) when Curve == x448 ;
+                                        Curve == x25519 ->
+    evp_generate_key_nif(Curve, ensure_int_as_bin(PrivKey));
 generate_key(ecdh, Curve, PrivKey) when Curve == x448 ;
                                         Curve == x25519 ->
+    %% This was here before the eddh was added as an own Type
     evp_generate_key_nif(Curve, ensure_int_as_bin(PrivKey));
 generate_key(ecdh, Curve, PrivKey) ->
     ec_key_generate(nif_curve_params(Curve), ensure_int_as_bin(PrivKey));
@@ -2067,7 +2077,7 @@ evp_generate_key_nif(_Curve, _PrivKey) -> ?nif_stub.
 
 -spec compute_key(Type, OthersPublicKey, MyPrivateKey, Params)
                  -> SharedSecret
-                        when Type :: dh | ecdh | srp,
+                        when Type :: dh | ecdh | eddh |  srp,
                              SharedSecret :: binary(),
                              OthersPublicKey :: dh_public() | ecdh_public() | srp_public(),
                              MyPrivateKey :: dh_private() | ecdh_private() | {srp_public(),srp_private()},
@@ -2114,6 +2124,10 @@ compute_key(srp, UserPublic, {HostPublic, HostPrivate},
                           UserPubBin, Prime));
 
 compute_key(ecdh, Others, My, Curve) when Curve == x448 ;
+                                          Curve == x25519 ->
+    evp_compute_key_nif(Curve, ensure_int_as_bin(Others), ensure_int_as_bin(My));
+
+compute_key(eddh, Others, My, Curve) when Curve == x448 ;
                                           Curve == x25519 ->
     evp_compute_key_nif(Curve, ensure_int_as_bin(Others), ensure_int_as_bin(My));
 
