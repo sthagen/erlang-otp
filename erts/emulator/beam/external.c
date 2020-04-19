@@ -67,6 +67,19 @@
 #define ERTS_MAX_TINY_CREATION (3)
 #define is_tiny_creation(Cre) ((unsigned)(Cre) <= ERTS_MAX_TINY_CREATION)
 
+/*
+ *   When 0 is used as creation, the real creation
+ *   is unknown. Creation 0 on data will be changed to current
+ *   creation of the node which it belongs to when it enters
+ *   that node.
+ *       This typically happens when a remote pid is created with
+ *   list_to_pid/1 and then sent to the remote node. This behavior
+ *   has the undesirable effect that a pid can be passed between nodes,
+ *   and as a result of that not being equal to itself (the pid that
+ *   comes back isn't equal to the original pid).
+ *
+ */
+
 #undef ERTS_DEBUG_USE_DIST_SEP
 #ifdef DEBUG
 #  if 0
@@ -84,20 +97,6 @@
 /* Does Sint fit in Sint32?
  */
 #define IS_SSMALL32(x) (((Uint) (((x) >> (32-1)) + 1)) < 2)
-
-/*
- *   Valid creations for nodes are 1, 2, or 3. 0 can also be sent
- *   as creation, though. When 0 is used as creation, the real creation
- *   is unknown. Creation 0 on data will be changed to current
- *   creation of the node which it belongs to when it enters
- *   that node.
- *       This typically happens when a remote pid is created with
- *   list_to_pid/1 and then sent to the remote node. This behavior 
- *   has the undesirable effect that a pid can be passed between nodes,
- *   and as a result of that not being equal to itself (the pid that
- *   comes back isn't equal to the original pid).
- *
- */
 
 static Export term_to_binary_trap_export;
 
@@ -2334,31 +2333,24 @@ erts_ttb_iov_size(int use_termv, Sint vlen, Uint fragments)
     ASSERT(vlen > 0);
     ASSERT(fragments > 0);
     sz = sizeof(SysIOVec)*vlen;
-    if (sz % sizeof(void *) != 0)
-        sz += sizeof(void *) - (sz % sizeof(void *));
     sz += sizeof(ErlDrvBinary *)*vlen;
     if (use_termv)
         sz += sizeof(Eterm)*vlen;
     sz += sizeof(ErlIOVec *)*fragments;
     sz += sizeof(ErlIOVec)*fragments;
-    if (sz % sizeof(void *) != 0)
-        sz += sizeof(void *) - (sz % sizeof(void *));
+    ASSERT(sz % sizeof(void*) == 0);
     return sz;
 }
 
-ErlIOVec **
+void
 erts_ttb_iov_init(TTBEncodeContext *ctx, int use_termv, char *ptr,
                   Sint vlen, Uint fragments, Uint fragment_size)
 {
-    int i;
-    ErlIOVec *feiovp;
     ctx->vlen = 0;
     ctx->size = 0;
     
     ctx->iov = (SysIOVec *) ptr;
     ptr += sizeof(SysIOVec)*vlen;
-    if (((UWord) ptr) % sizeof(void *) != 0)
-        ptr += sizeof(void *) - (((UWord) ptr) % sizeof(void *));
     ASSERT(((UWord) ptr) % sizeof(void *) == 0);
     
     ctx->binv = (ErlDrvBinary **) ptr;
@@ -2371,19 +2363,10 @@ erts_ttb_iov_init(TTBEncodeContext *ctx, int use_termv, char *ptr,
         ptr += sizeof(Eterm)*vlen;
     }
     
-    ctx->fragment_eiovs = (ErlIOVec **) ptr;
-    ptr += sizeof(ErlIOVec *)*fragments;
-
-    feiovp = (ErlIOVec *) ptr;
+    ctx->fragment_eiovs = (ErlIOVec *) ptr;
     ptr += sizeof(ErlIOVec)*fragments;
-
-    if (((UWord) ptr) % sizeof(void *) != 0)
-        ptr += sizeof(void *) - (((UWord) ptr) % sizeof(void *));
     ASSERT(((UWord) ptr) % sizeof(void *) == 0);
     
-    for (i = 0; i < fragments; i++)
-        ctx->fragment_eiovs[i] = &feiovp[i];
-
     ctx->frag_ix = -1;
     ctx->fragment_size = fragment_size;
 
@@ -2392,7 +2375,6 @@ erts_ttb_iov_init(TTBEncodeContext *ctx, int use_termv, char *ptr,
     ctx->debug_fragments = fragments;
     ctx->debug_vlen = vlen;
 #endif
-    return ctx->fragment_eiovs;
 }
 
 static Eterm erts_term_to_binary_int(Process* p, Sint bif_ix, Eterm Term, Eterm opts,
@@ -3659,36 +3641,27 @@ enc_term_int(TTBEncodeContext* ctx, ErtsAtomCacheMap *acmp, Eterm obj, byte* ep,
 }
 
 static ERTS_INLINE void
-store_in_vec_aux(Uint *szp,
-                 Sint *vlenp,
-                 SysIOVec *iov,
-                 ErlDrvBinary **binv,
-                 Eterm *termv,
+store_in_vec_aux(TTBEncodeContext *ctx,
                  Binary *bin,
                  Eterm term,
                  byte *ptr,
-                 Uint len,
-                 Sint *fixp,
-                 ErlIOVec **frag_eiovpp,
-                 Uint frag_size)
+                 Uint len)
 {
     ErlDrvBinary *dbin = Binary2ErlDrvBinary(bin);
-    Uint size = 0;
-    int vlen = *vlenp;
+    int vlen = ctx->vlen;
     Uint iov_len;
     ErlIOVec *feiovp;
-    Sint fix = *fixp;
 
     ASSERT(((byte *) &bin->orig_bytes[0]) <= ptr);
     ASSERT(ptr + len <= ((byte *) &bin->orig_bytes[0]) + bin->orig_size);
 
-    if (fix >= 0) {
-        feiovp = frag_eiovpp[fix];
+    if (ctx->frag_ix >= 0) {
+        feiovp = &ctx->fragment_eiovs[ctx->frag_ix];
         ASSERT(0 < feiovp->size);
-        ASSERT(feiovp->size <= frag_size);
-        if (feiovp->size != frag_size) {
+        ASSERT(feiovp->size <= ctx->fragment_size);
+        if (feiovp->size != ctx->fragment_size) {
             /* current fragment not full yet... */
-            iov_len = frag_size - feiovp->size;
+            iov_len = ctx->fragment_size - feiovp->size;
             if (len < iov_len)
                 iov_len = len;
             goto store_iov_data;
@@ -3697,33 +3670,33 @@ store_in_vec_aux(Uint *szp,
 
     while (len) {
         /* Start new fragment... */
+        ctx->frag_ix++;
+        feiovp = &ctx->fragment_eiovs[ctx->frag_ix];
+        ASSERT(ctx->frag_ix >= 0);
 
-        feiovp = frag_eiovpp[++fix];
-        ASSERT(fix >= 0);
-
-        if (termv) {
-            termv[vlen] = THE_NON_VALUE;
-            termv[vlen+1] = THE_NON_VALUE;
+        if (ctx->termv) {
+            ctx->termv[vlen] = THE_NON_VALUE;
+            ctx->termv[vlen+1] = THE_NON_VALUE;
         }
 
         feiovp->vsize = 2;
         feiovp->size = 0;
-        feiovp->iov = &iov[vlen];
-        feiovp->binv = &binv[vlen];
+        feiovp->iov = &ctx->iov[vlen];
+        feiovp->binv = &ctx->binv[vlen];
 
         /* entry for driver header */
-        iov[vlen].iov_base = NULL;
-        iov[vlen].iov_len = 0;
-        binv[vlen] = NULL;
+        ctx->iov[vlen].iov_base = NULL;
+        ctx->iov[vlen].iov_len = 0;
+        ctx->binv[vlen] = NULL;
         vlen++;
 
         /* entry for dist header */
-        iov[vlen].iov_base = NULL;
-        iov[vlen].iov_len = 0;
-        binv[vlen] = NULL;
+        ctx->iov[vlen].iov_base = NULL;
+        ctx->iov[vlen].iov_len = 0;
+        ctx->binv[vlen] = NULL;
         vlen++;
 
-        iov_len = len < frag_size ? len : frag_size;
+        iov_len = len < ctx->fragment_size ? len : ctx->fragment_size;
 
     store_iov_data:
 
@@ -3739,14 +3712,14 @@ store_in_vec_aux(Uint *szp,
                 iov_len = MAX_SYSIOVEC_IOVLEN;
             }
 
-            iov[vlen].iov_base = ptr;
-            iov[vlen].iov_len = iov_len;
-            binv[vlen] = dbin;
-            if (termv)
-                termv[vlen] = term;
+            ctx->iov[vlen].iov_base = ptr;
+            ctx->iov[vlen].iov_len = iov_len;
+            ctx->binv[vlen] = dbin;
+            if (ctx->termv)
+                ctx->termv[vlen] = term;
             else
                 erts_refc_inc(&bin->intern.refc, 2);
-            size += iov_len;
+            ctx->size += iov_len;
             len -= iov_len;
             ptr += iov_len;
             vlen++;
@@ -3757,9 +3730,7 @@ store_in_vec_aux(Uint *szp,
         } while (iov_len);
     }
 
-    *fixp = fix;
-    *vlenp = vlen;
-    *szp += size;
+    ctx->vlen = vlen;
 }
 
 static void
@@ -3773,32 +3744,22 @@ store_in_vec(TTBEncodeContext *ctx,
     byte *cp = ctx->cptr;
     if (cp != ep) {
         /* save data in common binary... */
-        store_in_vec_aux(&ctx->size,
-                         &ctx->vlen,
-                         ctx->iov,
-                         ctx->binv,
-                         ctx->termv,
+        store_in_vec_aux(ctx,
                          ctx->result_bin,
                          THE_NON_VALUE,
-                         cp, ep - cp,
-                         &ctx->frag_ix,
-                         ctx->fragment_eiovs,
-                         ctx->fragment_size);
+                         cp,
+                         ep - cp);
         ASSERT(ctx->vlen <= ctx->debug_vlen);
         ASSERT(ctx->frag_ix <= ctx->debug_fragments);
         ctx->cptr = ep;
     }
     if (ohbin) {
         /* save off-heap binary... */
-        store_in_vec_aux(&ctx->size,
-                         &ctx->vlen,
-                         ctx->iov,
-                         ctx->binv,
-                         ctx->termv,
-                         ohbin, ohpb, ohp, ohsz,
-                         &ctx->frag_ix,
-                         ctx->fragment_eiovs,
-                         ctx->fragment_size);
+        store_in_vec_aux(ctx,
+                         ohbin,
+                         ohpb,
+                         ohp,
+                         ohsz);
         ASSERT(ctx->vlen <= ctx->debug_vlen);
         ASSERT(ctx->frag_ix <= ctx->debug_fragments);
     }
@@ -5808,6 +5769,11 @@ Sint transcode_dist_obuf(ErtsDistOutputBuf* ob,
          * Suppress monitor control msg (see erts_dsig_send_monitor)
          * by converting it to an empty (tick) packet.
          */
+        int i;
+        for (i = 1; i < ob->eiov->vsize; i++) {
+            if (ob->eiov->binv[i])
+                driver_free_binary(ob->eiov->binv[i]);
+        }
         ob->eiov->vsize = 1;
         ob->eiov->size = 0;
         return reds;
@@ -5838,6 +5804,7 @@ Sint transcode_dist_obuf(ErtsDistOutputBuf* ob,
         byte *buf_start, *buf_end;
         byte *ptr;
         Uint hsz;
+        int i;
 
         hdr += 4;
         payload_ix = get_int32(hdr);
@@ -5899,6 +5866,10 @@ Sint transcode_dist_obuf(ErtsDistOutputBuf* ob,
         if (buf_start != (byte *) iov[2].iov_base)
             erts_free(ERTS_ALC_T_TMP, buf_start);
 
+        for (i = 1; i < ob->eiov->vsize; i++) {
+            if (ob->eiov->binv[i])
+                driver_free_binary(ob->eiov->binv[i]);
+        }
         ob->eiov->vsize = 1;
         ob->eiov->size = 0;
         

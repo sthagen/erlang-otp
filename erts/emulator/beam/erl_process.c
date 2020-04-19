@@ -1830,7 +1830,9 @@ misc_aux_work_clean(ErtsThrQ_t *q,
 	return aux_work | ERTS_SSI_AUX_WORK_MISC;
     case ERTS_THR_Q_NEED_THR_PRGR:
 	set_aux_work_flags(awdp->ssi, ERTS_SSI_AUX_WORK_MISC_THR_PRGR);
-	haw_thr_prgr_soft_wakeup(awdp, erts_thr_q_need_thr_progress(q));
+        awdp->misc.thr_prgr = erts_thr_q_need_thr_progress(q);
+	haw_thr_prgr_soft_wakeup(awdp, awdp->misc.thr_prgr);
+        break;
     case ERTS_THR_Q_CLEAN:
 	break;
     }
@@ -9203,7 +9205,13 @@ scheduler_gc_proc(Process *c_p, int reds_left)
 	fcalls = reds_left;
     else
 	fcalls = reds_left - CONTEXT_REDS;
+#ifdef ERTS_ENABLE_LOCK_CHECK
+    erts_proc_lc_require_lock(c_p, ERTS_PROC_LOCK_MAIN, __FILE__, __LINE__);
+#endif
     reds = erts_garbage_collect_nobump(c_p, 0, c_p->arg_reg, c_p->arity, fcalls);
+#ifdef ERTS_ENABLE_LOCK_CHECK
+    erts_proc_lc_unrequire_lock(c_p, ERTS_PROC_LOCK_MAIN);
+#endif
     ASSERT(reds_left >= reds);
     return reds;
 }
@@ -10400,17 +10408,18 @@ execute_sys_tasks(Process *c_p, erts_aint32_t *statep, int in_reds)
 	    break;
         case ERTS_PSTT_PRIO_SIG: {
             erts_aint32_t fail_state, state;
-            int local_only, sig_res, sig_reds = reds;
+            int sig_res, sig_reds = reds;
 	    st_res = am_false;
 
-            if (st->arg[0] == am_true)
-                local_only = !0;
-            else
-                local_only = 0;
+            if (st->arg[0] == am_false) {
+                erts_proc_lock(c_p, ERTS_PROC_LOCK_MSGQ);
+                erts_proc_sig_fetch(c_p);
+                erts_proc_unlock(c_p, ERTS_PROC_LOCK_MSGQ);
+            }
 
             sig_reds = reds;
             sig_res = erts_proc_sig_handle_incoming(c_p, &state, &sig_reds,
-                                                    reds, local_only);
+                                                    reds, !0);
             reds -= sig_reds;
 
             if (state & ERTS_PSFLG_EXITING) {
