@@ -40,7 +40,8 @@
 -include("beam_ssa_opt.hrl").
 
 -import(lists, [all/2,append/1,duplicate/2,flatten/1,foldl/3,
-                keyfind/3,last/1,member/2,reverse/1,reverse/2,
+                keyfind/3,last/1,mapfoldl/3,member/2,
+                partition/2,reverse/1,reverse/2,
                 splitwith/2,sort/1,takewhile/2,unzip/1]).
 
 -define(MAX_REPETITIONS, 16).
@@ -299,6 +300,7 @@ epilogue_passes(Opts) ->
           ?PASS(ssa_opt_blockify),
           ?PASS(ssa_opt_merge_blocks),
           ?PASS(ssa_opt_get_tuple_element),
+          ?PASS(ssa_opt_tail_calls),
           ?PASS(ssa_opt_trim_unreachable),
           ?PASS(ssa_opt_unfold_literals)],
     passes_1(Ps, Opts).
@@ -2185,10 +2187,55 @@ opt_ne_single_use(Var, Uses) when is_map(Uses) ->
 %%% extracting tuple elements on execution paths that never use the
 %%% extracted values.
 %%%
+%%% However, there is one caveat to be aware of. Sinking tuple elements
+%%% will keep the entire tuple alive longer. In rare circumstance, that
+%%% can be a problem. Here is an example:
+%%%
+%%%    mapfoldl(F, Acc0, [Hd|Tail]) ->
+%%%        {R,Acc1} = F(Hd, Acc0),
+%%%        {Rs,Acc2} = mapfoldl(F, Acc1, Tail),
+%%%        {[R|Rs],Acc2};
+%%%    mapfoldl(F, Acc, []) ->
+%%%        {[],Acc}.
+%%%
+%%% Sinking get_tuple_element instructions will generate code similar
+%%% to this example:
+%%%
+%%%    slow_mapfoldl(F, Acc0, [Hd|Tail]) ->
+%%%        Res1 = F(Hd, Acc0),
+%%%        Res2 = slow_mapfoldl(F, element(2, Res1), Tail),
+%%%        {[element(1, Res1)|element(1, Res2)],element(2, Res2)};
+%%%    slow_mapfoldl(F, Acc, []) ->
+%%%        {[],Acc}.
+%%%
+%%% Here the entire tuple bound to `Res1` will be kept alive until
+%%% `slow_mapfoldl/3` returns. That is, every intermediate accumulator
+%%% will be kept alive.
+%%%
+%%% In this case, not sinking is clearly superior:
+%%%
+%%%    fast_mapfoldl(F, Acc0, [Hd|Tail]) ->
+%%%        Res1 = F(Hd, Acc0),
+%%%        R = element(1, Res1),
+%%%        Res2 = fast_mapfoldl(F, element(2, Res1), Tail),
+%%%        {[R|element(1, Res2)],element(2, Res2)};
+%%%    fast_mapfoldl(F, Acc, []) ->
+%%%        {[],Acc}.
+%%%
+%%% The `slow_mapfoldl/3` and `fast_mapfoldl/3` use the same number of
+%%% stack slots.
+%%%
+%%% To avoid producing code similar to `slow_mapfoldl/3`, use an
+%%% heuristic to only sink when sinking would reduce the number of
+%%% stack slots, or if there can't possibly be a recursive call
+%%% involved. This is a heuristic because it is difficult to exactly
+%%% predict the number of stack slots that will be needed for a given
+%%% piece of code.
 
 ssa_opt_sink({#opt_st{ssa=Linear}=St, FuncDb}) ->
     %% Create a map with all variables that define get_tuple_element
-    %% instructions. The variable name map to the block it is defined in.
+    %% instructions. The variable name maps to the block it is defined
+    %% in and the source tuple.
     case def_blocks(Linear) of
         [] ->
             %% No get_tuple_element instructions, so there is nothing to do.
@@ -2199,32 +2246,36 @@ ssa_opt_sink({#opt_st{ssa=Linear}=St, FuncDb}) ->
     end.
 
 do_ssa_opt_sink(Defs, #opt_st{ssa=Linear}=St) ->
-    Blocks0 = maps:from_list(Linear),
-
-    %% Now find all the blocks that use variables defined by get_tuple_element
-    %% instructions.
+    %% Find all the blocks that use variables defined by
+    %% get_tuple_element instructions.
     Used = used_blocks(Linear, Defs, []),
 
     %% Calculate dominators.
+    Blocks0 = maps:from_list(Linear),
     {Dom,Numbering} = beam_ssa:dominators(Blocks0),
 
     %% It is not safe to move get_tuple_element instructions to blocks
     %% that begin with certain instructions. It is also unsafe to move
-    %% the instructions into any part of a receive. To avoid such
-    %% unsafe moves, pretend that the unsuitable blocks are not
-    %% dominators.
+    %% the instructions into any part of a receive.
     Unsuitable = unsuitable(Linear, Blocks0),
 
     %% Calculate new positions for get_tuple_element instructions. The new
     %% position is a block that dominates all uses of the variable.
-    DefLoc = new_def_locations(Used, Defs, Dom, Numbering, Unsuitable),
+    DefLocs0 = new_def_locations(Used, Defs, Dom, Numbering, Unsuitable),
+
+    %% Avoid keeping tuples alive if only one element is accessed later and
+    %% if there is the chance of a recursive call being made. This is an
+    %% important precaution to avoid that lists:mapfoldl/3 keeps all previous
+    %% versions of the accumulator alive until the end of the input list.
+    Ps = partition_deflocs(DefLocs0, Defs, Blocks0),
+    DefLocs1 = filter_deflocs(Ps, Blocks0),
+    DefLocs = sort(DefLocs1),
 
     %% Now move all suitable get_tuple_element instructions to their
     %% new blocks.
-    Blocks = foldl(fun({V,To}, A) ->
-                           From = map_get(V, Defs),
+    Blocks = foldl(fun({V,{From,To}}, A) ->
                            move_defs(V, From, To, A)
-                   end, Blocks0, DefLoc),
+                   end, Blocks0, DefLocs),
 
     St#opt_st{ssa=beam_ssa:linearize(Blocks)}.
 
@@ -2232,8 +2283,8 @@ def_blocks([{L,#b_blk{is=Is}}|Bs]) ->
     def_blocks_is(Is, L, def_blocks(Bs));
 def_blocks([]) -> [].
 
-def_blocks_is([#b_set{op=get_tuple_element,dst=Dst}|Is], L, Acc) ->
-    def_blocks_is(Is, L, [{Dst,L}|Acc]);
+def_blocks_is([#b_set{op=get_tuple_element,args=[Tuple,_],dst=Dst}|Is], L, Acc) ->
+    def_blocks_is(Is, L, [{Dst,{L,Tuple}}|Acc]);
 def_blocks_is([_|Is], L, Acc) ->
     def_blocks_is(Is, L, Acc);
 def_blocks_is([], _, Acc) -> Acc.
@@ -2244,6 +2295,179 @@ used_blocks([{L,Blk}|Bs], Def, Acc0) ->
     used_blocks(Bs, Def, Acc);
 used_blocks([], _Def, Acc) ->
     rel2fam(Acc).
+
+%% Partition sinks for get_tuple_element instructions in the same
+%% clause extracting from the same tuple. Sort each partition in
+%% execution order.
+partition_deflocs(DefLoc, _Defs, Blocks) ->
+    {BlkNums0,_} = mapfoldl(fun(L, N) -> {{L,N},N+1} end, 0, beam_ssa:rpo(Blocks)),
+    BlkNums = maps:from_list(BlkNums0),
+    S = [{Tuple,{map_get(To, BlkNums),{V,{From,To}}}} ||
+            {V,Tuple,{From,To}} <- DefLoc],
+    F = rel2fam(S),
+    partition_deflocs_1(F, Blocks).
+
+partition_deflocs_1([{Tuple,DefLocs0}|T], Blocks) ->
+    DefLocs1 = [DL || {_,DL} <- DefLocs0],
+    DefLocs = partition_dl(DefLocs1, Blocks),
+    [{Tuple,DL} || DL <- DefLocs] ++ partition_deflocs_1(T, Blocks);
+partition_deflocs_1([], _) -> [].
+
+partition_dl([_]=DefLoc, _Blocks) ->
+    [DefLoc];
+partition_dl([{_,{_,First}}|_]=DefLoc0, Blocks) ->
+    RPO = beam_ssa:rpo([First], Blocks),
+    {P,DefLoc} = partition_dl_1(DefLoc0, RPO, []),
+    [P|partition_dl(DefLoc, Blocks)];
+partition_dl([], _Blocks) -> [].
+
+partition_dl_1([{_,{_,L}}=DL|DLs], [L|_]=Ls, Acc) ->
+    partition_dl_1(DLs, Ls, [DL|Acc]);
+partition_dl_1([_|_]=DLs, [_|Ls], Acc) ->
+    partition_dl_1(DLs, Ls, Acc);
+partition_dl_1([], _, Acc) ->
+    {reverse(Acc),[]};
+partition_dl_1([_|_]=DLs, [], Acc) ->
+    {reverse(Acc),DLs}.
+
+filter_deflocs([{Tuple,DefLoc0}|DLs], Blocks) ->
+    %% Input is a list of sinks of get_tuple_element instructions in
+    %% execution order from the same tuple in the same clause.
+    [{_,{_,First}}|_] = DefLoc0,
+    Paths = find_paths_to_check(DefLoc0, First),
+    WillGC0 = ordsets:from_list([FromTo || {{_,_}=FromTo,_} <- Paths]),
+    WillGC1 = [{{From,To},will_gc(From, To, Blocks, true)} ||
+                  {From,To} <- WillGC0],
+    WillGC = maps:from_list(WillGC1),
+
+    %% Separate sinks that will force the reference to the tuple to be
+    %% saved on the stack from sinks that don't force.
+    {DefLocGC0,DefLocNoGC} =
+        partition(fun({{_,_}=FromTo,_}) ->
+                          map_get(FromTo, WillGC)
+                  end, Paths),
+
+    %% Avoid potentially harmful sinks.
+    DefLocGC = filter_gc_deflocs(DefLocGC0, Tuple, First, Blocks),
+
+    %% Construct the complete list of sink operations.
+    DefLoc1 = DefLocGC ++ DefLocNoGC,
+    [DL || {_,{_,{From,To}}=DL} <- DefLoc1, From =/= To] ++
+        filter_deflocs(DLs, Blocks);
+filter_deflocs([], _) -> [].
+
+%% Use an heuristic to avoid harmful sinking in lists:mapfold/3 and
+%% similar functions.
+filter_gc_deflocs(DefLocGC, Tuple, First, Blocks) ->
+    case DefLocGC of
+        [] ->
+            [];
+        [{_,{_,{From,To}}}] ->
+            %% There is only one get_tuple_element instruction that
+            %% can be sunk. That means that we may not gain any slots
+            %% by sinking it.
+            case is_on_stack(First, Tuple, Blocks) of
+                true ->
+                    %% The tuple itself must be stored in a stack slot
+                    %% (because it will be used later) in addition to
+                    %% the tuple element being extracted. It is
+                    %% probably a win to sink this instruction.
+                    DefLocGC;
+                false ->
+                    case will_gc(From, To, Blocks, false) of
+                        false ->
+                            %% There is no risk for recursive calls,
+                            %% so it should be safe to
+                            %% sink. Theoretically, we shouldn't win
+                            %% any stack slots, but in practice it
+                            %% seems that sinking makes it more likely
+                            %% that the stack slot for a dying value
+                            %% can be immediately reused for another
+                            %% value.
+                            DefLocGC;
+                        true ->
+                            %% This function could be involved in a
+                            %% recursive call. Since there is no
+                            %% obvious reduction in the number of
+                            %% stack slots, we will not sink.
+                            []
+                    end
+            end;
+        [_,_|_] ->
+            %% More than one get_tuple_element instruction can be
+            %% sunk. Sinking will almost certainly reduce the number
+            %% of stack slots.
+            DefLocGC
+    end.
+
+find_paths_to_check([{_,{_,To}}=Move|T], First) ->
+    [{{First,To},Move}|find_paths_to_check(T, First)];
+find_paths_to_check([], _First) -> [].
+
+will_gc(From, To, Blocks, All) ->
+    will_gc(beam_ssa:rpo([From], Blocks), To, Blocks, All, #{From => false}).
+
+will_gc([To|_], To, _Blocks, _All, WillGC) ->
+    map_get(To, WillGC);
+will_gc([L|Ls], To, Blocks, All, WillGC0) ->
+    #b_blk{is=Is} = Blk = map_get(L, Blocks),
+    GC = map_get(L, WillGC0) orelse will_gc_is(Is, All),
+    WillGC = gc_update_successors(Blk, GC, WillGC0),
+    will_gc(Ls, To, Blocks, All, WillGC).
+
+will_gc_is([#b_set{op=call,args=Args}|Is], false) ->
+    case Args of
+        [#b_remote{mod=#b_literal{val=erlang}}|_] ->
+            %% Assume that remote calls to the erlang module can't cause a recursive
+            %% call.
+            will_gc_is(Is, false);
+        [_|_] ->
+            true
+    end;
+will_gc_is([_|Is], false) ->
+    %% Instructions that clobber X registers may cause a GC, but will not cause
+    %% a recursive call.
+    will_gc_is(Is, false);
+will_gc_is([I|Is], All) ->
+    beam_ssa:clobbers_xregs(I) orelse will_gc_is(Is, All);
+will_gc_is([], _All) -> false.
+
+is_on_stack(From, Var, Blocks) ->
+    is_on_stack(beam_ssa:rpo([From], Blocks), Var, Blocks, #{From => false}).
+
+is_on_stack([L|Ls], Var, Blocks, WillGC0) ->
+    #b_blk{is=Is} = Blk = map_get(L, Blocks),
+    GC0 = map_get(L, WillGC0),
+    try is_on_stack_is(Is, Var, GC0) of
+        GC ->
+            WillGC = gc_update_successors(Blk, GC, WillGC0),
+            is_on_stack(Ls, Var, Blocks, WillGC)
+    catch
+        throw:{done,GC} ->
+            GC
+    end;
+is_on_stack([], _Var, _, _) -> false.
+
+is_on_stack_is([#b_set{op=get_tuple_element}|Is], Var, GC) ->
+    is_on_stack_is(Is, Var, GC);
+is_on_stack_is([I|Is], Var, GC0) ->
+    case GC0 andalso member(Var, beam_ssa:used(I)) of
+        true ->
+            throw({done,GC0});
+        false ->
+            GC = GC0 orelse beam_ssa:clobbers_xregs(I),
+            is_on_stack_is(Is, Var, GC)
+    end;
+is_on_stack_is([], _, GC) -> GC.
+
+gc_update_successors(Blk, GC, WillGC) ->
+    foldl(fun(L, Acc) ->
+                  case Acc of
+                      #{L := true} -> Acc;
+                      #{L := false} when GC =:= false -> Acc;
+                      #{} -> Acc#{L => GC}
+                  end
+          end, WillGC, beam_ssa:successors(Blk)).
 
 %% unsuitable(Linear, Blocks) -> Unsuitable.
 %%  Return an ordset of block labels for the blocks that are not
@@ -2327,19 +2551,22 @@ is_loop_header(L, Blocks) ->
 %%  of the variable and as near to the uses of as possible.
 
 new_def_locations([{V,UsedIn}|Vs], Defs, Dom, Numbering, Unsuitable) ->
-    DefIn = map_get(V, Defs),
+    {DefIn,Tuple} = map_get(V, Defs),
     Common = common_dominator(UsedIn, Dom, Numbering, Unsuitable),
-    case member(Common, map_get(DefIn, Dom)) of
-        true ->
-            %% The common dominator is either DefIn or an
-            %% ancestor of DefIn.
-            new_def_locations(Vs, Defs, Dom, Numbering, Unsuitable);
-        false ->
-            %% We have found a suitable descendant of DefIn,
-            %% to which the get_tuple_element instruction can
-            %% be sunk.
-            [{V,Common}|new_def_locations(Vs, Defs, Dom, Numbering, Unsuitable)]
-    end;
+    Sink = case member(Common, map_get(DefIn, Dom)) of
+               true ->
+                   %% The common dominator is either DefIn or an
+                   %% ancestor of DefIn. We'll need to consider all
+                   %% get_tuple_element instructions so we will add
+                   %% a dummy sink.
+                   {V,Tuple,{DefIn,DefIn}};
+               false ->
+                   %% We have found a suitable descendant of DefIn,
+                   %% to which the get_tuple_element instruction can
+                   %% be sunk.
+                   {V,Tuple,{DefIn,Common}}
+           end,
+    [Sink|new_def_locations(Vs, Defs, Dom, Numbering, Unsuitable)];
 new_def_locations([], _, _, _, _) -> [].
 
 common_dominator(Ls0, Dom, Numbering, Unsuitable) ->
@@ -2362,7 +2589,6 @@ move_defs(V, From, To, Blocks) ->
     {Def,FromBlk} = remove_def(V, FromBlk0),
     try insert_def(V, Def, ToBlk0) of
         ToBlk ->
-            %%io:format("~p: ~p => ~p\n", [V,From,To]),
             Blocks#{From:=FromBlk,To:=ToBlk}
     catch
         throw:not_possible ->
@@ -2681,6 +2907,170 @@ unfold_arg(#b_literal{val=Val}=Lit, LitMap, X) ->
         #{} -> Lit
     end;
 unfold_arg(Expr, _LitMap, _X) -> Expr.
+
+%%%
+%%% Optimize tail calls created as the result of optimizations.
+%%%
+%%% Consider the following example of a tail call in Erlang code:
+%%%
+%%%    bar() ->
+%%%        foo().
+%%%
+%%% The SSA code for the call will look like this:
+%%%
+%%%      @ssa_ret = call (`foo`/0)
+%%%      ret @ssa_ret
+%%%
+%%% Sometimes optimizations create new tail calls. Consider this
+%%% slight variation of the example:
+%%%
+%%%    bar() ->
+%%%        {_,_} = foo().
+%%%
+%%%    foo() -> {a,b}.
+%%%
+%%% If beam_ssa_type can figure out that `foo/0` always returns a tuple
+%%% of size two, the test for a tuple is no longer needed and the call
+%%% to `foo/0` will become a tail call. However, the resulting SSA
+%%% code will look like this:
+%%%
+%%%      @ssa_ret = call (`foo`/0)
+%%%      @ssa_bool = succeeded:body @ssa_ret
+%%%      br @ssa_bool, ^999, ^1
+%%%
+%%%    999:
+%%%      ret @ssa_ret
+%%%
+%%% The beam_ssa_codegen pass will not recognize this code as a tail
+%%% call and will generate an unncessary stack frame. It may also
+%%% generate unecessary `kill` instructions.
+%%%
+%%% To avoid those extra instructions, this optimization will
+%%% eliminate the `succeeded:body` and `br` instructions and insert
+%%% the `ret` in the same block as the call:
+%%%
+%%%      @ssa_ret = call (`foo`/0)
+%%%      ret @ssa_ret
+%%%
+%%% Finally, consider this example:
+%%%
+%%%    bar() ->
+%%%        foo_ok(),
+%%%        ok.
+%%%
+%%%    foo_ok() -> ok.
+%%%
+%%% The SSA code for the call to `foo_ok/0` will look like:
+%%%
+%%%      %% Result type: `ok`
+%%%      @ssa_ignored = call (`foo_ok`/0)
+%%%      @ssa_bool = succeeded:body @ssa_ignored
+%%%      br @ssa_bool, ^999, ^1
+%%%
+%%%    999:
+%%%      ret `ok`
+%%%
+%%% Since the call to `foo_ok/0` has an annotation indicating that the
+%%% call will always return the atom `ok`, the code can be simplified
+%%% like this:
+%%%
+%%%      @ssa_ignored = call (`foo_ok`/0)
+%%%      ret @ssa_ignored
+%%%
+%%% The beam_jump pass does the same optimization, but it does it too
+%%% late to avoid creating an uncessary stack frame or unnecessary
+%%% `kill` instructions.
+%%%
+
+ssa_opt_tail_calls({St,FuncDb}) ->
+    #opt_st{ssa=Blocks0} = St,
+    Blocks = opt_tail_calls(beam_ssa:rpo(Blocks0), Blocks0),
+    {St#opt_st{ssa=Blocks},FuncDb}.
+
+opt_tail_calls([L|Ls], Blocks0) ->
+    #b_blk{is=Is0,last=Last} = Blk0 = map_get(L, Blocks0),
+
+    %% Does this block end with a two-way branch whose success
+    %% label targets an empty block with a `ret` terminator?
+    case is_potential_tail_call(Last, Blocks0) of
+        {yes,Bool,Ret} ->
+            %% Yes, `Ret` is the value returned from that block
+            %% (either a variable or literal). Do the instructions
+            %% in this block end with a `call` instruction that
+            %% returns the same value as `Ret`, followed by a
+            %% `succeeded:body` instruction?
+            case is_tail_call_is(Is0, Bool, Ret, []) of
+                {yes,Is,Var} ->
+                    %% Yes, this is a tail call. `Is` is the instructions
+                    %% in the block with `succeeded:body` removed, and
+                    %% `Var` is the destination variable for the return
+                    %% value of the call. Rewrite this block to directly
+                    %% return `Var`.
+                    Blk = Blk0#b_blk{is=Is,last=#b_ret{arg=Var}},
+                    Blocks = Blocks0#{L:=Blk},
+                    opt_tail_calls(Ls, Blocks);
+                no ->
+                    %% No, the block does not end with a call, or the
+                    %% the call instruction has not the same value
+                    %% as `Ret`.
+                    opt_tail_calls(Ls, Blocks0)
+            end;
+        no ->
+            opt_tail_calls(Ls, Blocks0)
+    end;
+opt_tail_calls([], Blocks) -> Blocks.
+
+is_potential_tail_call(#b_br{bool=#b_var{}=Bool,succ=Succ}, Blocks) ->
+    case Blocks of
+        #{Succ := #b_blk{is=[],last=#b_ret{arg=Arg}}} ->
+            %% This could be a tail call.
+            {yes,Bool,Arg};
+        #{} ->
+            %% The block is not empty or does not have a `ret` terminator.
+            no
+    end;
+is_potential_tail_call(_, _) ->
+    %% Not a two-way branch (a `succeeded:body` instruction must be
+    %% followed by a two-way branch).
+    no.
+
+is_tail_call_is([#b_set{op=call,dst=Dst}=Call,
+                 #b_set{op={succeeded,body},dst=Bool}],
+                Bool, Ret, Acc) ->
+    IsTailCall =
+        case Ret of
+            #b_literal{val=Val} ->
+                %% The return value for this function is a literal.
+                %% Now test whether it is the same literal that the
+                %% `call` instruction returns.
+                Type = beam_ssa:get_anno(result_type, Call, any),
+                case beam_types:get_singleton_value(Type) of
+                    {ok,Val} ->
+                        %% Same value.
+                        true;
+                    {ok,_} ->
+                        %% Wrong value.
+                        false;
+                    error ->
+                        %% The type for the return value is not a singleton value.
+                        false
+                end;
+            #b_var{} ->
+                %% It is a tail call if the variable set by the `call` instruction
+                %% is the same variable as the argument for the `ret` terminator.
+                Ret =:= Dst
+        end,
+    case IsTailCall of
+        true ->
+            %% Return the instructions in the block with `succeeded:body` removed.
+            Is = reverse(Acc, [Call]),
+            {yes,Is,Dst};
+        false ->
+            no
+    end;
+is_tail_call_is([I|Is], Bool, Ret, Acc) ->
+    is_tail_call_is(Is, Bool, Ret, [I|Acc]);
+is_tail_call_is([], _Bool, _Ret, _Acc) -> no.
 
 %%%
 %%% Common utilities.

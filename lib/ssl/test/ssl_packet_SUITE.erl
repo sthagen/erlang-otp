@@ -41,7 +41,7 @@
 
 -define(MANY, 1000).
 -define(SOME, 50).
--define(BASE_TIMEOUT_SECONDS, 5).
+-define(BASE_TIMEOUT_SECONDS, 20).
 -define(SOME_SCALE, 2).
 -define(MANY_SCALE, 3).
 
@@ -2148,7 +2148,7 @@ server_packet_decode(Socket, Packet) ->
 	{ssl, Socket, Packet}  -> ok;
 	Other1 -> exit({?LINE, Other1})
     end,
-    ok = ssl:send(Socket, Packet),
+    spawn(fun() -> ssl:send(Socket, Packet) end),
     receive
 	{ssl, Socket, Packet}  -> ok;
 	Other2 -> exit({?LINE, Other2})
