@@ -179,6 +179,17 @@
       <p>Options for <seemfa marker="#connect/3">clients</seemfa>.
       The individual options are further explained below or by following the hyperlinks.
       </p>
+      <p>Note that not every
+      <seetype marker="kernel:gen_tcp#connect_option">gen_tcp:connect_option()</seetype>
+      is accepted. See
+      <seemfa marker="ssh#set_sock_opts/2">set_sock_opts/2</seemfa>
+      for a list of prohibited options.
+      </p>
+      <p>Also note that setting a
+      <seetype marker="kernel:gen_tcp#connect_option">gen_tcp:connect_option()</seetype>
+      could change the socket in a way that impacts the ssh client's behaviour
+      negatively. You use it on your own risk.
+      </p>
       </desc>
     </datatype>
 
@@ -340,6 +351,17 @@
       <desc>
       <p>Options for <seemfa marker="#daemon/1">daemons</seemfa>.
       The individual options are further explained below or by following the hyperlinks.
+      </p>
+      <p>Note that not every
+      <seetype marker="kernel:gen_tcp#listen_option">gen_tcp:listen_option()</seetype>
+      is accepted. See
+      <seemfa marker="ssh#set_sock_opts/2">set_sock_opts/2</seemfa>
+      for a list of prohibited options.
+      </p>
+      <p>Also note that setting a
+      <seetype marker="kernel:gen_tcp#listen_option">gen_tcp:listen_option()</seetype>
+      could change the socket in a way that impacts the ssh deamon's behaviour
+      negatively. You use it on your own risk.
       </p>
       </desc>
     </datatype>
@@ -514,6 +536,7 @@
       <name name="prompt_texts"/>
       <name name="kb_int_tuple"/>
       <name name="kb_int_fun_3"/>
+      <name name="kb_int_fun_4"/>
       <name name="pwdfun_2"/>
       <name name="pwdfun_4"/>
       <desc>
@@ -522,7 +545,7 @@
 	  <item>
 	    <p>Sets the text strings that the daemon sends to the client for presentation to the user when
 	    using <c>keyboard-interactive</c> authentication.</p>
-	    <p>If the fun/3 is used, it is called when the actual authentication occurs and may therefore
+	    <p>If the fun/3 or fun/4 is used, it is called when the actual authentication occurs and may therefore
 	    return dynamic data like time, remote ip etc.</p>
 	    <p>The parameter <c>Echo</c> guides the client about need to hide the password.</p>
 	    <p>The default value is:
@@ -874,7 +897,7 @@
     <datatype>
       <name name="disconnectfun_common_option"/>
       <desc>
-	<p>Provides a fun to implement your own logging when the peer disconnects.</p>
+	<p>Provides a fun to implement your own logging or other handling at disconnects.</p>
       </desc>
     </datatype>
 
@@ -1221,8 +1244,17 @@
        <p>This function calls the
        <seemfa marker="kernel:inet#setopts/2">inet:setopts/2</seemfa>, read that documentation and
        for <seetype marker="kernel:gen_tcp#option">gen_tcp:option()</seetype>.
-       All gen_tcp socket options except <c>active</c>, <c>deliver</c>, <c>mode</c> and <c>packet</c>
-       are allowed. The excluded options are reserved by the SSH application.
+       </p>
+       <p>
+       All gen_tcp socket options except
+       </p>
+       <list>
+	 <item><c>active</c></item>
+	 <item><c>deliver</c></item>
+	 <item><c>mode</c> and</item>
+	 <item><c>packet</c></item>
+       </list>
+       <p>are allowed. The excluded options are reserved by the SSH application.
        </p>
        <warning>
 	 <p>This is an extremly dangerous function. You use it on your own risk.</p>

@@ -261,22 +261,20 @@ config_val(Key, RoleCnfs, Opts) ->
 
 
 check_fun(Key, Defs) ->
-    #{chk := Fun} = maps:get(Key, Defs),
-    Fun.
+    case ssh_connection_handler:prohibited_sock_option(Key) of
+        false ->
+            #{chk := Fun} = maps:get(Key, Defs),
+            Fun;
+        true ->
+            fun(_,_) -> forbidden end
+    end.
 
 %%%================================================================
 %%%
 %%% Check and save one option
 %%%
 
-
-%%% First some prohibited inet options:
-save({K,V}, _, _) when K == reuseaddr ;
-                       K == active
-                       ->
-    forbidden_option(K, V);
-
-%%% then compatibility conversions:
+%%% First compatibility conversions:
 save({allow_user_interaction,V}, Opts, Vals) ->
     save({user_interaction,V}, Opts, Vals);
 
@@ -297,7 +295,12 @@ save({Key,Value}, Defs, OptMap) when is_map(OptMap) ->
         {true, ModifiedValue} ->
             OptMap#{Key := ModifiedValue};
         false ->
-            error({eoptions, {Key,Value}, "Bad value"})
+            error({eoptions, {Key,Value}, "Bad value"});
+        forbidden ->
+            error({eoptions, {Key,Value}, 
+                   io_lib:format("The option '~s' is used internally. The "
+                                 "user is not allowed to specify this option.",
+                                 [Key])})
     catch
         %% An unknown Key (= not in the definition map) is
         %% regarded as an inet option:
@@ -424,7 +427,8 @@ default(server) ->
                                check_string(S3) andalso
                                is_boolean(B);
                       (F) ->
-                           check_function3(F)
+                           check_function3(F) orelse
+                               check_function4(F)
                    end,
             class => user_option
            },
@@ -1178,12 +1182,5 @@ error_if_empty([_|T]) ->
     error_if_empty(T);
 error_if_empty([]) ->
     ok.
-
-%%%----------------------------------------------------------------
-forbidden_option(K,V) ->
-    Txt = io_lib:format("The option '~s' is used internally. The "
-                        "user is not allowed to specify this option.",
-                        [K]),
-    error({eoptions, {K,V}, Txt}).
 
 %%%----------------------------------------------------------------

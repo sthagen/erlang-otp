@@ -63,7 +63,8 @@
 	 adjust_window/3, close/2,
 	 disconnect/4,
 	 get_print_info/1,
-         set_sock_opts/2, get_sock_opts/2
+         set_sock_opts/2, get_sock_opts/2,
+         prohibited_sock_option/1
 	]).
 
 -type connection_ref() :: ssh:connection_ref().
@@ -365,11 +366,11 @@ retrieve(ConnectionHandler, Key) ->
 %% . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 set_sock_opts(ConnectionRef, SocketOptions) ->
     try lists:foldr(fun({Name,_Val}, Acc) ->
-                            case lists:member(Name, [active, deliver, mode, packet]) of
+                            case prohibited_sock_option(Name) of
                                 true -> [Name|Acc];
                                 false -> Acc
                             end
-                     end, [], SocketOptions)
+                    end, [], SocketOptions)
     of
         [] ->
             call(ConnectionRef, {set_sock_opts,SocketOptions});
@@ -379,6 +380,12 @@ set_sock_opts(ConnectionRef, SocketOptions) ->
         _:_ ->
             {error, badarg}
     end.
+
+prohibited_sock_option(active)    -> true;
+prohibited_sock_option(deliver)   -> true;
+prohibited_sock_option(mode)      -> true;
+prohibited_sock_option(packet)    -> true;
+prohibited_sock_option(_) -> false.
 
 %%--------------------------------------------------------------------
 %% . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
@@ -2123,14 +2130,21 @@ pause_renegotiate_timers(State, D) ->
                             {{timeout,check_data_size}, infinity, none} ]}.
 
 check_data_rekeying(Role, D) ->
-    {ok, [{send_oct,SocketSentTotal}]} = inet:getstat(D#data.socket, [send_oct]),
-    SentSinceRekey = SocketSentTotal - D#data.last_size_rekey,
-    {_RekeyTimeout,MaxSent} = ?GET_OPT(rekey_limit, (D#data.ssh_params)#ssh.opts),
-    case check_data_rekeying_dbg(SentSinceRekey, MaxSent) of
-        true ->
-            start_rekeying(Role, D#data{last_size_rekey = SocketSentTotal});
-        _ ->
-            %% Not enough data sent for a re-negotiation. Restart timer.
+    case inet:getstat(D#data.socket, [send_oct]) of
+        {ok, [{send_oct,SocketSentTotal}]} ->
+            SentSinceRekey = SocketSentTotal - D#data.last_size_rekey,
+            {_RekeyTimeout,MaxSent} = ?GET_OPT(rekey_limit, (D#data.ssh_params)#ssh.opts),
+            case check_data_rekeying_dbg(SentSinceRekey, MaxSent) of
+                true ->
+                    start_rekeying(Role, D#data{last_size_rekey = SocketSentTotal});
+                _ ->
+                    %% Not enough data sent for a re-negotiation. Restart timer.
+                    {keep_state, D, {{timeout,check_data_size}, ?REKEY_DATA_TIMOUT, none}}
+            end;
+        {error,_} ->
+            %% Socket closed, but before this module has handled that. Maybe
+            %% it is in the message queue.
+            %% Just go on like if there was not enough data transmitted to start re-keying:
             {keep_state, D, {{timeout,check_data_size}, ?REKEY_DATA_TIMOUT, none}}
     end.
 
