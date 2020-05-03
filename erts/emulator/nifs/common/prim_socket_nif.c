@@ -965,9 +965,6 @@ typedef struct {
     ESockCounter       writeTries;
     ESockCounter       writeWaits;
     ESockCounter       writeFails;
-    /* Connect */
-    ESockAddress       remote;
-    socklen_t          addrLen;
     /* +++ Connector +++ */
     ESockRequestor     connector;
     ESockRequestor*    connectorP;
@@ -1270,19 +1267,16 @@ static ERL_NIF_TERM esock_accept_listening_accept(ErlNifEnv*       env,
                                                   ESockDescriptor* descP,
                                                   ERL_NIF_TERM     sockRef,
                                                   SOCKET           accSock,
-                                                  ErlNifPid        caller,
-                                                  ESockAddress*    remote,
-                                                  unsigned int len);
+                                                  ErlNifPid        caller);
 static ERL_NIF_TERM esock_accept_accepting_current(ErlNifEnv*       env,
                                                    ESockDescriptor* descP,
                                                    ERL_NIF_TERM     sockRef,
                                                    ERL_NIF_TERM     ref);
-static ERL_NIF_TERM esock_accept_accepting_current_accept(ErlNifEnv*       env,
-                                                          ESockDescriptor* descP,
-                                                          ERL_NIF_TERM     sockRef,
-                                                          SOCKET           accSock,
-                                                          ESockAddress*    remote,
-                                                          unsigned int     len);
+static ERL_NIF_TERM
+esock_accept_accepting_current_accept(ErlNifEnv*       env,
+                                      ESockDescriptor* descP,
+                                      ERL_NIF_TERM     sockRef,
+                                      SOCKET           accSock);
 static ERL_NIF_TERM esock_accept_accepting_current_error(ErlNifEnv*       env,
                                                          ESockDescriptor* descP,
                                                          ERL_NIF_TERM     sockRef,
@@ -1302,8 +1296,6 @@ static BOOLEAN_T esock_accept_accepted(ErlNifEnv*       env,
                                        ERL_NIF_TERM     sockRef,
                                        SOCKET           accSock,
                                        ErlNifPid        pid,
-                                       ESockAddress*    remote,
-                                       unsigned int     len,
                                        ERL_NIF_TERM*    result);
 static ERL_NIF_TERM esock_send(ErlNifEnv*       env,
                                ESockDescriptor* descP,
@@ -1466,7 +1458,7 @@ static ERL_NIF_TERM esock_setopt_lvl_sock_rcvlowat(ErlNifEnv*       env,
                                                    ESockDescriptor* descP,
                                                    ERL_NIF_TERM     eVal);
 #endif
-#if defined(SO_RCVTIMEO)
+#if defined(SO_RCVTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
 static ERL_NIF_TERM esock_setopt_lvl_sock_rcvtimeo(ErlNifEnv*       env,
                                                    ESockDescriptor* descP,
                                                    ERL_NIF_TERM     eVal);
@@ -1491,7 +1483,7 @@ static ERL_NIF_TERM esock_setopt_lvl_sock_sndlowat(ErlNifEnv*       env,
                                                    ESockDescriptor* descP,
                                                    ERL_NIF_TERM     eVal);
 #endif
-#if defined(SO_SNDTIMEO)
+#if defined(SO_SNDTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
 static ERL_NIF_TERM esock_setopt_lvl_sock_sndtimeo(ErlNifEnv*       env,
                                                    ESockDescriptor* descP,
                                                    ERL_NIF_TERM     eVal);
@@ -2004,7 +1996,7 @@ static ERL_NIF_TERM esock_getopt_lvl_sock_rcvbuf(ErlNifEnv*       env,
 static ERL_NIF_TERM esock_getopt_lvl_sock_rcvlowat(ErlNifEnv*       env,
                                                    ESockDescriptor* descP);
 #endif
-#if defined(SO_RCVTIMEO)
+#if defined(SO_RCVTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
 static ERL_NIF_TERM esock_getopt_lvl_sock_rcvtimeo(ErlNifEnv*       env,
                                                    ESockDescriptor* descP);
 #endif
@@ -2024,7 +2016,7 @@ static ERL_NIF_TERM esock_getopt_lvl_sock_sndbuf(ErlNifEnv*       env,
 static ERL_NIF_TERM esock_getopt_lvl_sock_sndlowat(ErlNifEnv*       env,
                                                    ESockDescriptor* descP);
 #endif
-#if defined(SO_SNDTIMEO)
+#if defined(SO_SNDTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
 static ERL_NIF_TERM esock_getopt_lvl_sock_sndtimeo(ErlNifEnv*       env,
                                                    ESockDescriptor* descP);
 #endif
@@ -2349,11 +2341,13 @@ static ERL_NIF_TERM esock_setopt_int_opt(ErlNifEnv*       env,
                                          int              level,
                                          int              opt,
                                          ERL_NIF_TERM     eVal);
+#if (defined(SO_RCVTIMEO) || defined(SO_SNDTIMEO)) && defined(ESOCK_USE_RCVSNDTIMEO)
 static ERL_NIF_TERM esock_setopt_timeval_opt(ErlNifEnv*       env,
                                              ESockDescriptor* descP,
                                              int              level,
                                              int              opt,
                                              ERL_NIF_TERM     eVal);
+#endif
 
 #if defined(USE_GETOPT_STR_OPT)
 static ERL_NIF_TERM esock_getopt_str_opt(ErlNifEnv*       env,
@@ -2370,10 +2364,12 @@ static ERL_NIF_TERM esock_getopt_int_opt(ErlNifEnv*       env,
                                          ESockDescriptor* descP,
                                          int              level,
                                          int              opt);
+#if (defined(SO_RCVTIMEO) || defined(SO_SNDTIMEO)) && defined(ESOCK_USE_RCVSNDTIMEO)
 static ERL_NIF_TERM esock_getopt_timeval_opt(ErlNifEnv*       env,
                                              ESockDescriptor* descP,
                                              int              level,
                                              int              opt);
+#endif
 
 static BOOLEAN_T send_check_writer(ErlNifEnv*       env,
                                    ESockDescriptor* descP,
@@ -3460,50 +3456,64 @@ ERL_NIF_TERM esock_global_info(ErlNifEnv* env)
         numProtoIP, numProtoTCP, numProtoUDP, numProtoSCTP;
 
     MLOCK(data.cntMtx);
-    numBits        = MKCT(env, atom_num_cnt_bits, ESOCK_COUNTER_SIZE);
-    numSockets     = MKCT(env, atom_num_sockets,  data.numSockets);
-    numTypeDGrams  = MKCT(env, atom_num_tdgrams,  data.numTypeDGrams);
-    numTypeStreams = MKCT(env, atom_num_tstreams, data.numTypeStreams);
-    numTypeSeqPkgs = MKCT(env, atom_num_tseqpkgs, data.numTypeSeqPkgs);
-    numDomLocal    = MKCT(env, atom_num_dlocal,   data.numDomainLocal);
-    numDomInet     = MKCT(env, atom_num_dinet,    data.numDomainInet);
-    numDomInet6    = MKCT(env, atom_num_dinet6,   data.numDomainInet6);
-    numProtoIP     = MKCT(env, atom_num_pip,      data.numProtoIP);
-    numProtoTCP    = MKCT(env, atom_num_ptcp,     data.numProtoTCP);
-    numProtoUDP    = MKCT(env, atom_num_pudp,     data.numProtoUDP);
-    numProtoSCTP   = MKCT(env, atom_num_psctp,    data.numProtoSCTP);
+    numBits        = MKUI(env, ESOCK_COUNTER_SIZE);
+    numSockets     = MKUI(env, data.numSockets);
+    numTypeDGrams  = MKUI(env, data.numTypeDGrams);
+    numTypeStreams = MKUI(env, data.numTypeStreams);
+    numTypeSeqPkgs = MKUI(env, data.numTypeSeqPkgs);
+    numDomLocal    = MKUI(env, data.numDomainLocal);
+    numDomInet     = MKUI(env, data.numDomainInet);
+    numDomInet6    = MKUI(env, data.numDomainInet6);
+    numProtoIP     = MKUI(env, data.numProtoIP);
+    numProtoTCP    = MKUI(env, data.numProtoTCP);
+    numProtoUDP    = MKUI(env, data.numProtoUDP);
+    numProtoSCTP   = MKUI(env, data.numProtoSCTP);
     MUNLOCK(data.cntMtx);
 
     {
-        ERL_NIF_TERM gcnt[] =
+        ERL_NIF_TERM gcntVals[] =
             {numBits,
              numSockets,
              numTypeDGrams, numTypeStreams, numTypeSeqPkgs,
              numDomLocal, numDomInet, numDomInet6,
              numProtoIP, numProtoTCP, numProtoUDP, numProtoSCTP};
-        unsigned int lenGCnt =
-            sizeof(gcnt) / sizeof(ERL_NIF_TERM);
-        ERL_NIF_TERM
-            lgcnt  = MKLA(env, gcnt, lenGCnt),
-            keys[] = {esock_atom_debug,
-                      atom_socket_debug,
-                      atom_iow,
-                      atom_counters},
-            vals[] = {BOOL2ATOM(data.dbg),
-                      BOOL2ATOM(data.sockDbg),
-                      BOOL2ATOM(data.iow),
-                      lgcnt},
-            info;
-        unsigned int
-            numKeys = sizeof(keys) / sizeof(ERL_NIF_TERM),
-            numVals = sizeof(vals) / sizeof(ERL_NIF_TERM);
+        ERL_NIF_TERM gcntKeys[] =
+            {atom_num_cnt_bits,
+             atom_num_sockets,
+             atom_num_tdgrams, atom_num_tstreams, atom_num_tseqpkgs,
+             atom_num_dlocal, atom_num_dinet, atom_num_dinet6,
+             atom_num_pip, atom_num_ptcp, atom_num_pudp, atom_num_psctp};
+        unsigned int numGCntVals = sizeof(gcntVals) / sizeof(ERL_NIF_TERM);
+        unsigned int numGCntKeys = sizeof(gcntKeys) / sizeof(ERL_NIF_TERM);
+        ERL_NIF_TERM gcnt;
 
-        ESOCK_ASSERT( (numKeys == numVals) );
-
-        if (!MKMA(env, keys, vals, numKeys, &info))
+        ESOCK_ASSERT( (numGCntKeys == numGCntVals) );
+        
+        if (!MKMA(env, gcntKeys, gcntVals, numGCntKeys, &gcnt))
             return enif_make_badarg(env);
 
-        return info;
+        {
+            ERL_NIF_TERM
+                keys[] = {esock_atom_debug,
+                          atom_socket_debug,
+                          atom_iow,
+                          atom_counters},
+                vals[] = {BOOL2ATOM(data.dbg),
+                          BOOL2ATOM(data.sockDbg),
+                          BOOL2ATOM(data.iow),
+                          gcnt},
+                info;
+            unsigned int
+                numKeys = sizeof(keys) / sizeof(ERL_NIF_TERM),
+                numVals = sizeof(vals) / sizeof(ERL_NIF_TERM);
+
+            ESOCK_ASSERT( (numKeys == numVals) );
+
+            if (!MKMA(env, keys, vals, numKeys, &info))
+                return enif_make_badarg(env);
+
+            return info;
+        }
     }
 }
 
@@ -3519,7 +3529,6 @@ ERL_NIF_TERM esock_global_info(ErlNifEnv* env)
  *    readers:   The number of current and waiting readers
  *    writers:   The number of current and waiting writers
  *    acceptors: The number of current and waiting acceptors
- *   (remote:    (socket) Address of the peer (if connected))
  */
 static
 ERL_NIF_TERM esock_socket_info(ErlNifEnv*       env,
@@ -3534,13 +3543,6 @@ ERL_NIF_TERM esock_socket_info(ErlNifEnv*       env,
     ERL_NIF_TERM readers   = esock_socket_info_readers(env, descP);
     ERL_NIF_TERM writers   = esock_socket_info_writers(env, descP);
     ERL_NIF_TERM acceptors = esock_socket_info_acceptors(env, descP);
-    BOOLEAN_T hasRemote    = descP->addrLen > 0;
-    ERL_NIF_TERM remote;
-    if ((! hasRemote) ||
-        esock_encode_sockaddr(env, &descP->remote,
-                              descP->addrLen, &remote) != NULL) {
-        remote = esock_atom_undefined; // not used
-    }
 
     {
         ERL_NIF_TERM keys[]
@@ -3552,8 +3554,7 @@ ERL_NIF_TERM esock_socket_info(ErlNifEnv*       env,
                atom_counters,
                atom_num_readers,
                atom_num_writers,
-               atom_num_acceptors,
-               atom_remote};
+               atom_num_acceptors};
         ERL_NIF_TERM vals[]
             = {domain,
                type,
@@ -3563,8 +3564,7 @@ ERL_NIF_TERM esock_socket_info(ErlNifEnv*       env,
                counters,
                readers,
                writers,
-               acceptors,
-               remote};
+               acceptors};
         ERL_NIF_TERM info;
         unsigned int numKeys  = sizeof(keys) / sizeof(ERL_NIF_TERM);
         unsigned int numVals  = sizeof(vals) / sizeof(ERL_NIF_TERM);
@@ -3576,8 +3576,7 @@ ERL_NIF_TERM esock_socket_info(ErlNifEnv*       env,
 
         ESOCK_ASSERT( (numKeys == numVals) );
 
-        if (!MKMA(env, keys, vals,
-                  hasRemote ? numKeys : numKeys - 1, &info))
+        if (!MKMA(env, keys, vals, numKeys, &info))
             return enif_make_badarg(env);
 
         return info;
@@ -3686,38 +3685,54 @@ static
 ERL_NIF_TERM esock_socket_info_counters(ErlNifEnv*       env,
                                         ESockDescriptor* descP)
 {
+    ERL_NIF_TERM keys[] = {atom_read_byte,
+                           atom_read_fails,
+                           atom_read_pkg,
+                           atom_read_pkg_max,
+                           atom_read_tries,
+                           atom_read_waits,
+                           atom_write_byte,
+                           atom_write_fails,
+                           atom_write_pkg,
+                           atom_write_pkg_max,
+                           atom_write_tries,
+                           atom_write_waits,
+                           atom_acc_success,
+                           atom_acc_fails,
+                           atom_acc_tries,
+                           atom_acc_waits};
+    unsigned int numKeys = sizeof(keys) / sizeof(ERL_NIF_TERM);
+    ERL_NIF_TERM vals[] = {MKUI(env, descP->readByteCnt),
+                           MKUI(env, descP->readFails),
+                           MKUI(env, descP->readPkgCnt),
+                           MKUI(env, descP->readPkgMax),
+                           MKUI(env, descP->readTries),
+                           MKUI(env, descP->readWaits),
+                           MKUI(env, descP->writeByteCnt),
+                           MKUI(env, descP->writeFails),
+                           MKUI(env, descP->writePkgCnt),
+                           MKUI(env, descP->writePkgMax),
+                           MKUI(env, descP->writeTries),
+                           MKUI(env, descP->writeWaits),
+                           MKUI(env, descP->accSuccess),
+                           MKUI(env, descP->accFails),
+                           MKUI(env, descP->accTries),
+                           MKUI(env, descP->accWaits)};
+    unsigned int numVals = sizeof(vals) / sizeof(ERL_NIF_TERM);
     ERL_NIF_TERM info;
-    ERL_NIF_TERM readByteCnt  = MKCT(env, atom_read_byte, descP->readByteCnt);
-    ERL_NIF_TERM readFails    = MKCT(env, atom_read_fails, descP->readFails);
-    ERL_NIF_TERM readPkgCnt   = MKCT(env, atom_read_pkg, descP->readPkgCnt);
-    ERL_NIF_TERM readPkgMax   = MKCT(env, atom_read_pkg_max, descP->readPkgMax);
-    ERL_NIF_TERM readTries    = MKCT(env, atom_read_tries, descP->readTries);
-    ERL_NIF_TERM readWaits    = MKCT(env, atom_read_waits, descP->readWaits);
-    ERL_NIF_TERM writeByteCnt = MKCT(env, atom_write_byte, descP->writeByteCnt);
-    ERL_NIF_TERM writeFails   = MKCT(env, atom_write_fails, descP->writeFails);
-    ERL_NIF_TERM writePkgCnt  = MKCT(env, atom_write_pkg, descP->writePkgCnt);
-    ERL_NIF_TERM writePkgMax  = MKCT(env, atom_write_pkg_max, descP->writePkgMax);
-    ERL_NIF_TERM writeTries   = MKCT(env, atom_write_tries, descP->writeTries);
-    ERL_NIF_TERM writeWaits   = MKCT(env, atom_write_waits, descP->writeWaits);
-
-    ERL_NIF_TERM accSuccess   = MKCT(env, atom_acc_success, descP->accSuccess);
-    ERL_NIF_TERM accFails     = MKCT(env, atom_acc_fails, descP->accFails);
-    ERL_NIF_TERM accTries     = MKCT(env, atom_acc_tries, descP->accTries);
-    ERL_NIF_TERM accWaits     = MKCT(env, atom_acc_waits, descP->accWaits);
-    ERL_NIF_TERM acnt[] =
-        {readByteCnt, readFails, readPkgCnt, readPkgMax,
-         readTries, readWaits,
-         writeByteCnt, writeFails, writePkgCnt, writePkgMax,
-         writeTries, writeWaits,
-         accSuccess, accFails, accTries, accWaits};
-    unsigned int lenACnt      = sizeof(acnt) / sizeof(ERL_NIF_TERM);
-
-    info = MKLA(env, acnt, lenACnt);
 
     SSDBG( descP, ("SOCKET", "esock_socket_info_counters -> "
-                   "\r\n   lenACnt: %d"
-                   "\r\n   info:    %T"
-                   "\r\n", lenACnt, info) );
+                   "\r\n   numKeys: %d"
+                   "\r\n   numVals: %d"
+                   "\r\n", numKeys, numVals) );
+
+    ESOCK_ASSERT( (numKeys == numVals) );
+
+    if (!MKMA(env, keys, vals, numKeys, &info)) {
+        SSDBG( descP, ("SOCKET", "esock_socket_info_counters -> "
+                       "failed creating counters map\r\n") );        
+        return enif_make_badarg(env);
+    }
 
     SSDBG( descP, ("SOCKET", "esock_socket_info_counters -> done with"
                    "\r\n   info: %T"
@@ -4277,7 +4292,7 @@ ERL_NIF_TERM esock_supports_options_socket(ErlNifEnv* env)
 
 
     /* *** ESOCK_OPT_SOCK_RCVTIMEO => SO_RCVTIMEO *** */
-#if defined(SO_RCVTIMEO)
+#if defined(SO_RCVTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
     tmp = MKT2(env, esock_atom_rcvtimeo, esock_atom_true);
 #else
     tmp = MKT2(env, esock_atom_rcvtimeo, esock_atom_false);
@@ -4337,7 +4352,7 @@ ERL_NIF_TERM esock_supports_options_socket(ErlNifEnv* env)
 
 
     /* *** ESOCK_OPT_SOCK_SNDTIMEO => SO_SNDTIMEO *** */
-#if defined(SO_SNDTIMEO)
+#if defined(SO_SNDTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
     tmp = MKT2(env, esock_atom_sndtimeo, esock_atom_true);
 #else
     tmp = MKT2(env, esock_atom_sndtimeo, esock_atom_false);
@@ -5732,16 +5747,18 @@ ERL_NIF_TERM esock_open2(ErlNifEnv*   env,
     descP->origFD       = fd;
 
     /* Check if we are already connected, if so change state */
-    descP->addrLen = sizeof(descP->remote);
-    sys_memzero((char *) &descP->remote, descP->addrLen);
-    if (sock_peer(descP->sock,
-                  (struct sockaddr*) &descP->remote,
-                  &descP->addrLen) == 0) {
-        SSDBG2( dbg, ("SOCKET", "esock_open2 -> connected\r\n") );
-        descP->writeState |= ESOCK_STATE_CONNECTED;
-    } else {
-        SSDBG2( dbg, ("SOCKET", "esock_open2 -> not connected\r\n") );
-        descP->addrLen = 0;
+    {
+        ESockAddress remote;
+        socklen_t    addrLen = sizeof(remote);
+        sys_memzero((char *) &remote, addrLen);
+        if (sock_peer(descP->sock,
+                      (struct sockaddr*) &remote,
+                      &addrLen) == 0) {
+            SSDBG2( dbg, ("SOCKET", "esock_open2 -> connected\r\n") );
+            descP->writeState |= ESOCK_STATE_CONNECTED;
+        } else {
+            SSDBG2( dbg, ("SOCKET", "esock_open2 -> not connected\r\n") );
+        }
     }
 
     /* And create the 'socket' resource */
@@ -6457,9 +6474,6 @@ ERL_NIF_TERM esock_connect(ErlNifEnv*       env,
         SSDBG( descP, ("SOCKET", "esock_connect {%d} -> connected\r\n",
                        descP->sock) );
 
-        sys_memcpy(&descP->remote, addrP, addrLen);
-        descP->addrLen = addrLen;
-
         descP->writeState |= ESOCK_STATE_CONNECTED;
 
         return esock_atom_ok;
@@ -6534,43 +6548,44 @@ BOOLEAN_T verify_is_connected(ESockDescriptor* descP, int* err)
      * This *should* work on Windows NT too, but doesn't.
      * An bug in Winsock 2.0 for Windows NT?
      *
-     * See "Unix Netwok Programming", W.R.Stevens, p 412 for a
-     * discussion about Unix portability and non blocking connect.
+     * See "Unix Netwok Programming", "The Sockets Networking API",
+     * W.R.Stevens, Volume 1, third edition, 16.4 Nonblocking 'connect',
+     * before Interrupted 'connect' (p 412) for a discussion about
+     * Unix portability and non blocking connect.
      */
 
-    int code;
+    int error = 0;
 
-    descP->addrLen = sizeof(descP->remote);
-    sys_memzero((char *) &descP->remote, descP->addrLen);
-    code = sock_peer(descP->sock,
-                     (struct sockaddr*) &descP->remote, &descP->addrLen);
-
-    if (IS_SOCKET_ERROR(code)) {
-        int save_errno = sock_errno();
-
-        descP->addrLen = 0;
-        
 #ifdef SO_ERROR
-        {
-            int error;
-            SOCKLEN_T sz = sizeof(error);
+    SOCKLEN_T sz = sizeof(error);
 
-            if ((sock_getopt(descP->sock, SOL_SOCKET, SO_ERROR,
-                             (void *)&error, &sz) == 0)
-                && (sz == sizeof(error))
-                && (error != 0)) {
-
-                *err = error;
-                return FALSE;
-            }
-        }
+    if (IS_SOCKET_ERROR(sock_getopt(descP->sock, SOL_SOCKET, SO_ERROR,
+                                    (void *)&error, &sz))) {
+        // Solaris does it this way according to W.R.Stevens
+        error = sock_errno();
+    }
+#elif 1
+    char buf[0];
+    if (IS_SOCKET_ERROR(read(descP->sock, buf, 0))) {
+        error = sock_errno();
+    }
+#else
+    /* This variant probably returns wrong error value
+     * ENOTCONN instead of the actual connect error
+     */
+    ESockAddress remote;
+    socklen_t    addrLen = sizeof(remote);
+    sys_memzero((char *) &remote, addrLen);
+    if (IS_SOCKET_ERROR(sock_peer(descP->sock,
+                                  (struct sockaddr*) &remote, &addrLen))) {
+        error = sock_errno();
+    }
 #endif
 
-        *err = save_errno;
+    if (error != 0) {
+        *err = error;
         return FALSE;
     }
-
-    *err = 0;
     return TRUE;
 }
 #endif
@@ -6753,20 +6768,15 @@ ERL_NIF_TERM esock_accept(ErlNifEnv*       env,
         return esock_make_error(env, atom_exself);
 
     if (descP->currentAcceptorP == NULL) {
-        ESockAddress  remote;
-        unsigned int  len;
         SOCKET        accSock;
 
         /* We have no active acceptor (and therefor no acceptors in queue)
          */
 
-        len = sizeof(remote);
-        sys_memzero((char *) &remote, len);
-
         SSDBG( descP, ("SOCKET", "esock_accept {%d} -> try accept\r\n",
                        descP->sock) );
 
-        accSock = sock_accept(descP->sock, (struct sockaddr*) &remote, &len);
+        accSock = sock_accept(descP->sock, NULL, NULL);
 
         if (IS_SOCKET_ERROR(accSock)) {
             int           save_errno;
@@ -6779,7 +6789,7 @@ ERL_NIF_TERM esock_accept(ErlNifEnv*       env,
             /* We got an incoming connection */
             return
                 esock_accept_listening_accept(env, descP, sockRef,
-                                              accSock, caller, &remote, len);
+                                              accSock, caller);
         }
     } else {
 
@@ -6885,13 +6895,11 @@ ERL_NIF_TERM esock_accept_listening_accept(ErlNifEnv*       env,
                                            ESockDescriptor* descP,
                                            ERL_NIF_TERM     sockRef,
                                            SOCKET           accSock,
-                                           ErlNifPid        caller,
-                                           ESockAddress*    remote,
-                                           unsigned int     len)
+                                           ErlNifPid        caller)
 {
     ERL_NIF_TERM res;
 
-    esock_accept_accepted(env, descP, sockRef, accSock, caller, remote, len, &res);
+    esock_accept_accepted(env, descP, sockRef, accSock, caller, &res);
     
     return res;
 }
@@ -6906,8 +6914,6 @@ ERL_NIF_TERM esock_accept_accepting_current(ErlNifEnv*       env,
                                             ERL_NIF_TERM     sockRef,
                                             ERL_NIF_TERM     accRef)
 {
-    ESockAddress  remote;
-    unsigned int  len;
     SOCKET        accSock;
     int           save_errno;
     ERL_NIF_TERM  res;
@@ -6917,9 +6923,7 @@ ERL_NIF_TERM esock_accept_accepting_current(ErlNifEnv*       env,
             "esock_accept_accepting_current {%d} -> try accept\r\n",
             descP->sock) );
 
-    len = sizeof(descP->remote);
-    sys_memzero((char *) &remote, len);
-    accSock = sock_accept(descP->sock, (struct sockaddr*) &remote, &len);
+    accSock = sock_accept(descP->sock, NULL, NULL);
 
     if (IS_SOCKET_ERROR(accSock)) {
 
@@ -6930,7 +6934,7 @@ ERL_NIF_TERM esock_accept_accepting_current(ErlNifEnv*       env,
     } else {
 
         res = esock_accept_accepting_current_accept(env, descP, sockRef,
-                                                    accSock, &remote, len);
+                                                    accSock);
     }
 
     return res;
@@ -6945,9 +6949,7 @@ static
 ERL_NIF_TERM esock_accept_accepting_current_accept(ErlNifEnv*       env,
                                                    ESockDescriptor* descP,
                                                    ERL_NIF_TERM     sockRef,
-                                                   SOCKET           accSock,
-                                                   ESockAddress*    remote,
-                                                   unsigned int     len)
+                                                   SOCKET           accSock)
 {
     ERL_NIF_TERM res;
 
@@ -6957,7 +6959,7 @@ ERL_NIF_TERM esock_accept_accepting_current_accept(ErlNifEnv*       env,
             "\r\n", descP->sock) );
 
     if (esock_accept_accepted(env, descP, sockRef, accSock,
-                              descP->currentAcceptor.pid, remote, len, &res)) {
+                              descP->currentAcceptor.pid, &res)) {
 
         if (!activate_next_acceptor(env, descP, sockRef)) {
 
@@ -7121,8 +7123,6 @@ BOOLEAN_T esock_accept_accepted(ErlNifEnv*       env,
                                 ERL_NIF_TERM     sockRef,
                                 SOCKET           accSock,
                                 ErlNifPid        pid,
-                                ESockAddress*    remote,
-                                unsigned int     len,
                                 ERL_NIF_TERM*    result)
 {
     ESockDescriptor* accDescP;
@@ -7179,8 +7179,6 @@ BOOLEAN_T esock_accept_accepted(ErlNifEnv*       env,
         return FALSE;
     }
 
-    accDescP->remote = *remote;
-    accDescP->addrLen = len;
     SET_NONBLOCKING(accDescP->sock);
 
     descP->writeState |= ESOCK_STATE_CONNECTED;
@@ -9501,7 +9499,7 @@ ERL_NIF_TERM esock_setopt_lvl_socket(ErlNifEnv*       env,
         break;
 #endif
 
-#if defined(SO_RCVTIMEO)
+#if defined(SO_RCVTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
     case ESOCK_OPT_SOCK_RCVTIMEO:
         result = esock_setopt_lvl_sock_rcvtimeo(env, descP, eVal);
         break;
@@ -9531,7 +9529,7 @@ ERL_NIF_TERM esock_setopt_lvl_socket(ErlNifEnv*       env,
         break;
 #endif
 
-#if defined(SO_SNDTIMEO)
+#if defined(SO_SNDTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
     case ESOCK_OPT_SOCK_SNDTIMEO:
         result = esock_setopt_lvl_sock_sndtimeo(env, descP, eVal);
         break;
@@ -9709,7 +9707,7 @@ ERL_NIF_TERM esock_setopt_lvl_sock_rcvlowat(ErlNifEnv*       env,
 #endif
 
 
-#if defined(SO_RCVTIMEO)
+#if defined(SO_RCVTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
 static
 ERL_NIF_TERM esock_setopt_lvl_sock_rcvtimeo(ErlNifEnv*       env,
                                             ESockDescriptor* descP,
@@ -9764,7 +9762,7 @@ ERL_NIF_TERM esock_setopt_lvl_sock_sndlowat(ErlNifEnv*       env,
 #endif
 
 
-#if defined(SO_SNDTIMEO)
+#if defined(SO_SNDTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
 static
 ERL_NIF_TERM esock_setopt_lvl_sock_sndtimeo(ErlNifEnv*       env,
                                             ESockDescriptor* descP,
@@ -12414,6 +12412,7 @@ ERL_NIF_TERM esock_setopt_str_opt(ErlNifEnv*       env,
 
 /* esock_setopt_timeval_opt - set an option that has an (timeval) bool value
  */
+#if (defined(SO_RCVTIMEO) || defined(SO_SNDTIMEO)) && defined(ESOCK_USE_RCVSNDTIMEO)
 static
 ERL_NIF_TERM esock_setopt_timeval_opt(ErlNifEnv*       env,
                                       ESockDescriptor* descP,
@@ -12452,6 +12451,7 @@ ERL_NIF_TERM esock_setopt_timeval_opt(ErlNifEnv*       env,
     return result;
     
 }
+#endif
 
 
 
@@ -12714,7 +12714,7 @@ ERL_NIF_TERM esock_getopt(ErlNifEnv*       env,
         if (GET_INT(env, eOpt, &opt))
             return esock_getopt_level(env, descP, level, opt);
         else
-            result = esock_make_error(env, esock_atom_einval);
+            return esock_getopt_native(env, descP, level, eOpt);
     }
 
     SSDBG( descP,
@@ -13024,7 +13024,7 @@ ERL_NIF_TERM getopt_otp_type(ErlNifEnv* env, int type)
         result = esock_atom_dgram;
         break;
 
-#ifdef HAVE_SCTP
+#ifdef SOCK_SEQPACKET
     case SOCK_SEQPACKET:
         result = esock_atom_seqpacket;
         break;
@@ -13440,7 +13440,7 @@ ERL_NIF_TERM esock_getopt_lvl_socket(ErlNifEnv*       env,
         break;
 #endif
 
-#if defined(SO_RCVTIMEO)
+#if defined(SO_RCVTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
     case ESOCK_OPT_SOCK_RCVTIMEO:
         result = esock_getopt_lvl_sock_rcvtimeo(env, descP);
         break;
@@ -13470,7 +13470,7 @@ ERL_NIF_TERM esock_getopt_lvl_socket(ErlNifEnv*       env,
         break;
 #endif
 
-#if defined(SO_SNDTIMEO)
+#if defined(SO_SNDTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
     case ESOCK_OPT_SOCK_SNDTIMEO:
         result = esock_getopt_lvl_sock_sndtimeo(env, descP);
         break;
@@ -13767,7 +13767,7 @@ ERL_NIF_TERM esock_getopt_lvl_sock_rcvlowat(ErlNifEnv*       env,
 #endif
 
 
-#if defined(SO_RCVTIMEO)
+#if defined(SO_RCVTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
 static
 ERL_NIF_TERM esock_getopt_lvl_sock_rcvtimeo(ErlNifEnv*       env,
                                             ESockDescriptor* descP)
@@ -13817,7 +13817,7 @@ ERL_NIF_TERM esock_getopt_lvl_sock_sndlowat(ErlNifEnv*       env,
 #endif
 
 
-#if defined(SO_SNDTIMEO)
+#if defined(SO_SNDTIMEO) && defined(ESOCK_USE_RCVSNDTIMEO)
 static
 ERL_NIF_TERM esock_getopt_lvl_sock_sndtimeo(ErlNifEnv*       env,
                                             ESockDescriptor* descP)
@@ -13859,7 +13859,7 @@ ERL_NIF_TERM esock_getopt_lvl_sock_type(ErlNifEnv*       env,
         case SOCK_DGRAM:
             result = esock_make_ok2(env, esock_atom_dgram);
             break;
-#ifdef HAVE_SCTP
+#ifdef SOCK_SEQPACKET
         case SOCK_SEQPACKET:
             result = esock_make_ok2(env, esock_atom_seqpacket);
             break;
@@ -15188,7 +15188,8 @@ ERL_NIF_TERM esock_getopt_lvl_sctp(ErlNifEnv*       env,
  * association (and not an endpoint) then it will have an
  * assoc id. But since the sctp support at present is "limited",
  * we leave it for now.
- * What do we do if this is an endpoint? Invalid op?
+ * What do we do if this is an endpoint? Invalid op? Or just leave
+ * it for the OS?
  *
  * </KOLLA>
  */
@@ -15434,6 +15435,7 @@ ERL_NIF_TERM esock_getopt_int_opt(ErlNifEnv*       env,
 
 /* esock_getopt_timeval_opt - get an timeval option
  */
+#if (defined(SO_RCVTIMEO) || defined(SO_SNDTIMEO)) && defined(ESOCK_USE_RCVSNDTIMEO)
 static
 ERL_NIF_TERM esock_getopt_timeval_opt(ErlNifEnv*       env,
                                       ESockDescriptor* descP,
@@ -15462,6 +15464,7 @@ ERL_NIF_TERM esock_getopt_timeval_opt(ErlNifEnv*       env,
 
     return result;
 }
+#endif
 
 
 
@@ -19863,7 +19866,7 @@ void dec_socket(int domain, int type, int protocol)
         cnt_dec(&data.numTypeStreams, 1);
     else if (type == SOCK_DGRAM)
         cnt_dec(&data.numTypeDGrams, 1);
-#ifdef HAVE_SCTP
+#ifdef SOCK_SEQPACKET
     else if (type == SOCK_SEQPACKET)
         cnt_dec(&data.numTypeSeqPkgs, 1);
 #endif
@@ -19908,7 +19911,7 @@ void inc_socket(int domain, int type, int protocol)
         cnt_inc(&data.numTypeStreams, 1);
     else if (type == SOCK_DGRAM)
         cnt_inc(&data.numTypeDGrams, 1);
-#ifdef HAVE_SCTP
+#ifdef SOCK_SEQPACKET
     else if (type == SOCK_SEQPACKET)
         cnt_inc(&data.numTypeSeqPkgs, 1);
 #endif
@@ -19989,7 +19992,7 @@ BOOLEAN_T etype2type(int etype, int* type)
         *type = SOCK_RAW;
         break;
 
-#ifdef HAVE_SCTP    
+#ifdef SOCK_SEQPACKET
     case ESOCK_TYPE_SEQPACKET:
         *type = SOCK_SEQPACKET;
         break;

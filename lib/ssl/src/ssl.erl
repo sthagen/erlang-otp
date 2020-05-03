@@ -107,6 +107,9 @@
 
 -deprecated({ssl_accept, '_', "use ssl_handshake/1,2,3 instead"}).
 
+-deprecated({cipher_suites, 0, "use cipher_suites/2,3 instead"}).
+-deprecated({cipher_suites, 1, "use cipher_suites/2,3 instead"}).
+
 -removed([{negotiated_next_protocol,1,
           "use ssl:negotiated_protocol/1 instead"}]).
 -removed([{connection_info,1,
@@ -392,6 +395,7 @@
                                 {psk_identity, client_psk_identity()} |
                                 {srp_identity, client_srp_identity()} |
                                 {server_name_indication, sni()} |
+                                {max_fragment_length, max_fragment_length()} |
                                 {customize_hostname_check, customize_hostname_check()} |
                                 {signature_algs, client_signature_algs()} |
                                 {fallback, fallback()} |
@@ -414,6 +418,7 @@
 -type client_srp_identity()             :: srp_identity().
 -type customize_hostname_check() :: list().
 -type sni()                      :: HostName :: hostname() | disable. 
+-type max_fragment_length()      :: undefined | 512 | 1024 | 2048 | 4096.
 -type client_signature_algs()    :: signature_algs().
 -type fallback()                 :: boolean().
 -type ssl_imp()                  :: new | old.
@@ -465,6 +470,7 @@
                                   alpn =>  app_level_protocol(),
                                   srp  => binary(),
                                   next_protocol => app_level_protocol(),
+                                  max_frag_enum  => 1..4,
                                   ec_point_formats  => [0..2],
                                   elliptic_curves => [public_key:oid()],
                                   sni => hostname()}. % exported
@@ -1039,45 +1045,46 @@ cipher_suites(all) ->
     [ssl_cipher_format:suite_legacy(Suite) || Suite <- available_suites(all)].
 
 %%--------------------------------------------------------------------
--spec cipher_suites(Supported, Version) -> ciphers() when
-      Supported :: default | all | anonymous,
+-spec cipher_suites(Description, Version) -> ciphers() when
+      Description :: default | all | exclusive | anonymous,
       Version :: protocol_version().
 
 %% Description: Returns all default and all supported cipher suites for a
 %% TLS/DTLS version
 %%--------------------------------------------------------------------
-cipher_suites(Base, Version) when Version == 'tlsv1.3';
+cipher_suites(Description, Version) when Version == 'tlsv1.3';
                                   Version == 'tlsv1.2';
                                   Version == 'tlsv1.1';
                                   Version == tlsv1 ->
-    cipher_suites(Base, tls_record:protocol_version(Version));
-cipher_suites(Base, Version)  when Version == 'dtlsv1.2';
+    cipher_suites(Description, tls_record:protocol_version(Version));
+cipher_suites(Description, Version)  when Version == 'dtlsv1.2';
                                    Version == 'dtlsv1'->
-    cipher_suites(Base, dtls_record:protocol_version(Version));                   
-cipher_suites(Base, Version) ->
-    [ssl_cipher_format:suite_bin_to_map(Suite) || Suite <- supported_suites(Base, Version)].
+    cipher_suites(Description, dtls_record:protocol_version(Version));
+cipher_suites(Description, Version) ->
+    [ssl_cipher_format:suite_bin_to_map(Suite) || Suite <- supported_suites(Description, Version)].
 
 %%--------------------------------------------------------------------
--spec cipher_suites(Supported, Version, rfc | openssl) -> [string()] when
-      Supported :: default | all | anonymous,
+-spec cipher_suites(Description, Version, rfc | openssl) -> [string()] when
+      Description :: default | all | exclusive | anonymous,
       Version :: protocol_version().
 
 %% Description: Returns all default and all supported cipher suites for a
 %% TLS/DTLS version
 %%--------------------------------------------------------------------
-cipher_suites(Base, Version, StringType) when Version == 'tlsv1.2';
-                                              Version == 'tlsv1.1';
-                                              Version == tlsv1 ->
-    cipher_suites(Base, tls_record:protocol_version(Version), StringType);
-cipher_suites(Base, Version, StringType)  when Version == 'dtlsv1.2';
+cipher_suites(Description, Version, StringType) when  Version == 'tlsv1.3';
+                                               Version == 'tlsv1.2';
+                                               Version == 'tlsv1.1';
+                                               Version == tlsv1 ->
+    cipher_suites(Description, tls_record:protocol_version(Version), StringType);
+cipher_suites(Description, Version, StringType)  when Version == 'dtlsv1.2';
                                                Version == 'dtlsv1'->
-    cipher_suites(Base, dtls_record:protocol_version(Version), StringType);                   
-cipher_suites(Base, Version, rfc) ->
-    [ssl_cipher_format:suite_map_to_str(ssl_cipher_format:suite_bin_to_map(Suite)) 
-     || Suite <- supported_suites(Base, Version)];
-cipher_suites(Base, Version, openssl) ->
-    [ssl_cipher_format:suite_map_to_openssl_str(ssl_cipher_format:suite_bin_to_map(Suite)) 
-     || Suite <- supported_suites(Base, Version)].
+    cipher_suites(Description, dtls_record:protocol_version(Version), StringType);
+cipher_suites(Description, Version, rfc) ->
+    [ssl_cipher_format:suite_map_to_str(ssl_cipher_format:suite_bin_to_map(Suite))
+     || Suite <- supported_suites(Description, Version)];
+cipher_suites(Description, Version, openssl) ->
+    [ssl_cipher_format:suite_map_to_openssl_str(ssl_cipher_format:suite_bin_to_map(Suite))
+     || Suite <- supported_suites(Description, Version)].
 
 %%--------------------------------------------------------------------
 -spec filter_cipher_suites(Suites, Filters) -> Ciphers when
@@ -1543,6 +1550,8 @@ available_suites(all) ->
     Version = tls_record:highest_protocol_version([]),			  
     ssl_cipher:filter_suites(ssl_cipher:all_suites(Version)).
 
+supported_suites(exclusive, {3,Minor}) ->
+    tls_v1:exclusive_suites(Minor);
 supported_suites(default, Version) ->  
     ssl_cipher:suites(Version);
 supported_suites(all, Version) ->  
@@ -1634,7 +1643,9 @@ handle_option(anti_replay = Option, unbound, OptionsMap, #{rules := Rules}) ->
     Value = validate_option(Option, default_value(Option, Rules)),
     OptionsMap#{Option => Value};
 handle_option(anti_replay = Option, Value0,
-              #{session_tickets := SessionTickets} = OptionsMap, #{rules := Rules}) ->
+              #{session_tickets := SessionTickets,
+                versions := Versions} = OptionsMap, #{rules := Rules}) ->
+    assert_option_dependency(Option, versions, Versions, ['tlsv1.3']),
     assert_option_dependency(Option, session_tickets, [SessionTickets], [stateless]),
     case SessionTickets of
         stateless ->
@@ -1643,6 +1654,13 @@ handle_option(anti_replay = Option, Value0,
         _ ->
             OptionsMap#{Option => default_value(Option, Rules)}
     end;
+handle_option(beast_mitigation = Option, unbound, OptionsMap, #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(beast_mitigation = Option, Value0,  #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(Option, versions, Versions, ['tlsv1']),
+    Value = validate_option(Option, Value0),
+    OptionsMap#{Option => Value};
 handle_option(cacertfile = Option, unbound, #{cacerts := CaCerts,
                                               verify := Verify,
                                               verify_fun := VerifyFun} = OptionsMap, _Env)
@@ -1661,17 +1679,20 @@ handle_option(cacertfile = Option, unbound, #{cacerts := CaCerts,
 handle_option(cacertfile = Option, Value0, OptionsMap, _Env) ->
     Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
-handle_option(ciphers = Option, unbound, #{versions := [HighestVersion|_]} = OptionsMap, #{rules := Rules}) ->
-    Value = handle_cipher_option(default_value(Option, Rules), HighestVersion),
+handle_option(ciphers = Option, unbound, #{versions := Versions} = OptionsMap, #{rules := Rules}) ->
+    Value = handle_cipher_option(default_value(Option, Rules), Versions),
     OptionsMap#{Option => Value};
-handle_option(ciphers = Option, Value0, #{versions := [HighestVersion|_]} = OptionsMap, _Env) ->
-    Value = handle_cipher_option(Value0, HighestVersion),
+handle_option(ciphers = Option, Value0, #{versions := Versions} = OptionsMap, _Env) ->
+    Value = handle_cipher_option(Value0, Versions),
     OptionsMap#{Option => Value};
 handle_option(client_renegotiation = Option, unbound, OptionsMap, #{role := Role}) ->
     Value = default_option_role(server, true, Role),
     OptionsMap#{Option => Value};
-handle_option(client_renegotiation = Option, Value0, OptionsMap, #{role := Role}) ->
+handle_option(client_renegotiation = Option, Value0,
+              #{versions := Versions} = OptionsMap, #{role := Role}) ->
     assert_role(server_only, Role, Option, Value0),
+    assert_option_dependency(Option, versions, Versions,
+                             ['tlsv1','tlsv1.1','tlsv1.2']),
     Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
 handle_option(eccs = Option, unbound, #{versions := [HighestVersion|_]} = OptionsMap, #{rules := _Rules}) ->
@@ -1711,12 +1732,49 @@ handle_option(key_update_at = Option, Value0, #{versions := Versions} = OptionsM
     assert_option_dependency(Option, versions, Versions, ['tlsv1.3']),
     Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
+handle_option(next_protocols_advertised = Option, unbound, OptionsMap,
+              #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(next_protocols_advertised = Option, Value0,
+              #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(next_protocols_advertised, versions, Versions,
+                             ['tlsv1','tlsv1.1','tlsv1.2']),
+    Value = validate_option(Option, Value0),
+    OptionsMap#{Option => Value};
 handle_option(next_protocol_selector = Option, unbound, OptionsMap, #{rules := Rules}) ->
     Value = default_value(Option, Rules),
     OptionsMap#{Option => Value};
-handle_option(next_protocol_selector = Option, Value0, OptionsMap, _Env) ->
+handle_option(next_protocol_selector = Option, Value0,
+              #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(client_preferred_next_protocols, versions, Versions,
+                             ['tlsv1','tlsv1.1','tlsv1.2']),
     Value = make_next_protocol_selector(
               validate_option(client_preferred_next_protocols, Value0)),
+    OptionsMap#{Option => Value};
+handle_option(padding_check = Option, unbound, OptionsMap, #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(padding_check = Option, Value0,  #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(Option, versions, Versions, ['tlsv1']),
+    Value = validate_option(Option, Value0),
+    OptionsMap#{Option => Value};
+handle_option(psk_identity = Option, unbound, OptionsMap, #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(psk_identity = Option, Value0, #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(Option, versions, Versions,
+                             ['tlsv1','tlsv1.1','tlsv1.2']),
+    Value = validate_option(Option, Value0),
+    OptionsMap#{Option => Value};
+handle_option(secure_renegotiate = Option, unbound, OptionsMap, #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(secure_renegotiate= Option, Value0,
+              #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(secure_renegotiate, versions, Versions,
+                             ['tlsv1','tlsv1.1','tlsv1.2']),
+    Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
 handle_option(reuse_session = Option, unbound, OptionsMap, #{role := Role}) ->
     Value =
@@ -1727,14 +1785,20 @@ handle_option(reuse_session = Option, unbound, OptionsMap, #{role := Role}) ->
                 fun(_, _, _, _) -> true end
         end,
     OptionsMap#{Option => Value};
-handle_option(reuse_session = Option, Value0, OptionsMap, _Env) ->
+handle_option(reuse_session = Option, Value0,
+              #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(reuse_session, versions, Versions,
+                             ['tlsv1','tlsv1.1','tlsv1.2']),
     Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
 %% TODO: validate based on role
 handle_option(reuse_sessions = Option, unbound, OptionsMap, #{rules := Rules}) ->
     Value = validate_option(Option, default_value(Option, Rules)),
     OptionsMap#{Option => Value};
-handle_option(reuse_sessions = Option, Value0, OptionsMap, _Env) ->
+handle_option(reuse_sessions = Option, Value0,
+              #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(reuse_sessions, versions, Versions,
+                             ['tlsv1','tlsv1.1','tlsv1.2']),
     Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
 handle_option(server_name_indication = Option, unbound, OptionsMap, #{host := Host,
@@ -1788,25 +1852,48 @@ handle_option(sni_fun = Option, Value0, OptionsMap, _Env) ->
                 throw({error, {conflict_options, [sni_fun, sni_hosts]}})
         end,
     OptionsMap#{Option => Value};
+handle_option(srp_identity = Option, unbound, OptionsMap, #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(srp_identity = Option, Value0,
+              #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(srp_identity, versions, Versions,
+                             ['tlsv1','tlsv1.1','tlsv1.2']),
+    Value = validate_option(Option, Value0),
+    OptionsMap#{Option => Value};
 handle_option(supported_groups = Option, unbound, #{versions := [HighestVersion|_]} = OptionsMap, #{rules := _Rules}) ->
     Value = handle_supported_groups_option(groups(default), HighestVersion),
     OptionsMap#{Option => Value};
-handle_option(supported_groups = Option, Value0, #{versions := [HighestVersion|_]} = OptionsMap, _Env) ->
+handle_option(supported_groups = Option, Value0,
+              #{versions := [HighestVersion|_] = Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(Option, versions, Versions, ['tlsv1.3']),
     Value = handle_supported_groups_option(Value0, HighestVersion),
+    OptionsMap#{Option => Value};
+handle_option(use_ticket = Option, unbound, OptionsMap, #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(use_ticket = Option, Value0,
+              #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(Option, versions, Versions, ['tlsv1.3']),
+    Value = validate_option(Option, Value0),
+    OptionsMap#{Option => Value};
+handle_option(user_lookup_fun = Option, unbound, OptionsMap, #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(user_lookup_fun = Option, Value0,
+              #{versions := Versions} = OptionsMap, _Env) ->
+    assert_option_dependency(Option, versions, Versions, ['tlsv1','tlsv1.1','tlsv1.2']),
+    Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
 handle_option(verify = Option, unbound, OptionsMap, #{rules := Rules}) ->
     handle_verify_option(default_value(Option, Rules), OptionsMap);
 handle_option(verify = _Option, Value, OptionsMap, _Env) ->
     handle_verify_option(Value, OptionsMap);
-
 handle_option(verify_fun = Option, unbound, #{verify := Verify} = OptionsMap, #{rules := Rules})
-  when Verify =:= verify_none orelse
-       Verify =:= 0 ->
+  when Verify =:= verify_none ->
     OptionsMap#{Option => default_value(Option, Rules)};
 handle_option(verify_fun = Option, unbound, #{verify := Verify} = OptionsMap, _Env)
-  when Verify =:= verify_peer orelse
-       Verify =:= 1 orelse
-       Verify =:= 2 ->
+  when Verify =:= verify_peer ->
     OptionsMap#{Option => undefined};
 handle_option(verify_fun = Option, Value0, OptionsMap, _Env) ->
     Value = validate_option(Option, Value0),
@@ -1957,27 +2044,39 @@ assert_role_value(server, Option, Value, ServerValues, _) ->
                 throw({error, {options, role, {Option, {Value, {server, ServerValues}}}}})
         end.
 
-
 assert_option_dependency(Option, OptionDep, Values0, AllowedValues) ->
-    %% special handling for version
-    Values =
-        case OptionDep of
-            versions ->
-                lists:map(fun tls_record:protocol_version/1, Values0);
-            _ ->
-                Values0
-        end,
-    Set1 = sets:from_list(Values),
-    Set2 = sets:from_list(AllowedValues),
-    case sets:size(sets:intersection(Set1, Set2)) > 0 of
+    case is_dtls_configured(Values0) of
         true ->
+            %% TODO: Check option dependency for DTLS
             ok;
         false ->
-            %% Message = build_error_message(Option, OptionDep, AllowedValues),
-            %% throw({error, {options, Message}})
-            throw({error, {options, dependency, {Option, {OptionDep, AllowedValues}}}})
+            %% special handling for version
+            Values =
+                case OptionDep of
+                    versions ->
+                        lists:map(fun tls_record:protocol_version/1, Values0);
+                    _ ->
+                        Values0
+                end,
+            Set1 = sets:from_list(Values),
+            Set2 = sets:from_list(AllowedValues),
+            case sets:size(sets:intersection(Set1, Set2)) > 0 of
+                true ->
+                    ok;
+                false ->
+                    throw({error, {options, dependency,
+                                   {Option, {OptionDep, AllowedValues}}}})
+            end
     end.
 
+is_dtls_configured(Versions) ->
+    Fun = fun (Version) when Version =:= {254, 253} orelse
+                             Version =:= {254, 255} ->
+                  true;
+              (_) ->
+                  false
+          end,
+    lists:any(Fun, Versions).
 
 validate_option(versions, Versions)  ->
     validate_versions(Versions, Versions);
@@ -2007,8 +2106,6 @@ validate_option(verify_fun, {Fun, _} = Value) when is_function(Fun) ->
 validate_option(partial_chain, Value) when is_function(Value) ->
     Value;
 validate_option(fail_if_no_peer_cert, Value) when is_boolean(Value) ->
-    Value;
-validate_option(verify_client_once, Value) when is_boolean(Value) ->
     Value;
 validate_option(depth, Value) when is_integer(Value),
                                    Value >= 0, Value =< 255->
@@ -2169,6 +2266,13 @@ validate_option(server_name_indication, undefined) ->
     undefined;
 validate_option(server_name_indication, disable) ->
     disable;
+
+%% RFC 6066, Section 4
+validate_option(max_fragment_length, I) when I == ?MAX_FRAGMENT_LENGTH_BYTES_1; I == ?MAX_FRAGMENT_LENGTH_BYTES_2;
+                                             I == ?MAX_FRAGMENT_LENGTH_BYTES_3; I == ?MAX_FRAGMENT_LENGTH_BYTES_4 ->
+    I;
+validate_option(max_fragment_length, undefined) ->
+    undefined;
 
 validate_option(sni_hosts, []) ->
     [];
@@ -2399,8 +2503,8 @@ emulated_options(Protocol, Opts) ->
 	    dtls_socket:emulated_options(Opts)
     end.
 
-handle_cipher_option(Value, Version)  when is_list(Value) ->
-    try binary_cipher_suites(Version, Value) of
+handle_cipher_option(Value, Versions)  when is_list(Value) ->       
+    try binary_cipher_suites(Versions, Value) of
 	Suites ->
 	    Suites
     catch
@@ -2410,37 +2514,44 @@ handle_cipher_option(Value, Version)  when is_list(Value) ->
 	    throw({error, {options, {ciphers, Value}}})
     end.
 
-binary_cipher_suites(Version, []) -> 
+binary_cipher_suites([{3,4} = Version], []) -> 
+    %% Defaults to all supported suites that does
+    %% not require explicit configuration TLS-1.3
+    %% only mode.
+    default_binary_suites(exclusive, Version);
+binary_cipher_suites([Version| _], []) -> 
     %% Defaults to all supported suites that does
     %% not require explicit configuration
-    default_binary_suites(Version);
-binary_cipher_suites(Version, [Map|_] = Ciphers0) when is_map(Map) ->
+    default_binary_suites(default, Version);
+binary_cipher_suites(Versions, [Map|_] = Ciphers0) when is_map(Map) ->
     Ciphers = [ssl_cipher_format:suite_map_to_bin(C) || C <- Ciphers0],
-    binary_cipher_suites(Version, Ciphers);
-binary_cipher_suites(Version, [Tuple|_] = Ciphers0) when is_tuple(Tuple) ->
+    binary_cipher_suites(Versions, Ciphers);
+binary_cipher_suites(Versions, [Tuple|_] = Ciphers0) when is_tuple(Tuple) ->
     Ciphers = [ssl_cipher_format:suite_map_to_bin(tuple_to_map(C)) || C <- Ciphers0],
-    binary_cipher_suites(Version, Ciphers);
-binary_cipher_suites(Version, [Cipher0 | _] = Ciphers0) when is_binary(Cipher0) ->
+    binary_cipher_suites(Versions, Ciphers);
+binary_cipher_suites([Version |_] = Versions, [Cipher0 | _] = Ciphers0) when is_binary(Cipher0) ->
     All = ssl_cipher:all_suites(Version) ++ 
         ssl_cipher:anonymous_suites(Version),
     case [Cipher || Cipher <- Ciphers0, lists:member(Cipher, All)] of
 	[] ->
 	    %% Defaults to all supported suites that does
 	    %% not require explicit configuration
-	    default_binary_suites(Version);
+	    binary_cipher_suites(Versions, []);
 	Ciphers ->
 	    Ciphers
     end;
-binary_cipher_suites(Version, [Head | _] = Ciphers0) when is_list(Head) ->
+binary_cipher_suites(Versions, [Head | _] = Ciphers0) when is_list(Head) ->
     %% Format: ["RC4-SHA","RC4-MD5"]
     Ciphers = [ssl_cipher_format:suite_openssl_str_to_map(C) || C <- Ciphers0],
-    binary_cipher_suites(Version, Ciphers);
-binary_cipher_suites(Version, Ciphers0)  ->
+    binary_cipher_suites(Versions, Ciphers);
+binary_cipher_suites(Versions, Ciphers0)  ->
     %% Format: "RC4-SHA:RC4-MD5"
     Ciphers = [ssl_cipher_format:suite_openssl_str_to_map(C) || C <- string:lexemes(Ciphers0, ":")],
-    binary_cipher_suites(Version, Ciphers).
+    binary_cipher_suites(Versions, Ciphers).
 
-default_binary_suites(Version) ->
+default_binary_suites(exclusive, {_, Minor}) ->
+    ssl_cipher:filter_suites(tls_v1:exclusive_suites(Minor));
+default_binary_suites(default, Version) ->
     ssl_cipher:filter_suites(ssl_cipher:suites(Version)).
 
 tuple_to_map({Kex, Cipher, Mac}) ->
@@ -2575,19 +2686,14 @@ assert_proplist([Value | _]) ->
     throw({option_not_a_key_value_tuple, Value}).
 
 
-handle_verify_option(verify_none, #{fail_if_no_peer_cert := _FailIfNoPeerCert} = OptionsMap) ->
-    OptionsMap#{verify => verify_none,
-                fail_if_no_peer_cert => false};
-handle_verify_option(verify_peer, #{fail_if_no_peer_cert := FailIfNoPeerCert} = OptionsMap) ->
-    OptionsMap#{verify => verify_peer,
-                fail_if_no_peer_cert => FailIfNoPeerCert};
-%% Handle 0, 1, 2 for backwards compatibility
-handle_verify_option(0, OptionsMap) ->
-    handle_verify_option(verify_none, OptionsMap);
-handle_verify_option(1, OptionsMap) ->
-    handle_verify_option(verify_peer, OptionsMap#{fail_if_no_peer_cert => false});
-handle_verify_option(2, OptionsMap) ->
-    handle_verify_option(verify_peer, OptionsMap#{fail_if_no_peer_cert => true});
+handle_verify_option(verify_none, #{fail_if_no_peer_cert := false} = OptionsMap) ->
+    OptionsMap#{verify => verify_none};
+handle_verify_option(verify_none, #{fail_if_no_peer_cert := true}) ->
+    throw({error, {options, incompatible,
+                   {verify, verify_none},
+                   {fail_if_no_peer_cert, true}}});
+handle_verify_option(verify_peer, OptionsMap) ->
+    OptionsMap#{verify => verify_peer};
 handle_verify_option(Value, _) ->
     throw({error, {options, {verify, Value}}}).
 
