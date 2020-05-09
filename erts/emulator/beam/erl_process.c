@@ -6933,13 +6933,25 @@ schedule_process_sys_task(Process *p, erts_aint32_t prio, ErtsProcSysTask *st,
 {
     erts_aint32_t fail_state, state;
 
+    fail_state = *fail_state_p;
+
     /* Elevate priority if needed. */
-    state = erts_atomic32_read_nob(&p->state);
-    if (ERTS_PSFLGS_GET_ACT_PRIO(state) > prio) {
+    state = erts_atomic32_read_acqb(&p->state);
+    if (ERTS_PSFLGS_GET_ACT_PRIO(state) <= prio) {
+        if (state & fail_state) {
+            *fail_state_p = state & fail_state;
+            return 0;
+        }
+    }
+    else {
         erts_aint32_t n, a, e;
 
         a = state;
         do {
+            if (a & fail_state) {
+                *fail_state_p = a & fail_state;
+                return 0;
+            }
             if (ERTS_PSFLGS_GET_ACT_PRIO(a) <= prio) {
                 n = a;
                 break;
@@ -6952,8 +6964,6 @@ schedule_process_sys_task(Process *p, erts_aint32_t prio, ErtsProcSysTask *st,
 
         state = n;
     }
-
-    fail_state = *fail_state_p;
 
     return !(active_sys_enqueue(p, st, prio, ERTS_PSFLG_SYS_TASKS,
                                 state, fail_state_p) & fail_state);
@@ -10191,13 +10201,14 @@ fetch_sys_task(Process *c_p, erts_aint32_t state, int *qmaskp, int *priop)
 	*priop = PRIORITY_HIGH;
 	break;
     case NORMAL_BIT:
-	if (!(qmask & PRIORITY_LOW)
+	if (!(qmask & LOW_BIT)
 	    || ++c_p->sys_task_qs->ncount <= RESCHEDULE_LOW) {
 	    qp = &c_p->sys_task_qs->q[PRIORITY_NORMAL];
 	    *priop = PRIORITY_NORMAL;
 	    break;
 	}
 	c_p->sys_task_qs->ncount = 0;
+        qbit = LOW_BIT;
 	/* Fall through */
     case LOW_BIT:
 	qp = &c_p->sys_task_qs->q[PRIORITY_LOW];
@@ -10727,7 +10738,7 @@ request_system_task(Process *c_p, Eterm requester, Eterm target,
 		    Eterm priority, Eterm operation)
 {
     BIF_RETTYPE ret;
-    Process *rp = erts_proc_lookup(target);
+    Process *rp = erts_proc_lookup_raw(target);
     ErtsProcSysTask *st = NULL;
     erts_aint32_t prio, fail_state = ERTS_PSFLG_EXITING;
     Eterm noproc_res, req_type;
@@ -12563,7 +12574,7 @@ delete_process(Process* p)
      * The mso list should not be used anymore, but if it is, make sure that
      * we'll notice.
      */
-    p->off_heap.first = (void *) 0x8DEFFACD;
+    p->off_heap.first = (void*)(UWord)0x8DEFFACD;
 
     if (p->arg_reg != p->def_arg_reg) {
 	erts_free(ERTS_ALC_T_ARG_REG, p->arg_reg);

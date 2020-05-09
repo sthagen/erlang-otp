@@ -525,9 +525,270 @@ const char *ei_thiscookie(const ei_cnode* ec)
     return (const char *)ec->ei_connect_cookie;
 }
 
+static int
+check_initialized_node(ei_cnode *ec)
+{
+    /*
+     * Try to guard against returning garbage pids and refs
+     * by verifying that the node has got its name...
+     */
+    int i, at, end;
+    char *nodename = &ec->thisnodename[0];
+
+    for (i = at = end = 0; i < sizeof(ec->thisnodename); i++) {
+        if (!nodename[i]) {
+            end = !0;
+            break;
+        }
+        if (nodename[i] == '@')
+            at = !0;
+    }
+
+    if (!at || !end) {
+        erl_errno = EINVAL;
+        return ERL_ERROR;
+    }
+
+    return 0;
+}
+
 erlang_pid *ei_self(ei_cnode* ec)
 {
+    int err = check_initialized_node(ec);
+    if (err)
+        return NULL;
     return &ec->self;
+}
+
+/*
+ * ei_make_pid()
+ */
+
+#undef EI_MAKE_PID_ATOMIC__
+#ifdef _REENTRANT
+#  if (SIZEOF_INT == 4                                  \
+       && (ETHR_HAVE___atomic_compare_exchange_n & 4)   \
+       && (ETHR_HAVE___atomic_load_n & 4))
+#    define EI_MAKE_PID_ATOMIC__
+#  else /* !EI_MAKE_PID_ATOMIC__ */
+static ei_mutex_t *pid_mtx = NULL;
+#  endif /* !EI_MAKE_PID_ATOMIC__ */
+#endif /* _REENTRANT */
+
+static int
+init_make_pid(int late)
+{
+#if defined(_REENTRANT) && !defined(EI_MAKE_PID_ATOMIC__)
+
+    if (late)
+        return ENOTSUP; /* Refuse doing unsafe initialization... */
+
+    pid_mtx = ei_mutex_create();
+    if (!pid_mtx)
+        return ENOMEM;
+    
+#endif /* _REENTRANT */
+
+    return 0;
+}
+
+int ei_make_pid(ei_cnode *ec, erlang_pid *pid)
+{
+    unsigned int new;
+    int err;
+    
+    if (!ei_connect_initialized) {
+	fprintf(stderr,"<ERROR> erl_interface not initialized\n");
+        exit(1);
+    }
+
+    err = check_initialized_node(ec);
+    if (err) {
+        /*
+         * write invalid utf8 in nodename which will make
+         * ei_encode_pid() fail if used...
+         */
+        pid->node[0] = 0xff;
+        pid->node[1] = 0;
+        pid->serial = -1;
+        pid->num = -1;
+        return err;
+    }
+    
+    strcpy(pid->node, ec->thisnodename);
+    pid->creation = ec->creation;
+
+    /*
+     * We avoid creating pids with serial set to 0 since the
+     * documentation previously gave some really bad advise
+     * of modifying the 'num' field in the pid returned by
+     * ei_self(). Since 'serial' field in pid returned by
+     * ei_self() is initialized to 0, pids created by
+     * ei_make_pid() wont clash with such badly created pids
+     * using ei_self() unless user also modified serial, but
+     * that has at least never been suggested by the
+     * documentation.
+     */
+
+#ifdef EI_MAKE_PID_ATOMIC__
+    {
+        unsigned int xchg = __atomic_load_n(&ec->pidsn, __ATOMIC_RELAXED);
+        do {
+            new = xchg + 1;
+            if ((new & 0x0fff8000) == 0)
+                new = 0x8000; /* serial==0 -> serial=1 num=0 */
+        } while(!__atomic_compare_exchange_n(&ec->pidsn, &xchg, new, 0,
+                                             __ATOMIC_ACQ_REL,
+                                             __ATOMIC_RELAXED));
+    }
+#else /* !EI_MAKE_PID_ATOMIC__ */
+
+#ifdef _REENTRANT
+    ei_mutex_lock(pid_mtx, 0);
+#endif
+
+    new = ec->pidsn + 1;
+    if ((new & 0x0fff8000) == 0)
+        new = 0x8000; /* serial==0 -> serial=1 num=0 */
+
+    ec->pidsn = new;
+    
+#ifdef _REENTRANT
+    ei_mutex_unlock(pid_mtx);
+#endif
+
+#endif /* !EI_MAKE_PID_ATOMIC__ */
+
+    pid->num = new & 0x7fff; /* 15-bits */
+    pid->serial = (new >> 15) & 0x1fff; /* 13-bits */
+    
+    return 0;
+}
+
+/*
+ * ei_make_ref()
+ */
+
+#undef EI_MAKE_REF_ATOMIC__
+#ifdef _REENTRANT
+#  if ((SIZEOF_LONG == 8 || SIZEOF_LONGLONG == 8)         \
+       && (ETHR_HAVE___atomic_compare_exchange_n & 8)     \
+       && (ETHR_HAVE___atomic_load_n & 8))
+#    define EI_MAKE_REF_ATOMIC__
+#    if SIZEOF_LONG == 8
+typedef unsigned long ei_atomic_ref__;
+#    else
+typedef unsigned long long ei_atomic_ref__;
+#    endif
+#  else /* !EI_MAKE_REF_ATOMIC__ */
+static ei_mutex_t *ref_mtx = NULL;
+#  endif /* !EI_MAKE_REF_ATOMIC__ */
+#endif /* _REENTRANT */
+
+/*
+ * We use a global counter for all c-nodes in this process.
+ * We wont wrap anyway due to the enormous amount of values
+ * available.
+ */
+#ifdef EI_MAKE_REF_ATOMIC__
+static ei_atomic_ref__ ref_count;
+#else
+static unsigned int ref_count[3];
+#endif
+
+static int
+init_make_ref(int late)
+{
+    
+#ifdef EI_MAKE_REF_ATOMIC__
+    ref_count = 0;
+#else /* !EI_MAKE_REF_ATOMIC__ */
+
+#ifdef _REENTRANT
+
+    if (late)
+        return ENOTSUP; /* Refuse doing unsafe initialization... */
+
+    ref_mtx = ei_mutex_create();
+    if (!ref_mtx)
+        return ENOMEM;
+    
+#endif /* _REENTRANT */
+
+    ref_count[0] = 0;
+    ref_count[1] = 0;
+    ref_count[2] = 0;
+
+#endif /* !EI_MAKE_REF_ATOMIC__ */
+
+    return 0;
+}
+
+int ei_make_ref(ei_cnode *ec, erlang_ref *ref)
+{
+    int err;
+    if (!ei_connect_initialized) {
+	fprintf(stderr,"<ERROR> erl_interface not initialized\n");
+        exit(1);
+    }
+
+    err = check_initialized_node(ec);
+    if (err) {
+        /*
+         * write invalid utf8 in nodename which will make
+         * ei_encode_ref() fail if used...
+         */
+        ref->node[0] = 0xff;
+        ref->node[1] = 0;
+        ref->len = -1;
+        return err;
+    }
+    
+    strcpy(ref->node, ec->thisnodename);
+    ref->creation = ec->creation;
+    ref->len = 3;
+
+#ifdef EI_MAKE_REF_ATOMIC__
+    {
+        ei_atomic_ref__ xchg, new;
+        xchg = __atomic_load_n(&ref_count, __ATOMIC_RELAXED);
+        do {
+            new = xchg + 1;
+        } while(!__atomic_compare_exchange_n(&ref_count, &xchg, new, 0,
+                                             __ATOMIC_ACQ_REL,
+                                             __ATOMIC_RELAXED));
+        ref->n[0] = (unsigned int) (new & 0x3ffff);
+        ref->n[1] = (unsigned int) ((new >> 18) & 0xffffffff);
+        ref->n[2] = (unsigned int) ((new >> (18+32)) & 0xffffffff);
+    }
+#else /* !EI_MAKE_REF_ATOMIC__ */
+
+#ifdef _REENTRANT
+    ei_mutex_lock(ref_mtx, 0);
+#endif
+
+    ref->n[0] = ref_count[0];
+    ref->n[1] = ref_count[1];
+    ref->n[2] = ref_count[2];
+    
+    ref_count[0]++;
+    ref_count[0] &= 0x3ffff;
+    if (ref_count[0] == 0) {
+        ref_count[1]++;
+        ref_count[1] &= 0xffffffff;
+        if (ref_count[1] == 0) {
+            ref_count[2]++;
+            ref_count[2] &= 0xffffffff;
+        }
+    }
+    
+#ifdef _REENTRANT
+    ei_mutex_unlock(ref_mtx);
+#endif
+
+#endif /* !EI_MAKE_REF_ATOMIC__ */
+    
+    return 0;
 }
 
 /* two internal functions that will let us support different cookies
@@ -616,6 +877,18 @@ static int init_connect(int late)
         return error;
     }
 
+    error = init_make_ref(late);
+    if (error) {
+        EI_TRACE_ERR0("ei_init_connect","can't initiate ei_make_ref()");
+        return error;
+    }
+
+    error = init_make_pid(late);
+    if (error) {
+        EI_TRACE_ERR0("ei_init_connect","can't initiate ei_make_pid()");
+        return error;
+    }
+
     ei_connect_initialized = !0;
     return 0;
 }
@@ -650,6 +923,7 @@ int ei_connect_xinit_ussi(ei_cnode* ec, const char *thishostname,
     }
     
     ec->creation = creation;
+    ec->pidsn = 0;
     
     if (cookie) {
 	if (strlen(cookie) >= sizeof(ec->ei_connect_cookie)) { 
@@ -1475,11 +1749,8 @@ int ei_receive(int fd, unsigned char *bufp, int bufsize)
 int ei_reg_send_tmo(ei_cnode* ec, int fd, char *server_name,
 		    char* buf, int len, unsigned ms)
 {
-    erlang_pid *self = ei_self(ec);
-    self->num = fd;
-
     /* erl_errno and return code is set by ei_reg_send_encoded_tmo() */
-    return ei_send_reg_encoded_tmo(fd, self, server_name, buf, len, ms);
+    return ei_send_reg_encoded_tmo(fd, ei_self(ec), server_name, buf, len, ms);
 }
 
 
@@ -1588,27 +1859,45 @@ int ei_rpc_to(ei_cnode *ec, int fd, char *mod, char *fun,
 
     ei_x_buff x;
     erlang_pid *self = ei_self(ec);
-    self->num = fd;
+    int err = ERL_ERROR;
 
     /* encode header */
-    ei_x_new_with_version(&x);
-    ei_x_encode_tuple_header(&x, 2);  /* A */
+    if (ei_x_new_with_version(&x) < 0)
+        goto einval;
+    if (ei_x_encode_tuple_header(&x, 2) < 0)  /* A */
+        goto einval;
     
-    self->num = fd;
-    ei_x_encode_pid(&x, self);	      /* A 1 */
+    if (ei_x_encode_pid(&x, self) < 0)	      /* A 1 */
+        goto einval;
     
-    ei_x_encode_tuple_header(&x, 5);  /* B A 2 */
-    ei_x_encode_atom(&x, "call");     /* B 1 */
-    ei_x_encode_atom(&x, mod);	      /* B 2 */
-    ei_x_encode_atom(&x, fun);	      /* B 3 */
-    ei_x_append_buf(&x, buf, len);    /* B 4 */
-    ei_x_encode_atom(&x, "user");     /* B 5 */
+    if (ei_x_encode_tuple_header(&x, 5) < 0)  /* B A 2 */
+        goto einval;
+    if (ei_x_encode_atom(&x, "call") < 0)     /* B 1 */
+        goto einval;
+    if (ei_x_encode_atom(&x, mod) < 0)	      /* B 2 */
+        goto einval;
+    if (ei_x_encode_atom(&x, fun) < 0)	      /* B 3 */
+        goto einval;
+    if (ei_x_append_buf(&x, buf, len) < 0)    /* B 4 */
+        goto einval;
+    if (ei_x_encode_atom(&x, "user") < 0)     /* B 5 */
+        goto einval;
+    
+    err = ei_send_reg_encoded(fd, self, "rex", x.buff, x.index);
+    if (err)
+        goto error;
+    
+    ei_x_free(&x);	
 
-    /* ei_x_encode_atom(&x,"user"); */
-    ei_send_reg_encoded(fd, self, "rex", x.buff, x.index);
-    ei_x_free(&x);
-	
     return 0;
+
+einval:
+    EI_CONN_SAVE_ERRNO__(EINVAL);
+
+error:
+    if (x.buff != NULL)
+        ei_x_free(&x);
+    return err;
 } /* rpc_to */
 
   /*
@@ -1626,11 +1915,6 @@ int ei_rpc_from(ei_cnode *ec, int fd, int timeout, erlang_msg *msg,
     return res;
 } /* rpc_from */
 
-  /*
-  * A true RPC. It return a NULL pointer
-  * in case of failure, otherwise a valid
-  * (ETERM *) pointer containing the reply
-  */
 int ei_rpc(ei_cnode* ec, int fd, char *mod, char *fun,
 	   const char* inbuf, int inbuflen, ei_x_buff* x)
 {
@@ -1640,27 +1924,45 @@ int ei_rpc(ei_cnode* ec, int fd, char *mod, char *fun,
     char rex[MAXATOMLEN];
 
     if (ei_rpc_to(ec, fd, mod, fun, inbuf, inbuflen) < 0) {
-	return -1;
+	return ERL_ERROR;
     }
-    /* FIXME are we not to reply to the tick? */
+
+    /* ei_rpc_from() responds with a tick if it gets one... */
     while ((i = ei_rpc_from(ec, fd, ERL_NO_TIMEOUT, &msg, x)) == ERL_TICK)
 	;
 
-    if (i == ERL_ERROR)  return -1;
-    /*ep = 'erl'_element(2,emsg.msg);*/ /* {RPC_Tag, RPC_Reply} */
+    if (i == ERL_ERROR)  return i;
+    
+    /* Expect: {rex, RPC_Reply} */
+
     index = 0;
-    if (ei_decode_version(x->buff, &index, &i) < 0
-	|| ei_decode_ei_term(x->buff, &index, &t) < 0)
-	return -1;		/* FIXME ei_decode_version don't set erl_errno as before */
-    /* FIXME this is strange, we don't check correct "rex" atom
-       and we let it pass if not ERL_SMALL_TUPLE_EXT and arity == 2 */
-    if (t.ei_type == ERL_SMALL_TUPLE_EXT && t.arity == 2)
-	if (ei_decode_atom(x->buff, &index, rex) < 0)
-	    return -1;
+    if (ei_decode_version(x->buff, &index, &i) < 0)
+        goto ebadmsg;
+
+    if (ei_decode_ei_term(x->buff, &index, &t) < 0)
+        goto ebadmsg;
+
+    if (t.ei_type != ERL_SMALL_TUPLE_EXT && t.ei_type != ERL_LARGE_TUPLE_EXT)
+        goto ebadmsg;
+
+    if (t.arity != 2)
+        goto ebadmsg;
+
+    if (ei_decode_atom(x->buff, &index, rex) < 0)
+        goto ebadmsg;
+
+    if (strcmp("rex", rex) != 0)
+        goto ebadmsg;
+
     /* remove header */
     x->index -= index;
     memmove(x->buff, &x->buff[index], x->index);
     return 0;
+    
+ebadmsg:
+    
+    EI_CONN_SAVE_ERRNO__(EBADMSG);
+    return ERL_ERROR;
 }
 
 

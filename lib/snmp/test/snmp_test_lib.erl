@@ -25,6 +25,7 @@
 
 -export([tc_try/2, tc_try/3,
          tc_try/4, tc_try/5]).
+-export([proxy_call/3]).
 -export([hostname/0, hostname/1, localhost/0, localhost/1, os_type/0, sz/1,
 	 display_suite_info/1]).
 -export([non_pc_tc_maybe_skip/4,
@@ -257,6 +258,19 @@ tc_which_name() ->
 %% Misc functions
 %%
 
+proxy_call(F, Timeout, Default)
+  when is_function(F, 0) andalso is_integer(Timeout) andalso (Timeout > 0) ->
+    {P, M} = erlang:spawn_monitor(fun() -> exit(F()) end),
+    receive
+        {'DOWN', M, process, P, Reply} ->
+            Reply
+    after Timeout ->
+            erlang:demonitor(M, [flush]),
+            exit(P, kill),
+            Default
+    end.
+
+
 hostname() ->
     hostname(node()).
 
@@ -267,20 +281,6 @@ hostname(Node) ->
         _ ->
             []
     end.
-
-%% localhost() ->
-%%     {ok, Ip} = snmp_misc:ip(net_adm:localhost()),
-%%     Ip.
-%% localhost(Family) ->
-%%     {ok, Ip} = snmp_misc:ip(net_adm:localhost(), Family),
-%%     Ip.
-
-%% localhost() ->
-%%     {ok, Ip} = snmp_misc:ip(net_adm:localhost()),
-%%     Ip.
-%% localhost(Family) ->
-%%     {ok, Ip} = snmp_misc:ip(net_adm:localhost(), Family),
-%%     Ip.
 
 localhost() ->
     localhost(inet).
@@ -623,17 +623,44 @@ old_is_ipv6_host(Hostname) ->
 
 init_per_suite(Config) ->
 
+    ct:timetrap(minutes(2)),
+
+    try analyze_and_print_host_info() of
+        {Factor, HostInfo} when is_integer(Factor) ->
+            try maybe_skip(HostInfo) of
+                true ->
+                    {skip, "Unstable host and/or os (or combo thererof)"};
+                false ->
+                    snmp_test_global_sys_monitor:start(),
+                    [{snmp_factor, Factor} | Config]
+            catch
+                throw:{skip, _} = SKIP ->
+                    SKIP
+            end
+    catch
+        throw:{skip, _} = SKIP ->
+            SKIP
+    end.
+
+maybe_skip(HostInfo) ->
+
     %% We have some crap machines that causes random test case failures
     %% for no obvious reason. So, attempt to identify those without actually
     %% checking for the host name...
-    %% We have two "machines" we are checking for. Both are old installations
-    %% running on really slow VMs (the host machines are old and tired).
+
     LinuxVersionVerify =
         fun(V) when (V > {3,6,11}) ->
                 false; % OK - No skip
            (V) when (V =:= {3,6,11}) ->
                 case string:trim(os:cmd("cat /etc/issue")) of
                     "Fedora release 16 " ++ _ -> % Stone age Fedora => Skip
+                        true;
+                    _ ->
+                        false
+                end;
+           (V) when (V =:= {3,4,20}) ->
+                case string:trim(os:cmd("cat /etc/issue")) of
+                    "Wind River Linux 5.0.1.0" ++ _ -> % *Old* Wind River => skip
                         true;
                     _ ->
                         false
@@ -675,8 +702,7 @@ init_per_suite(Config) ->
         end,
     SkipWindowsOnVirtual =
         fun() ->
-                SysInfo = which_win_system_info(),
-                SysMan  = win_sys_info_lookup(system_manufacturer, SysInfo),
+                SysMan = win_sys_info_lookup(system_manufacturer, HostInfo),
                 case string:to_lower(SysMan) of
                     "vmware" ++ _ ->
                         true;
@@ -687,14 +713,7 @@ init_per_suite(Config) ->
     COND = [{unix,  [{linux, LinuxVersionVerify}, 
                      {darwin, DarwinVersionVerify}]},
             {win32, SkipWindowsOnVirtual}],
-    case os_based_skip(COND) of
-        true ->
-            {skip, "Unstable host and/or os (or combo thererof)"};
-        false ->
-            Factor = analyze_and_print_host_info(),
-            snmp_test_global_sys_monitor:start(),
-            [{snmp_factor, Factor} | Config]
-    end.
+    os_based_skip(COND).
 
 
 end_per_suite(Config) when is_list(Config) ->
@@ -835,7 +854,7 @@ skip(Reason, Module, Line) ->
 %% when analyzing the test suite (results).
 %% It also returns a "factor" that can be used when deciding 
 %% the load for some test cases. Such as run time or number of
-%% iteraions. This only works for some OSes.
+%% iterations. This only works for some OSes.
 %%
 %% We make some calculations on Linux, OpenBSD and FreeBSD.
 %% On SunOS we always set the factor to 2 (just to be on the safe side)
@@ -859,6 +878,8 @@ analyze_and_print_host_info() ->
             analyze_and_print_freebsd_host_info(Version);           
         {unix, netbsd} ->
             analyze_and_print_netbsd_host_info(Version);           
+        {unix, darwin} ->
+            analyze_and_print_darwin_host_info(Version);
         {unix, sunos} ->
             analyze_and_print_solaris_host_info(Version);
         {win32, nt} ->
@@ -869,44 +890,39 @@ analyze_and_print_host_info() ->
                       "~n   Version:        ~p"
                       "~n   Num Schedulers: ~s"
                       "~n", [OsFam, OsName, Version, str_num_schedulers()]),
-            try erlang:system_info(schedulers) of
-                1 ->
-                    10;
-                2 ->
-                    5;
-                N when (N =< 6) ->
-                    2;
-                _ ->
-                    1
-            catch
-                _:_:_ ->
-                    10
-            end
+            {num_schedulers_to_factor(), []}
     end.
 
 linux_which_distro(Version) ->
-    case [string:trim(S) ||
-             S <- string:tokens(os:cmd("cat /etc/issue"), [$\n])] of
-        [DistroStr|_] ->
-            io:format("Linux: ~s"
-                      "~n   ~s"
-                      "~n",
-                      [Version, DistroStr]),
-            case DistroStr of
-                "Wind River Linux" ++ _ ->
-                    wind_river;
-                "MontaVista" ++ _ ->
-                    montavista;
-                "Yellow Dog" ++ _ ->
-                    yellow_dog;
-                _ ->
+    case file:read_file_info("/etc/issue") of
+        {ok, _} ->
+            case [string:trim(S) ||
+                     S <- string:tokens(os:cmd("cat /etc/issue"), [$\n])] of
+                [DistroStr|_] ->
+                    io:format("Linux: ~s"
+                              "~n   ~s"
+                              "~n",
+                              [Version, DistroStr]),
+                    case DistroStr of
+                        "Wind River Linux" ++ _ ->
+                            wind_river;
+                        "MontaVista" ++ _ ->
+                            montavista;
+                        "Yellow Dog" ++ _ ->
+                            yellow_dog;
+                        _ ->
+                            other
+                    end;
+                X ->
+                    io:format("Linux: ~s"
+                              "~n   ~p"
+                              "~n",
+                              [Version, X]),
                     other
             end;
-        X ->
+        _ ->
             io:format("Linux: ~s"
-                      "~n   ~p"
-                      "~n",
-                      [Version, X]),
+                      "~n", [Version]),
             other
     end.
     
@@ -924,9 +940,10 @@ analyze_and_print_linux_host_info(Version) ->
         case (catch linux_which_cpuinfo(Distro)) of
             {ok, {CPU, BogoMIPS}} ->
                 io:format("CPU: "
-                          "~n   Model:    ~s"
-                          "~n   BogoMIPS: ~w"
-                          "~n", [CPU, BogoMIPS]),
+                          "~n   Model:          ~s"
+                          "~n   BogoMIPS:       ~w"
+                          "~n   Num Schedulers: ~s"
+                          "~n", [CPU, BogoMIPS, str_num_schedulers()]),
                 if
                     (BogoMIPS > 20000) ->
                         1;
@@ -943,9 +960,16 @@ analyze_and_print_linux_host_info(Version) ->
                 end;
             {ok, CPU} ->
                 io:format("CPU: "
-                          "~n   Model: ~s"
-                          "~n", [CPU]),
-                2;
+                          "~n   Model:          ~s"
+                          "~n   Num Schedulers: ~s"
+                          "~n", [CPU, str_num_schedulers()]),
+                NumChed = erlang:system_info(schedulers),
+                if
+                    (NumChed > 2) ->
+                        2;
+                    true ->
+                        5
+                end;
             _ ->
                 5
         end,
@@ -953,11 +977,11 @@ analyze_and_print_linux_host_info(Version) ->
     try linux_which_meminfo() of
         AddFactor ->
             io:format("TS Scale Factor: ~w~n", [timetrap_scale_factor()]),
-            Factor + AddFactor
+            {Factor + AddFactor, []}
     catch
         _:_:_ ->
             io:format("TS Scale Factor: ~w~n", [timetrap_scale_factor()]),
-            Factor
+            {Factor, []}
     end.
 
 
@@ -995,8 +1019,12 @@ linux_cpuinfo_bogomips() ->
 
 linux_cpuinfo_total_bogomips() ->
     case linux_cpuinfo_lookup("total bogomips") of
-        [TMB] ->
-            TMB;
+        [TBM] ->
+            try bogomips_to_int(TBM)
+            catch
+                _:_:_ ->
+                    "-"
+            end;
         _ ->
             "-"
     end.
@@ -1104,8 +1132,8 @@ linux_which_cpuinfo(wind_river) ->
             {ok, {CPU, BMips}}
     end;
 
+%% Check for x86 (Intel or AMD)
 linux_which_cpuinfo(other) ->
-    %% Check for x86 (Intel or AMD)
     CPU =
         case linux_cpuinfo_model_name() of
             "-" ->
@@ -1260,12 +1288,12 @@ analyze_and_print_openbsd_host_info(Version) ->
                     true ->
                         3
                 end,
-            CPUFactor + MemAddFactor
+            {CPUFactor + MemAddFactor, []}
         end
     catch
         _:_:_ ->
             io:format("TS Scale Factor: ~w~n", [timetrap_scale_factor()]),
-            1
+            {2, []}
     end.
     
 
@@ -1348,7 +1376,7 @@ analyze_and_print_freebsd_host_info(Version) ->
                     true ->
                         3
                 end,
-            CPUFactor + MemAddFactor
+            {CPUFactor + MemAddFactor, []}
         end
     catch
         _:_:_ ->
@@ -1356,14 +1384,15 @@ analyze_and_print_freebsd_host_info(Version) ->
                       "~n   Num Schedulers: ~s"
                       "~n", [str_num_schedulers()]),
             io:format("TS Scale Factor: ~w~n", [timetrap_scale_factor()]),
-            case erlang:system_info(schedulers) of
-                1 ->
-                    10;
-                2 ->
-                    5;
-                _ ->
-                    2
-            end
+            Factor = case erlang:system_info(schedulers) of
+                         1 ->
+                             10;
+                         2 ->
+                             5;
+                         _ ->
+                             2
+                     end,
+            {Factor, []}
     end.
 
 
@@ -1487,21 +1516,22 @@ analyze_and_print_netbsd_host_info(Version) ->
                     true ->
                         3
                 end,
-            CPUFactor + MemAddFactor
+            {CPUFactor + MemAddFactor, []}
         end
     catch
         _:_:_ ->
             io:format("CPU:"
                       "~n   Num Schedulers: ~w"
                       "~n", [erlang:system_info(schedulers)]),
-            case erlang:system_info(schedulers) of
-                1 ->
-                    10;
-                2 ->
-                    5;
-                _ ->
-                    2
-            end
+            Factor = case erlang:system_info(schedulers) of
+                         1 ->
+                             10;
+                         2 ->
+                             5;
+                         _ ->
+                             2
+                     end,
+            {Factor, []}
     end.
 
 analyze_netbsd_cpu(Extract) ->
@@ -1539,6 +1569,289 @@ analyze_netbsd_item(Extract, Key, Process, Default) ->
     analyze_freebsd_item(Extract, Key, Process, Default).
 
 
+
+%% Model Identifier: Macmini7,1
+%%       Processor Name: Intel Core i5
+%%       Processor Speed: 2,6 GHz
+%%       Number of Processors: 1
+%%       Total Number of Cores: 2
+%%       L2 Cache (per Core): 256 KB
+%%       L3 Cache: 3 MB
+%%       Hyper-Threading Technology: Enabled
+%%       Memory: 16 GB
+
+analyze_and_print_darwin_host_info(Version) ->
+    %% This stuff is for macOS.
+    %% If we ever tested on a pure darwin machine,
+    %% we need to find some other way to find some info...
+    %% Also, I suppose its possible that we for some other
+    %% reason *fail* to get the info...
+    case analyze_darwin_software_info() of
+        [] ->
+            io:format("Darwin:"
+                      "~n   Version:        ~s"
+                      "~n   Num Schedulers: ~s"
+                      "~n", [Version, str_num_schedulers()]),
+            {num_schedulers_to_factor(), []};
+        SwInfo when  is_list(SwInfo) ->
+            SystemVersion = analyze_darwin_sw_system_version(SwInfo),
+            KernelVersion = analyze_darwin_sw_kernel_version(SwInfo),
+            HwInfo        = analyze_darwin_hardware_info(),
+            ModelName     = analyze_darwin_hw_model_name(HwInfo),
+            ModelId       = analyze_darwin_hw_model_identifier(HwInfo),
+            ProcName      = analyze_darwin_hw_processor_name(HwInfo),
+            ProcSpeed     = analyze_darwin_hw_processor_speed(HwInfo),
+            NumProc       = analyze_darwin_hw_number_of_processors(HwInfo),
+            NumCores      = analyze_darwin_hw_total_number_of_cores(HwInfo),
+            Memory        = analyze_darwin_hw_memory(HwInfo),
+            io:format("Darwin:"
+                      "~n   System Version: ~s"
+                      "~n   Kernel Version: ~s"
+                      "~n   Model:          ~s (~s)"
+                      "~n   Processor:      ~s (~s, ~s, ~s)"
+                      "~n   Memory:         ~s"
+                      "~n   Num Schedulers: ~s"
+                      "~n", [SystemVersion, KernelVersion,
+                             ModelName, ModelId,
+                             ProcName, ProcSpeed, NumProc, NumCores, 
+                             Memory,
+                             str_num_schedulers()]),
+            CPUFactor = analyze_darwin_cpu_to_factor(ProcName,
+                                                     ProcSpeed,
+                                                     NumProc,
+                                                     NumCores),
+            MemFactor = analyze_darwin_memory_to_factor(Memory),
+            if (MemFactor =:= 1) ->
+                    {CPUFactor, []};
+               true ->
+                    {CPUFactor + MemFactor, []}
+            end
+    end.
+
+analyze_darwin_sw_system_version(SwInfo) ->
+    proplists:get_value("system version", SwInfo, "-").
+
+analyze_darwin_sw_kernel_version(SwInfo) ->
+    proplists:get_value("kernel version", SwInfo, "-").
+
+analyze_darwin_software_info() ->
+    analyze_darwin_system_profiler("SPSoftwareDataType").
+
+analyze_darwin_hw_model_name(HwInfo) ->
+    proplists:get_value("model name", HwInfo, "-").
+
+analyze_darwin_hw_model_identifier(HwInfo) ->
+    proplists:get_value("model identifier", HwInfo, "-").
+
+analyze_darwin_hw_processor_name(HwInfo) ->
+    proplists:get_value("processor name", HwInfo, "-").
+
+analyze_darwin_hw_processor_speed(HwInfo) ->
+    proplists:get_value("processor speed", HwInfo, "-").
+
+analyze_darwin_hw_number_of_processors(HwInfo) ->
+    proplists:get_value("number of processors", HwInfo, "-").
+
+analyze_darwin_hw_total_number_of_cores(HwInfo) ->
+    proplists:get_value("total number of cores", HwInfo, "-").
+
+analyze_darwin_hw_memory(HwInfo) ->
+    proplists:get_value("memory", HwInfo, "-").
+
+analyze_darwin_hardware_info() ->
+    analyze_darwin_system_profiler("SPHardwareDataType").
+
+%% This basically has the structure: "Key: Value"
+%% But could also be (for example):
+%%    "Something:" (which we ignore)
+%%    "Key: Value1:Value2"
+analyze_darwin_system_profiler(DataType) ->
+    %% First, make sure the program actually exist:
+    case os:cmd("which system_profiler") of
+        [] ->
+            [];
+        _ ->
+            D0 = os:cmd("system_profiler " ++ DataType),
+            D1 = string:tokens(D0, [$\n]),
+            D2 = [string:trim(S1) || S1 <- D1],
+            D3 = [string:tokens(S2, [$:]) || S2 <- D2],
+            analyze_darwin_system_profiler2(D3)
+    end.
+
+analyze_darwin_system_profiler2(L) ->
+    analyze_darwin_system_profiler2(L, []).
+    
+analyze_darwin_system_profiler2([], Acc) ->
+    [{string:to_lower(K), V} || {K, V} <- lists:reverse(Acc)];
+analyze_darwin_system_profiler2([[_]|T], Acc) ->
+    analyze_darwin_system_profiler2(T, Acc);
+analyze_darwin_system_profiler2([[H1,H2]|T], Acc) ->
+    analyze_darwin_system_profiler2(T, [{H1, string:trim(H2)}|Acc]);
+analyze_darwin_system_profiler2([[H|TH0]|T], Acc) ->
+    %% Some value parts has ':' in them, so put them together
+    TH1 = colonize(TH0),
+    analyze_darwin_system_profiler2(T, [{H, string:trim(TH1)}|Acc]).
+
+%% This is only called if the length is at least 2
+colonize([L1, L2]) ->
+    L1 ++ ":" ++ L2;
+colonize([H|T]) ->
+    H ++ ":" ++ colonize(T).
+
+
+%% The memory looks like this "<size> <unit>". Example: "2 GB" 
+analyze_darwin_memory_to_factor(Mem) ->
+    case [string:to_lower(S) || S <- string:tokens(Mem, [$\ ])] of
+        [_SzStr, "tb"] ->
+            1;
+        [SzStr, "gb"] ->
+            try list_to_integer(SzStr) of
+                Sz when Sz < 2 ->
+                    20;
+                Sz when Sz < 4 ->
+                    10;
+                Sz when Sz < 8 ->
+                    5;
+                Sz when Sz < 16 ->
+                    2;
+                _ ->
+                    1
+            catch
+                _:_:_ ->
+                    20
+            end;
+        [_SzStr, "mb"] ->
+            20;
+        _ ->
+            20
+    end.
+
+
+%% The speed is a string: "<speed> <unit>"
+%% the speed may be a float, which we transforms into an integer of MHz.
+%% To calculate a factor based on processor speed, number of procs
+%% and number of cores is ... not an exact ... science ...
+analyze_darwin_cpu_to_factor(_ProcName,
+                             ProcSpeedStr, NumProcStr, NumCoresStr) ->
+    Speed = 
+        case [string:to_lower(S) || S <- string:tokens(ProcSpeedStr, [$\ ])] of
+            [SpeedStr, "mhz"] ->
+                try list_to_integer(SpeedStr) of
+                    SpeedI ->
+                        SpeedI
+                catch
+                    _:_:_ ->
+                        try list_to_float(SpeedStr) of
+                            SpeedF ->
+                                trunc(SpeedF)
+                        catch
+                            _:_:_ ->
+                                -1
+                        end
+                end;
+            [SpeedStr, "ghz"] ->
+                try list_to_float(SpeedStr) of
+                    SpeedF ->
+                        trunc(1000*SpeedF)
+                catch
+                    _:_:_ ->
+                        try list_to_integer(SpeedStr) of
+                            SpeedI ->
+                                1000*SpeedI
+                        catch
+                            _:_:_ ->
+                                -1
+                        end
+                end;
+            _ ->
+                -1
+        end,
+    NumProc = try list_to_integer(NumProcStr) of
+                  NumProcI ->
+                      NumProcI
+              catch
+                  _:_:_ ->
+                      1
+              end,
+    NumCores = try list_to_integer(NumCoresStr) of
+                   NumCoresI ->
+                       NumCoresI
+               catch
+                   _:_:_ ->
+                       1
+               end,
+    if
+        (Speed > 3000) ->
+            if
+                (NumProc =:= 1) ->
+                    if
+                        (NumCores < 2) ->
+                            5;
+                        (NumCores < 4) ->
+                            3;
+                        (NumCores < 6) ->
+                            2;
+                        true ->
+                            1
+                    end;
+                true ->
+                    if
+                        (NumCores < 4) ->
+                            2;
+                        true ->
+                            1
+                    end
+            end;
+        (Speed > 2000) ->
+            if
+                (NumProc =:= 1) ->
+                    if
+                        (NumCores < 2) ->
+                            8;
+                        (NumCores < 4) ->
+                            5;
+                        (NumCores < 6) ->
+                            3;
+                        true ->
+                            1
+                    end;
+                true ->
+                    if
+                        (NumCores < 4) ->
+                            5;
+                        (NumCores < 8) ->
+                            2;
+                        true ->
+                            1
+                    end
+            end;
+        true ->
+            if
+                (NumProc =:= 1) ->
+                    if
+                        (NumCores < 2) ->
+                            10;
+                        (NumCores < 4) ->
+                            7;
+                        (NumCores < 6) ->
+                            5;
+                        (NumCores < 8) ->
+                            3;
+                        true ->
+                            1
+                    end;
+                true ->
+                    if
+                        (NumCores < 4) ->
+                            8;
+                        (NumCores < 8) ->
+                            4;
+                        true ->
+                            1
+                    end
+            end
+    end.
+    
 
 analyze_and_print_solaris_host_info(Version) ->
     Release =
@@ -1665,19 +1978,19 @@ analyze_and_print_solaris_host_info(Version) ->
             _:_:_ ->
                 10
         end,
-    try erlang:system_info(schedulers) of
-        1 ->
-            10;
-        2 ->
-            5;
-        N when (N =< 6) ->
-            2;
-        _ ->
-            1
-    catch
-        _:_:_ ->
-            10
-    end + MemFactor.    
+    {try erlang:system_info(schedulers) of
+         1 ->
+             10;
+         2 ->
+             5;
+         N when (N =< 6) ->
+             2;
+         _ ->
+             1
+     catch
+         _:_:_ ->
+             10
+     end + MemFactor, []}.    
 
 
 
@@ -1751,7 +2064,7 @@ analyze_and_print_win_host_info(Version) ->
             _ ->
                 2
         end,
-    CPUFactor + MemFactor.
+    {CPUFactor + MemFactor, SysInfo}.
 
 win_sys_info_lookup(Key, SysInfo) ->
     win_sys_info_lookup(Key, SysInfo, "-").
@@ -1766,14 +2079,24 @@ win_sys_info_lookup(Key, SysInfo, Def) ->
 
 %% This function only extracts the prop we actually care about!
 which_win_system_info() ->
-    SysInfo = os:cmd("systeminfo"),
-    try process_win_system_info(string:tokens(SysInfo, [$\r, $\n]), [])
-    catch
-        _:_:_ ->
-            io:format("Failed process System info: "
-                      "~s~n", [SysInfo]),
-            []
-    end.
+    F = fun() ->
+                try
+                    begin
+                        SysInfo = os:cmd("systeminfo"),
+                        process_win_system_info(
+                          string:tokens(SysInfo, [$\r, $\n]), [])
+                    end
+                catch
+                    C:E:S ->
+                        io:format("Failed get or process System info: "
+                                  "   Error Class: ~p"
+                                  "   Error:       ~p"
+                                  "   Stack:       ~p"
+                                  "~n", [C, E, S]),
+                        []
+                end
+        end,
+    proxy_call(F, minutes(1), []).
 
 process_win_system_info([], Acc) ->
     Acc;
@@ -1817,16 +2140,25 @@ str_num_schedulers() ->
         _:_:_ -> "-"
     end.
 
+num_schedulers_to_factor() ->
+    try erlang:system_info(schedulers) of
+        1 ->
+            10;
+        2 ->
+            5;
+        N when (N =< 6) ->
+            2;
+        _ ->
+            1
+    catch
+        _:_:_ ->
+            10
+    end.
+
 
 linux_info_lookup(Key, File) ->
     try [string:trim(S) || S <- string:tokens(os:cmd("grep " ++ "\"" ++ Key ++ "\"" ++ " " ++ File), [$:,$\n])] of
         Info ->
-            %% io:format("linux_info_lookup -> "
-            %%           "~n   Key:  ~p"
-            %%           "~n   File: ~p"
-            %%           "~n=> "
-            %%           "~n   ~p"
-            %%           "~n", [Key, File, Info]),
             linux_info_lookup_collect(Key, Info, [])
     catch
         _:_:_ ->
@@ -1866,7 +2198,7 @@ sleep(MSecs) ->
 
 %% ----------------------------------------------------------------
 %% Process utility function
-%% 
+%%
 
 flush_mqueue() ->
     io:format("~p~n", [lists:reverse(flush_mqueue([]))]).
@@ -1881,10 +2213,10 @@ flush_mqueue(MQ) ->
 
     
 trap_exit() -> 
-    {trap_exit,Flag} = process_info(self(),trap_exit),Flag.
+    {trap_exit, Flag} = process_info(self(),trap_exit), Flag.
 
 trap_exit(Flag) -> 
-    process_flag(trap_exit,Flag).
+    process_flag(trap_exit, Flag).
 
 
 
