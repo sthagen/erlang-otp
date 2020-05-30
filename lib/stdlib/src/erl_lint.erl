@@ -249,7 +249,7 @@ format_error({redefine_bif_import,{F,A}}) ->
     io_lib:format("import directive overrides auto-imported BIF ~w/~w~n"
 		  " - use \"-compile({no_auto_import,[~w/~w]}).\" to resolve name clash", [F,A,F,A]);
 format_error({deprecated, MFA, String, Rel}) ->
-    io_lib:format("~s is deprecated and will be removed in ~s; use ~s",
+    io_lib:format("~s is deprecated and will be removed in ~s; ~s",
 		  [format_mfa(MFA), Rel, String]);
 format_error({deprecated, MFA, String}) when is_list(String) ->
     io_lib:format("~s is deprecated; ~s", [format_mfa(MFA), String]);
@@ -2426,11 +2426,7 @@ expr({'fun',Line,Body}, Vt, St) ->
                 true -> {[],St};
                 false -> {[],call_function(Line, F, A, St)}
             end;
-	{function,M,F,A} when is_atom(M), is_atom(F), is_integer(A) ->
-	    %% Compatibility with pre-R15 abstract format.
-	    {[],St};
 	{function,M,F,A} ->
-	    %% New in R15.
 	    expr_list([M,F,A], Vt, St)
     end;
 expr({named_fun,_,'_',Cs}, Vt, St) ->
