@@ -410,6 +410,8 @@ erts_cpu_info_update(erts_cpu_info_t *cpuinfo)
 
     if (available > online)
 	available = online;
+    else if (available == 0) /* shouldn't happen */
+        available = online;
 
     if (cpuinfo->available != available)
 	changed = 1;
@@ -1214,6 +1216,9 @@ read_cpu_quota(int limit)
             if (cfs_period_us > 0 && cfs_quota_us > 0) {
                 size_t quota = cfs_quota_us / cfs_period_us;
 
+                if (quota == 0) {
+                    quota = 1;
+                }
                 if (quota > 0 && quota <= (size_t)limit) {
                     return quota;
                 }
