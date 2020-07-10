@@ -18,15 +18,17 @@
 %% %CopyrightEnd%
 %%
 
--module(gen_inet_test_lib).
+-module(kernel_test_lib).
 
 -export([init_per_suite/1,
          end_per_suite/1]).
 -export([tc_try/3]).
 -export([f/2,
          print/1, print/2]).
+-export([good_hosts/1,
+         lookup/3]).
 
--include("gen_inet_test_lib.hrl").
+-include("kernel_test_lib.hrl").
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -92,9 +94,9 @@ analyze_and_print_host_info() ->
             analyze_and_print_win_host_info(Version);
         _ ->
             io:format("OS Family: ~p"
-                      "~n   OS Type:        ~p"
-                      "~n   Version:        ~p"
-                      "~n   Num Schedulers: ~s"
+                      "~n   OS Type:               ~p"
+                      "~n   Version:               ~p"
+                      "~n   Num Online Schedulers: ~s"
                       "~n", [OsFam, OsName, Version, str_num_schedulers()]),
             {num_schedulers_to_factor(), []}
     end.
@@ -146,9 +148,9 @@ analyze_and_print_linux_host_info(Version) ->
         case (catch linux_which_cpuinfo(Distro)) of
             {ok, {CPU, BogoMIPS}} ->
                 io:format("CPU: "
-                          "~n   Model:          ~s"
-                          "~n   BogoMIPS:       ~w"
-                          "~n   Num Schedulers: ~s"
+                          "~n   Model:                 ~s"
+                          "~n   BogoMIPS:              ~w"
+                          "~n   Num Online Schedulers: ~s"
                           "~n", [CPU, BogoMIPS, str_num_schedulers()]),
                 if
                     (BogoMIPS > 20000) ->
@@ -166,8 +168,8 @@ analyze_and_print_linux_host_info(Version) ->
                 end;
             {ok, CPU} ->
                 io:format("CPU: "
-                          "~n   Model:          ~s"
-                          "~n   Num Schedulers: ~s"
+                          "~n   Model:                 ~s"
+                          "~n   Num Online Schedulers: ~s"
                           "~n", [CPU, str_num_schedulers()]),
                 NumChed = erlang:system_info(schedulers),
                 if
@@ -535,10 +537,10 @@ analyze_and_print_freebsd_host_info(Version) ->
             NCPU     = analyze_freebsd_ncpu(Extract),
             Memory   = analyze_freebsd_memory(Extract),
             io:format("CPU:"
-                      "~n   Model:          ~s"
-                      "~n   Speed:          ~w"
-                      "~n   N:              ~w"
-                      "~n   Num Schedulers: ~s"
+                      "~n   Model:                 ~s"
+                      "~n   Speed:                 ~w"
+                      "~n   N:                     ~w"
+                      "~n   Num Online Schedulers: ~s"
                       "~nMemory:"
                       "~n   ~w KB"
                       "~n",
@@ -587,7 +589,7 @@ analyze_and_print_freebsd_host_info(Version) ->
     catch
         _:_:_ ->
             io:format("CPU:"
-                      "~n   Num Schedulers: ~s"
+                      "~n   Num Online Schedulers: ~s"
                       "~n", [str_num_schedulers()]),
             io:format("TS Scale Factor: ~w~n", [timetrap_scale_factor()]),
             Factor = case erlang:system_info(schedulers) of
@@ -792,8 +794,8 @@ analyze_and_print_darwin_host_info(Version) ->
     case analyze_darwin_software_info() of
         [] ->
             io:format("Darwin:"
-                      "~n   Version:        ~s"
-                      "~n   Num Schedulers: ~s"
+                      "~n   Version:               ~s"
+                      "~n   Num Online Schedulers: ~s"
                       "~n", [Version, str_num_schedulers()]),
             {num_schedulers_to_factor(), []};
         SwInfo when  is_list(SwInfo) ->
@@ -808,12 +810,12 @@ analyze_and_print_darwin_host_info(Version) ->
             NumCores      = analyze_darwin_hw_total_number_of_cores(HwInfo),
             Memory        = analyze_darwin_hw_memory(HwInfo),
             io:format("Darwin:"
-                      "~n   System Version: ~s"
-                      "~n   Kernel Version: ~s"
-                      "~n   Model:          ~s (~s)"
-                      "~n   Processor:      ~s (~s, ~s, ~s)"
-                      "~n   Memory:         ~s"
-                      "~n   Num Schedulers: ~s"
+                      "~n   System Version:        ~s"
+                      "~n   Kernel Version:        ~s"
+                      "~n   Model:                 ~s (~s)"
+                      "~n   Processor:             ~s (~s, ~s, ~s)"
+                      "~n   Memory:                ~s"
+                      "~n   Num Online Schedulers: ~s"
                       "~n", [SystemVersion, KernelVersion,
                              ModelName, ModelId,
                              ProcName, ProcSpeed, NumProc, NumCores, 
@@ -1130,13 +1132,13 @@ analyze_and_print_solaris_host_info(Version) ->
                 "-"
         end,
     io:format("Solaris: ~s"
-              "~n   Release:         ~s"
-              "~n   Banner Name:     ~s"
-              "~n   Instruction Set: ~s"
-              "~n   CPUs:            ~s (~s)"
-              "~n   System Config:   ~s"
-              "~n   Memory Size:     ~s"
-              "~n   Num Schedulers:  ~s"
+              "~n   Release:                ~s"
+              "~n   Banner Name:            ~s"
+              "~n   Instruction Set:        ~s"
+              "~n   CPUs:                   ~s (~s)"
+              "~n   System Config:          ~s"
+              "~n   Memory Size:            ~s"
+              "~n   Num Online Schedulers:  ~s"
               "~n~n", [Version, Release, BannerName, InstructionSet,
                        NumPhysCPU, NumVCPU,
                        SysConf, MemSz,
@@ -1206,7 +1208,7 @@ analyze_and_print_win_host_info(Version) ->
               "~n   System Model:           ~s"
               "~n   Number of Processor(s): ~s"
               "~n   Total Physical Memory:  ~s"
-              "~n   Num Schedulers:         ~s"
+              "~n   Num Online Schedulers:  ~s"
               "~n~n", [OsName, OsVersion, Version,
                        SysMan, SysMod, NumProcs, TotPhysMem,
                        str_num_schedulers()]),
@@ -1330,14 +1332,14 @@ process_win_system_info([H|T], Acc) ->
     end.
 
 str_num_schedulers() ->
-    try erlang:system_info(schedulers) of
+    try erlang:system_info(schedulers_online) of
         N -> f("~w", [N])
     catch
         _:_:_ -> "-"
     end.
 
 num_schedulers_to_factor() ->
-    try erlang:system_info(schedulers) of
+    try erlang:system_info(schedulers_online) of
         1 ->
             10;
         2 ->
@@ -1502,6 +1504,44 @@ os_cond_skip_check(OsName, OsNames) ->
             false
     end.
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+lookup(Key, Config, Default) ->
+    case lists:keysearch(Key, 1, Config) of
+        {value, {Key, Val}} ->
+            Val;
+        _ ->
+            Default
+    end.
+
+
+%% Extract N number of hosts from the config.
+%% Prepend with the own host.
+%% If not N number of hosts are available, issue a skip exit.
+good_hosts(N) when is_integer(N) andalso (N > 0) ->
+    GoodHosts         = ct:get_config(test_hosts, []),
+    {ok, CurrentHost} = inet:gethostname(),
+    GoodHosts2        = [CurrentHost] ++ (GoodHosts -- [CurrentHost]),
+    good_hosts2(GoodHosts2, N).
+
+good_hosts2(GoodHosts, N) ->
+    good_hosts2(GoodHosts, N, []).
+
+good_hosts2(_GoodHosts, N, Acc) when (N =:= 0) ->
+    lists:reverse(Acc);
+good_hosts2([], _N, _Acc) ->
+    ?SKIPE("Not enough good hosts");
+good_hosts2([H|T], N, Acc) ->
+    case inet:gethostbyname(H) of
+        {ok, _} ->
+            good_hosts2(T, N-1, [H|Acc]); 
+        {error, _} ->
+            ?P("Host not found: ~p", [H]),
+            good_hosts2(T, N, Acc)
+    end.
+
+    
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
