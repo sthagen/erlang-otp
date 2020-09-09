@@ -1015,6 +1015,29 @@ fun(srp, Username :: binary(), UserState :: term()) ->
 	</desc>
       </datatype>
 
+    <!--   <datatype> -->
+  <!-- 	<name name="ocsp_stapling"/> -->
+  <!-- 	<desc><p>If true, OCSP stapling will be enabled, an extension of type "status_request" will be -->
+  <!-- included in the client hello to indicate the desire to receive certificate status information. -->
+  <!-- If false (the default), OCSP stapling will be disabled.</p> -->
+  <!-- 	</desc> -->
+  <!--     </datatype> -->
+
+  <!--     <datatype> -->
+  <!-- 	<name name="ocsp_responder_certs"/> -->
+  <!-- 	<desc><p>This option is a list of DER encoded certificates of OCSP responders which the client -->
+  <!-- trusts. This option is an empty list by default which means that the responders are implicitly -->
+  <!-- known to the server.</p> -->
+  <!-- 	</desc> -->
+  <!--     </datatype> -->
+
+  <!--     <datatype> -->
+  <!-- 	<name name="ocsp_nonce"/> -->
+  <!-- 	<desc><p>If true (the default), the nonce will be included as one of the request extensions in the -->
+  <!-- request. If false, nonce will not present in the request extensions.</p> -->
+  <!-- 	</desc> -->
+  <!--     </datatype> -->
+
       <datatype_title>TLS/DTLS OPTION DESCRIPTIONS - SERVER</datatype_title>
 
       <datatype>
@@ -1331,7 +1354,7 @@ fun(srp, Username :: binary(), UserState :: term()) ->
       <desc><p>Make <c>Deferred</c> suites become the least preferred
       suites, that is put them at the end of the cipher suite list
       <c>Suites</c> after removing them from <c>Suites</c> if
-      present. <c>Deferred</c> may be a list of cipher suits or a
+      present. <c>Deferred</c> may be a list of cipher suites or a
       list of filters in which case the filters are use on  <c>Suites</c> to
       extract the Deferred cipher list.</p> 
       </desc>
@@ -1515,9 +1538,9 @@ fun(srp, Username :: binary(), UserState :: term()) ->
       <desc><p>Returns the most relevant information about the connection, ssl options that
       are undefined will be filtered out. Note that values that affect the security of the
       connection will only be returned if explicitly requested by connection_information/2.</p>
-      <note><p>The legacy <c>Item = cipher_suite</c> is still supported
-        and returns the cipher suite on its (undocumented) legacy format.
-        It should be replaced by <c>selected_cipher_suite</c>.</p></note>
+      <note><p>The legacy <c>Item = cipher_suite</c> was removed in OTP-23.
+      Previously it returned the cipher suite on its (undocumented)
+      legacy format. It is replaced by <c>selected_cipher_suite</c>.</p></note>
       </desc>
     </func>
 
@@ -1543,7 +1566,7 @@ fun(srp, Username :: binary(), UserState :: term()) ->
       returns false for any part of the cipher suite. If no filter function is supplied for some
       part the default behaviour regards it as if there was a filter function that returned true.
       
-      For examples see <seeguide marker="ssl:using_ssl#customizing-cipher-suits"> Customizing cipher suits </seeguide> 
+      For examples see <seeguide marker="ssl:using_ssl#customizing-cipher-suites"> Customizing cipher suites </seeguide> 
       
       Additionaly this function also filters the cipher suites to
       exclude cipher suites not supported by the cryptolib used by the
@@ -1694,7 +1717,7 @@ fun(srp, Username :: binary(), UserState :: term()) ->
       <desc><p>Make <c>Preferred</c> suites become the most preferred
       suites that is put them at the head of the cipher suite list
       <c>Suites</c> after removing them from <c>Suites</c> if
-      present. <c>Preferred</c> may be a list of cipher suits or a
+      present. <c>Preferred</c> may be a list of cipher suites or a
       list of filters in which case the filters are use on <c>Suites</c> to
       extract the preferred cipher list. </p>
       </desc>

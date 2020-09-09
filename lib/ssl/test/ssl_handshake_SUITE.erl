@@ -22,8 +22,6 @@
 
 -module(ssl_handshake_SUITE).
 
--compile(export_all).
-
 -include_lib("common_test/include/ct.hrl").
 -include("ssl_alert.hrl").
 -include("ssl_handshake.hrl").
@@ -31,6 +29,30 @@
 -include("ssl_record.hrl").
 -include("tls_handshake.hrl").
 -include_lib("public_key/include/public_key.hrl").
+
+%% Common test
+-export([all/0,
+         init_per_suite/1,
+         init_per_group/2,
+         init_per_testcase/2,
+         end_per_suite/1,
+         end_per_group/2,
+         end_per_testcase/2
+        ]).
+
+%% Test cases
+-export([decode_hello_handshake/1,
+         decode_single_hello_extension_correctly/1,
+         decode_supported_elliptic_curves_hello_extension_correctly/1,
+         decode_unknown_hello_extension_correctly/1,
+         encode_single_hello_sni_extension_correctly/1,
+         decode_single_hello_sni_extension_correctly/1,
+         decode_empty_server_sni_correctly/1,
+         select_proper_tls_1_2_rsa_default_hashsign/1,
+         ignore_hassign_extension_pre_tls_1_2/1,
+         unorded_chain/1,
+         signature_algorithms/1,
+         encode_decode_srp/1]).
 
 %%--------------------------------------------------------------------
 %% Common Test interface functions -----------------------------------
@@ -169,7 +191,7 @@ ignore_hassign_extension_pre_tls_1_2(Config) ->
     Opts = proplists:get_value(server_opts, Config),
     CertFile = proplists:get_value(certfile, Opts),
     [{_, Cert, _}] = ssl_test_lib:pem_to_der(CertFile),
-    HashSigns = #hash_sign_algos{hash_sign_algos = [{sha512, rsa}, {sha, dsa}, {sha, rsa}]},
+    HashSigns = #hash_sign_algos{hash_sign_algos = [{sha512, rsa}, {sha, dsa}, {sha256, rsa}]},
     {sha512, rsa} = ssl_handshake:select_hashsign({HashSigns, undefined}, Cert, ecdhe_rsa, tls_v1:default_signature_algs({3,3}), {3,3}),
     %%% Ignore
     {md5sha, rsa} = ssl_handshake:select_hashsign({HashSigns, undefined}, Cert, ecdhe_rsa, tls_v1:default_signature_algs({3,2}), {3,2}),
@@ -226,9 +248,9 @@ signature_algorithms(Config) ->
     HashSigns0 = #hash_sign_algos{
                    hash_sign_algos = [{sha512, rsa},
                                       {sha, dsa},
-                                      {sha, rsa}]},
+                                      {sha256, rsa}]},
     Schemes0 = #signature_algorithms_cert{
-                 signature_scheme_list = [rsa_pkcs1_sha1,
+                 signature_scheme_list = [rsa_pkcs1_sha256,
                                           ecdsa_sha1]},
     {sha512, rsa} = ssl_handshake:select_hashsign(
                       {HashSigns0, Schemes0},
@@ -237,14 +259,14 @@ signature_algorithms(Config) ->
                       {3,3}),
     HashSigns1 = #hash_sign_algos{
                     hash_sign_algos = [{sha, dsa},
-                                      {sha, rsa}]},
-    {sha, rsa} = ssl_handshake:select_hashsign(
+                                       {sha256, rsa}]},
+    {sha256, rsa} = ssl_handshake:select_hashsign(
                       {HashSigns1, Schemes0},
                       Cert, ecdhe_rsa,
                       tls_v1:default_signature_algs({3,3}),
-                   {3,3}),
+                      {3,3}),
     Schemes1 = #signature_algorithms_cert{
-                  signature_scheme_list = [rsa_pkcs1_sha256,
+                  signature_scheme_list = [rsa_pkcs1_sha1,
                                            ecdsa_sha1]},
     %% Signature not supported
     #alert{} = ssl_handshake:select_hashsign(
@@ -253,11 +275,11 @@ signature_algorithms(Config) ->
                  tls_v1:default_signature_algs({3,3}),
                  {3,3}),
     %% No scheme, hashsign is used
-    {sha, rsa} = ssl_handshake:select_hashsign(
-                   {HashSigns1, undefined},
-                   Cert, ecdhe_rsa,
-                   tls_v1:default_signature_algs({3,3}),
-                   {3,3}),
+    {sha256, rsa} = ssl_handshake:select_hashsign(
+                      {HashSigns1, undefined},
+                      Cert, ecdhe_rsa,
+                      tls_v1:default_signature_algs({3,3}),
+                      {3,3}),
     HashSigns2 = #hash_sign_algos{
                     hash_sign_algos = [{sha, dsa}]},
     %% Signature not supported
