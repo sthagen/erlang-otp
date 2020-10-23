@@ -189,6 +189,8 @@ validate_0([{function, Name, Arity, Entry, Code} | Fs], Module, Level, Ft) ->
          numy=none :: none | undecided | index(),
          %% Available heap size.
          h=0,
+         %% Available heap size for funs (aka lambdas).
+         hl=0,
          %%Available heap size for floats.
          hf=0,
          %% Floating point state.
@@ -203,7 +205,15 @@ validate_0([{function, Name, Arity, Entry, Code} | Fs], Module, Level, Ft) ->
          %%
          %% 'initialized' means we've saved a message position, and 'committed'
          %% means the next loop_rec instruction will use it.
-         recv_marker=none :: none | undecided | initialized | committed
+         recv_marker=none :: none | undecided | initialized | committed,
+         %% Holds the current saved position for each `#t_bs_context{}`, in the
+         %% sense that the position is equal to that of their context. They are
+         %% invalidated whenever their context advances.
+         %%
+         %% These are used to update the unit of saved positions after
+         %% operations that test the incoming unit, such as bs_test_unit and
+         %% bs_get_binary2 with {atom,all}.
+         ms_positions=#{} :: #{ Ctx :: #value_ref{} => Pos :: #value_ref{} }
         }).
 
 -type label()        :: integer().
@@ -296,7 +306,7 @@ init_function_args(X, Vst) ->
     init_function_args(X - 1, create_term(any, argument, [], {x,X}, Vst)).
 
 kill_heap_allocation(St) ->
-    St#st{h=0,hf=0}.
+    St#st{h=0,hl=0,hf=0}.
 
 validate_branches(MFA, Vst) ->
     #vst{ branched=Targets0, labels=Labels0 } = Vst,
@@ -392,6 +402,15 @@ vi({kill,Reg}, Vst) ->
     create_tag(initialized, kill, [], Reg, Vst);
 vi({init,Reg}, Vst) ->
     create_tag(initialized, init, [], Reg, Vst);
+vi({init_yregs,{list,Yregs}}, Vst0) ->
+    case ordsets:from_list(Yregs) of
+        [] -> error(empty_list);
+        Yregs -> ok;
+        _ -> error(not_ordset)
+    end,
+    foldl(fun(Y, Vst) ->
+                  create_tag(initialized, init, [], Y, Vst)
+          end, Vst0, Yregs);
 
 %%
 %% Matching and test instructions.
@@ -646,6 +665,17 @@ vi({make_fun2,{f,Lbl},_,_,NumFree}, #vst{ft=Ft}=Vst0) ->
     verify_y_init(Vst),
     Type = #t_fun{arity=Arity},
     create_term(Type, make_fun, [], {x,0}, Vst);
+vi({make_fun3,{f,Lbl},_,_,Dst,{list,Env}}, #vst{ft=Ft}=Vst0) ->
+    _ = [assert_term(E, Vst0) || E <- Env],
+    NumFree = length(Env),
+    #{ arity := Arity0 } = map_get(Lbl, Ft),
+    Arity = Arity0 - NumFree,
+
+    true = Arity >= 0,                          %Assertion.
+
+    Vst = eat_heap_fun(Vst0),
+    Type = #t_fun{arity=Arity},
+    create_term(Type, make_fun, [], Dst, Vst);
 vi(return, Vst) ->
     assert_durable_term({x,0}, Vst),
     verify_return(Vst);
@@ -769,14 +799,23 @@ vi({try_case,Reg}, #vst{current=#st{ct=[Tag|_]}}=Vst0) ->
             Vst3 = set_receive_marker(none, Vst2),
 
             %% Class:Error:Stacktrace
-            Vst4 = create_term(#t_atom{}, try_case, [], {x,0}, Vst3),
+            ClassType = #t_atom{elements=[error,exit,throw]},
+            Vst4 = create_term(ClassType, try_case, [], {x,0}, Vst3),
             Vst = create_term(any, try_case, [], {x,1}, Vst4),
             create_term(any, try_case, [], {x,2}, Vst);
         Type ->
             error({wrong_tag_type,Type})
     end;
-vi(build_stacktrace=I, Vst) ->
-    validate_body_call(I, 1, Vst);
+vi(build_stacktrace, Vst0) ->
+    assert_float_checked(Vst0),
+    verify_y_init(Vst0),
+    verify_live(1, Vst0),
+
+    Vst = prune_x_regs(1, Vst0),
+    Reg = {x,0},
+
+    assert_durable_term(Reg, Vst),
+    create_term(#t_list{}, build_stacktrace, [], Reg, Vst);
 
 %%
 %% Map instructions.
@@ -827,16 +866,37 @@ vi({test,bs_test_tail2,{f,Fail},[Ctx,_Size]}, Vst) ->
     branch(Fail, Vst);
 vi({test,bs_test_unit,{f,Fail},[Ctx,Unit]}, Vst) ->
     assert_type(#t_bs_context{}, Ctx, Vst),
-    type_test(Fail, #t_bs_context{tail_unit=Unit}, Ctx, Vst);
+
+    Type = #t_bs_context{tail_unit=Unit},
+
+    branch(Fail, Vst,
+           fun(FailVst) ->
+                   update_type(fun subtract/2, Type, Ctx, FailVst)
+           end,
+           fun(SuccVst0) ->
+                   SuccVst = update_bs_unit(Ctx, Unit, SuccVst0),
+                   update_type(fun meet/2, Type, Ctx, SuccVst)
+           end);
 vi({test,bs_skip_utf8,{f,Fail},[Ctx,Live,_]}, Vst) ->
     validate_bs_skip(Fail, Ctx, 8, Live, Vst);
 vi({test,bs_skip_utf16,{f,Fail},[Ctx,Live,_]}, Vst) ->
     validate_bs_skip(Fail, Ctx, 16, Live, Vst);
 vi({test,bs_skip_utf32,{f,Fail},[Ctx,Live,_]}, Vst) ->
     validate_bs_skip(Fail, Ctx, 32, Live, Vst);
+vi({test,bs_get_binary2=Op,{f,Fail},Live,[Ctx,{atom,all},Unit,_],Dst}, Vst) ->
+    Type = #t_bitstring{size_unit=Unit},
+    validate_bs_get_all(Op, Fail, Ctx, Live, Unit, Type, Dst, Vst);
+vi({test,bs_get_binary2=Op,{f,Fail},Live,[Ctx,{integer,Sz},Unit,_],Dst}, Vst) ->
+    Stride = Unit * max(1, Sz),
+    Type = #t_bitstring{size_unit=Stride},
+    validate_bs_get(Op, Fail, Ctx, Live, Stride, Type, Dst, Vst);
+vi({test,bs_get_binary2=Op,{f,Fail},Live,[Ctx,_,Unit,_],Dst}, Vst) ->
+    Type = #t_bitstring{size_unit=Unit},
+    validate_bs_get(Op, Fail, Ctx, Live, Unit, Type, Dst, Vst);
 vi({test,bs_get_integer2=Op,{f,Fail},Live,
-    [Ctx,{integer,Size},Unit,{field_flags,Flags}],Dst},Vst) ->
-    NumBits = Size * Unit,
+    [Ctx,{integer,Sz},Unit,{field_flags,Flags}],Dst},Vst) ->
+    NumBits = Unit * Sz,
+    Stride = max(1, NumBits),
     Type = case member(unsigned, Flags) of
                true when 0 =< NumBits, NumBits =< 64 ->
                    beam_types:make_integer(0, (1 bsl NumBits)-1);
@@ -844,15 +904,14 @@ vi({test,bs_get_integer2=Op,{f,Fail},Live,
                    %% Signed integer, way too large, or negative size.
                    #t_integer{}
            end,
-    validate_bs_get(Op, Fail, Ctx, Live, NumBits, Type, Dst, Vst);
-vi({test,bs_get_integer2=Op,{f,Fail},Live,
-          [Ctx,_Size,Unit,_Flags],Dst},Vst) ->
+    validate_bs_get(Op, Fail, Ctx, Live, Stride, Type, Dst, Vst);
+vi({test,bs_get_integer2=Op,{f,Fail},Live,[Ctx,_Sz,Unit,_Flags],Dst},Vst) ->
     validate_bs_get(Op, Fail, Ctx, Live, Unit, #t_integer{}, Dst, Vst);
+vi({test,bs_get_float2=Op,{f,Fail},Live,[Ctx,{integer,Sz},Unit,_],Dst},Vst) ->
+    Stride = Unit * max(1, Sz),
+    validate_bs_get(Op, Fail, Ctx, Live, Stride, #t_float{}, Dst, Vst);
 vi({test,bs_get_float2=Op,{f,Fail},Live,[Ctx,_,_,_],Dst}, Vst) ->
-    validate_bs_get(Op, Fail, Ctx, Live, 1, #t_float{}, Dst, Vst);
-vi({test,bs_get_binary2=Op,{f,Fail},Live,[Ctx,_,Unit,_],Dst}, Vst) ->
-    Type = #t_bitstring{size_unit=Unit},
-    validate_bs_get(Op, Fail, Ctx, Live, Unit, Type, Dst, Vst);
+    validate_bs_get(Op, Fail, Ctx, Live, 32, #t_float{}, Dst, Vst);
 vi({test,bs_get_utf8=Op,{f,Fail},Live,[Ctx,_],Dst}, Vst) ->
     Type = beam_types:make_integer(0, ?UNICODE_MAX),
     validate_bs_get(Op, Fail, Ctx, Live, 8, Type, Dst, Vst);
@@ -877,15 +936,25 @@ vi({bs_restore2,Ctx,SavePoint}, Vst) ->
     bsm_restore(Ctx, SavePoint, Vst);
 vi({bs_get_position, Ctx, Dst, Live}, Vst0) ->
     assert_type(#t_bs_context{}, Ctx, Vst0),
+
     verify_live(Live, Vst0),
     verify_y_init(Vst0),
-    Vst = prune_x_regs(Live, Vst0),
-    create_term(#t_abstract{kind=ms_position}, bs_get_position, [Ctx],
-                Dst, Vst, Vst0);
-vi({bs_set_position, Ctx, Pos}, Vst) ->
-    assert_type(#t_bs_context{}, Ctx, Vst),
-    assert_type(#t_abstract{kind=ms_position}, Pos, Vst),
-    Vst;
+
+    #t_bs_context{tail_unit=Unit} = get_raw_type(Ctx, Vst0),
+
+    Vst1 = prune_x_regs(Live, Vst0),
+    Vst = create_term(#t_abstract{kind={ms_position, Unit}},
+                       bs_get_position, [Ctx], Dst, Vst1, Vst0),
+
+    mark_current_ms_position(Ctx, Dst, Vst);
+vi({bs_set_position, Ctx, Pos}, Vst0) ->
+    assert_type(#t_bs_context{}, Ctx, Vst0),
+    assert_type(#t_abstract{kind={ms_position,1}}, Pos, Vst0),
+
+    #t_abstract{kind={ms_position,Unit}} = get_raw_type(Pos, Vst0),
+    Vst = override_type(#t_bs_context{tail_unit=Unit}, Ctx, Vst0),
+
+    mark_current_ms_position(Ctx, Pos, Vst);
 
 %%
 %% Floating-point instructions (excluding BIFs)
@@ -942,10 +1011,8 @@ vi(if_end, Vst) ->
 vi({try_case_end,Src}, Vst) ->
     assert_durable_term(Src, Vst),
     branch(?EXCEPTION_LABEL, Vst, fun kill_state/1);
-vi(raw_raise=I, Vst) ->
-    branch(?EXCEPTION_LABEL, Vst,
-           fun(FailVst) -> validate_body_call(I, 3, FailVst) end,
-           fun kill_state/1);
+vi(raw_raise=I, Vst0) ->
+    validate_body_call(I, 3, Vst0);
 
 %%
 %% Binary construction
@@ -1410,13 +1477,29 @@ validate_bs_get(Op, Fail, Ctx, Live, Stride, Type, Dst, Vst) ->
     verify_live(Live, Vst),
     verify_y_init(Vst),
 
-    #t_bs_context{tail_unit=TailUnit} = get_raw_type(Ctx, Vst),
-    CtxType = #t_bs_context{tail_unit=gcd(Stride, TailUnit)},
+    branch(Fail, Vst,
+           fun(SuccVst0) ->
+                   SuccVst1 = advance_bs_context(Ctx, Stride, SuccVst0),
+                   SuccVst = prune_x_regs(Live, SuccVst1),
+                   extract_term(Type, Op, [Ctx], Dst, SuccVst, SuccVst0)
+           end).
+
+validate_bs_get_all(Op, Fail, Ctx, Live, Stride, Type, Dst, Vst) ->
+    assert_no_exception(Fail),
+
+    assert_type(#t_bs_context{}, Ctx, Vst),
+    verify_live(Live, Vst),
+    verify_y_init(Vst),
 
     branch(Fail, Vst,
            fun(SuccVst0) ->
-                   SuccVst1 = update_type(fun meet/2, CtxType, Ctx, SuccVst0),
-                   SuccVst = prune_x_regs(Live, SuccVst1),
+                   %% This acts as an implicit unit test on the current match
+                   %% position, so we'll update the unit in case we rewind here
+                   %% later on.
+                   SuccVst1 = update_bs_unit(Ctx, Stride, SuccVst0),
+
+                   SuccVst2 = advance_bs_context(Ctx, Stride, SuccVst1),
+                   SuccVst = prune_x_regs(Live, SuccVst2),
                    extract_term(Type, Op, [Ctx], Dst, SuccVst, SuccVst0)
            end).
 
@@ -1431,35 +1514,78 @@ validate_bs_skip(Fail, Ctx, Stride, Live, Vst) ->
 
     assert_type(#t_bs_context{}, Ctx, Vst),
 
-    #t_bs_context{tail_unit=TailUnit} = get_raw_type(Ctx, Vst),
-    CtxType = #t_bs_context{tail_unit=gcd(Stride, TailUnit)},
+    validate_bs_skip_1(Fail, Ctx, Stride, Live, Vst).
 
-    validate_bs_skip_1(Fail, Ctx, CtxType, Live, Vst).
-
-validate_bs_skip_1(Fail, Ctx, CtxType, no_live, Vst) ->
+validate_bs_skip_1(Fail, Ctx, Stride, no_live, Vst) ->
     branch(Fail, Vst,
-           fun(SuccVst0) ->
-                   update_type(fun meet/2, CtxType, Ctx, SuccVst0)
+           fun(SuccVst) ->
+                   advance_bs_context(Ctx, Stride, SuccVst)
            end);
-validate_bs_skip_1(Fail, Ctx, CtxType, Live, Vst) ->
+validate_bs_skip_1(Fail, Ctx, Stride, Live, Vst) ->
     verify_y_init(Vst),
     verify_live(Live, Vst),
     branch(Fail, Vst,
            fun(SuccVst0) ->
-                   SuccVst = update_type(fun meet/2, CtxType, Ctx, SuccVst0),
+                   SuccVst = advance_bs_context(Ctx, Stride, SuccVst0),
                    prune_x_regs(Live, SuccVst)
            end).
+
+advance_bs_context(Ctx, Stride, Vst0) ->
+    %% slots/valid must remain untouched to support +r21, and the prior unit
+    %% must be retained if we _KNOW_ we won't advance.
+    CtxType0 = get_raw_type(Ctx, Vst0),
+    CtxType = case Stride of
+                  0 -> CtxType0;
+                  N -> CtxType0#t_bs_context{ tail_unit=N }
+              end,
+
+    Vst = update_type(fun join/2, CtxType, Ctx, Vst0),
+
+    %% The latest saved position (if any) is no longer current, make sure
+    %% it isn't updated on the next match operation.
+    invalidate_current_ms_position(Ctx, Vst).
+
+%% Updates the unit of our latest saved position, if it's current.
+update_bs_unit(Ctx, Unit, #vst{current=St}=Vst) ->
+    CtxRef = get_reg_vref(Ctx, Vst),
+
+    case St#st.ms_positions of
+        #{ CtxRef := PosRef } ->
+            PosType = #t_abstract{kind={ms_position, Unit}},
+            update_type(fun meet/2, PosType, PosRef, Vst);
+        #{} ->
+            Vst
+    end.
+
+mark_current_ms_position(Ctx, Pos, #vst{current=St0}=Vst) ->
+    CtxRef = get_reg_vref(Ctx, Vst),
+    PosRef = get_reg_vref(Pos, Vst),
+
+    #st{ms_positions=MsPos0} = St0,
+
+    MsPos = MsPos0#{ CtxRef => PosRef },
+
+    St = St0#st{ ms_positions=MsPos },
+    Vst#vst{current=St}.
+
+invalidate_current_ms_position(Ctx, #vst{current=St0}=Vst) ->
+    CtxRef = get_reg_vref(Ctx, Vst),
+    #st{ms_positions=MsPos0} = St0,
+
+    case MsPos0 of
+        #{ CtxRef := _ } ->
+            MsPos = maps:remove(CtxRef, MsPos0),
+            St = St0#st{ms_positions=MsPos},
+            Vst#vst{current=St};
+        #{} ->
+            Vst
+    end.
+
 %%
 %% Common code for is_$type instructions.
 %%
-type_test(Fail, #t_bs_context{}=Type, Reg, Vst) ->
-    assert_movable(Reg, Vst),
-    type_test_1(Fail, Type, Reg, Vst);
 type_test(Fail, Type, Reg, Vst) ->
     assert_term(Reg, Vst),
-    type_test_1(Fail, Type, Reg, Vst).
-
-type_test_1(Fail, Type, Reg, Vst) ->
     assert_no_exception(Fail),
     branch(Fail, Vst,
            fun(FailVst) ->
@@ -1648,6 +1774,9 @@ heap_alloc_1(HeapWords, St) when is_integer(HeapWords) ->
 
 heap_alloc_2([{words,HeapWords}|T], St0) ->
     St = St0#st{h=HeapWords},
+    heap_alloc_2(T, St);
+heap_alloc_2([{funs,Funs}|T], St0) ->
+    St = St0#st{hl=Funs},
     heap_alloc_2(T, St);
 heap_alloc_2([{floats,Floats}|T], St0) ->
     St = St0#st{hf=Floats},
@@ -2248,19 +2377,37 @@ value_to_literal(Other) -> {literal,Other}.
 normalize(#t_abstract{}=A) -> error({abstract_type, A});
 normalize(T) -> beam_types:normalize(T).
 
-join(Same, Same) -> Same;
-join(#t_abstract{}=A, B) -> #t_abstract{kind={join, A, B}};
-join(A, #t_abstract{}=B) -> #t_abstract{kind={join, A, B}};
-join(A, B) -> beam_types:join(A, B).
+join(Same, Same) ->
+    Same;
+join(#t_abstract{kind={ms_position, UnitA}},
+     #t_abstract{kind={ms_position, UnitB}}) ->
+    #t_abstract{kind={ms_position, gcd(UnitA, UnitB)}};
+join(#t_abstract{}=A, B) ->
+    #t_abstract{kind={join, A, B}};
+join(A, #t_abstract{}=B) ->
+    #t_abstract{kind={join, A, B}};
+join(A, B) ->
+    beam_types:join(A, B).
 
-meet(Same, Same) -> Same;
-meet(#t_abstract{}=A, B) -> #t_abstract{kind={meet, A, B}};
-meet(A, #t_abstract{}=B) -> #t_abstract{kind={meet, A, B}};
-meet(A, B) -> beam_types:meet(A, B).
+meet(Same, Same) ->
+    Same;
+meet(#t_abstract{kind={ms_position, UnitA}},
+     #t_abstract{kind={ms_position, UnitB}}) ->
+    Unit = UnitA * UnitB div gcd(UnitA, UnitB),
+    #t_abstract{kind={ms_position, Unit}};
+meet(#t_abstract{}=A, B) ->
+    #t_abstract{kind={meet, A, B}};
+meet(A, #t_abstract{}=B) ->
+    #t_abstract{kind={meet, A, B}};
+meet(A, B) ->
+    beam_types:meet(A, B).
 
-subtract(#t_abstract{}=A, B) -> #t_abstract{kind={subtract, A, B}};
-subtract(A, #t_abstract{}=B) -> #t_abstract{kind={subtract, A, B}};
-subtract(A, B) -> beam_types:subtract(A, B).
+subtract(#t_abstract{}=A, B) ->
+    #t_abstract{kind={subtract, A, B}};
+subtract(A, #t_abstract{}=B) ->
+    #t_abstract{kind={subtract, A, B}};
+subtract(A, B) ->
+    beam_types:subtract(A, B).
 
 assert_type(RequiredType, Term, Vst) ->
     GivenType = get_movable_term_type(Term, Vst),
@@ -2466,9 +2613,11 @@ merge_states_1(none, St, Counter) ->
     {St, Counter};
 merge_states_1(StA, StB, Counter0) ->
     #st{xs=XsA,ys=YsA,vs=VsA,fragile=FragA,numy=NumYA,
-        h=HA,ct=CtA,recv_marker=MarkerA} = StA,
+        h=HA,ct=CtA,recv_marker=MarkerA,
+        ms_positions=MsPosA} = StA,
     #st{xs=XsB,ys=YsB,vs=VsB,fragile=FragB,numy=NumYB,
-        h=HB,ct=CtB,recv_marker=MarkerB} = StB,
+        h=HB,ct=CtB,recv_marker=MarkerB,
+        ms_positions=MsPosB} = StB,
 
     %% When merging registers we drop all registers that aren't defined in both
     %% states, and resolve conflicts by creating new values (similar to phi
@@ -2483,12 +2632,15 @@ merge_states_1(StA, StB, Counter0) ->
     Vs = merge_values(Merge, VsA, VsB),
 
     Marker = merge_receive_marker(MarkerA, MarkerB),
+    MsPos = merge_ms_positions(MsPosA, MsPosB, Vs),
     Fragile = merge_fragility(FragA, FragB),
     NumY = merge_stk(NumYA, NumYB),
     Ct = merge_ct(CtA, CtB),
 
     St = #st{xs=Xs,ys=Ys,vs=Vs,fragile=Fragile,numy=NumY,
-             h=min(HA, HB),ct=Ct,recv_marker=Marker},
+             h=min(HA, HB),ct=Ct,recv_marker=Marker,
+             ms_positions=MsPos},
+
     {St, Counter}.
 
 %% Merges the contents of two register maps, returning the updated "merge map"
@@ -2593,6 +2745,23 @@ mv_args([], _VsA, _VsB, Acc) ->
 merge_fragility(FragileA, FragileB) ->
     cerl_sets:union(FragileA, FragileB).
 
+merge_ms_positions(MsPosA, MsPosB, Vs) ->
+    Keys = if
+               map_size(MsPosA) =< map_size(MsPosB) -> maps:keys(MsPosA);
+               map_size(MsPosA) > map_size(MsPosB) -> maps:keys(MsPosB)
+           end,
+    merge_ms_positions_1(Keys, MsPosA, MsPosB, Vs, #{}).
+
+merge_ms_positions_1([Key | Keys], MsPosA, MsPosB, Vs, Acc) ->
+    case {MsPosA, MsPosB} of
+        {#{ Key := Pos }, #{ Key := Pos }} when is_map_key(Pos, Vs) ->
+            merge_ms_positions_1(Keys, MsPosA, MsPosB, Vs, Acc#{ Key => Pos });
+        {#{}, #{}} ->
+            merge_ms_positions_1(Keys, MsPosA, MsPosB, Vs, Acc)
+    end;
+merge_ms_positions_1([], _MsPosA, _MsPosB, _Vs, Acc) ->
+    Acc.
+
 merge_receive_marker(Same, Same) ->
     Same;
 merge_receive_marker(none, initialized) ->
@@ -2688,6 +2857,14 @@ eat_heap(N, #vst{current=#st{h=Heap0}=St}=Vst) ->
 	    error({heap_overflow,{left,Heap0},{wanted,N}});
 	Heap ->
 	    Vst#vst{current=St#st{h=Heap}}
+    end.
+
+eat_heap_fun(#vst{current=#st{hl=HeapFuns0}=St}=Vst) ->
+    case HeapFuns0-1 of
+	Neg when Neg < 0 ->
+	    error({heap_overflow,{left,{HeapFuns0,funs}},{wanted,{1,funs}}});
+	HeapFuns ->
+	    Vst#vst{current=St#st{hl=HeapFuns}}
     end.
 
 eat_heap_float(#vst{current=#st{hf=HeapFloats0}=St}=Vst) ->
@@ -2827,6 +3004,8 @@ will_call_succeed({extfunc,M,F,A}, Vst) ->
     beam_call_types:will_succeed(M, F, get_call_args(A, Vst));
 will_call_succeed(bs_init_writable, _Vst) ->
     yes;
+will_call_succeed(raw_raise, _Vst) ->
+    no;
 will_call_succeed(_Call, _Vst) ->
     maybe.
 

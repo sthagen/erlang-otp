@@ -953,8 +953,6 @@ static Eterm match_spec_test(Process *p, Eterm against, Eterm spec, int trace);
 
 static Eterm seq_trace_fake(Process *p, Eterm arg1);
 
-static void db_free_tmp_uncompressed(DbTerm* obj);
-
 
 /*
 ** Interface routines.
@@ -1581,7 +1579,7 @@ Binary *db_match_compile(Eterm *matchexpr,
     Binary *bp = NULL;
     unsigned clause_start;
 
-    context.stack_limit = (char *) ethr_get_stacklimit();
+    context.stack_limit = (char *) erts_get_stacklimit();
     context.freason = BADARG;
 
     DMC_INIT_STACK(stack);
@@ -2650,7 +2648,7 @@ restart:
             t = c_p->stop[0];
             if (is_not_CP(t)) {
                 *esp++ = am_undefined;
-            } else if (!(cp = find_function_from_pc(cp_val(t)))) {
+            } else if (!(cp = erts_find_function_from_pc(cp_val(t)))) {
  		*esp++ = am_undefined;
  	    } else {
 		ehp = HAllocX(build_proc, 4, HEAP_XTRA);
@@ -5410,31 +5408,30 @@ void db_free_tmp_uncompressed(DbTerm* obj)
     erts_free(ERTS_ALC_T_TMP, obj);
 }
 
-Eterm db_match_dbterm(DbTableCommon* tb, Process* c_p, Binary* bprog,
-                      DbTerm* obj, Eterm** hpp, Uint extra)
+Eterm db_match_dbterm_uncompressed(DbTableCommon* tb, Process* c_p, Binary* bprog,
+                                   DbTerm* obj, enum erts_pam_run_flags flags)
 {
-    enum erts_pam_run_flags flags;
+
     Uint32 dummy;
     Eterm res;
 
-    if (tb->compress) {
-	obj = db_alloc_tmp_uncompressed(tb, obj);
-    }
-
-    flags = (hpp ?
-             ERTS_PAM_COPY_RESULT | ERTS_PAM_CONTIGUOUS_TUPLE :
-             ERTS_PAM_TMP_RESULT  | ERTS_PAM_CONTIGUOUS_TUPLE);
-
     res = db_prog_match(c_p, c_p,
                         bprog, make_tuple(obj->tpl), NULL, 0,
-			flags, &dummy);
+			flags|ERTS_PAM_CONTIGUOUS_TUPLE, &dummy);
 
-    if (is_value(res) && hpp!=NULL) {
-	*hpp = HAlloc(c_p, extra);
-    }
+    return res;
+}
 
+Eterm db_match_dbterm(DbTableCommon* tb, Process* c_p, Binary* bprog,
+                      DbTerm* obj, enum erts_pam_run_flags flags)
+{
+    Eterm res;
     if (tb->compress) {
-	db_free_tmp_uncompressed(obj);
+        obj = db_alloc_tmp_uncompressed(tb, obj);
+    }
+    res = db_match_dbterm_uncompressed(tb, c_p, bprog, obj, flags);
+    if (tb->compress) {
+        db_free_tmp_uncompressed(obj);
     }
     return res;
 }

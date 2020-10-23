@@ -66,6 +66,8 @@
          hibernate_right_away/1,
          listen_socket/0,
          listen_socket/1,
+         peername/0,
+         peername/1,
          recv_active/0,
          recv_active/1,
          recv_active_once/0,
@@ -238,6 +240,7 @@ pre_1_3() ->
      default_reject_anonymous,
      connection_information_with_srp
     ].
+
 gen_api_tests() ->
     [
      peercert,
@@ -250,6 +253,7 @@ gen_api_tests() ->
      hibernate,
      hibernate_right_away,
      listen_socket,
+     peername,
      recv_active,
      recv_active_once,
      recv_active_n,
@@ -1090,6 +1094,46 @@ listen_socket(Config) ->
     ok = ssl:close(ListenSocket).
 
 %%--------------------------------------------------------------------
+peername() ->
+    [{doc,"Test API function peername/1"}].
+
+peername(Config) when is_list(Config) ->
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_opts, Config),
+    ServerOpts = ssl_test_lib:ssl_options(server_rsa_opts, Config),
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+
+    Server = ssl_test_lib:start_server(
+               [
+                {node, ServerNode}, {port, 0},
+                {from, self()},
+                {options, ServerOpts}]),
+    Port = ssl_test_lib:inet_port(Server),
+    {Client, CSocket} = ssl_test_lib:start_client(
+                          [return_socket,
+                           {node, ClientNode}, {port, Port},
+                           {host, Hostname},
+                           {from, self()},
+                           {options, ClientOpts}]),
+
+    ct:log("Testcase ~p, Client ~p  Server ~p ~n",
+           [self(), Client, Server]),
+
+    Server ! get_socket,
+    SSocket =
+        receive
+            {Server, {socket, Socket}} ->
+                Socket
+        end,
+
+    {ok, ServerPeer} = ssl:peername(SSocket),
+    ct:log("Server's peer: ~p~n", [ServerPeer]),
+    {ok, ClientPeer} = ssl:peername(CSocket),
+    ct:log("Client's peer: ~p~n", [ClientPeer]),
+
+    ssl_test_lib:close(Server),
+    ssl_test_lib:close(Client).
+
+%%--------------------------------------------------------------------
 
 recv_active() ->
     [{doc,"Test recv on active socket"}].
@@ -1620,7 +1664,7 @@ der_input(Config) when is_list(Config) ->
     {status, _, _, StatusInfo} = sys:get_status(whereis(ssl_manager)),
     [_, _,_, _, Prop] = StatusInfo,
     State = ssl_test_lib:state(Prop),
-    [CADb | _] = element(6, State),
+    [CADb | _] = element(5, State),
     ct:sleep(?SLEEP*2), %%Make sure there is no outstanding clean cert db msg in manager
     Size = ets:info(CADb, size),
     ct:pal("Size ~p", [Size]),
@@ -2279,7 +2323,6 @@ cookie() ->
 cookie(Config) when is_list(Config) ->
     cookie_extension(Config, true),
     cookie_extension(Config, false).
-
 
 %%% Checker functions
 connection_information_result(Socket) ->

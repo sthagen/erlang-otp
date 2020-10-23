@@ -66,7 +66,7 @@ dnl use "PATH/include" and "PATH/lib".
 
 AC_CHECK_SIZEOF(void *)
 
-std_ssl_locations="/usr/local /usr/sfw /usr /opt/local /usr/pkg /usr/local/openssl /usr/lib/openssl /usr/openssl /usr/local/ssl /usr/lib/ssl /usr/ssl /"
+std_ssl_locations="/usr/local /usr/sfw /usr /opt/local /usr/pkg /usr/local/openssl /usr/local/opt/openssl /usr/lib/openssl /usr/openssl /usr/local/ssl /usr/lib/ssl /usr/ssl /"
 
 AC_ARG_WITH(ssl-zlib,
 AS_HELP_STRING([--with-ssl-zlib=PATH],
@@ -211,9 +211,7 @@ case "$erl_xcomp_without_sysroot-$with_ssl" in
     SSL_APP=
     CRYPTO_APP=
     SSH_APP=
-    if test "$with_ssl" = "no"; then
-	skip="User gave --without-ssl option"
-    else
+    if test "$with_ssl" != "no"; then
 	skip="Cannot search for ssl; missing cross system root (erl_xcomp_sysroot)."
     fi
     for a in ssl crypto ssh; do

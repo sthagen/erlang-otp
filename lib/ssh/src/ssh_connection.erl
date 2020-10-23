@@ -63,6 +63,8 @@
 	 request_failure_msg/0, 
 	 request_success_msg/1,
 
+         send_environment_vars/3,
+
 	 encode_ip/1
         ]).
 
@@ -322,7 +324,7 @@ adjust_window(ConnectionHandler, Channel, Bytes) ->
     ssh_connection_handler:adjust_window(ConnectionHandler, Channel, Bytes).
 
 %%--------------------------------------------------------------------
--spec setenv(ConnectionRef, ChannelId, Var, Value, Timeout) -> result() when
+-spec setenv(ConnectionRef, ChannelId, Var, Value, Timeout) -> success when
       ConnectionRef :: ssh:connection_ref(),
       ChannelId :: ssh:channel_id(),
       Var :: string(),
@@ -332,12 +334,18 @@ adjust_window(ConnectionHandler, Channel, Bytes) ->
 %%
 %% Description: Environment variables may be passed to the shell/command to be
 %% started later.
-%%--------------------------------------------------------------------
 setenv(ConnectionHandler, ChannelId, Var, Value, TimeOut) ->
-    ssh_connection_handler:request(ConnectionHandler, ChannelId,
-	    "env", true, [?string(Var), ?string(Value)], TimeOut).
+    setenv(ConnectionHandler, ChannelId, true, Var, Value, TimeOut).
 
-
+setenv(ConnectionHandler, ChannelId, WantReply, Var, Value, TimeOut) ->
+    case ssh_connection_handler:request(ConnectionHandler, ChannelId,
+                                        "env", WantReply,
+                                        [?string(Var), ?string(Value)], TimeOut) of
+        ok when WantReply == false ->
+            success;
+        Reply ->
+            Reply
+    end.
 %%--------------------------------------------------------------------
 -spec close(ConnectionRef, ChannelId) -> ok when
       ConnectionRef :: ssh:connection_ref(),
@@ -859,20 +867,23 @@ handle_msg(#ssh_msg_channel_request{request_type = "env"},
     %% The client SHOULD ignore env requests. 
     {[], Connection};
 
-handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
-				    request_type = _Other,
-				    want_reply = WantReply},
+handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId},
 	   #connection{channel_cache = Cache} = Connection, _) ->
-    if WantReply == true ->
-		case ssh_client_channel:cache_lookup(Cache, ChannelId) of
-		    #channel{remote_id = RemoteId}  -> 
-			FailMsg = channel_failure_msg(RemoteId),
-			{[{connection_reply, FailMsg}], Connection};
-		    undefined -> %% Chanel has been closed
-			{[], Connection}
-		end;
-       true ->
-	    {[], Connection}
+    %% Not a valid request_type. All valid types are handling the
+    %% parameter checking in their own clauses above.
+    %% 
+    %% The special ReqType faulty_msg signals that something went
+    %% wrong found during decoding.
+    %%
+    %% RFC4254 says:
+    %% "If the request is not recognized or is not
+    %% supported for the channel, SSH_MSG_CHANNEL_FAILURE is returned."
+    case ssh_client_channel:cache_lookup(Cache, ChannelId) of
+        #channel{remote_id = RemoteId}  -> 
+            FailMsg = channel_failure_msg(RemoteId),
+            {[{connection_reply, FailMsg}], Connection};
+        undefined -> %% Chanel has been closed
+            {[], Connection}
     end;
 
 handle_msg(#ssh_msg_global_request{name = <<"tcpip-forward">>,
@@ -1530,3 +1541,15 @@ request_reply_or_data(#channel{local_id = ChannelId, user = ChannelPid},
 	    {[{channel_data, ChannelPid, Reply}], Connection}
     end.
 
+%%%----------------------------------------------------------------
+send_environment_vars(ConnectionHandler, Channel, VarNames) ->
+    lists:foldl(
+      fun(Var, success) ->
+              case os:getenv(Var) of
+                  false ->
+                      success;
+                  Value ->
+                      setenv(ConnectionHandler, Channel, false,
+                             Var, Value, infinity)
+              end
+      end, success, VarNames).

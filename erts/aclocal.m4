@@ -243,6 +243,7 @@ AC_TRY_COMPILE([],[
 #endif
     __label__ lbl1;
     __label__ lbl2;
+    extern int magic(void);
     int x = magic();
     static void *jtab[2];
 
@@ -288,6 +289,7 @@ if test "$ac_cv_prog_emu_cc" != no; then
 #endif
     	__label__ lbl1;
     	__label__ lbl2;
+	extern int magic(void);
     	int x = magic();
     	static void *jtab[2];
 
@@ -2752,6 +2754,28 @@ AC_DEFUN([LM_CHECK_ENABLE_CFLAG], [
     saved_CFLAGS=$CFLAGS;
     CFLAGS="$1 $CFLAGS";
     AC_TRY_COMPILE([],[return 0;],can_enable_flag=true,can_enable_flag=false)
+    CFLAGS=$saved_CFLAGS;
+    if test "X$can_enable_flag" = "Xtrue"; then
+        AS_VAR_SET($2, true)
+        AC_MSG_RESULT([yes])
+    else
+        AS_VAR_SET($2, false)
+        AC_MSG_RESULT([no])
+    fi
+])
+
+dnl
+dnl LM_CHECK_RUN_CFLAG
+dnl
+dnl As LM_CHECK_ENABLE_CFLAG but also runs the command. Required for testing
+dnl profile-guided optimization, for which the "use" step may require that the
+dnl binary created in the "generate" step runs.
+dnl
+AC_DEFUN([LM_CHECK_RUN_CFLAG], [
+    AC_MSG_CHECKING([whether $CC accepts $1...])
+    saved_CFLAGS=$CFLAGS;
+    CFLAGS="$1 $CFLAGS";
+    AC_TRY_RUN([],[return 0;],can_enable_flag=true,can_enable_flag=false)
     CFLAGS=$saved_CFLAGS;
     if test "X$can_enable_flag" = "Xtrue"; then
         AS_VAR_SET($2, true)

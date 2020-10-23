@@ -128,7 +128,13 @@ mixed(Config) when is_list(Config) ->
 	[(X+Y) || <<X:3>> <= <<1:3,2:3,3:3,4:3>>, <<Y:3>> <= <<1:3,2:3>>],
     [2,3,3,4,4,5,5,6] =
 	[(X+Y) || <<X:3>> <= <<1:3,2:3,3:3,4:3>>, {_,Y} <- [{a,1},{b,2}]],
+
+    %% OTP-16899: Nested binary comprehensions would fail to load.
+    <<0,1,0,2,0,3,99>> = mixed_nested([1,2,3]),
     cs_end().
+
+mixed_nested(L) ->
+    << << << << E:16 >> || E <- L >> || true >>/binary, 99:(id(8))>>.
 
 filters(Config) when is_list(Config) ->
     cs_init(),
@@ -199,6 +205,11 @@ nomatch(Config) when is_list(Config) ->
     [] = [X || <<X:bad/binary>> <= Bin],
     <<>> = << <<X:32>> || <<X:all/binary>> <= Bin >>,
     <<>> = << <<X:32>> || <<X:bad/binary>> <= Bin >>,
+
+    <<>> = << <<"a">> || <<_:1/float>> <= Bin>>,
+
+    NaN = <<(-1):32>>,
+    <<>> = << <<"a">> || <<_:32/float>> <= NaN >>,
 
     ok.
 

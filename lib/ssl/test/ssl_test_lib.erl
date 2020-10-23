@@ -25,6 +25,7 @@
 -include_lib("public_key/include/public_key.hrl").
 
 -export([clean_start/0,
+         clean_start/1,
          clean_env/0,
          init_per_group/2,
          init_per_group_openssl/2,
@@ -128,7 +129,8 @@
          session_info_result/1,
          reuse_session/3,
          test_ciphers/3,
-         test_cipher/2
+         test_cipher/2,
+         openssl_ciphers/0
         ]).
 
 -export([tls_version/1,
@@ -313,6 +315,10 @@ openssl_ocsp_support() ->
         _ ->
             false
     end.
+
+openssl_ciphers() ->
+    Str = portable_cmd("openssl", ["ciphers"]),
+    string:split(string:strip(Str, right, $\n), ":", all).
 
 %%====================================================================
 %% Internal functions
@@ -640,7 +646,7 @@ init_openssl_server(openssl, _, Options) ->
     Pid = proplists:get_value(from, Options),
      
     Exe = "openssl",
-    Ciphers = proplists:get_value(ciphers, Options, ssl:cipher_suites(default,Version)),
+    Ciphers = proplists:get_value(ciphers, Options, default_ciphers(Version)),
     Groups0 = proplists:get_value(groups, Options),
     CertArgs = openssl_cert_options(Options, server), 
     AlpnArgs = openssl_alpn_options(proplists:get_value(alpn, Options, undefined)),
@@ -3055,11 +3061,28 @@ clean_env() ->
     application:unset_env(ssl, bypass_pem_cache),
     application:unset_env(ssl, alert_timeout),
     application:unset_env(ssl, internal_active_n).
+%%
+clean_env(keep_version) ->
+    application:unset_env(ssl, session_lifetime),
+    application:unset_env(ssl, session_cb),
+    application:unset_env(ssl, session_cb_init_args),
+    application:unset_env(ssl, session_cache_client_max),
+    application:unset_env(ssl, session_cache_server_max),
+    application:unset_env(ssl, ssl_pem_cache_clean),
+    application:unset_env(ssl, bypass_pem_cache),
+    application:unset_env(ssl, alert_timeout),
+    application:unset_env(ssl, internal_active_n).
 
 clean_start() ->
     ssl:stop(),
     application:load(ssl),
     clean_env(),
+    ssl:start().
+%%
+clean_start(keep_version) ->
+    ssl:stop(),
+    application:load(ssl),
+    clean_env(keep_version),
     ssl:start().
 
 is_psk_anon_suite({psk, _,_}) ->
@@ -3316,13 +3339,13 @@ reuse_session(ClientOpts, ServerOpts, Config) ->
 				   {from, self()},
 				   {mfa, {ssl_test_lib, no_result, []}},
 				   {tcp_options, [{active, false}]},
-				   {options, [{reuse_sessions, false} |ServerOpts]}]),
+				   {options, [{reuse_sessions, false} | ServerOpts]}]),
     Port1 = inet_port(Server1),
     
     Client3 = start_client([{node, ClientNode},
-                                         {port, Port1}, {host, Hostname},
-                                         {mfa, {ssl_test_lib, session_id, []}},
-                                         {from, self()},  {options, [{reuse_sessions, save} | ClientOpts]}]),
+                            {port, Port1}, {host, Hostname},
+                            {mfa, {ssl_test_lib, session_id, []}},
+                            {from, self()},  {options, [{reuse_sessions, save} | ClientOpts]}]),
     SID1 = receive
                {Client3, Id3} ->
                    Id3
@@ -3332,10 +3355,10 @@ reuse_session(ClientOpts, ServerOpts, Config) ->
     
     Client4 =
         start_client([{node, ClientNode},
-                                   {port, Port1}, {host, Hostname},
-                                   {mfa, {ssl_test_lib, session_id, []}},
-                                   {from, self()},  {options, ClientOpts}]),   
-   
+                      {port, Port1}, {host, Hostname},
+                      {mfa, {ssl_test_lib, session_id, []}},
+                      {from, self()},  {options, ClientOpts}]),
+
     receive
         {Client4, SID1} ->
             ct:fail(session_reused_when_session_reuse_disabled_by_server);
@@ -3549,9 +3572,21 @@ assert_mfl(Socket, MFL) ->
 bigger_buffers() ->
     case os:type() of
         {unix,sunos} ->
-            [{recbuf, ?BIG_BUF},{sndbuf, ?BIG_BUF}];
+            [{buffer, ?BIG_BUF}, {recbuf, ?BIG_BUF},{sndbuf, ?BIG_BUF}];
         {unix,openbsd} ->
-            [{recbuf, ?BIG_BUF},{sndbuf, ?BIG_BUF}];
+            [{buffer, ?BIG_BUF}, {recbuf, ?BIG_BUF},{sndbuf, ?BIG_BUF}];
         _ ->
             []
     end.
+
+default_ciphers(Version) ->
+    OpenSSLCiphers = openssl_ciphers(),
+    Ciphers = 
+        case portable_cmd("openssl", ["version"]) of
+            "OpenSSL 0.9" ++ _ ->
+                ssl:cipher_suites(all,Version);
+            _ ->
+                ssl:cipher_suites(default, Version)
+        end, 
+    [Cipher || Cipher <- Ciphers, lists:member(ssl:suite_to_openssl_str(Cipher), OpenSSLCiphers)].
+                           

@@ -21,7 +21,7 @@
 -module(beam_trim).
 -export([module/2]).
 
--import(lists, [any/2,member/2,reverse/1,reverse/2,splitwith/2,sort/1]).
+-import(lists, [any/2,member/2,reverse/1,reverse/2,sort/1]).
 
 -record(st,
 	{safe :: cerl_sets:set(beam_asm:label()) %Safe labels.
@@ -45,11 +45,8 @@ function({function,Name,Arity,CLabel,Is0}) ->
 	    erlang:raise(Class, Error, Stack)
     end.
 
-trim([{kill,_}|_]=Is0, St, Acc) ->
-    {Kills0,Is1} = splitwith(fun({kill,_}) -> true;
-			       (_) -> false
-			    end, Is0),
-    Kills = sort(Kills0),
+trim([{init_yregs,{list,Kills0}}=I|Is0], St, Acc) ->
+    Kills = [{kill,Y} || Y <- Kills0],
     try
         %% Find out the size and layout of the stack frame.
         %% Example of a layout:
@@ -58,28 +55,28 @@ trim([{kill,_}|_]=Is0, St, Acc) ->
         %%
         %% That means that y0 and y3 are to be killed, that y1
         %% has been killed previously, and that y2 is live.
-        {FrameSize,Layout} = frame_layout(Is1, Kills, St),
+        {FrameSize,Layout} = frame_layout(Is0, Kills, St),
 
         %% Calculate all recipes that are not worse in terms
         %% of estimated execution time. The recipes are ordered
         %% in descending order from how much they trim.
-        IsNotRecursive = is_not_recursive(Is1),
+        IsNotRecursive = is_not_recursive(Is0),
         Recipes = trim_recipes(Layout, IsNotRecursive),
 
         %% Try the recipes in order. A recipe may not work out because
         %% a register that was previously killed may be
         %% resurrected. If that happens, the next recipe, which trims
         %% less, will be tried.
-        try_remap(Recipes, Is1, FrameSize)
+        try_remap(Recipes, Is0, FrameSize)
     of
 	{Is,TrimInstr} ->
             %% One of the recipes was applied.
 	    trim(Is, St, reverse(TrimInstr)++Acc)
     catch
 	not_possible ->
-            %% No recipe worked out. Use the original kill
-            %% instructions.
-	    trim(Is1, St, reverse(Kills, Acc))
+            %% No recipe worked out. Use the original init_yregs/1
+            %% instruction.
+	    trim(Is0, St, [I|Acc])
     end;
 trim([I|Is], St, Acc) ->
     trim(Is, St, [I|Acc]);
@@ -203,8 +200,14 @@ try_remap([R|Rs], Is, FrameSize) ->
 try_remap([], _, _) -> throw(not_possible).
 
 expand_recipe({Layout,Trim,Moves}, FrameSize) ->
-    Kills = [Kill || {kill,_}=Kill <- Layout],
-    {Kills++reverse(Moves, [{trim,Trim,FrameSize-Trim}]),create_map(Trim, Moves)}.
+    Is = reverse(Moves, [{trim,Trim,FrameSize-Trim}]),
+    Map = create_map(Trim, Moves),
+    case [Y || {kill,Y} <- Layout] of
+        [] ->
+            {Is,Map};
+        [_|_]=Yregs ->
+            {[{init_yregs,{list,Yregs}}|Is],Map}
+    end.
 
 create_map(Trim, []) ->
     fun({y,Y}) when Y < Trim -> throw(not_possible);
@@ -230,8 +233,13 @@ create_map(Trim, Moves) ->
        (Any) -> Any
     end.
 
-remap([{'%',_}=I|Is], Map, Acc) ->
-    remap(Is, Map, [I|Acc]);
+remap([{'%',Comment}=I|Is], Map, Acc) ->
+    case Comment of
+        {var_info,Var,Type} ->
+            remap(Is, Map, [{'%',{var_info,Map(Var),Type}}|Acc]);
+        _ ->
+            remap(Is, Map, [I|Acc])
+    end;
 remap([{block,Bl0}|Is], Map, Acc) ->
     Bl = remap_block(Bl0, Map, []),
     remap(Is, Map, [{block,Bl}|Acc]);
@@ -270,9 +278,16 @@ remap([{bs_init,Fail,Info,Live,Ss0,Dst0}|Is], Map, Acc) ->
 remap([{bs_put=Op,Fail,Info,Ss}|Is], Map, Acc) ->
     I = {Op,Fail,Info,[Map(S) || S <- Ss]},
     remap(Is, Map, [I|Acc]);
-remap([{kill,Y}|T], Map, Acc) ->
-    remap(T, Map, [{kill,Map(Y)}|Acc]);
+remap([{init_yregs,{list,Yregs0}}|Is], Map, Acc) ->
+    Yregs = sort([Map(Y) || Y <- Yregs0]),
+    I = {init_yregs,{list,Yregs}},
+    remap(Is, Map, [I|Acc]);
 remap([{make_fun2,_,_,_,_}=I|T], Map, Acc) ->
+    remap(T, Map, [I|Acc]);
+remap([{make_fun3,F,Index,OldUniq,Dst0,{list,Env0}}|T], Map, Acc) ->
+    Env = [Map(E) || E <- Env0],
+    Dst = Map(Dst0),
+    I = {make_fun3,F,Index,OldUniq,Dst,{list,Env}},
     remap(T, Map, [I|Acc]);
 remap([{deallocate,N}|Is], Map, Acc) ->
     I = {deallocate,Map({frame_size,N})},
@@ -404,9 +419,11 @@ frame_size([{bs_init,{f,L},_,_,_,_}|Is], Safe) ->
     frame_size_branch(L, Is, Safe);
 frame_size([{bs_put,{f,L},_,_}|Is], Safe) ->
     frame_size_branch(L, Is, Safe);
-frame_size([{kill,_}|Is], Safe) ->
+frame_size([{init_yregs,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{make_fun2,_,_,_,_}|Is], Safe) ->
+    frame_size(Is, Safe);
+frame_size([{make_fun3,_,_,_,_,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{get_map_elements,{f,L},_,_}|Is], Safe) ->
     frame_size_branch(L, Is, Safe);
@@ -484,12 +501,14 @@ is_not_used(Y, [{get_map_elements,{f,_},S,{list,List}}|Is]) ->
 	false ->
             member(Y, Ds) orelse is_not_used(Y, Is)
     end;
-is_not_used(Y, [{kill,Yreg}|Is]) ->
-    Y =:= Yreg orelse is_not_used(Y, Is);
+is_not_used(Y, [{init_yregs,{list,Yregs}}|Is]) ->
+    member(Y, Yregs) orelse is_not_used(Y, Is);
 is_not_used(Y, [{line,_}|Is]) ->
     is_not_used(Y, Is);
 is_not_used(Y, [{make_fun2,_,_,_,_}|Is]) ->
     is_not_used(Y, Is);
+is_not_used(Y, [{make_fun3,_,_,_,Dst,{list,Env}}|Is]) ->
+    is_not_used_ss_dst(Y, Env, Dst, Is);
 is_not_used(Y, [{swap,Reg1,Reg2}|Is]) ->
     Y =/= Reg1 andalso Y =/= Reg2 andalso is_not_used(Y, Is);
 is_not_used(Y, [{test,_,_,Ss}|Is]) ->

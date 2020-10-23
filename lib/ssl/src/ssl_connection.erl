@@ -60,7 +60,8 @@
 -export([read_application_data/2, internal_renegotiation/2]).
 
 %% Help functions for tls|dtls_connection.erl
--export([handle_session/7, ssl_config/3,
+-export([handle_session/7, handle_sni_extension/2,
+         handle_sni_extension_tls13/2, ssl_config/3,
 	 prepare_connection/2, hibernate_after/3]).
 
 %% General gen_statem state functions with extra callback argument 
@@ -99,7 +100,7 @@ connect(Connection, Host, Port, Socket, Options, User, CbInfo, Timeout) ->
 %%--------------------------------------------------------------------
 -spec handshake(tls_connection | dtls_connection,
 		 inet:port_number(), port(),
-		 {ssl_options(), #socket_options{}, undefined | pid()},
+		 {ssl_options(), #socket_options{}, list()},
 		 pid(), tuple(), timeout()) ->
 			{ok, #sslsocket{}} | {error, reason()}.
 %%
@@ -193,10 +194,10 @@ socket_control(tls_connection = Connection, Socket, [Pid|_] = Pids, Transport, T
 	{error, Reason}	->
 	    {error, Reason}
     end;
-socket_control(dtls_connection = Connection, {_, Socket}, [Pid|_] = Pids, Transport, Trackers) ->
+socket_control(dtls_connection = Connection, {PeerAddrPort, Socket}, [Pid|_] = Pids, Transport, Trackers) ->
     case Transport:controlling_process(Socket, Pid) of
 	ok ->
-	    {ok, Connection:socket(Pids, Transport, Socket, Trackers)};
+	    {ok, Connection:socket(Pids, Transport, {PeerAddrPort, Socket}, Trackers)};
 	{error, Reason}	->
 	    {error, Reason}
     end.
@@ -1264,7 +1265,8 @@ cipher(internal, #finished{},
 cipher(internal, #finished{verify_data = Data} = Finished,
        #state{static_env = #static_env{role = Role,
                                        host = Host,
-                                       port = Port},
+                                       port = Port,
+                                       trackers = Trackers},
               handshake_env = #handshake_env{tls_handshake_history = Hist,
                                              expecting_finished = true} = HsEnv,
               connection_env = #connection_env{negotiated_version = Version},
@@ -1277,7 +1279,7 @@ cipher(internal, #finished{verify_data = Data} = Finished,
 					 get_current_prf(ConnectionStates0, read),
 					 MasterSecret, Hist) of
         verified ->
-	    Session = handle_session(Role, SslOpts, Host, Port, Session0),
+	    Session = handle_session(Role, SslOpts, Host, Port, Trackers, Session0),
 	    cipher_role(Role, Data, Session, 
 			State#state{handshake_env = HsEnv#handshake_env{expecting_finished = false}}, Connection);
         #alert{} = Alert ->
@@ -1391,22 +1393,14 @@ handle_common_event(internal, {handshake, {#hello_request{}, _}}, StateName,
   when StateName =/= connection ->
     keep_state_and_data;
 handle_common_event(internal, {handshake, {Handshake, Raw}}, StateName,
-		    #state{handshake_env = #handshake_env{tls_handshake_history = Hist0},
-                           connection_env = #connection_env{negotiated_version = Version}} = State0,
-		    Connection) ->
-   
-    PossibleSNI = Connection:select_sni_extension(Handshake),
-    %% This function handles client SNI hello extension when Handshake is
-    %% a client_hello, which needs to be determined by the connection callback.
-    %% In other cases this is a noop
-    case handle_sni_extension(PossibleSNI, State0) of
-        #state{handshake_env = HsEnv} = State ->
-            Hist = ssl_handshake:update_handshake_history(Hist0, Raw),
-            {next_state, StateName, State#state{handshake_env = HsEnv#handshake_env{tls_handshake_history = Hist}},
-             [{next_event, internal, Handshake}]};
-        #alert{} = Alert ->
-            handle_own_alert(Alert, Version, StateName, State0)
-    end;
+		    #state{handshake_env = #handshake_env{tls_handshake_history = Hist0} = HsEnv,
+                           connection_env = #connection_env{negotiated_version = _Version}} = State0,
+		    _Connection) ->
+    Hist = ssl_handshake:update_handshake_history(Hist0, Raw),
+    {next_state, StateName,
+     State0#state{handshake_env =
+                      HsEnv#handshake_env{tls_handshake_history = Hist}},
+     [{next_event, internal, Handshake}]};
 handle_common_event(internal, {protocol_record, TLSorDTLSRecord}, StateName, State, Connection) -> 
     Connection:handle_protocol_record(TLSorDTLSRecord, StateName, State);
 handle_common_event(timeout, hibernate, _, _, _) ->
@@ -1694,7 +1688,7 @@ connection_info(#state{static_env = #static_env{protocol_cb = Connection},
                        session = #session{session_id = SessionId,
                                           cipher_suite = CipherSuite,
                                           srp_username = SrpUsername,
-                                          ecc = ECCCurve},
+                                          ecc = ECCCurve} = Session,
                        connection_states = #{current_write := CurrentWrite},
 		       connection_env = #connection_env{negotiated_version =  {_,_} = Version}, 
 		       ssl_options = Opts}) ->
@@ -1717,6 +1711,7 @@ connection_info(#state{static_env = #static_env{protocol_cb = Connection},
               end,
     [{protocol, RecordCB:protocol_version(Version)},
      {session_id, SessionId},
+     {session_data, term_to_binary(Session)},
      {session_resumption, Resumption},
      {selected_cipher_suite, CipherSuiteDef},
      {sni_hostname, SNIHostname},
@@ -2763,19 +2758,16 @@ session_handle_params(#server_ecdh_params{curve = ECCurve}, Session) ->
 session_handle_params(_, Session) ->
     Session.
 
-handle_session(Role = server, #{reuse_sessions := true} = SslOpts,
-               Host, Port, Session0) ->
-    register_session(Role, host_id(Role, Host, SslOpts), Port, Session0, true);
+handle_session(server, #{reuse_sessions := true}, 
+               _Host, _Port, Trackers, #session{is_resumable = false} = Session) ->
+    Tracker = proplists:get_value(session_id_tracker, Trackers),
+    server_register_session(Tracker, Session#session{is_resumable = true});
 handle_session(Role = client, #{verify := verify_peer,
                                 reuse_sessions := Reuse} = SslOpts,
-               Host, Port, Session0) when Reuse =/= false ->
-    register_session(Role, host_id(Role, Host, SslOpts), Port, Session0, reg_type(Reuse));
-handle_session(server, _, Host, Port, Session) ->
-    %% Remove "session of type new" entry from session DB 
-    ssl_manager:invalidate_session(Host, Port, Session),
-    Session;
-handle_session(client, _,_,_, Session) ->
-    %% In client case there is no entry yet, so nothing to remove
+               Host, Port, _, #session{is_resumable = false} = Session) when Reuse =/= false ->
+    client_register_session(host_id(Role, Host, SslOpts), Port, Session#session{is_resumable = true}, 
+                            reg_type(Reuse));
+handle_session(_,_,_,_,_, Session) ->
     Session.
 
 reg_type(save) ->
@@ -2783,16 +2775,12 @@ reg_type(save) ->
 reg_type(true) ->
     unique.
 
-register_session(client, Host, Port, #session{is_resumable = new} = Session0, Save) ->
-    Session = Session0#session{is_resumable = true},
+client_register_session(Host, Port, Session, Save) ->
     ssl_manager:register_session(Host, Port, Session, Save),
-    Session;
-register_session(server, _, Port, #session{is_resumable = new} = Session0, _) ->
-    Session = Session0#session{is_resumable = true},
-    ssl_manager:register_session(Port, Session),
-    Session;
-register_session(_, _, _, Session, _) ->
-    Session. %% Already registered
+    Session.
+server_register_session(Tracker, Session) ->
+    ssl_server_session_cache:register_session(Tracker, Session),
+    Session.
 
 host_id(client, _Host, #{server_name_indication := Hostname}) when is_list(Hostname) ->
     Hostname;
@@ -2814,8 +2802,16 @@ handle_resumed_session(SessId, #state{static_env = #static_env{host = Host,
                                                                session_cache = Cache,
                                                                session_cache_cb = CacheCb},
                                       connection_env = #connection_env{negotiated_version = Version},
-                                      connection_states = ConnectionStates0} = State) ->
-    Session = CacheCb:lookup(Cache, {{Host, Port}, SessId}),
+                                      connection_states = ConnectionStates0,
+                                      ssl_options = Opts} = State) ->
+
+    Session = case maps:get(reuse_session, Opts, undefined) of
+        {SessId,SessionData} when is_binary(SessId), is_binary(SessionData) ->
+             binary_to_term(SessionData, [safe]);
+        _Else ->
+             CacheCb:lookup(Cache, {{Host, Port}, SessId})
+    end,
+
     case ssl_handshake:master_secret(ssl:tls_version(Version), Session,
 				     ConnectionStates0, client) of
 	{_, ConnectionStates} ->
@@ -3089,21 +3085,88 @@ maybe_invalidate_session(_, _, _, _, _) ->
 
 invalidate_session(client, Host, Port, Session) ->
     ssl_manager:invalidate_session(Host, Port, Session);
-invalidate_session(server, _, Port, Session) ->
-    ssl_manager:invalidate_session(Port, Session).
+invalidate_session(server, _, _, _) ->
+    ok.
 
-handle_sni_extension(undefined, State) ->
-    State;
-handle_sni_extension(#sni{hostname = Hostname}, State) ->
+%% Handle SNI extension in TLS 1.3
+handle_sni_extension_tls13(undefined, State) ->
+    {ok, State};
+handle_sni_extension_tls13(#sni{hostname = Hostname}, State0) ->
+    case check_hostname(State0, Hostname) of
+        valid ->
+            State1 = handle_sni_hostname(Hostname, State0),
+            State = set_sni_guided_cert_selection(State1, true),
+            {ok, State};
+        unrecognized_name ->
+            {ok, handle_sni_hostname(Hostname, State0)};
+        #alert{} = Alert ->
+            {error, Alert}
+    end.
+
+set_sni_guided_cert_selection(#state{handshake_env = HsEnv0} = State, Bool) ->
+    HsEnv = HsEnv0#handshake_env{sni_guided_cert_selection = Bool},
+    State#state{handshake_env = HsEnv}.
+
+check_hostname(#state{ssl_options = SslOptions}, Hostname) ->
     case is_sni_value(Hostname) of
         true ->
-          handle_sni_extension(Hostname, State);
+            case is_hostname_recognized(SslOptions, Hostname) of
+                true ->
+                    valid;
+                false ->
+                    %% We should send an alert but for interoperability reasons we
+                    %% allow the connection to be established.
+                    %% ?ALERT_REC(?FATAL, ?UNRECOGNIZED_NAME)
+                    unrecognized_name
+            end;
+        false ->
+            ?ALERT_REC(?FATAL, ?UNRECOGNIZED_NAME,
+                       {sni_included_trailing_dot, Hostname})
+    end.
+
+is_hostname_recognized(#{sni_fun := undefined,
+                         sni_hosts := SNIHosts}, Hostname) ->
+    proplists:is_defined(Hostname, SNIHosts);
+is_hostname_recognized(_, _) ->
+    true.
+
+%% Handle SNI extension in pre-TLS 1.3 and DTLS
+handle_sni_extension(#state{static_env =
+                                #static_env{protocol_cb = Connection}} = State0,
+                     Hello) ->
+    PossibleSNI = Connection:select_sni_extension(Hello),
+    case do_handle_sni_extension(PossibleSNI, State0) of
+        #state{} = State1 ->
+            State1;
+        #alert{} = Alert0 ->
+            ssl_connection:handle_own_alert(Alert0, undefined, hello,
+                                            State0)
+    end.
+
+do_handle_sni_extension(undefined, State) ->
+    State;
+do_handle_sni_extension(#sni{hostname = Hostname},
+                        #state{ssl_options = SslOptions} = State0) ->
+    case is_sni_value(Hostname) of
+        true ->
+            case is_hostname_recognized(SslOptions, Hostname) of
+                true ->
+                    State1 = handle_sni_hostname(Hostname, State0),
+                    set_sni_guided_cert_selection(State1, true);
+                false ->
+                    %% We should send an alert but for interoperability reasons we
+                    %% allow the connection to be established.
+                    %% ?ALERT_REC(?FATAL, ?UNRECOGNIZED_NAME)
+                    handle_sni_hostname(Hostname, State0)
+            end;
         false ->
             ?ALERT_REC(?FATAL, ?UNRECOGNIZED_NAME, {sni_included_trailing_dot, Hostname})
-    end;
-handle_sni_extension(Hostname, #state{static_env = #static_env{role = Role} = InitStatEnv0,
-                                                                   handshake_env = HsEnv,
-                                                                   connection_env = CEnv} = State0) ->
+    end.
+
+handle_sni_hostname(Hostname,
+                    #state{static_env = #static_env{role = Role} = InitStatEnv0,
+                           handshake_env = HsEnv,
+                           connection_env = CEnv} = State0) ->
     NewOptions = update_ssl_options_from_sni(State0#state.ssl_options, Hostname),
     case NewOptions of
 	undefined ->

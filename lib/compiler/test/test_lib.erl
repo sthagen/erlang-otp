@@ -91,6 +91,8 @@ opt_opts(Mod) ->
                      (no_bsm_opt) -> true;
                      (no_copt) -> true;
                      (no_fun_opt) -> true;
+                     (no_init_yregs) -> true;
+                     (no_make_fun3) -> true;
                      (no_module_opt) -> true;
                      (no_postopt) -> true;
                      (no_put_tuple2) -> true;

@@ -45,7 +45,7 @@
     cancel/3
    ]).
 
--export([encode_path/1, encode_sockaddr/1, p_get/1]).
+-export([enc_sockaddr/1, p_get/1]).
 
 
 %% Also in socket
@@ -135,87 +135,83 @@ on_load(Extra) when is_map(Extra) ->
                   Extra_1
                       #{debug => true,
                         socket_debug => true,
-                        debug_filename => encode_path(DebugFilename)}
+                        debug_filename => enc_path(DebugFilename)}
           end,
     ok = erlang:load_nif(atom_to_list(?MODULE), Extra_2),
     %%
-    put_supports_table(
-      protocols,
-      fun (Protocols) ->
-              maps:merge(
-                maps:from_list(flatten_protocols(Protocols)),
-                maps:from_list(
-                  [{Num, Name} || {[Name | _], Num} <- Protocols]))
-      end),
-    put_supports_table(
-      options,
-      fun (Options) ->
-              maps:from_list(options_table(Options))
-      end),
-    put_supports_table(
-      msg_flags,
-      fun (Flags) -> maps:from_list(Flags) end).
+    PT =
+        put_supports_table(
+          protocols, fun (Protocols) -> protocols_table(Protocols) end),
+    _ = put_supports_table(
+          options, fun (Options) -> options_table(Options, PT) end),
+    _ = put_supports_table(msg_flags, fun (Flags) -> Flags end),
+    ok.
 
-put_supports_table(Tag, Fun) ->
-    p_put(
-      Tag,
-      try nif_supports(Tag) of
-          Data ->
-              Fun(Data)
-      catch
-          error : notsup ->
-              #{}
-      end).
+put_supports_table(Tag, MkTable) ->
+    Table =
+        try nif_supports(Tag) of
+            Data ->
+                maps:from_list(MkTable(Data))
+        catch
+            error : notsup ->
+                #{}
+        end,
+    p_put(Tag, Table),
+    Table.
 
-flatten_protocols([{[Name | Aliases], Num} | Protocols]) ->
-    flatten_protocols(Protocols, Aliases, Name, Num);
-flatten_protocols([]) ->
+%% ->
+%% [{Num, [Name, ...]}
+%%  {Name, Num} for all names]
+protocols_table([{Names, Num} | Protocols]) ->
+    [{Num, Names} | protocols_table(Protocols, Names, Num)];
+protocols_table([]) ->
     [].
-
-flatten_protocols(Protocols, [Alias | Aliases], Name, Num) ->
-    [{Alias, Num} | flatten_protocols(Protocols, Aliases, Name, Num)];
-flatten_protocols(Protocols, [], Name, Num) ->
-    [{Name, Num} | flatten_protocols(Protocols)].
-
-options_table([]) ->
-    [];
-options_table([{Level, LevelNum, LevelOpts} | Options]) ->
-    options_table(Options, Level, LevelNum, LevelOpts).
 %%
-options_table(Options, Level, LevelNum, []) ->
-    [{Level, LevelNum}, {LevelNum, Level} | options_table(Options)];
-options_table(Options, Level, LevelNum, [LevelOpt | LevelOpts]) ->
-    [case LevelOpt of
-         {Opt, OptNum} ->
-             {{Level,Opt}, {LevelNum,OptNum}};
-         Opt when is_atom(Opt) ->
-             {{Level,Opt}, undefined}
-     end | options_table(Options, Level, LevelNum, LevelOpts)].
+protocols_table(Protocols, [Name | Names], Num) ->
+    [{Name, Num} | protocols_table(Protocols, Names, Num)];
+protocols_table(Protocols, [], _Num) ->
+    protocols_table(Protocols).
+
+%% ->
+%% [{{socket,Opt}, {socket,OptNum}} |
+%%  {{Level, Opt}, {LevelNum, OptNum}} for all Levels (protocol aliases)]
+options_table([], _PT) ->
+    [];
+options_table([{socket, LevelOpts} | Options], PT) ->
+    options_table(Options, PT, socket, LevelOpts, [socket]);
+options_table([{LevelNum, LevelOpts} | Options], PT) ->
+    Levels = maps:get(LevelNum, PT),
+    options_table(Options, PT, LevelNum, LevelOpts, Levels).
+%%
+options_table(Options, PT, _Level, [], _Levels) ->
+    options_table(Options, PT);
+options_table(Options, PT, Level, [LevelOpt | LevelOpts], Levels) ->
+    LevelOptNum =
+        case LevelOpt of
+            {Opt, OptNum} ->
+                {Level,OptNum};
+            Opt when is_atom(Opt) ->
+                undefined
+        end,
+    options_table(
+      Options, PT, Level, LevelOpts, Levels,
+      Opt, LevelOptNum, Levels).
+%%
+options_table(
+  Options, PT, Level, LevelOpts, Levels,
+  _Opt, _LevelOptNum, []) ->
+    options_table(Options, PT, Level, LevelOpts, Levels);
+options_table(
+  Options, PT, Level, LevelOpts, Levels,
+  Opt, LevelOptNum, [L | Ls]) ->
+    [{{L,Opt}, LevelOptNum} |
+     options_table(
+       Options, PT, Level, LevelOpts, Levels,
+       Opt, LevelOptNum, Ls)].
 
 %% ===========================================================================
 %% API for 'socket'
 %%
-
-%% File names has to be encoded according to
-%% the native file encoding
-%%
-encode_path(Path) when is_binary(Path) ->
-    Path;
-encode_path(Path) ->
-    %% These are all BIFs - will not cause code loading
-    case unicode:characters_to_binary(Path, file:native_name_encoding()) of
-        {error, _Bin, _Rest} ->
-            invalid(path, Path);
-        {incomplete, _Bin1, _Bin2} ->
-            invalid(path, Path);
-        BinPath when is_binary(BinPath) ->
-            BinPath
-    end.
-
-encode_sockaddr(SockAddr) ->
-    enc_sockaddr(SockAddr).
-
-%% ----------------------------------
 
 info() ->
     nif_info().
@@ -223,7 +219,7 @@ info() ->
 info(SockRef) ->
     #{protocol := NumProtocol} = Info = nif_info(SockRef),
     case p_get(protocols) of
-        #{NumProtocol := Protocol} ->
+        #{NumProtocol := [Protocol | _]} ->
             Info#{protocol := Protocol};
         #{} ->
             Info
@@ -251,17 +247,13 @@ supports(protocols) ->
     maps:fold(
       fun (Name, _Num, Acc) when is_atom(Name) ->
               [{Name, true} | Acc];
-          (Num, _Name, Acc) when is_integer(Num) ->
+          (Num, _Names, Acc) when is_integer(Num) ->
               Acc
       end, [], p_get(protocols));
 supports(options) ->
     maps:fold(
       fun ({_Level,_Opt} = Option, Value, Acc) ->
-              [{Option, is_supported_option(Option, Value)} | Acc];
-          (Level, _Value, Acc) when is_atom(Level) ->
-              Acc;
-          (LevelNum, _Value, Acc) when is_integer(LevelNum) ->
-              Acc
+              [{Option, is_supported_option(Option, Value)} | Acc]
       end, [], p_get(options));
 supports(msg_flags) ->
     maps:fold(
@@ -279,11 +271,7 @@ supports(options, Level) when is_atom(Level) ->
                       [{Opt, is_supported_option(Option, Value)} | Acc];
                   true ->
                       Acc
-              end;
-          (L, _Value, Acc) when is_atom(L) ->
-              Acc;
-          (N, _Value, Acc) when is_integer(N) ->
-              Acc
+              end
       end, [], p_get(options));
 supports(options, _Level) ->
     [];
@@ -344,46 +332,116 @@ get_is_supported(Key, Supported) ->
 %% ----------------------------------
 
 open(FD, Opts) when is_map(Opts) ->
-    case Opts of
-        #{protocol := Protocol} ->
-            case enc_protocol(Protocol) of
-                NumProtocol when is_integer(NumProtocol) ->
-                    nif_open(FD, Opts#{protocol := NumProtocol});
-                Error ->
-                    Error
-            end;
-        #{} ->
-            nif_open(FD, Opts)
+    try
+        case Opts of
+            #{protocol := Protocol} ->
+                NumProtocol = enc_protocol(Protocol),
+                Opts#{protocol := NumProtocol};
+            #{} ->
+                Opts
+        end
+    of
+        EOpts ->
+            case nif_open(FD, EOpts) of
+                {invalid, Reason} ->
+                  if
+                      Reason =:= domain;
+                      Reason =:= type ->
+                          {error, {invalid, {options, Opts, Reason}}}
+                  end;
+                Result -> Result
+            end
+    catch
+        throw : Reason ->
+            {error, Reason}
     end.
 
 open(Domain, Type, Protocol, Opts) when is_map(Opts) ->
-    case enc_protocol(Protocol) of
-        NumProtocol when is_integer(NumProtocol) ->
-            EOpts =
-                case Opts of
-                    #{netns := Path} when is_list(Path) ->
-                        Opts#{netns := encode_path(Path)};
-                    _ ->
-                        Opts
-                end,
-            nif_open(Domain, Type, NumProtocol, EOpts);
-        Error ->
-            Error
+    try
+        {enc_protocol(Protocol),
+         case Opts of
+            #{netns := Path} when is_list(Path) ->
+                Opts#{netns := enc_path(Path)};
+            _ ->
+                Opts
+         end}
+    of
+        {NumProtocol, EOpts} ->
+            case nif_open(Domain, Type, NumProtocol, EOpts) of
+                {invalid, Reason} ->
+                    {error,
+                     {invalid,
+                      {Reason,
+                       case Reason of
+                           domain -> Domain;
+                           type -> Type
+                       end}}};
+                Result -> Result
+            end
+    catch
+        throw : Reason ->
+            {error, Reason}
     end.
 
 %% ----------------------------------
 
 bind(SockRef, Addr) ->
-    nif_bind(SockRef, enc_sockaddr(Addr)).
+    try
+        enc_sockaddr(Addr)
+    of
+        EAddr ->
+            case nif_bind(SockRef, EAddr) of
+                {invalid, Reason} ->
+                    case Reason of
+                        sockaddr ->
+                            {error, {invalid, {Reason, Addr}}}
+                    end;
+                Result -> Result
+            end
+    catch
+        throw : Reason ->
+            {error, Reason}
+    end.
 
 bind(SockRef, Addrs, Action) when is_list(Addrs) ->
-    EAddrs = [enc_sockaddr(Addr) || Addr <- Addrs],
-    nif_bind(SockRef, EAddrs, Action).
+    try
+        [enc_sockaddr(Addr) || Addr <- Addrs]
+    of
+        EAddrs ->
+            %% Not implemented yet
+            case nif_bind(SockRef, EAddrs, Action) of
+                {invalid, Reason} ->
+                    case Reason of
+                        {sockaddr, N} ->
+                            {error,
+                             {invalid, {sockaddr, lists:nth(N, Addrs)}}}
+                    end;
+                Result -> Result
+            end
+    catch
+        throw : Reason ->
+            {error, Reason}
+    end.
 
 %% ----------------------------------
 
 connect(SockRef, ConnectRef, SockAddr) ->
-    nif_connect(SockRef, ConnectRef, enc_sockaddr(SockAddr)).
+    try
+        enc_sockaddr(SockAddr)
+    of
+        ESockAddr ->
+            case nif_connect(SockRef, ConnectRef, ESockAddr) of
+                {invalid, Reason} ->
+                    case Reason of
+                        sockaddr ->
+                            {error, {invalid, {Reason, SockAddr}}}
+                    end;
+                Result -> Result
+            end
+    catch
+        throw : Reason ->
+            {error, Reason}
+    end.
 
 connect(SockRef) ->
     nif_connect(SockRef).
@@ -409,18 +467,33 @@ send(SockRef, SendRef, Data, Flags) ->
     end.
 
 sendto(SockRef, SendRef, Data, To, Flags) ->
-    ETo = enc_sockaddr(To),
-    try enc_msg_flags(Flags) of
-        EFlags ->
-            nif_sendto(SockRef, SendRef, Data, ETo, EFlags)
+    try {enc_sockaddr(To), enc_msg_flags(Flags)} of
+        {ETo, EFlags} ->
+            case nif_sendto(SockRef, SendRef, Data, ETo, EFlags) of
+                {invalid, Reason} ->
+                    case Reason of
+                        sockaddr ->
+                            {error, {invalid, {sockaddr, To}}}
+                    end;
+                Result -> Result
+            end
     catch throw : Reason ->
             {error, Reason}
     end.
 
-sendmsg(SockRef, SendRef, MsgHdr, Flags) ->
-    try {enc_msghdr(MsgHdr), enc_msg_flags(Flags)} of
-        {EMsgHdr, EFlags} ->
-            nif_sendmsg(SockRef, SendRef, EMsgHdr, EFlags)
+sendmsg(SockRef, SendRef, Msg, Flags) ->
+    try {enc_msg(Msg), enc_msg_flags(Flags)} of
+        {EMsg, EFlags} ->
+            case nif_sendmsg(SockRef, SendRef, EMsg, EFlags) of
+                {invalid, Reason} ->
+                    if
+                        Reason =:= addr;
+                        Reason =:= iov;
+                        Reason =:= ctrl ->
+                            {error, {invalid, {msg, Msg, Reason}}}
+                    end;
+                Result -> Result
+            end
     catch throw : Reason ->
             {error, Reason}
     end.
@@ -430,34 +503,9 @@ sendmsg(SockRef, SendRef, MsgHdr, Flags) ->
 recv(SockRef, RecvRef, Length, Flags) ->
     try enc_msg_flags(Flags) of
         EFlags ->
-            recv_result(
-              nif_recv(SockRef, RecvRef, Length, EFlags),
-              Length)
+	    nif_recv(SockRef, RecvRef, Length, EFlags)
     catch throw : Reason ->
             {error, Reason}
-    end.
-
-recv_result(Result, Length) ->
-    case Result of
-        {ok, true, Bin} ->
-            {ok, Bin};
-        %%
-        {ok, false, Bin} ->
-            %% Depending on the number of bytes we tried to read:
-            if
-                Length =:= 0 ->
-                    %% 0 - Read everything available
-                    %% We got something, but there may be more
-                    %% - keep reading.
-                    {more, Bin};
-                true ->
-                    %% > 0 - We got a part of the message
-                    %% and we will be notified when there is more to read
-                    %% (a select message)
-                    {select, Bin}
-            end;
-        %%
-        _ -> Result
     end.
 
 recvfrom(SockRef, RecvRef, Length, Flags) ->
@@ -471,29 +519,16 @@ recvfrom(SockRef, RecvRef, Length, Flags) ->
 recvmsg(SockRef, RecvRef, BufSz, CtrlSz, Flags) ->
     try enc_msg_flags(Flags) of
         EFlags ->
-            recvmsg_result(
-              nif_recvmsg(SockRef, RecvRef, BufSz, CtrlSz, EFlags))
+            case nif_recvmsg(SockRef, RecvRef, BufSz, CtrlSz, EFlags) of
+		{ok, #{ctrl := []}} = Result ->
+		    Result;
+		{ok, #{ctrl := Cmsgs} = Msg} ->
+		    {ok, Msg#{ctrl := dec_cmsgs(Cmsgs, p_get(protocols))}};
+		Result ->
+		    Result
+	    end
     catch throw : Reason ->
             {error, Reason}
-    end.
-
-recvmsg_result(Result) ->
-    case Result of
-        {ok, #{ctrl := []}} ->
-            Result;
-        {ok, #{ctrl := Ctrl} = MsgHdr} ->
-            Options = p_get(options),
-            {ok,
-             MsgHdr#{
-               ctrl :=
-                   [case Options of
-                        #{LevelNum := Level} ->
-                            CMsg#{level := Level};
-                        #{} ->
-                            CMsg
-                    end || #{level := LevelNum} = CMsg <- Ctrl]}};
-        Other ->
-            Other
     end.
 
 %% ----------------------------------
@@ -513,20 +548,32 @@ shutdown(SockRef, How) ->
 
 setopt(SockRef, Option, Value) ->
     NativeValue = 0,
-    case enc_sockopt(Option, NativeValue) of
-        undefined ->
-            {error, invalid};
-        {NumLevel,NumOpt} ->
-            nif_setopt(SockRef, NumLevel, NumOpt, Value, NativeValue)
-    end.
+    setopt_common(SockRef, Option, Value, NativeValue).
 
 setopt_native(SockRef, Option, Value) ->
     NativeValue = 1,
+    setopt_common(SockRef, Option, Value, NativeValue).
+
+setopt_common(SockRef, Option, Value, NativeValue) ->
     case enc_sockopt(Option, NativeValue) of
         undefined ->
-            {error, invalid};
+            {error, {invalid, {socket_option, Option}}};
+        invalid ->
+            {error, {invalid, {socket_option, Option}}};
         {NumLevel,NumOpt} ->
-            nif_setopt(SockRef, NumLevel, NumOpt, Value, NativeValue)
+            case nif_setopt(SockRef, NumLevel, NumOpt, Value, NativeValue) of
+                {invalid, Reason} ->
+                    case Reason of
+                        socket_option ->
+                            {error,
+                             {invalid, {socket_option, Option}}};
+                        value ->
+                            {error,
+                             {invalid, {socket_option, Option, Value}}}
+                    end;
+                Result ->
+                    Result
+            end
     end.
 
 
@@ -534,9 +581,19 @@ getopt(SockRef, Option) ->
     NativeValue = 0,
     case enc_sockopt(Option, NativeValue) of
         undefined ->
-            {error, invalid};
+            {error, {invalid, {socket_option, Option}}};
+        invalid ->
+            {error, {invalid, {socket_option, Option}}};
         {NumLevel,NumOpt} ->
-            getopt_result(nif_getopt(SockRef, NumLevel, NumOpt), Option)
+            case nif_getopt(SockRef, NumLevel, NumOpt) of
+                {invalid, Reason} ->
+                    case Reason of
+                        socket_option ->
+                            {error, {invalid, {socket_option, Option}}}
+                    end;
+                Result ->
+                    getopt_result(Result, Option)
+            end
     end.
 
 getopt_result({ok, Val} = Result, Option) ->
@@ -547,7 +604,7 @@ getopt_result({ok, Val} = Result, Option) ->
                     Result;
                 is_integer(Val) ->
                     case p_get(protocols) of
-                        #{Val := Protocol} ->
+                        #{Val := [Protocol | _]} ->
                             {ok, Protocol};
                         #{} ->
                             Result
@@ -559,14 +616,22 @@ getopt_result({ok, Val} = Result, Option) ->
 getopt_result(Error, _Option) ->
     Error.
 
-
 getopt_native(SockRef, Option, ValueSpec) ->
     NativeValue = 1,
     case enc_sockopt(Option, NativeValue) of
         undefined ->
-            {error, invalid};
+            {error, {invalid, {socket_option, Option}}};
+        invalid ->
+            {error, {invalid, {socket_option, Option}}};
         {NumLevel,NumOpt} ->
-            nif_getopt(SockRef, NumLevel, NumOpt, ValueSpec)
+            case nif_getopt(SockRef, NumLevel, NumOpt, ValueSpec) of
+                {invalid, Reason} ->
+                    case Reason of
+                        value ->
+                            {error, {invalid, {value_spec, ValueSpec}}}
+                    end;
+                Result -> Result
+            end
     end.
 
 %% ----------------------------------
@@ -597,12 +662,13 @@ enc_protocol(Proto) when is_atom(Proto) ->
         #{Proto := Num} ->
             Num;
         #{} ->
-            {error, {invalid, {protocol, Proto}}}
+            throw({invalid, {protocol, Proto}})
     end;
 enc_protocol(Proto) when is_integer(Proto) ->
     Proto;
 enc_protocol(Proto) ->
-    invalid(protocol, Proto).
+    %% Neater than a function clause
+    erlang:error({invalid, {protocol, Proto}}).
 
 
 enc_sockaddr(#{family := inet} = SockAddr) ->
@@ -612,19 +678,37 @@ enc_sockaddr(#{family := inet6} = SockAddr) ->
 enc_sockaddr(#{family := local, path := Path} = SockAddr) ->
   if
       is_list(Path), 0 =< length(Path), length(Path) =< 255 ->
-          BinPath = encode_path(Path),
+          BinPath = enc_path(Path),
           enc_sockaddr(SockAddr#{path => BinPath});
       is_binary(Path), 0 =< byte_size(Path), byte_size(Path) =< 255 ->
           SockAddr;
       true ->
-          invalid(sockaddr, SockAddr)
+          %% Neater than an if clause
+          erlang:error({invalid, {sockaddr, SockAddr, path}})
   end;
 enc_sockaddr(#{family := local} = SockAddr) ->
-    invalid(sockaddr, SockAddr);
+    %% Neater than a function clause
+    erlang:error({invalid, {sockaddr, SockAddr, path}});
 enc_sockaddr(#{family := _} = SockAddr) ->
     SockAddr;
 enc_sockaddr(SockAddr) ->
-    invalid(sockaddr, SockAddr).
+    %% Neater than a function clause
+    erlang:error({invalid, {sockaddr, SockAddr, map_or_family}}).
+
+
+%% File names has to be encoded according to
+%% the native file encoding
+%%
+enc_path(Path) ->
+    %% These are all BIFs - will not cause code loading
+    case unicode:characters_to_binary(Path, file:native_name_encoding()) of
+        {error, _Bin, _Rest} ->
+            throw({invalid, {path, Path}});
+        {incomplete, _Bin1, _Bin2} ->
+            throw({invalid, {path, Path}});
+        BinPath when is_binary(BinPath) ->
+            BinPath
+    end.
 
 
 enc_msg_flags([]) ->
@@ -645,12 +729,13 @@ enc_msg_flags([Flag | Flags], Table, Val)
   when is_integer(Flag), 0 =< Flag ->
     enc_msg_flags(Flags, Table, Val bor Flag);
 enc_msg_flags(Flags, _Table, _Val) ->
-    error({invalid, {msg_flag, Flags}}).
+    %% Neater than a function clause
+    error({invalid, {msg_flags, Flags}}).
 
 
-enc_msghdr(#{ctrl := []} = M) ->
-    enc_msghdr(maps:remove(ctrl, M));
-enc_msghdr(#{iov := IOV} = M) 
+enc_msg(#{ctrl := []} = M) ->
+    enc_msg(maps:remove(ctrl, M));
+enc_msg(#{iov := IOV} = M)
   when is_list(IOV), IOV =/= [] ->
     maps:map(
       fun (iov, Iov) ->
@@ -663,50 +748,71 @@ enc_msghdr(#{iov := IOV} = M)
               V
       end,
       M);
-enc_msghdr(M) ->
-    error({invalid, {msghdr, M}}).
+enc_msg(M) ->
+    error({invalid, {msg, M}}).
 
-enc_cmsgs([#{level := P} = Cmsg | Cmsgs], Protocols)
-  when is_atom(P) ->
-    case Protocols of
-        #{P := N} ->
-            [Cmsg#{level := N} | enc_cmsgs(Cmsgs, Protocols)];
-        #{} ->
-            throw({invalid, {protocol, P}})
-    end;
-enc_cmsgs([Cmsg | Cmsgs], Protocols) ->
-    [Cmsg | enc_cmsgs(Cmsgs, Protocols)];
-enc_cmsgs([], _Protocols) ->
-    [].
+
+enc_cmsgs(Cmsgs, Protocols) ->
+    [if
+	 is_atom(Level) ->
+	     case Protocols of
+		 #{} when Level =:= socket ->
+		     Cmsg;
+		 #{Level := L} ->
+		     Cmsg#{level := L};
+		 #{} ->
+		     throw({invalid, {protocol, Level}})
+	     end;
+	 true ->
+	     Cmsg
+     end || #{level := Level} = Cmsg <- Cmsgs].
+
+
+dec_cmsgs(Cmsgs, Protocols) ->
+    [case Protocols of
+	 #{Level := [L | _]} when is_integer(Level) ->
+	     Cmsg#{level := L};
+	 #{} ->
+	     Cmsg
+     end || #{level := Level} = Cmsg <- Cmsgs].
 
 
 %% Common to setopt and getopt
 %%
-enc_sockopt({otp = L, Opt}, 0 = _NativeValue) ->
-    case Opt of
-        debug ->                {L,?ESOCK_OPT_OTP_DEBUG};
-        iow ->                  {L,?ESOCK_OPT_OTP_IOW};
-        controlling_process ->  {L,?ESOCK_OPT_OTP_CTRL_PROC};
-        rcvbuf ->               {L,?ESOCK_OPT_OTP_RCVBUF};
-        rcvctrlbuf ->           {L,?ESOCK_OPT_OTP_RCVCTRLBUF};
-        sndctrlbuf ->           {L,?ESOCK_OPT_OTP_SNDCTRLBUF};
-        fd ->                   {L,?ESOCK_OPT_OTP_FD};
-        meta ->                 {L,?ESOCK_OPT_OTP_META};
-        use_registry ->         {L,?ESOCK_OPT_OTP_USE_REGISTRY};
-        domain ->               {L,?ESOCK_OPT_OTP_DOMAIN};
-        _ ->
-            undefined
+enc_sockopt({otp = Level, Opt}, 0 = _NativeValue) ->
+    case
+        case Opt of
+            debug               -> ?ESOCK_OPT_OTP_DEBUG;
+            iow                 -> ?ESOCK_OPT_OTP_IOW;
+            controlling_process -> ?ESOCK_OPT_OTP_CTRL_PROC;
+            rcvbuf              -> ?ESOCK_OPT_OTP_RCVBUF;
+            rcvctrlbuf          -> ?ESOCK_OPT_OTP_RCVCTRLBUF;
+            sndctrlbuf          -> ?ESOCK_OPT_OTP_SNDCTRLBUF;
+            fd                  -> ?ESOCK_OPT_OTP_FD;
+            meta                -> ?ESOCK_OPT_OTP_META;
+            use_registry        -> ?ESOCK_OPT_OTP_USE_REGISTRY;
+            domain              -> ?ESOCK_OPT_OTP_DOMAIN;
+            _                   -> invalid
+        end
+    of
+        invalid       -> invalid;
+        NumOpt          -> {Level, NumOpt}
     end;
 enc_sockopt({NumLevel,NumOpt} = NumOption, NativeValue)
   when is_integer(NumLevel), is_integer(NumOpt), NativeValue =/= 0 ->
     NumOption;
 enc_sockopt({Level,NumOpt}, NativeValue)
   when is_atom(Level), is_integer(NumOpt), NativeValue =/= 0 ->
-    case p_get(options) of
-        #{Level := NumLevel} ->
-            {NumLevel,NumOpt};
-        #{} ->
-            undefined
+    if
+        Level =:= socket ->
+            {socket,NumOpt};
+        true ->
+            case p_get(protocols) of
+                #{Level := NumLevel} ->
+                    {NumLevel,NumOpt};
+                #{} ->
+                    invalid
+            end
     end;
 enc_sockopt({Level,Opt} = Option, _NativeValue)
   when is_atom(Level), is_atom(Opt) ->
@@ -714,19 +820,11 @@ enc_sockopt({Level,Opt} = Option, _NativeValue)
         #{Option := NumOpt} ->
             NumOpt;
         #{} ->
-            undefined
+            invalid
     end;
 enc_sockopt(Option, _NativeValue) ->
-    invalid(socket_option, Option).
-
-%% ===========================================================================
-%% Error functions
-%%
-
-%% A fancy badarg
-%%
-invalid(What, Info) ->
-    erlang:error({invalid, {What, Info}}).
+    %% Neater than a function clause
+    erlang:error({invalid, {socket_option, Option}}).
 
 %% ===========================================================================
 %% Persistent term functions
@@ -735,6 +833,7 @@ invalid(What, Info) ->
 p_put(Name, Value) ->
     persistent_term:put({?MODULE, Name}, Value).
 
+%% Also called from prim_net
 p_get(Name) ->
     persistent_term:get({?MODULE, Name}).
 
@@ -765,7 +864,7 @@ nif_accept(_SRef, _Ref) -> erlang:nif_error(undef).
 
 nif_send(_SockRef, _SendRef, _Data, _Flags) -> erlang:nif_error(undef).
 nif_sendto(_SRef, _SendRef, _Data, _Dest, _Flags) -> erlang:nif_error(undef).
-nif_sendmsg(_SRef, _SendRef, _MsgHdr, _Flags) -> erlang:nif_error(undef).
+nif_sendmsg(_SRef, _SendRef, _Msg, _Flags) -> erlang:nif_error(undef).
 
 nif_recv(_SRef, _RecvRef, _Length, _Flags) -> erlang:nif_error(undef).
 nif_recvfrom(_SRef, _RecvRef, _Length, _Flags) -> erlang:nif_error(undef).

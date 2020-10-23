@@ -47,7 +47,8 @@
          matching_meets_apply/1,bs_start_match2_defs/1,
          exceptions_after_match_failure/1,
          bad_phi_paths/1,many_clauses/1,
-         combine_empty_segments/1,hangs_forever/1]).
+         combine_empty_segments/1,hangs_forever/1,
+         bs_saved_position_units/1,empty_get_binary/1]).
 
 -export([coverage_id/1,coverage_external_ignore/2]).
 
@@ -85,7 +86,8 @@ groups() ->
        matches_on_parameter,big_positions,
        matching_meets_apply,bs_start_match2_defs,
        exceptions_after_match_failure,bad_phi_paths,
-       many_clauses,combine_empty_segments,hangs_forever]}].
+       many_clauses,combine_empty_segments,hangs_forever,
+       bs_saved_position_units,empty_get_binary]}].
 
 init_per_suite(Config) ->
     test_lib:recompile(?MODULE),
@@ -1334,6 +1336,7 @@ bad_size(Config) when is_list(Config) ->
     Tuple = {a,b,c},
     Binary = <<1,2,3>>,
     Atom = an_atom,
+    NaN = <<(-1):32>>,
 
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<32:Tuple>> = id(<<>>)),
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<32:Binary>> = id(<<>>)),
@@ -1346,12 +1349,16 @@ bad_size(Config) when is_list(Config) ->
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<42.0:Binary/float>> = id(<<>>)),
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<42.0:Atom/float>> = id(<<>>)),
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<42.0:2.5/float>> = id(<<>>)),
+    {'EXIT',{{badmatch,<<>>},_}} = (catch <<42.0:1/float>> = id(<<>>)),
+    {'EXIT',{{badmatch,NaN},_}} = (catch <<42.0:32/float>> = id(NaN)),
 
     %% Matched out value is ignored.
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<_:Binary>> = id(<<>>)),
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<_:Tuple>> = id(<<>>)),
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<_:Atom>> = id(<<>>)),
     {'EXIT',{{badmatch,<<>>},_}} = (catch <<_:2.5>> = id(<<>>)),
+    {'EXIT',{{badmatch,<<1:1>>},_}} = (catch <<_:1/float>> = id(<<1:1>>)),
+    {'EXIT',{{badmatch,NaN},_}} = (catch <<_:32/float>> = id(NaN)),
 
     no_match = bad_all_size(<<>>),
     no_match = bad_all_size(<<1,2,3>>),
@@ -2376,6 +2383,41 @@ hangs_forever_1(V0) ->
     case hangs_forever_1(V0) of
         <<A:1>> -> A
     end.
+
+
+%% ERL-1340: the unit of previously saved match positions wasn't updated.
+bs_saved_position_units(Config) when is_list(Config) ->
+    [<<0,1,2,3,4>>, <<5,6,7,8,9>>] = bspu_1(id(<<0,1,2,3,4,5,6,7,8,9>>)),
+    [] = bspu_1(id(<<>>)),
+
+    ok.
+
+bspu_1(<<Bin/binary>> = Bin) ->
+    [Chunk || <<Chunk:5/binary>> <= Bin].
+
+
+empty_get_binary(Config) when is_list(Config) ->
+    {<<>>, <<1,2,3,4:4>>} = egb_1(<<1,2,3,4:4>>),
+    {<<>>, <<1,2,3>>} = egb_1(<<1,2,3>>),
+    {<<>>, <<>>} = egb_1(<<>>),
+
+    <<0,1,0,2,0,3>> = egb_2(id(<<1,2,3>>)),
+    <<>> = egb_2(id(<<>>)),
+
+    ok.
+
+egb_1(Bytes) ->
+    {Term, Bytes} = begin
+                        <<V2@V0:0/binary-unit:8,V2@Buf1/bitstring>> = Bytes,
+                        V2@Conv2 = binary:copy(V2@V0),
+                        {V2@Conv2, V2@Buf1}
+                    end,
+    {Term, Bytes}.
+
+egb_2(Bin) ->
+    <<
+      <<K,N>> || <<K:0,N>> <= Bin
+    >>.
 
 id(I) -> I.
 

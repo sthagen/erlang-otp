@@ -59,7 +59,8 @@
 	 dtls_processes = kv_new(),
 	 accepters  = queue:new(),
 	 first,
-         close
+         close,
+         session_id_tracker
 	}).
 
 %%%===================================================================
@@ -101,35 +102,19 @@ getstat(PacketSocket, Opts) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Port0, {TransportModule, _,_,_,_} = TransportInfo, EmOpts, InetOptions, DTLSOptions]) ->
-    try 
-	{ok, Socket} = TransportModule:open(Port0, InetOptions),
-        InternalActiveN =  case application:get_env(ssl, internal_active_n) of
-                               {ok, N} when is_integer(N) ->
-                                   N;
-                               _  ->
-                                   ?INTERNAL_ACTIVE_N
-                           end,
+init([Port0, TransportInfo, EmOpts, DTLSOptions, Socket]) ->
+    InternalActiveN = get_internal_active_n(),
+    {ok, SessionIdHandle} = session_id_tracker(DTLSOptions),
+    {ok, #state{active_n = InternalActiveN,
+                port = Port0,
+                first = true,
+                transport = TransportInfo,
+                dtls_options = DTLSOptions,
+                emulated_options = EmOpts,
+                listener = Socket,
+                close = false,
+                session_id_tracker = SessionIdHandle}}.
 
-        Port = case Port0 of
-                   0 ->
-                      {ok, P} = inet:port(Socket),
-                       P;
-                   _ ->
-                      Port0
-               end,
-        
-	{ok, #state{active_n = InternalActiveN,
-                    port = Port,
-		    first = true,
-                    transport = TransportInfo,
-		    dtls_options = DTLSOptions,
-		    emulated_options = EmOpts,
-		    listener = Socket,
-                    close = false}}
-    catch _:_ ->
-	    {stop, {shutdown, {error, closed}}}
-    end.
 handle_call({accept, _}, _, #state{close = true} = State) ->
     {reply, {error, closed}, State};
 
@@ -287,9 +272,10 @@ setup_new_connection(User, From, Client, Msg, #state{dtls_processes = Processes,
 						     dtls_options = DTLSOpts,
 						     port = Port,
 						     listener = Socket,
+                                                     session_id_tracker = Tracker,
 						     emulated_options = EmOpts} = State) ->
     ConnArgs = [server, "localhost", Port, {self(), {Client, Socket}},
-		{DTLSOpts, EmOpts, dtls_listener}, User, dtls_socket:default_cb_info()],
+		{DTLSOpts, EmOpts, [{session_id_tracker, Tracker}]}, User, dtls_socket:default_cb_info()],
     case dtls_connection_sup:start_child(ConnArgs) of
 	{ok, Pid} ->
 	    erlang:monitor(process, Pid),
@@ -365,4 +351,19 @@ emulated_opts_list( Opts, [mode | Rest], Acc) ->
     emulated_opts_list(Opts, Rest, [{mode, Opts#socket_options.mode} | Acc]); 
 emulated_opts_list(Opts, [active | Rest], Acc) ->
     emulated_opts_list(Opts, Rest, [{active, Opts#socket_options.active} | Acc]).
+
+%% Regardless of the option reuse_sessions we need the session_id_tracker
+%% to generate session ids, but no sessions will be stored unless
+%% reuse_sessions = true.
+session_id_tracker(_) ->
+    dtls_server_session_cache_sup:start_child(
+      ssl_server_session_cache_sup:session_opts()).
+
+get_internal_active_n() ->
+    case application:get_env(ssl, internal_active_n) of
+        {ok, N} when is_integer(N) ->
+            N;
+        _  ->
+            ?INTERNAL_ACTIVE_N
+    end.
 

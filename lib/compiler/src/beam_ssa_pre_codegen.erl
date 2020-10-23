@@ -921,6 +921,12 @@ sanitize_instr({bif,Bif}, [#b_literal{val=Lit1},#b_literal{val=Lit2}], _I) ->
         error:_ ->
             ok
     end;
+sanitize_instr(bs_match, Args, I) ->
+    %% Matching of floats are never changed to a bs_skip even when the
+    %% value is never used, because the match can always fail (for example,
+    %% if it is a NaN).
+    [#b_literal{val=float}|_] = Args,           %Assertion.
+    {ok,I#b_set{op=bs_get}};
 sanitize_instr(get_hd, [#b_literal{val=[Hd|_]}], _I) ->
     {value,Hd};
 sanitize_instr(get_tl, [#b_literal{val=[_|Tl]}], _I) ->
@@ -944,10 +950,12 @@ sanitize_instr(is_tagged_tuple, [#b_literal{val=Tuple},
         true ->
             {value,false}
     end;
-sanitize_instr(bs_add, [_,#b_literal{val=Sz},_|_], I0) ->
-    if
-        is_integer(Sz), Sz >= 0 -> ok;
-        true -> {ok,sanitize_badarg(I0)}
+sanitize_instr(bs_add, [Arg1,Arg2,_|_], I0) ->
+    case all(fun(#b_literal{val=Size}) -> is_integer(Size) andalso Size >= 0;
+                (#b_var{}) -> true
+             end, [Arg1,Arg2]) of
+        true -> ok;
+        false -> {ok,sanitize_badarg(I0)}
     end;
 sanitize_instr(bs_init, [#b_literal{val=new},#b_literal{val=Sz}|_], I0) ->
     if
@@ -1404,12 +1412,12 @@ need_frame(#b_blk{is=Is,last=#b_ret{arg=Ret}}) ->
 need_frame(#b_blk{is=Is}) ->
     need_frame_1(Is, body).
 
-need_frame_1([#b_set{op=make_fun,dst=Fun}|Is], {return,Ret}=Context) ->
+need_frame_1([#b_set{op=old_make_fun,dst=Fun}|Is], {return,Ret}=Context) ->
     case need_frame_1(Is, Context) of
         true ->
             true;
         false ->
-            %% Since make_fun clobbers X registers, a stack frame is
+            %% Since old_make_fun clobbers X registers, a stack frame is
             %% needed if any of the following instructions use any
             %% other variable than the one holding the reference to
             %% the created fun.
@@ -1749,7 +1757,7 @@ find_rm_act([]) ->
 %%%
 
 -record(dk, {d :: ordsets:ordset(var_name()),
-             k :: ordsets:ordset(var_name())
+             k :: cerl_sets:set(var_name())
             }).
 
 %% find_yregs(St0) -> St.
@@ -1772,10 +1780,10 @@ find_yregs(#st{frames=[_|_]=Frames,args=Args,ssa=Blocks0}=St) ->
     St#st{ssa=Blocks}.
 
 find_yregs_1([{F,Defs}|Fs], Blocks0) ->
-    DK = #dk{d=Defs,k=[]},
+    DK = #dk{d=Defs,k=cerl_sets:new()},
     D0 = #{F=>DK},
     Ls = beam_ssa:rpo([F], Blocks0),
-    Yregs0 = [],
+    Yregs0 = cerl_sets:new(),
     Yregs = find_yregs_2(Ls, Blocks0, D0, Yregs0),
     Blk0 = map_get(F, Blocks0),
     Blk = beam_ssa:add_anno(yregs, Yregs, Blk0),
@@ -1830,7 +1838,7 @@ find_update_succ([S|Ss], #dk{d=Defs0,k=Killed0}=DK0, D0) ->
     case D0 of
         #{S:=#dk{d=Defs1,k=Killed1}} ->
             Defs = ordsets:intersection(Defs0, Defs1),
-            Killed = ordsets:union(Killed0, Killed1),
+            Killed = cerl_sets:union(Killed0, Killed1),
             DK = #dk{d=Defs,k=Killed},
             D = D0#{S:=DK},
             find_update_succ(Ss, DK0, D);
@@ -1841,28 +1849,55 @@ find_update_succ([S|Ss], #dk{d=Defs0,k=Killed0}=DK0, D0) ->
 find_update_succ([], _, D) -> D.
 
 find_yregs_is([#b_set{dst=Dst}=I|Is], #dk{d=Defs0,k=Killed0}=Ys, Yregs0) ->
-    Used = beam_ssa:used(I),
-    Yregs1 = ordsets:intersection(Used, Killed0),
-    Yregs = ordsets:union(Yregs0, Yregs1),
+    Yregs1 = intersect_used(I, Killed0),
+    Yregs = cerl_sets:union(Yregs0, Yregs1),
     case beam_ssa:clobbers_xregs(I) of
         false ->
             Defs = ordsets:add_element(Dst, Defs0),
             find_yregs_is(Is, Ys#dk{d=Defs}, Yregs);
         true ->
-            Killed = ordsets:union(Defs0, Killed0),
+            Killed = cerl_sets:union(cerl_sets:from_list(Defs0), Killed0),
             Defs = [Dst],
             find_yregs_is(Is, Ys#dk{d=Defs,k=Killed}, Yregs)
     end;
 find_yregs_is([], Ys, Yregs) -> {Yregs,Ys}.
 
 find_yregs_terminator(Terminator, #dk{k=Killed}, Yregs0) ->
-    Used = beam_ssa:used(Terminator),
-    Yregs = ordsets:intersection(Used, Killed),
-    ordsets:union(Yregs0, Yregs).
+    Yregs = intersect_used(Terminator, Killed),
+    cerl_sets:union(Yregs0, Yregs).
+
+intersect_used(#b_br{bool=#b_var{}=V}, Set) ->
+    intersect_used_keep_singleton(V, Set);
+intersect_used(#b_ret{arg=#b_var{}=V}, Set) ->
+    intersect_used_keep_singleton(V, Set);
+intersect_used(#b_set{op=phi,args=Args}, Set) ->
+    cerl_sets:from_list([V || {#b_var{}=V,_} <- Args, cerl_sets:is_element(V, Set)]);
+intersect_used(#b_set{args=Args}, Set) ->
+    cerl_sets:from_list(intersect_used_keep(used_args(Args), Set));
+intersect_used(#b_switch{arg=#b_var{}=V}, Set) ->
+    intersect_used_keep_singleton(V, Set);
+intersect_used(_, _) -> cerl_sets:new().
+
+intersect_used_keep_singleton(V, Set) ->
+    case cerl_sets:is_element(V, Set) of
+        true -> cerl_sets:from_list([V]);
+        false -> cerl_sets:new()
+    end.
+
+intersect_used_keep(Vs, Set) ->
+    [V || V <- Vs, cerl_sets:is_element(V, Set)].
+
+used_args([#b_var{}=V|As]) ->
+    [V|used_args(As)];
+used_args([#b_remote{mod=Mod,name=Name}|As]) ->
+    used_args([Mod,Name|As]);
+used_args([_|As]) ->
+    used_args(As);
+used_args([]) -> [].
 
 %%%
 %%% Try to reduce the size of the stack frame, by adding an explicit
-%%% 'copy' instructions for return values from 'call' and 'make_fun' that
+%%% 'copy' instructions for return values from 'call' and 'old_make_fun' that
 %%% need to be saved in Y registers. Here is an example to show
 %%% how that's useful. First, here is the Erlang code:
 %%%
@@ -1942,8 +1977,7 @@ copy_retval(#st{frames=Frames,ssa=Blocks0,cnt=Count0}=St) ->
 
 copy_retval_1([F|Fs], Blocks0, Count0) ->
     #b_blk{anno=#{yregs:=Yregs0},is=Is} = map_get(F, Blocks0),
-    Yregs1 = gb_sets:from_list(Yregs0),
-    Yregs = collect_yregs(Is, Yregs1),
+    Yregs = collect_yregs(Is, Yregs0),
     Ls = beam_ssa:rpo([F], Blocks0),
     {Blocks,Count} = copy_retval_2(Ls, Yregs, none, Blocks0, Count0),
     copy_retval_1(Fs, Blocks, Count);
@@ -1952,8 +1986,8 @@ copy_retval_1([], Blocks, Count) ->
 
 collect_yregs([#b_set{op=copy,dst=Y,args=[#b_var{}=X]}|Is],
               Yregs0) ->
-    true = gb_sets:is_member(X, Yregs0),        %Assertion.
-    Yregs = gb_sets:insert(Y, gb_sets:delete(X, Yregs0)),
+    true = cerl_sets:is_element(X, Yregs0),        %Assertion.
+    Yregs = cerl_sets:add_element(Y, cerl_sets:del_element(X, Yregs0)),
     collect_yregs(Is, Yregs);
 collect_yregs([#b_set{}|Is], Yregs) ->
     collect_yregs(Is, Yregs);
@@ -1988,7 +2022,7 @@ copy_retval_is([#b_set{op=put_tuple_elements,args=Args0}=I0], false, _Yregs,
     I = I0#b_set{args=copy_sub_args(Args0, Copy)},
     {reverse(Acc, [I|acc_copy([], Copy)]),Count};
 copy_retval_is([#b_set{op=Op}=I0], false, Yregs, Copy, Count0, Acc0)
-  when Op =:= call; Op =:= make_fun ->
+  when Op =:= call; Op =:= old_make_fun ->
     {I,Count,Acc} = place_retval_copy(I0, Yregs, Copy, Count0, Acc0),
     {reverse(Acc, [I]),Count};
 copy_retval_is([#b_set{}]=Is, false, _Yregs, Copy, Count, Acc) ->
@@ -1996,9 +2030,9 @@ copy_retval_is([#b_set{}]=Is, false, _Yregs, Copy, Count, Acc) ->
 copy_retval_is([#b_set{},#b_set{op=succeeded}]=Is, false, _Yregs, Copy, Count, Acc) ->
     {reverse(Acc, acc_copy(Is, Copy)),Count};
 copy_retval_is([#b_set{op=Op,dst=#b_var{name=RetName}=Dst}=I0|Is], RC, Yregs,
-           Copy0, Count0, Acc0) when Op =:= call; Op =:= make_fun ->
+           Copy0, Count0, Acc0) when Op =:= call; Op =:= old_make_fun ->
     {I1,Count1,Acc} = place_retval_copy(I0, Yregs, Copy0, Count0, Acc0),
-    case gb_sets:is_member(Dst, Yregs) of
+    case cerl_sets:is_element(Dst, Yregs) of
         true ->
             {NewVar,Count} = new_var(RetName, Count1),
             Copy = #b_set{op=copy,dst=Dst,args=[NewVar]},
@@ -2056,7 +2090,7 @@ place_retval_copy(#b_set{args=[F|Args0]}=I, Yregs, Copy, Count0, Acc0) ->
     {I#b_set{args=[F|Args]},Count,Acc}.
 
 copy_func_args([#b_var{name=AName}=A|As], Yregs, Avoid, CopyAcc, Acc, Count0) ->
-    case gb_sets:is_member(A, Yregs) of
+    case cerl_sets:is_element(A, Yregs) of
         true when A =/= Avoid ->
             {NewVar,Count} = new_var(AName, Count0),
             Copy = #b_set{op=copy,dst=NewVar,args=[A]},
@@ -2303,7 +2337,7 @@ reserve_yregs(#st{frames=Frames}=St0) ->
 
 reserve_yregs_1(L, #st{ssa=Blocks0,cnt=Count0,res=Res0}=St) ->
     Blk = map_get(L, Blocks0),
-    Yregs = beam_ssa:get_anno(yregs, Blk),
+    Yregs = ordsets:from_list(cerl_sets:to_list(beam_ssa:get_anno(yregs, Blk))),
     {Def,Unused} = beam_ssa:def_unused([L], Yregs, Blocks0),
     UsedYregs = ordsets:subtract(Yregs, Unused),
     DefBefore = ordsets:subtract(UsedYregs, Def),
@@ -2580,7 +2614,7 @@ reserve_freg([], Res) -> Res.
 %%  Reserve all remaining variables as X registers.
 %%
 %%  If a variable will need to be in a specific X register for a
-%%  'call' or 'make_fun' (and there is nothing that will kill it
+%%  'call' or 'old_make_fun' (and there is nothing that will kill it
 %%  between the definition and use), reserve the register using a
 %%  {prefer,{x,X} annotation. That annotation means that the linear
 %%  scan algorithm will place the variable in the preferred register,
@@ -2623,7 +2657,7 @@ reserve_xregs([], _, _, Res) -> Res.
 res_place_gc_instrs([#b_set{op=phi}=I|Is], Acc) ->
     res_place_gc_instrs(Is, [I|Acc]);
 res_place_gc_instrs([#b_set{op=Op}=I|Is], Acc)
-  when Op =:= call; Op =:= make_fun ->
+  when Op =:= call; Op =:= old_make_fun ->
     case Acc of
         [] ->
             res_place_gc_instrs(Is, [I|Acc]);
@@ -2642,19 +2676,26 @@ res_place_gc_instrs([#b_set{op=Op,args=Args}=I|Is], Acc0) ->
                     res_place_gc_instrs(Is, [I|Acc])
             end;
         {put,_} ->
-            case Acc0 of
-                [test_heap|Acc] ->
-                    res_place_gc_instrs(Is, [test_heap,I|Acc]);
-                Acc ->
-                    res_place_gc_instrs(Is, [test_heap,I|Acc])
-            end;
-        _ ->
+            res_place_gc_instrs(Is, res_place_test_heap(I, Acc0));
+        {put_fun,_} ->
+            res_place_gc_instrs(Is, res_place_test_heap(I, Acc0));
+        put_float ->
+            res_place_gc_instrs(Is, res_place_test_heap(I, Acc0));
+        gc ->
             res_place_gc_instrs(Is, [gc,I|Acc0])
     end;
 res_place_gc_instrs([], Acc) ->
     %% Reverse and replace 'test_heap' markers with 'gc'.
     %% (The distinction is no longer useful.)
     res_place_gc_instrs_rev(Acc, []).
+
+res_place_test_heap(I, Acc) ->
+    case Acc of
+        [test_heap|Acc] ->
+            [test_heap,I|Acc];
+        _ ->
+            [test_heap,I|Acc]
+    end.
 
 res_place_gc_instrs_rev([test_heap|Is], [gc|_]=Acc) ->
     res_place_gc_instrs_rev(Is, Acc);
@@ -2685,7 +2726,7 @@ reserve_xregs_is([#b_set{op=Op,dst=Dst,args=Args}=I|Is], Res0, Xs0, Used0) ->
         call ->
             Xs = reserve_call_args(tl(Args)),
             reserve_xregs_is(Is, Res, Xs, Used);
-        make_fun ->
+        old_make_fun ->
             Xs = reserve_call_args(tl(Args)),
             reserve_xregs_is(Is, Res, Xs, Used);
         _ ->

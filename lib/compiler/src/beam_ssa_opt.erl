@@ -373,9 +373,10 @@ fdb_is([#b_set{op=call,
                                name=#b_literal{val=load_nif}},
                      _Path, _LoadInfo]} | _Is], _Caller, _FuncDb) ->
     throw(load_nif);
-fdb_is([#b_set{op=make_fun,
+fdb_is([#b_set{op=MakeFun,
                args=[#b_local{}=Callee | _]} | Is],
-       Caller, FuncDb) ->
+       Caller, FuncDb) when MakeFun =:= make_fun;
+                            MakeFun =:= old_make_fun ->
     %% The make_fun instruction's type depends on the return type of the
     %% function in question, so we treat this as a function call.
     fdb_is(Is, Caller, fdb_update(Caller, Callee, FuncDb));
@@ -469,6 +470,7 @@ ssa_opt_split_blocks({#opt_st{ssa=Blocks0,cnt=Count0}=St, FuncDb}) ->
     P = fun(#b_set{op={bif,element}}) -> true;
            (#b_set{op=call}) -> true;
            (#b_set{op=make_fun}) -> true;
+           (#b_set{op=old_make_fun}) -> true;
            (_) -> false
         end,
     {Blocks,Count} = beam_ssa:split_blocks(P, Blocks0, Count0),
@@ -1530,7 +1532,9 @@ bsm_skip_is([I0|Is], Extracted) ->
         #b_set{op=bs_match,
                dst=Ctx,
                args=[#b_literal{val=T}=Type,PrevCtx|Args0]}
-          when T =/= string, T =/= skip ->
+          when T =/= float, T =/= string, T =/= skip ->
+            %% Note that it is never safe to skip matching
+            %% of floats, even if the size is known to be correct.
             I = case cerl_sets:is_element(Ctx, Extracted) of
                     true ->
                         I0;
@@ -2267,7 +2271,8 @@ do_ssa_opt_sink(Defs, #opt_st{ssa=Linear}=St) ->
 
     %% Calculate dominators.
     Blocks0 = maps:from_list(Linear),
-    {Dom,Numbering} = beam_ssa:dominators(Blocks0),
+    Preds = beam_ssa:predecessors(Blocks0),
+    {Dom, Numbering} = beam_ssa:dominators(Blocks0, Preds),
 
     %% It is not safe to move get_tuple_element instructions to blocks
     %% that begin with certain instructions. It is also unsafe to move
@@ -2283,7 +2288,7 @@ do_ssa_opt_sink(Defs, #opt_st{ssa=Linear}=St) ->
     %% important precaution to avoid that lists:mapfoldl/3 keeps all previous
     %% versions of the accumulator alive until the end of the input list.
     Ps = partition_deflocs(DefLocs0, Defs, Blocks0),
-    DefLocs1 = filter_deflocs(Ps, Blocks0),
+    DefLocs1 = filter_deflocs(Ps, Preds, Blocks0),
     DefLocs = sort(DefLocs1),
 
     %% Now move all suitable get_tuple_element instructions to their
@@ -2345,13 +2350,13 @@ partition_dl_1([], _, Acc) ->
 partition_dl_1([_|_]=DLs, [], Acc) ->
     {reverse(Acc),DLs}.
 
-filter_deflocs([{Tuple,DefLoc0}|DLs], Blocks) ->
+filter_deflocs([{Tuple,DefLoc0}|DLs], Preds, Blocks) ->
     %% Input is a list of sinks of get_tuple_element instructions in
     %% execution order from the same tuple in the same clause.
     [{_,{_,First}}|_] = DefLoc0,
     Paths = find_paths_to_check(DefLoc0, First),
     WillGC0 = ordsets:from_list([FromTo || {{_,_}=FromTo,_} <- Paths]),
-    WillGC1 = [{{From,To},will_gc(From, To, Blocks, true)} ||
+    WillGC1 = [{{From,To},will_gc(From, To, Preds, Blocks, true)} ||
                   {From,To} <- WillGC0],
     WillGC = maps:from_list(WillGC1),
 
@@ -2363,17 +2368,17 @@ filter_deflocs([{Tuple,DefLoc0}|DLs], Blocks) ->
                   end, Paths),
 
     %% Avoid potentially harmful sinks.
-    DefLocGC = filter_gc_deflocs(DefLocGC0, Tuple, First, Blocks),
+    DefLocGC = filter_gc_deflocs(DefLocGC0, Tuple, First, Preds, Blocks),
 
     %% Construct the complete list of sink operations.
     DefLoc1 = DefLocGC ++ DefLocNoGC,
     [DL || {_,{_,{From,To}}=DL} <- DefLoc1, From =/= To] ++
-        filter_deflocs(DLs, Blocks);
-filter_deflocs([], _) -> [].
+        filter_deflocs(DLs, Preds, Blocks);
+filter_deflocs([], _, _) -> [].
 
 %% Use an heuristic to avoid harmful sinking in lists:mapfold/3 and
 %% similar functions.
-filter_gc_deflocs(DefLocGC, Tuple, First, Blocks) ->
+filter_gc_deflocs(DefLocGC, Tuple, First, Preds, Blocks) ->
     case DefLocGC of
         [] ->
             [];
@@ -2389,7 +2394,7 @@ filter_gc_deflocs(DefLocGC, Tuple, First, Blocks) ->
                     %% probably a win to sink this instruction.
                     DefLocGC;
                 false ->
-                    case will_gc(From, To, Blocks, false) of
+                    case will_gc(From, To, Preds, Blocks, false) of
                         false ->
                             %% There is no risk for recursive calls,
                             %% so it should be safe to
@@ -2419,16 +2424,17 @@ find_paths_to_check([{_,{_,To}}=Move|T], First) ->
     [{{First,To},Move}|find_paths_to_check(T, First)];
 find_paths_to_check([], _First) -> [].
 
-will_gc(From, To, Blocks, All) ->
-    will_gc(beam_ssa:rpo([From], Blocks), To, Blocks, All, #{From => false}).
+will_gc(From, To, Preds, Blocks, All) ->
+    Between = beam_ssa:between(From, To, Preds, Blocks),
+    will_gc_1(Between, To, Blocks, All, #{From => false}).
 
-will_gc([To|_], To, _Blocks, _All, WillGC) ->
+will_gc_1([To|_], To, _Blocks, _All, WillGC) ->
     map_get(To, WillGC);
-will_gc([L|Ls], To, Blocks, All, WillGC0) ->
+will_gc_1([L|Ls], To, Blocks, All, WillGC0) ->
     #b_blk{is=Is} = Blk = map_get(L, Blocks),
     GC = map_get(L, WillGC0) orelse will_gc_is(Is, All),
     WillGC = gc_update_successors(Blk, GC, WillGC0),
-    will_gc(Ls, To, Blocks, All, WillGC).
+    will_gc_1(Ls, To, Blocks, All, WillGC).
 
 will_gc_is([#b_set{op=call,args=Args}|Is], false) ->
     case Args of
@@ -2837,11 +2843,11 @@ unfold_lit_is([#b_set{op=call,
     end;
 unfold_lit_is([#b_set{op=Op,args=Args0}=I0|Is], LitMap, Count, Acc) ->
     %% Using a register instead of a literal is a clear win only for
-    %% `call` and `make_fun` instructions. Substituting into other
+    %% `call` and `old_make_fun` instructions. Substituting into other
     %% instructions is unlikely to be an improvement.
     Unfold = case Op of
                  call -> true;
-                 make_fun -> true;
+                 old_make_fun -> true;
                  _ -> false
              end,
     I = case Unfold of

@@ -265,11 +265,13 @@ expand_opt(r19, Os) ->
 expand_opt(r20, Os) ->
     expand_opt_before_21(Os);
 expand_opt(r21, Os) ->
-    [no_shared_fun_wrappers,
-     no_swap, no_put_tuple2 | expand_opt(no_bsm3, Os)];
+    expand_opt(r22, [no_put_tuple2 | expand_opt(no_bsm3, Os)]);
 expand_opt(r22, Os) ->
-    [no_shared_fun_wrappers,
-     no_swap | expand_opt(no_bsm4, Os)];
+    expand_opt(r23, [no_shared_fun_wrappers, no_swap | expand_opt(no_bsm4, Os)]);
+expand_opt(r23, Os) ->
+    expand_opt(no_make_fun3, [no_init_yregs | Os]);
+expand_opt(no_make_fun3, Os) ->
+    [no_make_fun3, no_fun_opt | Os];
 expand_opt({debug_info_key,_}=O, Os) ->
     [encrypt_debug_info,O|Os];
 expand_opt(no_type_opt=O, Os) ->
@@ -282,7 +284,8 @@ expand_opt(no_type_opt=O, Os) ->
 expand_opt(O, Os) -> [O|Os].
 
 expand_opt_before_21(Os) ->
-    [no_shared_fun_wrappers, no_swap,
+    [no_init_yregs, no_make_fun3, no_fun_opt,
+     no_shared_fun_wrappers, no_swap,
      no_put_tuple2, no_get_hd_tl, no_ssa_opt_record,
      no_utf8_atoms | expand_opt(no_bsm3, Os)].
 
@@ -873,6 +876,10 @@ kernel_passes() ->
        {unless,no_ssa_opt,{pass,beam_ssa_opt}},
        {iff,dssaopt,{listing,"ssaopt"}},
        {unless,no_ssa_opt,{iff,ssalint,{pass,beam_ssa_lint}}},
+
+       {unless,no_throw_opt,{pass,beam_ssa_throw}},
+       {iff,dthrow,{listing,"throw"}},
+       {unless,no_throw_opt,{iff,ssalint,{pass,beam_ssa_lint}}},
 
        {unless,no_recv_opt,{pass,beam_ssa_recv}},
        {iff,drecv,{listing,"recv"}},
@@ -1695,10 +1702,12 @@ native_compile_1(Code, St) ->
 	       {hipe,X} -> [X];
 	       _ -> []
 	   end,
-    try hipe:compile(St#compile.module,
-		     St#compile.core_code,
-		     Code,
-		     Opts) of
+    try
+        dialyzer_whining_inhibitor(hipe, compile,
+                                   [St#compile.module,
+                                    St#compile.core_code,
+                                    Code,
+                                    Opts]) of
 	{ok,{_Type,Bin}=T} when is_binary(Bin) ->
 	    {ok,embed_native_code(Code, T),St};
 	{error,R} ->
@@ -1725,6 +1734,15 @@ native_compile_1(Code, St) ->
 		    erlang:raise(Class, R, Stack)
 	    end
     end.
+
+%% We have an optional runtime dependency on HiPE, but there's no way to
+%% suppress warnings for calls to unknown functions when -Wunknown is on, so
+%% we'll run all HiPE calls through here to suppress warnings when HiPE hasn't
+%% been compiled. :(
+dialyzer_whining_inhibitor(M, F, A) ->
+  apply(id(M), id(F), id(A)).
+
+id(I) -> I.
 
 embed_native_code(Code, {Architecture,NativeCode}) ->
     {ok, _, Chunks0} = beam_lib:all_chunks(Code),
@@ -2162,6 +2180,7 @@ pre_load() ->
 	 beam_ssa_pre_codegen,
 	 beam_ssa_recv,
 	 beam_ssa_share,
+	 beam_ssa_throw,
 	 beam_ssa_type,
 	 beam_trim,
 	 beam_types,

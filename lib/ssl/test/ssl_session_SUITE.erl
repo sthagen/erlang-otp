@@ -45,6 +45,8 @@
          reuse_session_expired/1,
          server_does_not_want_to_reuse_session/0,
          server_does_not_want_to_reuse_session/1,
+         explicit_session_reuse/0,
+         explicit_session_reuse/1,
          no_reuses_session_server_restart_new_cert/0,
          no_reuses_session_server_restart_new_cert/1,
          no_reuses_session_server_restart_new_cert_file/0,
@@ -81,6 +83,7 @@ session_tests() ->
     [reuse_session,
      reuse_session_expired,
      server_does_not_want_to_reuse_session,
+     explicit_session_reuse,
      no_reuses_session_server_restart_new_cert,
      no_reuses_session_server_restart_new_cert_file].
 
@@ -268,6 +271,46 @@ server_does_not_want_to_reuse_session(Config) when is_list(Config) ->
     ssl_test_lib:close(Server),
     ssl_test_lib:close(Client1).
 
+%%--------------------------------------------------------------------
+explicit_session_reuse() ->
+    [{doc,"Test {reuse_session, {ID, Data}}} option for explicit reuse of sessions not"
+     " saved in the clients automated session reuse"}].
+explicit_session_reuse(Config) when is_list(Config) ->
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_verify_opts, Config),
+    ServerOpts = ssl_test_lib:ssl_options(server_rsa_verify_opts, Config),
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+
+    Server =
+	ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+                                   {from, self()},
+                                   {mfa, {ssl_test_lib, no_result, []}},
+                                   {options, ServerOpts}]),
+    Port = ssl_test_lib:inet_port(Server),
+    {Client0, Client0Sock} =
+	ssl_test_lib:start_client([{node, ClientNode},
+                                   {port, Port}, {host, Hostname},
+                                   {mfa, {ssl_test_lib, no_result, []}},
+                                   {from, self()}, {options, [{reuse_sessions, false} | ClientOpts]},
+                                   return_socket
+                                  ]),
+
+    {ok, [{session_id, ID}, {session_data, SessData}]} = ssl:connection_information(Client0Sock, [session_id, session_data]),
+
+    ssl_test_lib:close(Client0),
+
+    Server ! listen,
+
+    {_, Client1Sock} =
+	ssl_test_lib:start_client([{node, ClientNode},
+                                   {port, Port}, {host, Hostname},
+                                   {mfa, {ssl_test_lib, no_result, []}},
+                                   {from, self()}, {options, [{reuse_session, {ID, SessData}} | ClientOpts]},
+                                   return_socket]),
+
+    {ok, [{session_id, ID}]} = ssl:connection_information(Client1Sock, [session_id]).
+
+
+%%--------------------------------------------------------------------
 no_reuses_session_server_restart_new_cert() ->
     [{doc,"Check that a session is not reused if the server is restarted with a new cert."}].
 no_reuses_session_server_restart_new_cert(Config) when is_list(Config) ->
@@ -385,37 +428,44 @@ session_table_stable_size_on_tcp_close(Config) when is_list(Config)->
     ServerOpts = ssl_test_lib:ssl_options(server_rsa_verify_opts, Config),
     {_, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
 
-    {status, _, _, StatusInfo} = sys:get_status(whereis(ssl_manager)),
-    [_, _,_, _, Prop] = StatusInfo,
-    State = ssl_test_lib:state(Prop),
-    ServerCache = element(3, State),
-
-    N = ets:info(ServerCache, size),
-
-    Server = ssl_test_lib:start_server_error([{node, ServerNode}, {port, 0},
-                                              {from, self()},
-                                              {options,  [{reuseaddr, true} | ServerOpts]}]),
+    Server = ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+                                        {from, self()},
+                                        {mfa, {ssl_test_lib, no_result, []}},
+                                        {options,  [{reuseaddr, true} | ServerOpts]}]),
     Port = ssl_test_lib:inet_port(Server),
+
+    Sup = whereis(ssl_server_session_cache_sup),
+
+    %% Will only be one process, that is one server, in our test senario
+    [{_, SessionCachePid, worker,[ssl_server_session_cache]}] = supervisor:which_children(Sup),
+
+
+    {SessionCacheCb, SessionCacheDb} = session_cachce_info(SessionCachePid),
+
+    N = SessionCacheCb:size(SessionCacheDb),
+
     faulty_client(Hostname, Port),
-    check_table_did_not_grow(ServerCache, N).
+    check_table_did_not_grow(SessionCachePid, N).
 
 
 %%--------------------------------------------------------------------
 %% Internal functions ------------------------------------------------
 %%--------------------------------------------------------------------
-check_table_did_not_grow(ServerCache, N) ->
-    ct:sleep(500),
-    check_table_did_not_grow(ServerCache, N, 10).
+session_cachce_info(SessionCache) ->
+    State = sys:get_state(SessionCache),
+    ServerCacheDb = element(4, State),
+    ServerCacheCb = element(2, State),
+    {ServerCacheCb, ServerCacheDb}.
 
-check_table_did_not_grow(_, _, 0) ->
-    ct:fail(table_grew);
-check_table_did_not_grow(ServerCache, N, Tries) ->
-    case ets:info(ServerCache, size) of
+
+check_table_did_not_grow(SessionCachePid, N) ->
+    {SessionCacheCb, SessionCacheDb} = session_cachce_info(SessionCachePid),
+    ct:pal("Run ~p ~p", [SessionCacheCb, SessionCacheDb]),
+    case catch SessionCacheCb:size(SessionCacheDb) of
         N ->
             ok;
-        _ ->
-            ct:sleep(500),
-            check_table_did_not_grow(ServerCache, N, Tries -1)
+        Size ->
+            ct:fail({table_grew, [{expected, N}, {got, Size}]})
     end.
 
 faulty_client(Host, Port) ->
@@ -426,18 +476,6 @@ faulty_client(Host, Port) ->
     gen_tcp:send(Sock, CHBin),
     ct:sleep(100),
     gen_tcp:close(Sock).
-
-
-server(LOpts, Port) ->
-    {ok, LSock} = ssl:listen(Port, LOpts),
-    Pid = spawn_link(?MODULE, accept_loop, [LSock]),
-    ssl:controlling_process(LSock, Pid),
-    Pid.
-
-accept_loop(Sock) ->
-    {ok, CSock} = ssl:transport_accept(Sock),
-    _ = ssl:handshake(CSock),
-    accept_loop(Sock).
 
 
 encode_client_hello(CH, Random) ->

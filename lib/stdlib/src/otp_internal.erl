@@ -29,6 +29,12 @@ obsolete(auth, cookie, 1) ->
     {deprecated, "use erlang:set_cookie/2 instead"};
 obsolete(auth, is_auth, 1) ->
     {deprecated, "use net_adm:ping/1 instead"};
+obsolete(disk_log, accessible_logs, 0) ->
+    {deprecated, "use disk_log:all/0 instead"};
+obsolete(disk_log, lclose, 1) ->
+    {deprecated, "use disk_log:close/1 instead"};
+obsolete(disk_log, lclose, 2) ->
+    {deprecated, "use disk_log:close/1 instead"};
 obsolete(calendar, local_time_to_universal_time, 1) ->
     {deprecated, "use calendar:local_time_to_universal_time_dst/1 instead"};
 obsolete(code, rehash, 0) ->
@@ -60,7 +66,7 @@ obsolete(crypto, hmac_update, 2) ->
 obsolete(crypto, poly1305, 2) ->
     {deprecated, "use crypto:mac/3 instead", "OTP 24"};
 obsolete(crypto, rand_uniform, 2) ->
-    {deprecated, "use rand:rand_uniform/1 instead"};
+    {deprecated, "use rand:uniform/1 instead"};
 obsolete(crypto, stream_decrypt, 2) ->
     {deprecated, "use crypto:crypto_update/2 instead", "OTP 24"};
 obsolete(crypto, stream_encrypt, 2) ->
@@ -86,7 +92,7 @@ obsolete(httpd_util, flatlength, 1) ->
 obsolete(httpd_util, hexlist_to_integer, 1) ->
     {deprecated, "use erlang:list_to_integer/2 with base 16 instead", "OTP 26"};
 obsolete(httpd_util, integer_to_hexlist, 1) ->
-    {deprecated, "use erlang:integer_to_hexlist/2 with base 16 instead", "OTP 26"};
+    {deprecated, "use erlang:integer_to_list/2 with base 16 instead", "OTP 26"};
 obsolete(httpd_util, strip, 1) ->
     {deprecated, "use string:trim/1 instead", "OTP 26"};
 obsolete(httpd_util, suffix, 1) ->

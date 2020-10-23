@@ -25,7 +25,7 @@
          stacktrace/1, nested_stacktrace/1, raise/1, gunilla/1, per/1,
          change_exception_class/1,
          exception_with_heap_frag/1, backtrace_depth/1,
-         line_numbers/1]).
+         no_line_numbers/1, line_numbers/1]).
 
 -export([bad_guy/2]).
 -export([crash/1]).
@@ -50,7 +50,8 @@ all() ->
     [badmatch, pending_errors, nil_arith, top_of_stacktrace,
      stacktrace, nested_stacktrace, raise, gunilla, per,
      change_exception_class,
-     exception_with_heap_frag, backtrace_depth, line_numbers].
+     exception_with_heap_frag, backtrace_depth,
+     no_line_numbers, line_numbers].
 
 -define(try_match(E),
         catch ?MODULE:bar(),
@@ -273,11 +274,23 @@ top_of_stacktrace(Conf) when is_list(Conf) ->
     {'EXIT', {badarith, [{erlang, 'bxor', [1, ok], _} | _]}} = (catch my_bxor(1, ok)),
     {'EXIT', {badarith, [{erlang, 'bnot', [ok], _} | _]}} = (catch my_bnot(ok)),
 
-    %% Tuples
+    %% element/2
     {'EXIT', {badarg, [{erlang, element, [1, ok], _} | _]}} = (catch my_element(1, ok)),
     {'EXIT', {badarg, [{erlang, element, [ok, {}], _} | _]}} = (catch my_element(ok, {})),
     {'EXIT', {badarg, [{erlang, element, [1, {}], _} | _]}} = (catch my_element(1, {})),
+    {'EXIT', {badarg, [{erlang, element, [0, {a}], _} | _]}} = (catch my_element(0, {a})),
+    {'EXIT', {badarg, [{erlang, element, [-1, {z}], _} | _]}} = (catch my_element(-1, {z})),
     {'EXIT', {badarg, [{erlang, element, [1, {}], _} | _]}} = (catch element(1, erlang:make_tuple(0, ok))),
+
+    %% tuple_size/1
+    {'EXIT', {badarg, [{erlang, tuple_size, [ok], _} | _]}} = (catch my_tuple_size(ok)),
+    {'EXIT', {badarg, [{erlang, tuple_size, [[a,b,c]], _} | _]}} = (catch my_tuple_size([a,b,c])),
+
+    %% Lists
+    {'EXIT', {badarg, [{erlang, hd, [[]], _} | _]}} = (catch my_hd([])),
+    {'EXIT', {badarg, [{erlang, hd, [42], _} | _]}} = (catch my_hd(42)),
+    {'EXIT', {badarg, [{erlang, tl, [[]], _} | _]}} = (catch my_tl([])),
+    {'EXIT', {badarg, [{erlang, tl, [a], _} | _]}} = (catch my_tl(a)),
 
     %% System limits
     Maxbig = maxbig(),
@@ -456,7 +469,12 @@ my_bnot(A) -> bnot A.
 
 my_element(A, B) -> element(A, B).
 
+my_tuple_size(A) -> tuple_size(A).
+
 my_abs(X) -> abs(X).
+
+my_hd(L) -> hd(L).
+my_tl(L) -> tl(L).
 
 gunilla(Config) when is_list(Config) ->
     {throw,kalle} = gunilla_1(),
@@ -640,6 +658,21 @@ do_backtrace_depth_2(D, Exc) ->
             end
     end.
 
+no_line_numbers(Config) ->
+    DataDir = proplists:get_value(data_dir, Config),
+    Src = filename:join(DataDir, atom_to_list(?FUNCTION_NAME) ++ ".erl"),
+    {ok,Mod,Code} = compile:file(Src, [no_line_info,binary,report]),
+    {module,Mod} = code:load_binary(Mod, "", Code),
+
+    %% Make sure that the correct function is returned in the stacktrace
+    %% even if the compiled code has no `line` instructions.
+    {'EXIT',{badarith,[{erlang,'*',_,_},{Mod,a,_,_}|_]}} = (catch Mod:a(aa)),
+    {'EXIT',{badarith,[{erlang,'*',_,_},{Mod,b,_,_}|_]}} = (catch Mod:b(bb)),
+    {'EXIT',{badarith,[{erlang,'*',_,_},{Mod,c,_,_}|_]}} = (catch Mod:c(cc)),
+    {'EXIT',{badarith,[{erlang,'*',_,_},{Mod,d,_,_}|_]}} = (catch Mod:d(dd)),
+    {'EXIT',{badarith,[{erlang,'*',_,_},{Mod,e,_,_}|_]}} = (catch Mod:e(ee)),
+    ok.
+
 line_numbers(Config) when is_list(Config) ->
     {'EXIT',{{case_clause,bad_tag},
              [{?MODULE,line1,2,
@@ -749,6 +782,15 @@ line_numbers(Config) when is_list(Config) ->
     {'EXIT',{{badkey,a},
              [{?MODULE,update_map,1,[{file,"map.erl"},{line,4}]}|_]}} =
         (catch update_map(#{})),
+
+    {'EXIT',{badarg,
+             [{erlang,hd,[x],[]},
+              {?MODULE,test_hd,1,[{file,"list_bifs.erl"},{line,101}]}|_]}} =
+        (catch test_hd(x)),
+    {'EXIT',{badarg,
+             [{erlang,tl,[y],[]},
+              {?MODULE,test_tl,1,[{file,"list_bifs.erl"},{line,102}]}|_]}} =
+        (catch test_tl(y)),
 
     ok.
 
@@ -867,3 +909,8 @@ increment2(Arg) ->                              %Line 46
 update_map(M0) ->                               %Line 2
     M = M0#{new => value},                      %Line 3
     M#{a := b}.                                 %Line 4
+
+-file("list_bifs.erl", 100).
+test_hd(X) -> foo(), hd(X).                     %Line 101
+test_tl(X) -> foo(), tl(X).                     %Line 102
+foo() -> id(100).

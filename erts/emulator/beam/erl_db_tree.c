@@ -481,7 +481,7 @@ static int db_put_dbterm_tree(DbTable* tbl, /* [in out] */
 ** Static variables
 */
 
-Export ets_select_reverse_exp;
+Export *ets_select_reverse_exp;
 
 /*
 ** External interface 
@@ -1142,7 +1142,7 @@ static BIF_RETTYPE ets_select_reverse(BIF_ALIST_3)
 	if (--max_iter == 0) {
 	    BUMP_ALL_REDS(p);
 	    HRelease(p, hend, hp);
-	    BIF_TRAP3(&ets_select_reverse_exp, p, list, result, a3);
+	    BIF_TRAP3(ets_select_reverse_exp, p, list, result, a3);
 	}
 	if (hp == hend) {
 	    hp = HAlloc(p, 64);
@@ -1267,7 +1267,7 @@ int db_select_continue_tree_common(Process *p,
 		if (!sc.got) {
 		    RET_TO_BIF(am_EOT, DB_ERROR_NONE);
 		} else {
-		    RET_TO_BIF(bif_trap3(&ets_select_reverse_exp, p,
+		    RET_TO_BIF(bif_trap3(ets_select_reverse_exp, p,
 					 sc.accum, NIL, am_EOT), 
 			       DB_ERROR_NONE);
 		}
@@ -1287,7 +1287,7 @@ int db_select_continue_tree_common(Process *p,
 		 NIL,
 		 tptr[7],
 		 make_small(0));
-	    RET_TO_BIF(bif_trap3(&ets_select_reverse_exp, p,
+	    RET_TO_BIF(bif_trap3(ets_select_reverse_exp, p,
 				 sc.accum, NIL, continuation), 
 		       DB_ERROR_NONE);
 	} else {
@@ -1303,7 +1303,7 @@ int db_select_continue_tree_common(Process *p,
 	    if (!sc.got) {
 		RET_TO_BIF(am_EOT, DB_ERROR_NONE);
 	    } else {
-		RET_TO_BIF(bif_trap3(&ets_select_reverse_exp, p, 
+		RET_TO_BIF(bif_trap3(ets_select_reverse_exp, p,
 				     sc.accum, NIL, am_EOT), 
 			   DB_ERROR_NONE);
 	    }
@@ -1330,7 +1330,7 @@ int db_select_continue_tree_common(Process *p,
 	 sc.accum,
 	 tptr[7],
 	 make_small(sc.got));
-    RET_TO_BIF(bif_trap1(&bif_trap_export[BIF_ets_select_1], p, continuation), 
+    RET_TO_BIF(bif_trap1(BIF_TRAP_EXPORT(BIF_ets_select_1), p, continuation),
 	       DB_ERROR_NONE);
 
 #undef RET_TO_BIF
@@ -1475,7 +1475,7 @@ int db_select_tree_common(Process *p, DbTable *tb,
 	 make_small(sc.got));
 
     /* Don't free mpi.mp, so don't use macro */
-    *ret = bif_trap1(&bif_trap_export[BIF_ets_select_1], p, continuation); 
+    *ret = bif_trap1(BIF_TRAP_EXPORT(BIF_ets_select_1), p, continuation);
     return DB_ERROR_NONE;
 
 #undef RET_TO_BIF
@@ -1583,7 +1583,7 @@ int db_select_count_continue_tree_common(Process *p,
 	 tptr[3], 
 	 tptr[4],
 	 egot);
-    RET_TO_BIF(bif_trap1(&ets_select_count_continue_exp, p, continuation), 
+    RET_TO_BIF(bif_trap1(ets_select_count_continue_exp, p, continuation),
 	       DB_ERROR_NONE);
 
 #undef RET_TO_BIF
@@ -1707,7 +1707,7 @@ int db_select_count_tree_common(Process *p, DbTable *tb,
 	 egot);
 
     /* Don't free mpi.mp, so don't use macro */
-    *ret = bif_trap1(&ets_select_count_continue_exp, p, continuation); 
+    *ret = bif_trap1(ets_select_count_continue_exp, p, continuation);
     return DB_ERROR_NONE;
 
 #undef RET_TO_BIF
@@ -1837,7 +1837,7 @@ int db_select_chunk_tree_common(Process *p, DbTable *tb,
 	    if (!sc.got) {
 		RET_TO_BIF(am_EOT, DB_ERROR_NONE);
 	    } else {
-		RET_TO_BIF(bif_trap3(&ets_select_reverse_exp, p,
+		RET_TO_BIF(bif_trap3(ets_select_reverse_exp, p,
 				     sc.accum, NIL, am_EOT), 
 			   DB_ERROR_NONE);
 	    }
@@ -1861,7 +1861,7 @@ int db_select_chunk_tree_common(Process *p, DbTable *tb,
 	     make_small(reverse),
 	     make_small(0));
 	/* Don't let RET_TO_BIF macro free mpi.mp*/
-	*ret = bif_trap3(&ets_select_reverse_exp, p,
+	*ret = bif_trap3(ets_select_reverse_exp, p,
 			 sc.accum, NIL, continuation);
 	return DB_ERROR_NONE; 
     }
@@ -1883,7 +1883,7 @@ int db_select_chunk_tree_common(Process *p, DbTable *tb,
 	 make_small(reverse),
 	 make_small(sc.got));
     /* Don't let RET_TO_BIF macro free mpi.mp*/
-    *ret = bif_trap1(&bif_trap_export[BIF_ets_select_1], p, continuation);
+    *ret = bif_trap1(BIF_TRAP_EXPORT(BIF_ets_select_1), p, continuation);
     return DB_ERROR_NONE;
 
 #undef RET_TO_BIF
@@ -1993,7 +1993,7 @@ int db_select_delete_continue_tree_common(Process *p,
 	 tptr[3], 
 	 tptr[4],
 	 eaccsum);
-    RET_TO_BIF(bif_trap1(&ets_select_delete_continue_exp, p, continuation), 
+    RET_TO_BIF(bif_trap1(ets_select_delete_continue_exp, p, continuation),
 	       DB_ERROR_NONE);
 
 #undef RET_TO_BIF
@@ -2124,7 +2124,7 @@ int db_select_delete_tree_common(Process *p, DbTable *tbl,
     if (sc.erase_lastterm) {
 	free_term(tbl, sc.lastterm);
     }
-    *ret = bif_trap1(&ets_select_delete_continue_exp, p, continuation); 
+    *ret = bif_trap1(ets_select_delete_continue_exp, p, continuation);
     return DB_ERROR_NONE;
 
 #undef RET_TO_BIF
@@ -2234,7 +2234,7 @@ int db_select_replace_continue_tree_common(Process *p,
          tptr[3],
          tptr[4],
          ereplaced);
-    RET_TO_BIF(bif_trap1(&ets_select_replace_continue_exp, p, continuation),
+    RET_TO_BIF(bif_trap1(ets_select_replace_continue_exp, p, continuation),
             DB_ERROR_NONE);
 
 #undef RET_TO_BIF
@@ -2361,7 +2361,7 @@ int db_select_replace_tree_common(Process *p, DbTable *tbl,
          ereplaced);
 
     /* Don't free mpi.mp, so don't use macro */
-    *ret = bif_trap1(&ets_select_replace_continue_exp, p, continuation);
+    *ret = bif_trap1(ets_select_replace_continue_exp, p, continuation);
     return DB_ERROR_NONE;
 
 #undef RET_TO_BIF
@@ -4046,7 +4046,6 @@ static int doit_select(DbTableCommon *tb, TreeDbTerm *this,
 {
     struct select_context *sc = (struct select_context *) ptr;
     Eterm ret;
-    Eterm* hp;
 
     sc->lastobj = this->dbterm.tpl;
     
@@ -4059,8 +4058,9 @@ static int doit_select(DbTableCommon *tb, TreeDbTerm *this,
 			   GETKEY_WITH_POS(sc->keypos, this->dbterm.tpl)) > 0))) {
 	return 0;
     }
-    ret = db_match_dbterm(tb, sc->p,sc->mp, &this->dbterm, &hp, 2);
+    ret = db_match_dbterm(tb, sc->p, sc->mp, &this->dbterm, ERTS_PAM_COPY_RESULT);
     if (is_value(ret)) {
+        Eterm *hp = HAlloc(sc->p, 2);
 	sc->accum = CONS(hp, ret, sc->accum);
     }
     if (--(sc->max) <= 0) {
@@ -4084,7 +4084,7 @@ static int doit_select_count(DbTableCommon *tb, TreeDbTerm *this,
 			  GETKEY_WITH_POS(sc->keypos, this->dbterm.tpl)) > 0)) {
 	return 0;
     }
-    ret = db_match_dbterm(tb, sc->p, sc->mp, &this->dbterm, NULL, 0);
+    ret = db_match_dbterm(tb, sc->p, sc->mp, &this->dbterm, ERTS_PAM_TMP_RESULT);
     if (ret == am_true) {
 	++(sc->got);
     }
@@ -4100,7 +4100,6 @@ static int doit_select_chunk(DbTableCommon *tb, TreeDbTerm *this,
 {
     struct select_context *sc = (struct select_context *) ptr;
     Eterm ret;
-    Eterm* hp;
 
     sc->lastobj = this->dbterm.tpl;
     
@@ -4114,8 +4113,9 @@ static int doit_select_chunk(DbTableCommon *tb, TreeDbTerm *this,
 	return 0;
     }
 
-    ret = db_match_dbterm(tb, sc->p, sc->mp, &this->dbterm, &hp, 2);
+    ret = db_match_dbterm(tb, sc->p, sc->mp, &this->dbterm, ERTS_PAM_COPY_RESULT);
     if (is_value(ret)) {
+        Eterm *hp = HAlloc(sc->p, 2);
 	++(sc->got);
 	sc->accum = CONS(hp, ret, sc->accum);
     }
@@ -4143,7 +4143,7 @@ static int doit_select_delete(DbTableCommon *tb, TreeDbTerm *this,
 	cmp_partly_bound(sc->end_condition, 
 			 GETKEY_WITH_POS(sc->keypos, this->dbterm.tpl)) > 0)
 	return 0;
-    ret = db_match_dbterm(tb, sc->p, sc->mp, &this->dbterm, NULL, 0);
+    ret = db_match_dbterm(tb, sc->p, sc->mp, &this->dbterm, ERTS_PAM_TMP_RESULT);
     if (ret == am_true) {
 	key = GETKEY(sc->tb, this->dbterm.tpl);
 	linkout_tree(sc->tb, sc->common.root, key, sc->stack);
@@ -4161,6 +4161,7 @@ static int doit_select_replace(DbTableCommon *tb, TreeDbTerm **this,
                                int forward)
 {
     struct select_replace_context *sc = (struct select_replace_context *) ptr;
+    DbTerm* obj;
     Eterm ret;
 
     sc->lastobj = (*this)->dbterm.tpl;
@@ -4171,7 +4172,10 @@ static int doit_select_replace(DbTableCommon *tb, TreeDbTerm **this,
 			  GETKEY_WITH_POS(sc->keypos, (*this)->dbterm.tpl)) > 0)) {
 	return 0;
     }
-    ret = db_match_dbterm(tb, sc->p, sc->mp, &(*this)->dbterm, NULL, 0);
+    obj = &(*this)->dbterm;
+    if (tb->compress)
+        obj = db_alloc_tmp_uncompressed(tb, obj);
+    ret = db_match_dbterm_uncompressed(tb, sc->p, sc->mp, obj, ERTS_PAM_TMP_RESULT);
 
     if (is_value(ret)) {
         TreeDbTerm* new;
@@ -4190,6 +4194,8 @@ static int doit_select_replace(DbTableCommon *tb, TreeDbTerm **this,
         free_term((DbTable*)tb, old);
         ++(sc->replaced);
     }
+    if (tb->compress)
+        db_free_tmp_uncompressed(obj);
     if (--(sc->max) <= 0) {
 	return 0;
     }

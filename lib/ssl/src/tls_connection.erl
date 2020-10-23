@@ -185,41 +185,44 @@ next_record(_, #state{protocol_buffers = #protocol_buffers{tls_cipher_texts = []
 next_record(_, State) ->
     {no_record, State}.
 
-flow_ctrl(#state{user_data_buffer = {_,Size,_},
-                 socket_options = #socket_options{active = false,
-                                                  packet = Packet},
-                 bytes_to_read = undefined} = State)  when ((Packet =/= 0) orelse (Packet =/= raw))
-                                                           andalso Size =/= 0 ->
-    %% We need more data to complete the packet.
-    activate_socket(State);
-flow_ctrl(#state{user_data_buffer = {_,Size,_},
-                 socket_options = #socket_options{active = false,
-                                                  packet = Packet},
-                 bytes_to_read = BytesToRead} = State)  when ((Packet =/= 0) orelse (Packet =/= raw)) ->
-    case (Size >= BytesToRead andalso Size =/= 0) of
-        true -> %% There is enough data bufferd
-            {no_record, State};
-        false -> %% We need more data to complete the packet of <BytesToRead> size
-            activate_socket(State)
-    end;
+%%% bytes_to_read equals the integer Length arg of ssl:recv
+%%% the actual value is only relevant for packet = raw | 0
+%%% bytes_to_read = undefined means no recv call is ongoing
 flow_ctrl(#state{user_data_buffer = {_,Size,_},
                  socket_options = #socket_options{active = false},
                  bytes_to_read = undefined} = State)  when Size =/= 0 ->
-    %% Passive mode wait for new recv request
+    %% Passive mode wait for new recv request or socket activation
+    %% that is preserv some tcp back pressure by waiting to activate
+    %% socket
     {no_record, State};
+%%%%%%%%%% A packet mode is set and socket is passive %%%%%%%%%%
+flow_ctrl(#state{socket_options = #socket_options{active = false,
+                                                  packet = Packet}} = State) 
+  when ((Packet =/= 0) andalso (Packet =/= raw)) ->
+    %% We need more data to complete the packet.
+    activate_socket(State);
+%%%%%%%%% No packet mode set and socket is passive %%%%%%%%%%%%
 flow_ctrl(#state{user_data_buffer = {_,Size,_},
                  socket_options = #socket_options{active = false},
-                 bytes_to_read = 0} = State)  when Size =/= 0 ->
-    %% Passive mode no available bytes, get some
+                 bytes_to_read = 0} = State)  when Size == 0 ->
+    %% Passive mode no available bytes, get some 
     activate_socket(State);
+flow_ctrl(#state{user_data_buffer = {_,Size,_},
+                 socket_options = #socket_options{active = false},
+                 bytes_to_read = 0} = State)  when Size =/= 0 ->           
+    %% There is data in the buffer to deliver
+    {no_record, State};
 flow_ctrl(#state{user_data_buffer = {_,Size,_}, 
                  socket_options = #socket_options{active = false},
-                 bytes_to_read = BytesToRead} = State) when (Size >= BytesToRead) andalso
-                                                            (BytesToRead > 0) ->
-    %% There is enough data bufferd
-    {no_record, State};
+                 bytes_to_read = BytesToRead} = State) when (BytesToRead > 0) ->
+    case (Size >= BytesToRead) of
+        true -> %% There is enough data bufferd
+            {no_record, State};
+        false -> %% We need more data to complete the delivery of <BytesToRead> size
+            activate_socket(State)
+    end;
+%%%%%%%%%%% Active mode or more data needed %%%%%%%%%%
 flow_ctrl(State) ->
-    %% Active mode
     activate_socket(State).
 
 
@@ -698,51 +701,63 @@ hello(internal, #server_hello{extensions = Extensions} = Hello,
                  handshake_env = HsEnv#handshake_env{
                                    hello = Hello}}, [{reply, From, {ok, Extensions}}]};     
 hello(internal, #client_hello{client_version = ClientVersion} = Hello,
-      #state{connection_states = ConnectionStates0,
-             static_env = #static_env{
-                             port = Port,
-                             session_cache = Cache,
-                             session_cache_cb = CacheCb},
-             handshake_env = #handshake_env{kex_algorithm = KeyExAlg,
-                                            renegotiation = {Renegotiation, _},
-                                            negotiated_protocol = CurrentProtocol} = HsEnv,
-             connection_env = CEnv,
-             session = #session{own_certificate = Cert} = Session0,
-	     ssl_options = SslOpts} = State) ->
+      #state{ssl_options = SslOpts0} = State0) ->
 
-    case choose_tls_version(SslOpts, Hello) of
+    case choose_tls_version(SslOpts0, Hello) of
         'tls_v1.3' ->
             %% Continue in TLS 1.3 'start' state
-            {next_state, start, State, [{next_event, internal, Hello}]};
+            {next_state, start, State0, [{next_event, internal, Hello}]};
         'tls_v1.2' ->
-            case tls_handshake:hello(Hello,
-                                     SslOpts,
-                                     {Port, Session0, Cache, CacheCb,
-                                      ConnectionStates0, Cert, KeyExAlg},
-                                     Renegotiation) of
-                #alert{} = Alert ->
-                    ssl_connection:handle_own_alert(Alert, ClientVersion, hello,
-                                                    State#state{connection_env = CEnv#connection_env{negotiated_version
-                                                                                                     = ClientVersion}});
-                {Version, {Type, Session},
-                 ConnectionStates, Protocol0, ServerHelloExt, HashSign} ->
-                    Protocol = case Protocol0 of
-                                   undefined -> CurrentProtocol;
-                                   _ -> Protocol0
-                               end,
-                    gen_handshake(?FUNCTION_NAME,
-                                  internal,
-                                  {common_client_hello, Type, ServerHelloExt},
-                                  State#state{connection_states  = ConnectionStates,
-                                              connection_env = CEnv#connection_env{negotiated_version = Version},
-                                              handshake_env = HsEnv#handshake_env{
-                                                                hashsign_algorithm = HashSign,
-                                                                client_hello_version = ClientVersion,
-                                                                negotiated_protocol = Protocol},
-                                              session = Session
-                                             })
+            case ssl_connection:handle_sni_extension(State0, Hello) of
+                #state{connection_states = ConnectionStates0,
+                       static_env = #static_env{trackers = Trackers},
+                       handshake_env = #handshake_env{
+                                          kex_algorithm = KeyExAlg,
+                                          renegotiation = {Renegotiation, _},
+                                          negotiated_protocol = CurrentProtocol,
+                                          sni_guided_cert_selection = SNICertSelection} = HsEnv,
+                       connection_env = CEnv,
+                       session = #session{own_certificate = Cert} = Session0,
+                       ssl_options = SslOpts} = State ->
+                    SessionTracker =
+                        proplists:get_value(session_id_tracker, Trackers),
+                    case tls_handshake:hello(Hello,
+                                             SslOpts,
+                                             {SessionTracker, Session0,
+                                              ConnectionStates0, Cert, KeyExAlg},
+                                             Renegotiation) of
+                        #alert{} = Alert ->
+                            ssl_connection:handle_own_alert(Alert, ClientVersion, hello,
+                                                            State#state{connection_env = CEnv#connection_env{negotiated_version
+                                                                                                             = ClientVersion}});
+                        {Version, {Type, Session},
+                         ConnectionStates, Protocol0, ServerHelloExt0, HashSign} ->
+                            Protocol = case Protocol0 of
+                                           undefined -> CurrentProtocol;
+                                           _ -> Protocol0
+                                       end,
+                            ServerHelloExt =
+                                case SNICertSelection of
+                                    true ->
+                                        ServerHelloExt0#{sni => #sni{hostname = ""}};
+                                    false ->
+                                        ServerHelloExt0
+                                end,
+                            gen_handshake(?FUNCTION_NAME,
+                                          internal,
+                                          {common_client_hello, Type, ServerHelloExt},
+                                          State#state{connection_states  = ConnectionStates,
+                                                      connection_env = CEnv#connection_env{negotiated_version = Version},
+                                                      handshake_env = HsEnv#handshake_env{
+                                                                        hashsign_algorithm = HashSign,
+                                                                        client_hello_version = ClientVersion,
+                                                                        negotiated_protocol = Protocol},
+                                                      session = Session
+                                                     })
+                    end;
+                Alert ->
+                    Alert
             end
-
     end;
 hello(internal, #server_hello{} = Hello,
       #state{connection_states = ConnectionStates0,
@@ -763,8 +778,9 @@ hello(internal, #server_hello{} = Hello,
         {Version, NewId, ConnectionStates, ProtoExt, Protocol, OcspState} ->
             ssl_connection:handle_session(Hello, 
                                           Version, NewId, ConnectionStates, ProtoExt, Protocol,
-                                          State#state{handshake_env = HsEnv#handshake_env{
-                                                                        ocsp_stapling_state = maps:merge(OcspState0,OcspState)}});
+                                          State#state{
+                                            handshake_env = HsEnv#handshake_env{
+                                                              ocsp_stapling_state = maps:merge(OcspState0,OcspState)}});
         %% TLS 1.3
         {next_state, wait_sh, SelectedVersion, OcspState} ->
             %% Continue in TLS 1.3 'wait_sh' state
@@ -1154,7 +1170,7 @@ initial_state(Role, Sender, Host, Port, Socket, {SSLOptions, SocketOptions, Trac
        connection_env = #connection_env{user_application = {UserMonitor, User}},
        socket_options = SocketOptions,
        ssl_options = SSLOptions,
-       session = #session{is_resumable = new},
+       session = #session{is_resumable = false},
        connection_states = ConnectionStates,
        protocol_buffers = #protocol_buffers{},
        user_data_buffer = {[],0,[]},

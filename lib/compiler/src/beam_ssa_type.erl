@@ -32,7 +32,7 @@
 -include("beam_ssa_opt.hrl").
 -include("beam_types.hrl").
 
--import(lists, [any/2,duplicate/2,foldl/3,member/2,
+-import(lists, [all/2,any/2,duplicate/2,foldl/3,member/2,
                 keyfind/3,reverse/1,split/2,zip/2]).
 
 %% The maximum number of #b_ret{} terminators a function can have before
@@ -266,8 +266,9 @@ sig_is([#b_set{op=call,
     Ts = update_types(I, Ts0, Ds0),
     Ds = Ds0#{ Dst => I },
     sig_is(Is, Ts, Ds, Ls, Fdb, Sub, State);
-sig_is([#b_set{op=make_fun,args=Args0,dst=Dst}=I0|Is],
-       Ts0, Ds0, Ls, Fdb, Sub0, State0) ->
+sig_is([#b_set{op=MakeFun,args=Args0,dst=Dst}=I0|Is],
+       Ts0, Ds0, Ls, Fdb, Sub0, State0) when MakeFun =:= make_fun;
+                                             MakeFun =:= old_make_fun ->
     Args = simplify_args(Args0, Ts0, Sub0),
     I1 = beam_ssa:normalize(I0#b_set{args=Args}),
 
@@ -294,9 +295,10 @@ sig_local_call(I0, Callee, Args, Ts, Fdb, State) ->
 %% While it's impossible to tell which arguments a fun will be called with
 %% (someone could steal it through tracing and call it), we do know its free
 %% variables and can update their types as if this were a local call.
-sig_make_fun(#b_set{op=make_fun,
+sig_make_fun(#b_set{op=MakeFun,
                     args=[#b_local{}=Callee | FreeVars]}=I0,
-             Ts, Fdb, State) ->
+             Ts, Fdb, State) when MakeFun =:= make_fun;
+                                  MakeFun =:= old_make_fun ->
     ArgCount = Callee#b_local.arity - length(FreeVars),
 
     FVTypes = [raw_type(FreeVar, Ts) || FreeVar <- FreeVars],
@@ -500,8 +502,9 @@ opt_is([#b_set{op=call,
     Ts = update_types(I, Ts0, Ds0),
     Ds = Ds0#{ Dst => I },
     opt_is(Is, Ts, Ds, Ls, Fdb, Sub, Meta, [I | Acc]);
-opt_is([#b_set{op=make_fun,args=Args0,dst=Dst}=I0|Is],
-       Ts0, Ds0, Ls, Fdb0, Sub0, Meta, Acc) ->
+opt_is([#b_set{op=MakeFun,args=Args0,dst=Dst}=I0|Is],
+       Ts0, Ds0, Ls, Fdb0, Sub0, Meta, Acc) when MakeFun =:= make_fun;
+                                                 MakeFun =:= old_make_fun ->
     Args = simplify_args(Args0, Ts0, Sub0),
     I1 = beam_ssa:normalize(I0#b_set{args=Args}),
 
@@ -541,10 +544,11 @@ opt_local_call(I0, Callee, Args, Dst, Ts, Fdb, Meta) ->
     end.
 
 %% See sig_make_fun/4
-opt_make_fun(#b_set{op=make_fun,
+opt_make_fun(#b_set{op=MakeFun,
                     dst=Dst,
                     args=[#b_local{}=Callee | FreeVars]}=I0,
-             Ts, Fdb, Meta) ->
+             Ts, Fdb, Meta) when MakeFun =:= make_fun;
+                                 MakeFun =:= old_make_fun ->
     ArgCount = Callee#b_local.arity - length(FreeVars),
     FVTypes = [raw_type(FreeVar, Ts) || FreeVar <- FreeVars],
     ArgTypes = duplicate(ArgCount, any) ++ FVTypes,
@@ -931,16 +935,11 @@ simplify(#b_set{op=put_tuple,args=Args}=I, _Ts) ->
     end;
 simplify(#b_set{op=wait_timeout,args=[#b_literal{val=0}]}, _Ts) ->
     #b_literal{val=true};
-simplify(#b_set{op=call,args=[#b_remote{}=Rem|Args]}=I, _Ts) ->
+simplify(#b_set{op=call,args=[#b_remote{}=Rem|Args]}=I, Ts) ->
     case Rem of
         #b_remote{mod=#b_literal{val=Mod},
                   name=#b_literal{val=Name}} ->
-            case erl_bifs:is_pure(Mod, Name, length(Args)) of
-                true ->
-                    simplify_remote_call(Mod, Name, Args, I);
-                false ->
-                    I
-            end;
+            simplify_remote_call(Mod, Name, Args, Ts, I);
         #b_remote{} ->
             I
     end;
@@ -1013,13 +1012,13 @@ will_succeed_1(#b_set{op=put_tuple}, _Src, _Ts, _Sub) ->
 %% Remove the success branch from binary operations with invalid
 %% sizes. That will remove subsequent bs_put and bs_match instructions,
 %% which are probably not loadable.
-will_succeed_1(#b_set{op=bs_add,args=[_,#b_literal{val=Size},_]},
+will_succeed_1(#b_set{op=bs_add,args=[Arg1,Arg2,_]},
                _Src, _Ts, _Sub) ->
-    if
-        is_integer(Size), Size >= 0 ->
-            maybe;
-        true ->
-            no
+    case all(fun(#b_literal{val=Size}) -> is_integer(Size) andalso Size >= 0;
+                (#b_var{}) -> true
+             end, [Arg1,Arg2]) of
+        true -> maybe;
+        false -> no
     end;
 will_succeed_1(#b_set{op=bs_init,
                       args=[#b_literal{val=new},#b_literal{val=Size},_Unit]},
@@ -1154,13 +1153,17 @@ phi_all_same_1([], _Arg) ->
 phi_all_same_1(_Phis, _Arg) ->
     false.
 
-%% Simplify a remote call to a pure BIF.
-simplify_remote_call(erlang, '++', [#b_literal{val=[]},Tl], _I) ->
+simplify_remote_call(erlang, throw, [Term], Ts, I) ->
+    %% Annotate `throw` instructions with the type of their thrown term,
+    %% helping `beam_ssa_throw` optimize non-local returns.
+    Type = normalized_type(Term, Ts),
+    beam_ssa:add_anno(thrown_type, Type, I);
+simplify_remote_call(erlang, '++', [#b_literal{val=[]},Tl], _Ts, _I) ->
     Tl;
 simplify_remote_call(erlang, setelement,
                      [#b_literal{val=Pos},
                       #b_literal{val=Tuple},
-                      #b_var{}=Value], I)
+                      #b_var{}=Value], _Ts, I)
   when is_integer(Pos), 1 =< Pos, Pos =< tuple_size(Tuple) ->
     %% Position is a literal integer and the shape of the
     %% tuple is known.
@@ -1168,7 +1171,16 @@ simplify_remote_call(erlang, setelement,
     {Bef,[_|Aft]} = split(Pos - 1, Els0),
     Els = Bef ++ [Value|Aft],
     I#b_set{op=put_tuple,args=Els};
-simplify_remote_call(Mod, Name, Args0, I) ->
+simplify_remote_call(Mod, Name, Args, _Ts, I) ->
+    case erl_bifs:is_pure(Mod, Name, length(Args)) of
+        true ->
+            simplify_pure_call(Mod, Name, Args, I);
+        false ->
+            I
+    end.
+
+%% Simplify a remote call to a pure BIF.
+simplify_pure_call(Mod, Name, Args0, I) ->
     case make_literal_list(Args0) of
         none ->
             I;
@@ -1671,6 +1683,18 @@ type(call, [#b_literal{val=Fun} | Args], _Anno, _Ts, _Ds) ->
             %% arguments is wrong.
             none
     end;
+type(extract, [V, #b_literal{val=Idx}], _Anno, _Ts, Ds) ->
+    case map_get(V, Ds) of
+        #b_set{op=landingpad} when Idx =:= 0 ->
+            %% Class
+            #t_atom{elements=[error,exit,throw]};
+        #b_set{op=landingpad} when Idx =:= 1 ->
+            %% Reason
+            any;
+        #b_set{op=landingpad} when Idx =:= 2 ->
+            %% Stack trace
+            any
+    end;
 type(get_hd, [Src], _Anno, Ts, _Ds) ->
     SrcType = #t_cons{} = normalized_type(Src, Ts), %Assertion.
     {RetType, _, _} = beam_call_types:types(erlang, hd, [SrcType]),
@@ -1696,7 +1720,9 @@ type(is_nonempty_list, [_], _Anno, _Ts, _Ds) ->
     beam_types:make_boolean();
 type(is_tagged_tuple, [_,#b_literal{},#b_literal{}], _Anno, _Ts, _Ds) ->
     beam_types:make_boolean();
-type(make_fun, [#b_local{arity=TotalArity} | Env], Anno, _Ts, _Ds) ->
+type(MakeFun, [#b_local{arity=TotalArity} | Env], Anno, _Ts, _Ds)
+  when MakeFun =:= make_fun;
+       MakeFun =:= old_make_fun ->
     RetType = case Anno of
                   #{ result_type := Type } -> Type;
                   #{} -> any

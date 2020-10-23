@@ -506,6 +506,7 @@ hello(internal, #client_hello{cookie = <<>>,
              handshake_env = HsEnv,
              connection_env = CEnv,
              protocol_specific = #{current_cookie_secret := Secret}} = State0) ->
+    State1 = ssl_connection:handle_sni_extension(State0, Hello),
     {ok, {IP, Port}} = dtls_socket:peername(Transport, Socket),
     Cookie = dtls_handshake:cookie(Secret, IP, Port, Hello),
     %% FROM RFC 6347 regarding HelloVerifyRequest message:
@@ -515,8 +516,8 @@ hello(internal, #client_hello{cookie = <<>>,
     %% version 1.0 regardless of the version of TLS that is expected to be
     %% negotiated.
     VerifyRequest = dtls_handshake:hello_verify_request(Cookie, ?HELLO_VERIFY_REQUEST_VERSION),
-    State1 = prepare_flight(State0#state{connection_env = CEnv#connection_env{negotiated_version = Version}}),
-    {State, Actions} = send_handshake(VerifyRequest, State1),
+    State2 = prepare_flight(State1#state{connection_env = CEnv#connection_env{negotiated_version = Version}}),
+    {State, Actions} = send_handshake(VerifyRequest, State2),
     next_event(?FUNCTION_NAME, no_record, 
                State#state{handshake_env = HsEnv#handshake_env{
                                              tls_handshake_history = 
@@ -550,7 +551,8 @@ hello(internal, #hello_verify_request{cookie = Cookie}, #state{static_env = #sta
 hello(internal, #client_hello{extensions = Extensions} = Hello, 
       #state{ssl_options = #{handshake := hello},
              handshake_env = HsEnv,
-             start_or_recv_from = From} = State) ->
+             start_or_recv_from = From} = State0) ->
+    State = ssl_connection:handle_sni_extension(State0, Hello),
     {next_state, user_hello, State#state{start_or_recv_from = undefined,
                                          handshake_env = HsEnv#handshake_env{hello = Hello}},
      [{reply, From, {ok, Extensions}}]};
@@ -569,17 +571,18 @@ hello(internal, #client_hello{cookie = Cookie} = Hello, #state{static_env = #sta
                                                                protocol_specific = #{current_cookie_secret := Secret,
                                                                                      previous_cookie_secret := PSecret}
                                                               } = State0) ->
+    State = ssl_connection:handle_sni_extension(State0, Hello),
     {ok, {IP, Port}} = dtls_socket:peername(Transport, Socket),
     case dtls_handshake:cookie(Secret, IP, Port, Hello) of
 	Cookie ->
-	    handle_client_hello(Hello, State0);
+	    handle_client_hello(Hello, State);
 	_ ->
             case dtls_handshake:cookie(PSecret, IP, Port, Hello) of
                	Cookie -> 
-                    handle_client_hello(Hello, State0);
+                    handle_client_hello(Hello, State);
                 _ ->
                     %% Handle bad cookie as new cookie request RFC 6347 4.1.2
-                    hello(internal, Hello#client_hello{cookie = <<>>}, State0) 
+                    hello(internal, Hello#client_hello{cookie = <<>>}, State)
             end
     end;
 hello(internal, #server_hello{} = Hello,
@@ -797,7 +800,7 @@ format_status(Type, Data) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 initial_state(Role, Host, Port, Socket,
-              {#{client_renegotiation := ClientRenegotiation} = SSLOptions, SocketOptions, _}, User,
+              {#{client_renegotiation := ClientRenegotiation} = SSLOptions, SocketOptions, Trackers}, User,
 	      {CbModule, DataTag, CloseTag, ErrorTag, PassiveTag}) ->
     #{beast_mitigation := BeastMitigation} = SSLOptions,
     ConnectionStates = dtls_record:init_connection_states(Role, BeastMitigation),
@@ -826,7 +829,8 @@ initial_state(Role, Host, Port, Socket,
                      host = Host,
                      port = Port,
                      socket = Socket,
-                     session_cache_cb = SessionCacheCb
+                     session_cache_cb = SessionCacheCb,
+                     trackers = Trackers
                     },
 
     #state{static_env = InitStatEnv,
@@ -840,7 +844,7 @@ initial_state(Role, Host, Port, Socket,
 	   %% We do not want to save the password in the state so that
 	   %% could be written in the clear into error logs.
 	   ssl_options = SSLOptions#{password => undefined},
-	   session = #session{is_resumable = new},
+	   session = #session{is_resumable = false},
 	   connection_states = ConnectionStates,
 	   protocol_buffers = #protocol_buffers{},
 	   user_data_buffer = {[],0,[]},
@@ -900,17 +904,15 @@ dtls_version(_,_, State) ->
 
 handle_client_hello(#client_hello{client_version = ClientVersion} = Hello,
 		    #state{connection_states = ConnectionStates0,
-                           static_env = #static_env{port = Port,
-                                                     session_cache = Cache,
-                                                    session_cache_cb = CacheCb},
+                           static_env = #static_env{trackers = Trackers},
                            handshake_env = #handshake_env{kex_algorithm = KeyExAlg,
                                                           renegotiation = {Renegotiation, _},
                                                           negotiated_protocol = CurrentProtocol} = HsEnv,
                            connection_env = CEnv,
 			   session = #session{own_certificate = Cert} = Session0,
 			   ssl_options = SslOpts} = State0) ->
-    
-    case dtls_handshake:hello(Hello, SslOpts, {Port, Session0, Cache, CacheCb,
+    SessionTracker = proplists:get_value(session_id_tracker, Trackers),
+    case dtls_handshake:hello(Hello, SslOpts, {SessionTracker, Session0,
 					       ConnectionStates0, Cert, KeyExAlg}, Renegotiation) of
 	#alert{} = Alert ->
 	    handle_own_alert(Alert, ClientVersion, hello, State0);
