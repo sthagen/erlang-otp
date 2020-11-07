@@ -91,6 +91,9 @@
 
 -include("core_parse.hrl").
 
+%% Matches expansion max segment in v3_kernel.
+-define(COLLAPSE_MAX_SIZE_SEGMENT, 1024).
+
 %% Internal core expressions and help functions.
 %% N.B. annotations fields in place as normal Core expressions.
 
@@ -1152,7 +1155,7 @@ bitstrs([], St) ->
     {[],[],St}.
 
 bitstr({bin_element,Line,{string,_,S},{integer,_,8},_}, St) ->
-    bitstrs(bin_expand_string(S, Line, 0, 0), St);
+    bitstrs(bin_expand_string(S, Line, 0, 0, []), St);
 bitstr({bin_element,Line,{string,_,[]},Sz0,Ts}, St0) ->
     %% Empty string. We must make sure that the type is correct.
     {[#c_bitstr{size=Sz}],Eps0,St1} =
@@ -1332,13 +1335,13 @@ count_bits(Int) ->
 count_bits_1(0, Bits) -> Bits;
 count_bits_1(Int, Bits) -> count_bits_1(Int bsr 64, Bits+64).
 
-bin_expand_string(S, Line, Val, Size) when Size >= 2048 ->
+bin_expand_string(S, Line, Val, Size, Last) when Size >= ?COLLAPSE_MAX_SIZE_SEGMENT ->
     Combined = make_combined(Line, Val, Size),
-    [Combined|bin_expand_string(S, Line, 0, 0)];
-bin_expand_string([H|T], Line, Val, Size) ->
-    bin_expand_string(T, Line, (Val bsl 8) bor H, Size+8);
-bin_expand_string([], Line, Val, Size) ->
-    [make_combined(Line, Val, Size)].
+    [Combined|bin_expand_string(S, Line, 0, 0, Last)];
+bin_expand_string([H|T], Line, Val, Size, Last) ->
+    bin_expand_string(T, Line, (Val bsl 8) bor H, Size+8, Last);
+bin_expand_string([], Line, Val, Size, Last) ->
+    [make_combined(Line, Val, Size) | Last].
 
 make_combined(Line, Val, Size) ->
     {bin_element,Line,{integer,Line,Val},
@@ -2117,7 +2120,9 @@ pat_bin(Ps0, St) ->
     pat_segments(Ps, St).
 
 pat_bin_expand_strings(Es0) ->
-    foldr(fun ({bin_element,Line,{string,_,S},Sz,Ts}, Es1) ->
+    foldr(fun ({bin_element,Line,{string,_,[_|_]=S},default,default}, Es1) ->
+                  bin_expand_string(S, Line, 0, 0, Es1);
+              ({bin_element,Line,{string,_,S},Sz,Ts}, Es1) ->
                   foldr(
                     fun (C, Es) ->
                             [{bin_element,Line,{char,Line,C},Sz,Ts}|Es]
@@ -3085,7 +3090,18 @@ c_add_dummy_export(C, [], St) ->
 %%%           -| ['letrec_goto'] )
 
 lbody(B, St) ->
-    cerl_trees:mapfold(fun lexpr/2, St, B).
+    cerl_trees:mapfold(fun skip_lowering/2, fun lexpr/2, St, B).
+
+%% These nodes do not have case or receive within them,
+%% so we can speed up lowering by not traversing them.
+skip_lowering(#c_binary{}, _A) -> skip;
+skip_lowering(#c_call{}, _A) -> skip;
+skip_lowering(#c_cons{}, _A) -> skip;
+skip_lowering(#c_literal{}, _A) -> skip;
+skip_lowering(#c_map{}, _A) -> skip;
+skip_lowering(#c_primop{}, _A) -> skip;
+skip_lowering(#c_tuple{}, _A) -> skip;
+skip_lowering(T, A) -> {T, A}.
 
 lexpr(#c_case{}=Case, St) ->
     %% Split patterns that bind and use the same variable.

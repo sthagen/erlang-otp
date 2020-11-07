@@ -356,9 +356,10 @@ fdb_fs([#b_function{ args=Args,bs=Bs }=F | Fs], Exports, FuncDb0) ->
                                                   arg_types=ArgTypes }}
               end,
 
-    FuncDb = beam_ssa:fold_rpo(fun(_L, #b_blk{is=Is}, FuncDb) ->
+    RPO = beam_ssa:rpo(Bs),
+    FuncDb = beam_ssa:fold_blocks(fun(_L, #b_blk{is=Is}, FuncDb) ->
                                        fdb_is(Is, Id, FuncDb)
-                               end, FuncDb1, Bs),
+                               end, RPO, FuncDb1, Bs),
 
     fdb_fs(Fs, Exports, FuncDb);
 fdb_fs([], _Exports, FuncDb) ->
@@ -453,7 +454,8 @@ ssa_opt_trim_unreachable({#opt_st{ssa=Blocks}=St, FuncDb}) ->
     {St#opt_st{ssa=beam_ssa:trim_unreachable(Blocks)}, FuncDb}.
 
 ssa_opt_merge_blocks({#opt_st{ssa=Blocks0}=St, FuncDb}) ->
-    Blocks = beam_ssa:merge_blocks(Blocks0),
+    RPO = beam_ssa:rpo(Blocks0),
+    Blocks = beam_ssa:merge_blocks(RPO, Blocks0),
     {St#opt_st{ssa=Blocks}, FuncDb}.
 
 %%%
@@ -473,7 +475,8 @@ ssa_opt_split_blocks({#opt_st{ssa=Blocks0,cnt=Count0}=St, FuncDb}) ->
            (#b_set{op=old_make_fun}) -> true;
            (_) -> false
         end,
-    {Blocks,Count} = beam_ssa:split_blocks(P, Blocks0, Count0),
+    RPO = beam_ssa:rpo(Blocks0),
+    {Blocks,Count} = beam_ssa:split_blocks(RPO, P, Blocks0, Count0),
     {St#opt_st{ssa=Blocks,cnt=Count}, FuncDb}.
 
 %%%
@@ -2183,7 +2186,9 @@ replace_last([_], Repl) -> [Repl];
 replace_last([I|Is], Repl) -> [I|replace_last(Is, Repl)].
 
 opt_ne_single_use(Var, {uses,Linear}) ->
-    Uses = beam_ssa:uses(maps:from_list(Linear)),
+    Blocks = maps:from_list(Linear),
+    RPO = beam_ssa:rpo(Blocks),
+    Uses = beam_ssa:uses(RPO, Blocks),
     opt_ne_single_use(Var, Uses);
 opt_ne_single_use(Var, Uses) when is_map(Uses) ->
     {case Uses of
@@ -2271,8 +2276,9 @@ do_ssa_opt_sink(Defs, #opt_st{ssa=Linear}=St) ->
 
     %% Calculate dominators.
     Blocks0 = maps:from_list(Linear),
+    RPO = beam_ssa:rpo(Blocks0),
     Preds = beam_ssa:predecessors(Blocks0),
-    {Dom, Numbering} = beam_ssa:dominators(Blocks0, Preds),
+    {Dom, Numbering} = beam_ssa:dominators_from_predecessors(RPO, Preds),
 
     %% It is not safe to move get_tuple_element instructions to blocks
     %% that begin with certain instructions. It is also unsafe to move

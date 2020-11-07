@@ -554,7 +554,7 @@ do {									\
  */
 
 static void exec_misc_ops(ErtsRunQueue *);
-static void print_function_from_pc(fmtfn_t to, void *to_arg, BeamInstr* x);
+static void print_function_from_pc(fmtfn_t to, void *to_arg, const BeamInstr* x);
 static int stack_element_dump(fmtfn_t to, void *to_arg, Eterm* sp, int yreg);
 
 static void aux_work_timeout(void *unused);
@@ -12241,9 +12241,11 @@ erl_create_process(Process* parent, /* Parent of process (default group leader).
             ErtsLinkData *ldp;
             ldp = erts_link_create(ERTS_LNK_TYPE_DIST_PROC,
                                    parent_id, p->common.id);
-            code = erts_link_dist_insert(&ldp->a, so->dist_entry->mld);
-            ASSERT(code);
             erts_link_tree_insert(&ERTS_P_LINKS(p), &ldp->b);
+            if (!erts_link_dist_insert(&ldp->a, so->mld)) {
+                erts_proc_sig_send_link_exit(NULL, THE_NON_VALUE, &ldp->a,
+                                             am_noconnection, NIL);
+            }
         }
 
         if (so->flags & SPO_MONITOR) {
@@ -12251,9 +12253,12 @@ erl_create_process(Process* parent, /* Parent of process (default group leader).
             mdp = erts_monitor_create(ERTS_MON_TYPE_DIST_PROC,
                                       spawn_ref, parent_id,
                                       p->common.id, NIL);
-            code = erts_monitor_dist_insert(&mdp->origin, so->dist_entry->mld);
-            ASSERT(code); (void)code;
-            erts_monitor_tree_insert(&ERTS_P_MONITORS(p), &mdp->target);
+            if (erts_monitor_dist_insert(&mdp->origin, so->mld)) {
+                erts_monitor_tree_insert(&ERTS_P_MONITORS(p), &mdp->target);
+            }
+            else {
+                erts_monitor_release_both(mdp);
+            }
         }
 
         if (have_seqtrace(token)) {
@@ -14001,9 +14006,9 @@ erts_program_counter_info(fmtfn_t to, void *to_arg, Process *p)
 }
 
 static void
-print_function_from_pc(fmtfn_t to, void *to_arg, BeamInstr* x)
+print_function_from_pc(fmtfn_t to, void *to_arg, const BeamInstr* x)
 {
-    ErtsCodeMFA *cmfa = erts_find_function_from_pc(x);
+    const ErtsCodeMFA *cmfa = erts_find_function_from_pc(x);
     if (cmfa == NULL) {
         if (x == beam_exit) {
             erts_print(to, to_arg, "<terminate process>");
