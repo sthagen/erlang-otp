@@ -57,6 +57,7 @@
 -deprecated([{now,0,
               "see the \"Time and Time Correction in Erlang\" "
               "chapter of the ERTS User's Guide for more information"}]).
+-deprecated([{phash,2, "use erlang:phash2/2 instead"}]).
 -removed([{hash,2,"use erlang:phash2/2 instead"}]).
 -removed([{get_stacktrace,0,
            "use the new try/catch syntax for retrieving the "
@@ -934,7 +935,7 @@ fun_info_mfa(_Fun) ->
     erlang:nif_error(undefined).
 
 %% fun_to_list/1
--spec erlang:fun_to_list(Fun) -> string() when
+-spec erlang:fun_to_list(Fun) -> String :: string() when
       Fun :: function().
 fun_to_list(_Fun) ->
     erlang:nif_error(undefined).
@@ -1652,8 +1653,8 @@ put(_Key, _Val) ->
     erlang:nif_error(undefined).
 
 %% raise/3
--spec erlang:raise(Class, Reason, Stacktrace) -> no_return() when
-      Class :: error | exit | throw,
+-spec erlang:raise(Class, Reason, Stacktrace) -> 'badarg' when
+      Class :: 'error' | 'exit' | 'throw',
       Reason :: term(),
       Stacktrace :: raise_stacktrace().
 raise(_Class, _Reason, _Stacktrace) ->
@@ -2622,7 +2623,7 @@ term_to_iovec(_Term, _Options) ->
 
 %% Shadowed by erl_bif_types: erlang:tl/1
 -spec tl(List) -> term() when
-      List :: [term(), ...].
+      List :: nonempty_maybe_improper_list().
 tl(_List) ->
     erlang:nif_error(undefined).
 
@@ -3333,6 +3334,8 @@ spawn_request_abandon(_ReqId) ->
 
 -spec erlang:yield() -> 'true'.
 yield() ->
+    % This is not an infinite loop because erlang:yield() is
+    % translated to an instruction by the loader
     erlang:yield().
 
 -spec nodes() -> Nodes when
@@ -3969,17 +3972,14 @@ fix_proc([], Acc) ->
     Acc.
 
 au_mem_fix(#memory{ processes = Proc,
-                    processes_used = ProcU,
-                    system = Sys } = Mem, Data) ->
+                    processes_used = ProcU } = Mem, Data) ->
     case fix_proc(Data, {0, 0}) of
         {A, U} ->
             Mem#memory{ processes = Proc+A,
-                        processes_used = ProcU+U,
-                        system = Sys-A };
+                        processes_used = ProcU+U };
         {Mask, A, U} ->
             Mem#memory{ processes = Mask band (Proc+A),
-                        processes_used = Mask band (ProcU+U),
-                        system = Mask band (Sys-A) }
+                        processes_used = Mask band (ProcU+U) }
     end.
 
 au_mem_acc(#memory{ total = Tot,
@@ -3991,27 +3991,21 @@ au_mem_acc(#memory{ total = Tot,
                 processes = Proc+Sz,
                 processes_used = ProcU+Sz};
 au_mem_acc(#memory{ total = Tot,
-                    system = Sys,
                     ets = Ets } = Mem,
            ets_alloc, Data) ->
     Sz = acc_blocks_size(Data, 0),
     Mem#memory{ total = Tot+Sz,
-                system = Sys+Sz,
                 ets = Ets+Sz };
 au_mem_acc(#memory{total = Tot,
-		    system = Sys,
 		    binary = Bin } = Mem,
 	    binary_alloc, Data) ->
     Sz = acc_blocks_size(Data, 0),
     Mem#memory{ total = Tot+Sz,
-                system = Sys+Sz,
                 binary = Bin+Sz};
-au_mem_acc(#memory{ total = Tot,
-                    system = Sys } = Mem,
+au_mem_acc(#memory{ total = Tot } = Mem,
            _Type, Data) ->
     Sz = acc_blocks_size(Data, 0),
-    Mem#memory{ total = Tot+Sz,
-                system = Sys+Sz }.
+    Mem#memory{ total = Tot+Sz }.
 
 acc_blocks_size([{size, Sz, _, _} | Rest], Acc) ->
     acc_blocks_size(Rest, Acc+Sz);
@@ -4074,10 +4068,11 @@ receive_emd(Ref, EMD, N) ->
 receive_emd(Ref) ->
     receive_emd(Ref, #memory{}, erlang:system_info(schedulers)).
 
-aa_mem_data(#memory{} = Mem,
-	    [{total, Tot} | Rest]) ->
-    aa_mem_data(Mem#memory{total = Tot,
-			   system = 0}, % system will be adjusted later
+aa_mem_data(#memory{total = Tot} = Mem,
+	    [{external_alloc, Sz} | Rest]) ->
+    %% Externally allocated data, this is not a part of alloc_util so we must
+    %% bump the total memory size.
+    aa_mem_data(Mem#memory{total = Tot + Sz},
 		Rest);
 aa_mem_data(#memory{atom = Atom,
 		    atom_used = AtomU} = Mem,
@@ -4096,13 +4091,11 @@ aa_mem_data(#memory{ets = Ets} = Mem,
     aa_mem_data(Mem#memory{ets = Ets+Sz},
 		Rest);
 aa_mem_data(#memory{processes = Proc,
-		    processes_used = ProcU,
-		    system = Sys} = Mem,
+		    processes_used = ProcU } = Mem,
 	    [{ProcData, Sz} | Rest]) when ProcData == bif_timer;
 					  ProcData == process_table ->
     aa_mem_data(Mem#memory{processes = Proc+Sz,
-			   processes_used = ProcU+Sz,
-			   system = Sys-Sz},
+			   processes_used = ProcU+Sz },
 		Rest);
 aa_mem_data(#memory{code = Code} = Mem,
 	    [{CodeData, Sz} | Rest]) when CodeData == module_table;
@@ -4115,14 +4108,10 @@ aa_mem_data(#memory{code = Code} = Mem,
 		Rest);
 aa_mem_data(EMD, [{_, _} | Rest]) ->
     aa_mem_data(EMD, Rest);
-aa_mem_data(#memory{total = Tot,
-		    processes = Proc,
-		    system = Sys} = Mem,
-	    []) when Sys =< 0 ->
-    %% Instrumented runtime system -> Sys = Tot - Proc
-    Mem#memory{system = Tot - Proc};
-aa_mem_data(EMD, []) ->
-    EMD.
+aa_mem_data(#memory{ total = Tot,
+                     processes = Proc } = Mem,
+            []) ->
+    Mem#memory{system = Tot - Proc}.
 
 aa_mem_data(notsup) ->
     notsup;
