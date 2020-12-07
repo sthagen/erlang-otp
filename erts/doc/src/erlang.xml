@@ -82,6 +82,12 @@
       </desc>
     </datatype>
     <datatype>
+      <name name="monitor_option"></name>
+      <desc>
+        <p>See <seemfa marker="#monitor/3"><c>monitor/3</c></seemfa>.</p>
+      </desc>
+    </datatype>
+    <datatype>
       <name name="timestamp"></name>
       <desc>
         <p>See <seemfa marker="#timestamp/0">
@@ -306,6 +312,38 @@ Z = erlang:adler32(Y,Data2).</code>
 X = erlang:adler32(Data1),
 Y = erlang:adler32(Data2),
 Z = erlang:adler32_combine(X,Y,iolist_size(Data2)).</code>
+      </desc>
+    </func>
+
+    <func>
+      <name name="alias" arity="0" since="OTP @OTP-16718@"/>
+      <name name="alias" arity="1" since="OTP @OTP-16718@"/>
+      <fsummary>Create an alias.</fsummary>
+      <desc>
+	<p>
+	  Create an alias which can be used when sending messages
+	  to the process that created the alias. When the alias
+	  has been deactivated, messages sent using the alias will
+	  be dropped. An alias can be deactivated using
+	  <seemfa marker="erlang#unalias/1"><c>unalias/1</c></seemfa>.
+	  Currently available options for <c>alias/1</c>:
+	</p>
+	<taglist>
+	  <tag><c>explicit_unalias</c></tag>
+	  <item><p>
+	    The alias can only be deactivated via a
+	    call to <c>unalias/1</c>. This is also the
+	    default behaviour if no options are passed
+	    or if <c>alias/0</c> is called.
+	  </p></item>
+	  <tag><c>reply</c></tag>
+	  <item><p>
+	    The alias will be automatically deactivated
+	    when a reply message sent via the alias is
+	    received. The alias can also still be
+	    deactivated via a call to <c>unalias/1</c>.
+	  </p></item>
+	</taglist>
       </desc>
     </func>
 
@@ -1735,6 +1773,28 @@ example_fun(A1, A2) ->
     </func>
 
     <func>
+      <name name="error" arity="3" since="24.0"/>
+      <fsummary>Raise an exception of class <c>error</c></fsummary>
+      <desc>
+        <p>Raises an exception of class <c>error</c> with the reason
+        <c><anno>Reason</anno></c>, where <c><anno>Reason</anno></c>
+        is any term. <c><anno>Args</anno></c> is expected to be the
+        list of arguments for the current function; it is used to
+        provide the arguments for the current function in the stack
+        back-trace.  If the <c>{error_info,
+        <anno>ErrorInfoMap</anno>}</c> option is given, it will be injected
+        into the stacktrace.</p>
+	<p>As evaluating this function causes an exception to be
+	raised, it has no return value.  The intent of the exception
+	class <c>error</c> is to signal that an unexpected error has
+	happened (for example, a function is called with a parameter
+	that has an incorrect type). See the guide about <seeguide
+	marker="system/reference_manual:errors">errors and error
+	handling</seeguide> for additional information.</p>
+      </desc>
+    </func>
+
+    <func>
       <name name="exit" arity="1" since=""/>
       <fsummary>Raise an exception of class <c>exit</c> with a specified reason.</fsummary>
       <desc>
@@ -2000,10 +2060,10 @@ true</pre>
 "3.00000000000000044409e-01"
 </pre>
 <p>In the last example, <c>float_to_list(0.1+0.2)</c> evaluates to
-<c>"3.00000000000000044409e-01"</c>. The reason for this is that
-<seeguide marker="system/reference_manual:data_types#float_representation_problem"><c>0.1</c> and
-<c>0.2</c> cannot be represented exactly as float
-values</seeguide>.</p>
+<c>"3.00000000000000044409e-01"</c>. The reason for this is explained
+in <seeguide
+marker="system/reference_manual:data_types#float_representation_problem">Representation
+of Floating Point Numbers</seeguide>.</p>
       </desc>
     </func>
 
@@ -3335,10 +3395,6 @@ is_process_alive(P2Pid),
             code of a module that has been upgraded; this is not
             allowed.
           </item>
-	  <tag><c>notsup</c></tag>
-          <item>Lack of support. Such as loading NIF library for a
-	    HiPE compiled module.
-	  </item>
         </taglist>
       </desc>
     </func>
@@ -3847,7 +3903,9 @@ RealSystem = system + MissedSystem</code>
       <type name="monitor_process_identifier"/>
       <type name="monitor_port_identifier"/>
       <desc>
-	<p>Sends a monitor request of type <c><anno>Type</anno></c> to the
+	<p>
+	  <marker id="monitor_message"/>
+	  Sends a monitor request of type <c><anno>Type</anno></c> to the
 	  entity identified by <c><anno>Item</anno></c>. If the monitored entity
           does not exist or it changes monitored state, the caller of
           <c>monitor/2</c> is notified by a message on the following format:</p>
@@ -4012,6 +4070,88 @@ RealSystem = system + MissedSystem</code>
     </func>
 
     <func>
+      <name name="monitor" arity="3" clause_i="1" since="OTP @OTP-16718@"/>
+      <name name="monitor" arity="3" clause_i="2" since="OTP @OTP-16718@"/>
+      <name name="monitor" arity="3" clause_i="3" since="OTP @OTP-16718@"/>
+      <fsummary>Start monitoring with options.</fsummary>
+      <type name="registered_name"/>
+      <type name="registered_process_identifier"/>
+      <type name="monitor_process_identifier"/>
+      <type name="monitor_port_identifier"/>
+      <desc>
+	<p>
+	  Provides an option list for modification of monitoring
+	  functionality provided by
+	  <seemfa marker="#monitor/2"><c>monitor/2</c></seemfa>.
+	  The <c><anno>Type</anno></c> and <c><anno>Item</anno></c>
+	  arguments have the same meaning as when passed to
+	  <c>monitor/2</c>. Currently available options:
+	</p>
+	<taglist>
+	  <tag><c>{alias, UnaliasOpt}</c></tag>
+	  <item>
+	    <p>
+	      The returned monitor reference will also become
+	      an alias for the calling process. That is, the
+	      returned reference can be used for sending messages
+	      to the calling process. See also
+	      <seemfa marker="erlang#alias/0"><c>alias/0</c></seemfa>.
+	      The <c>UnaliasOpt</c> determines how the alias
+	      should be deactivated.
+	    </p>
+	    <taglist>
+	      <tag><c>explicit_unalias</c></tag>
+	      <item><p>
+		Only an explicit call to 
+		<seemfa marker="erlang#unalias/1"><c>unalias/1</c></seemfa>
+		will deactivate the alias.
+	      </p></item>
+	      <tag><c>demonitor</c></tag>
+	      <item><p>
+		The alias will be automatically deactivated when
+		the monitor is removed. This either via an explicit
+		call to 
+		<seemfa marker="#demonitor/1"><c>demonitor/1</c></seemfa>
+		or when it is automatically removed at the same time
+		as a <c>'DOWN'</c> message is delivered due to the
+		monitor. The alias can also still be deactivated
+		via a call to <c>unalias/1</c>.
+	      </p></item>
+	      <tag><c>reply_demonitor</c></tag>
+	      <item><p>
+		The alias will be automatically deactivated when
+		the monitor is removed (see <c>demonitor</c> option
+		above) or a reply message sent via the alias is
+		received. When a reply message is received via the
+		alias the monitor will also be automatically
+		removed. This is useful in client/server scenarios
+		when a client monitors the server and will get
+		the reply via the alias. Once the response is
+		received both the alias and the monitor will be
+		automatically removed regardless of whether the
+		response is a reply or a <c>'DOWN'</c> message. The
+		alias can also still be deactivated via a call to
+		<c>unalias/1</c>. Note that if the alias is removed
+		using the <c>unalias/1</c> BIF, the monitor will
+		still be left active.
+	      </p></item>
+	    </taglist>
+	  </item>
+	  <tag><c>{tag, UserDefinedTag}</c></tag>
+	  <item>
+	    <p>
+	      Replace the default <c>Tag</c> with <c>UserDefinedTag</c>
+	      in the <seeerl marker="#monitor_message">monitor message</seeerl>
+	      delivered when the monitor is triggered. For example, when
+	      monitoring a process, the <c>'DOWN'</c> tag in the down message
+	      will be replaced by <c>UserDefinedTag</c>.
+	    </p>
+	  </item>
+	</taglist>
+      </desc>
+    </func>
+
+    <func>
       <name name="monitor_node" arity="2" since=""/>
       <fsummary>Monitor the status of a node.</fsummary>
       <desc>
@@ -4031,7 +4171,7 @@ RealSystem = system + MissedSystem</code>
           If this fails, a <c>nodedown</c> message is delivered.</p>
         <p>Nodes connected through hidden connections can be monitored
           as any other nodes.</p>
-        <p>Failure: <c>badarg</c> if the local node is not alive.</p>
+        <p>Failure: <c>notalive</c> if the local node is not alive.</p>
       </desc>
     </func>
 
@@ -6360,9 +6500,13 @@ true</pre>
 36028797018963968</pre>
       <p>In the last example, <c>round(36028797018963969.0)</c>
       evaluates to <c>36028797018963968</c>. The reason for this is
-      that <seeguide
-      marker="system/reference_manual:data_types#float_representation_problem"><c>36028797018963969.0</c>
-      cannot be represented exactly as a float value</seeguide>.</p>
+      that the number <c>36028797018963969.0</c> cannot be represented
+      exactly as a float value. Instead, the float literal is
+      represented as <c>36028797018963968.0</c>, which is the closest number
+      that can be represented exactly as a float value. See <seeguide
+      marker="system/reference_manual:data_types#float_representation_problem">Representation
+      of Floating Point Numbers</seeguide> for additional
+      information.</p>
         <p>Allowed in guard tests.</p>
       </desc>
     </func>
@@ -6852,7 +6996,19 @@ true</pre>
           <tag><c>monitor</c></tag>
           <item>
             <p>Monitors the new process (like
-              <seemfa marker="#monitor/2"><c>monitor/2</c></seemfa> does).</p>
+            <seemfa marker="#monitor/2"><c>monitor(process, Pid)</c></seemfa> does).
+	    A <c>{Pid, MonitorRef}</c> tuple will be returned instead
+	    of just a <c>Pid</c>.
+	    </p>
+          </item>
+          <tag><c>{monitor, MonitorOpts}</c></tag>
+          <item>
+            <p>Monitors the new process with options (like
+            <seemfa marker="#monitor/3"><c>monitor(process, Pid,
+	    MonitorOpts)</c></seemfa> does).
+	    A <c>{Pid, MonitorRef}</c> tuple will be returned instead
+	    of just a <c>Pid</c>.
+	    </p>
           </item>
           <tag><c>{priority, <anno>Level</anno>}</c></tag>
           <item>
@@ -7187,6 +7343,26 @@ true</pre>
 	      operation, the spawn operation will fail with an
 	      error reason of <c>noconnection</c>. A new process
 	      may or may not have been created.
+	    </p>
+	  </item>
+	  <tag><c>{monitor, MonitorOpts}</c></tag>
+	  <item>
+	    <p>
+	      In the absence of spawn operation failures, atomically
+	      sets up a monitor to the newly created process. That
+	      is, as if the calling process had called
+	      <seemfa marker="#monitor/2"><c>monitor(process,
+	      Pid, MonitorOpts)</c></seemfa> where <c>Pid</c> is
+	      the process identifier of the newly created process.
+	      See the <c>monitor</c> option above for more
+	      information. 
+	    </p>
+	    <p>
+	      Note that the monitor will not be activated for the
+	      calling process until the spawn operation has
+	      succeeded. For example, in the case that an
+	      alias is created using the monitor option, the alias
+	      will not be active until the monitor is activated.
 	    </p>
 	  </item>
 	  <tag><c>link</c></tag>
@@ -10111,8 +10287,8 @@ Metadata = #{ pid => pid(),
           <item>
             <p>Returns an atom describing the build type of the runtime
               system. This is normally the atom <c>opt</c> for optimized.
-              Other possible return values are <c>debug</c>, <c>purify</c>,
-              <c>quantify</c>, <c>purecov</c>, <c>gcov</c>, <c>valgrind</c>,
+              Other possible return values are <c>debug</c>,
+              <c>gcov</c>, <c>valgrind</c>,
               <c>gprof</c>, and <c>lcnt</c>. Possible return values
               can be added or removed at any time without prior notice.</p>
           </item>
@@ -12127,10 +12303,15 @@ improper_end</pre>
         <pre>
 > <input>trunc(36028797018963969.0).</input>
 36028797018963968</pre>
-<p>In the last example, <c>trunc(36028797018963969.0)</c> evaluates to
-<c>36028797018963968</c>. The reason for this is that <seeguide
-marker="system/reference_manual:data_types#float_representation_problem"><c>36028797018963969.0</c>
-cannot be represented exactly as a float value</seeguide>.</p>
+      <p>In the last example, <c>trunc(36028797018963969.0)</c>
+      evaluates to <c>36028797018963968</c>. The reason for this is
+      that the number <c>36028797018963969.0</c> cannot be represented
+      exactly as a float value. Instead, the float literal is
+      represented as <c>36028797018963968.0</c>, which is the closest number
+      that can be represented exactly as a float value. See <seeguide
+      marker="system/reference_manual:data_types#float_representation_problem">Representation
+      of Floating Point Numbers</seeguide> for additional
+      information.</p>
         <p>Allowed in guard tests.</p>
       </desc>
     </func>
@@ -12158,6 +12339,26 @@ cannot be represented exactly as a float value</seeguide>.</p>
         <pre>
 > <input>tuple_to_list({share, {'Ericsson_B', 163}}).</input>
 [share,{'Ericsson_B',163}]</pre>
+      </desc>
+    </func>
+
+    <func>
+      <name name="unalias" arity="1" since="OTP @OTP-16718@"/>
+      <fsummary>Create an alias.</fsummary>
+      <desc>
+	<p>
+	  Deactivate the alias <c><anno>Alias</anno></c>
+	  previously created by the calling process. An alias
+	  can for example be created via
+	  <seemfa marker="erlang#alias/0"><c>alias/0</c></seemfa>, or
+	  <seemfa marker="erlang#monitor/3"><c>monitor/3</c></seemfa>.
+	  <c>unalias/1</c> will always deactivate the alias regardless
+	  of options used when creating the alias.
+	</p>
+	<p>
+	  Returns true if <c><anno>Alias</anno></c> was a currently
+	  active alias for current processes; otherwise, false.
+	</p>
       </desc>
     </func>
 

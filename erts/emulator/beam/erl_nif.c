@@ -219,7 +219,6 @@ void erts_pre_nif(ErlNifEnv* env, Process* p, struct erl_module_nif* mod_nif,
     env->hp = HEAP_TOP(p);
     env->hp_end = HEAP_LIMIT(p);
     env->heap_frag = NULL;
-    env->fpe_was_unmasked = erts_block_fpe();
     env->tmp_obj_list = NULL;
     env->exception_thrown = 0;
     env->tracee = tracee;
@@ -315,7 +314,6 @@ static void tmp_alloc_dtor(struct enif_tmp_obj_t *tmp_obj)
 
 void erts_post_nif(ErlNifEnv* env)
 {
-    erts_unblock_fpe(env->fpe_was_unmasked);
     full_flush_env(env);
     free_tmp_objs(env);
     env->exiting = ERTS_PROC_IS_EXITING(env->proc);
@@ -372,7 +370,7 @@ static ERL_NIF_TERM dirty_nif_exception(ErlNifEnv* env, int argc, const ERL_NIF_
 int
 erts_call_dirty_nif(ErtsSchedulerData *esdp,
                     Process *c_p,
-                    const BeamInstr *I,
+                    ErtsCodePtr I,
                     Eterm *reg)
 {
     int exiting;
@@ -456,7 +454,6 @@ erts_call_dirty_nif(ErtsSchedulerData *esdp,
 	nep->func = NULL;
 #endif
 
-    erts_unblock_fpe(env.fpe_was_unmasked);
     full_flush_env(&env);
     free_tmp_objs(&env);
 
@@ -612,12 +609,10 @@ static ERTS_INLINE void pre_nif_noproc(struct enif_msg_environment_t* msg_env,
                                        Process* tracee)
 {
     setup_nif_env(msg_env, mod, tracee);
-    msg_env->env.fpe_was_unmasked = erts_block_fpe();
 }
 
 static ERTS_INLINE void post_nif_noproc(struct enif_msg_environment_t* msg_env)
 {
-    erts_unblock_fpe(msg_env->env.fpe_was_unmasked);
     enif_clear_env(&msg_env->env);
 }
 
@@ -3572,14 +3567,15 @@ int enif_monitor_process(ErlNifEnv* env, void* obj, const ErlNifPid* target_pid,
     ref = erts_make_ref_in_buffer(tmp);
 
     mdp = erts_monitor_create(ERTS_MON_TYPE_RESOURCE, ref,
-                              (Eterm) rsrc, target_pid->pid, NIL);
+                              (Eterm) rsrc, target_pid->pid,
+                              NIL, THE_NON_VALUE);
     erts_mtx_lock(&rm->lock);
     ASSERT(!rmon_is_dying(rm));
     erts_monitor_tree_insert(&rm->root, &mdp->origin);
     rmon_refc_inc(rm);
     erts_mtx_unlock(&rm->lock);
 
-    if (!erts_proc_sig_send_monitor(&mdp->target, target_pid->pid)) {
+    if (!erts_proc_sig_send_monitor(&mdp->u.target, target_pid->pid)) {
         /* Failed to send monitor signal; cleanup... */
 #ifdef DEBUG
         ErtsBinary* bin = ERTS_MAGIC_BIN_FROM_UNALIGNED_DATA(rsrc);
@@ -4263,12 +4259,6 @@ static struct erl_module_nif* create_lib(const ErlNifEntry* src)
  *
  * This is a small stub that rejects apply(erlang, load_nif, [Path, Args]). */
 BIF_RETTYPE load_nif_2(BIF_ALIST_2) {
-    if (BIF_P->flags & F_HIPE_MODE) {
-        BIF_RET(load_nif_error(BIF_P, "notsup",
-                               "Calling load_nif from HiPE compiled modules "
-                               "not supported"));
-    }
-    
     BIF_RET(load_nif_error(BIF_P, "bad_lib",
                            "load_nif/2 must be explicitly called from the NIF "
                            "module. It cannot be called through apply/3."));
@@ -4284,7 +4274,7 @@ typedef struct {
         /* data */
 #ifdef BEAMASM
         BeamInstr prologue[BEAM_ASM_FUNC_PROLOGUE_SIZE / sizeof(UWord)];
-        BeamInstr call_nif[9];
+        BeamInstr call_nif[10];
 #else
         BeamInstr call_nif[4];
 #endif
@@ -4350,7 +4340,7 @@ static void nif_call_table_init(void)
 
 static void patch_call_nif_early(ErlNifEntry*, struct erl_module_instance*);
 
-Eterm erts_load_nif(Process *c_p, BeamInstr *I, Eterm filename, Eterm args)
+Eterm erts_load_nif(Process *c_p, ErtsCodePtr I, Eterm filename, Eterm args)
 {
     static const char bad_lib[] = "bad_lib";
     static const char upgrade[] = "upgrade";
@@ -4411,7 +4401,7 @@ Eterm erts_load_nif(Process *c_p, BeamInstr *I, Eterm filename, Eterm args)
 			     "module '%T' not allowed", mod_atom);
 	goto error;
     } else if (module_p->on_load) {
-	ASSERT(module_p->on_load->code_hdr->on_load_function_ptr);
+	ASSERT(((module_p->on_load)->code_hdr)->on_load);
 	if (module_p->curr.code_hdr) {
 	    prev_mi = &module_p->curr;
 	} else {
@@ -4510,9 +4500,18 @@ Eterm erts_load_nif(Process *c_p, BeamInstr *I, Eterm filename, Eterm args)
                 break;
 	    }
 
-            ASSERT(erts_codeinfo_to_code((ErtsCodeInfo*)ci_pp[1]) -
-                    erts_codeinfo_to_code((ErtsCodeInfo*)ci_pp[0])
-                     >= BEAM_NATIVE_MIN_FUNC_SZ);
+#ifdef DEBUG
+        {
+            ErtsCodePtr curr_func, next_func;
+
+            curr_func = erts_codeinfo_to_code((ErtsCodeInfo*)ci_pp[0]);
+            next_func = erts_codeinfo_to_code((ErtsCodeInfo*)ci_pp[1]);
+
+            ASSERT(!ErtsInArea(next_func,
+                               curr_func,
+                               BEAM_NATIVE_MIN_FUNC_SZ * sizeof(UWord)));
+        }
+#endif
 
             ERTS_CT_ASSERT(sizeof(stub->code) <=
                     BEAM_NATIVE_MIN_FUNC_SZ * sizeof(Eterm));
@@ -4721,7 +4720,7 @@ static void patch_call_nif_early(ErlNifEntry* entry,
     }
 }
 
-BeamInstr* erts_call_nif_early(Process* c_p, const ErtsCodeInfo* ci)
+ErtsCodePtr erts_call_nif_early(Process* c_p, const ErtsCodeInfo* ci)
 {
     ErtsNifBeamStub* bs;
     ErtsNifBeamStub tmpl;
@@ -4733,7 +4732,7 @@ BeamInstr* erts_call_nif_early(Process* c_p, const ErtsCodeInfo* ci)
     erts_rwmtx_runlock(&erts_nif_call_tab_lock);
 
     ASSERT(bs);
-    return (BeamInstr*)&bs->code;
+    return (ErtsCodePtr)&bs->code;
 }
 
 static void load_nif_1st_finisher(void* vlib)
@@ -4748,15 +4747,15 @@ static void load_nif_1st_finisher(void* vlib)
     if (fin) {
         for (i=0; i < lib->entry.num_of_funcs; i++) {
             ErtsCodeInfo *ci = fin->beam_stubv[i].code_info_rw;
-            BeamInstr *code_ptr;
-
-            code_ptr = (BeamInstr*)erts_codeinfo_to_code(ci);
 
 #ifdef BEAMASM
-            sys_memcpy((char*)code_ptr + BEAM_ASM_FUNC_PROLOGUE_SIZE,
+            char *code_ptr = (char*)erts_codeinfo_to_code(ci);
+            sys_memcpy(&code_ptr[BEAM_ASM_FUNC_PROLOGUE_SIZE],
                        fin->beam_stubv[i].code.call_nif,
                        sizeof(fin->beam_stubv[0].code.call_nif));
 #else
+            BeamInstr *code_ptr = (BeamInstr*)erts_codeinfo_to_code(ci);
+
             /* called function */
             code_ptr[1] = fin->beam_stubv[i].code.call_nif[1];
 

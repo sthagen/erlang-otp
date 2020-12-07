@@ -312,6 +312,9 @@ is_options_ok([{ipfamily,IpFamily}|Opts])
     is_options_ok(Opts);
 is_options_ok([{agent_udp,Int}|Opts]) when is_integer(Int) ->
     is_options_ok(Opts);
+is_options_ok([{agent_udp, {IntR, IntT}}|Opts]) when is_integer(IntR) andalso
+                                                     is_integer(IntT) ->
+    is_options_ok(Opts);
 is_options_ok([{trap_udp,Int}|Opts]) when is_integer(Int) ->
     is_options_ok(Opts);
 is_options_ok([{community,List}|Opts]) when is_list(List) ->
@@ -429,8 +432,8 @@ handle_cast(iter_get_next, State)
     {noreply, execute_request(get_next, Oids, State)};
 
 handle_cast(iter_get_next, State) ->
-    ?PACK_SERV:error("[Iterated get-next] No Response PDU to "
-		     "start iterating from.", []),
+    ?EPRINT("[Iterated get-next] No Response PDU to "
+            "start iterating from.", []),
     {noreply, State};
 
 handle_cast({iter_get_next, N}, State) ->
@@ -442,8 +445,8 @@ handle_cast({iter_get_next, N}, State) ->
 				     State#state.packet_server),
 	    {noreply, State#state{last_received_pdu = PDU}};
 	true ->
-	    ?PACK_SERV:error("[Iterated get-next] No Response PDU to "
-				"start iterating from.", []),
+	    ?EPRINT("[Iterated get-next] No Response PDU to "
+                    "start iterating from.", []),
 	    {noreply, State}
     end;
 
@@ -537,7 +540,7 @@ report_error(#state{quiet = true, parent = Pid}, Format, Args) ->
     Reason = lists:flatten(io_lib:format(Format, Args)),
     Pid ! {oid_error, Reason};
 report_error(_, Format, Args) ->
-    ?PACK_SERV:error(Format, Args).
+    ?EPRINT(Format, Args).
 
 
 get_oid_from_varbind(#varbind{oid = Oid}) -> Oid.
@@ -699,13 +702,13 @@ echo_pdu(PDU, MiniMIB) ->
 %% Test Sequence
 %%----------------------------------------------------------------------
 echo_errors({error, Id, {ExpectedFormat, ExpectedData}, {Format, Data}})->
-    ?IPRINT("*** Unexpected Behaviour *** Id: ~w.~n"
-            "  Expected: " ++ ExpectedFormat ++ "~n"
-            "  Got:      " ++ Format ++ "~n", 
+    ?EPRINT("*** Unexpected Behaviour *** Id: ~w"
+            "~n   Expected: " ++ ExpectedFormat ++
+            "~n   Got:      " ++ Format ++ "~n", 
             [Id] ++ ExpectedData ++ Data),
     {error, Id, {ExpectedFormat, ExpectedData}, {Format, Data}};
 echo_errors(ok) -> ok;
-echo_errors({ok, Val}) -> {ok, Val}.
+echo_errors({ok, _} = OK) -> OK.
 
 get_response_impl(Id, ExpVars) ->
     ?IPRINT("await response ~w with"
@@ -738,9 +741,12 @@ get_response_impl(Id, ExpVars) ->
 	     {"Type: ~w, ErrStat: ~w, Idx: ~w", 
 	      [Type2, Err2, Index2]}};
 
-	{error, Reason} -> 
+	{error, Reason} ->
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive pdu error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end.
 
@@ -756,8 +762,11 @@ expect_impl(Id, any) ->
             ?IPRINT("received expected pdu (~w)", [Id]),
             ok;
 	{error, Reason} ->
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
             format_reason(Id, Reason)
     end;
 
@@ -768,8 +777,11 @@ expect_impl(Id, return) ->
             ?IPRINT("received expected pdu (~w)", [Id]),
             {ok, PDU};
 	{error, Reason} ->
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
             format_reason(Id, Reason)
     end;
 
@@ -780,8 +792,11 @@ expect_impl(Id, trap) ->
             ?IPRINT("received expected trap (~w)", [Id]),
             ok;
 	{error, Reason} ->
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
             format_reason(Id, Reason)
     end;
 
@@ -818,8 +833,11 @@ expect_impl(Id, Err) when is_atom(Err) ->
 	     {"ErrorStatus: ~w", [Err2]}};
 
 	{error, Reason} -> 
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end;
 
@@ -852,8 +870,11 @@ expect_impl(Id, ExpectedVarbinds) when is_list(ExpectedVarbinds) ->
 	     {"Type: ~w, ErrStat: ~w, Idx: ~w", [Type2, Err2, Index2]}};
 
 	{error, Reason} -> 
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end.
 
@@ -886,8 +907,11 @@ expect_impl(Id, v2trap, ExpectedVarbinds) when is_list(ExpectedVarbinds) ->
 	     {"Type: ~w, ErrStat: ~w, Idx: ~w", [Type2, Err2, Index2]}};
 
 	{error, Reason} -> 
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end;
 
@@ -920,8 +944,11 @@ expect_impl(Id, report, ExpectedVarbinds) when is_list(ExpectedVarbinds) ->
 	     {"Type: ~w, ErrStat: ~w, Idx: ~w", [Type2, Err2, Index2]}};
 
 	{error, Reason} -> 
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end;
 
@@ -981,8 +1008,11 @@ expect_impl(Id, {inform, Reply}, ExpectedVarbinds)
 	     {"Type: ~w, ErrStat: ~w, Idx: ~w", [Type2, Err2, Index2]}};
 
 	{error, Reason} -> 
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end.
 
@@ -1040,8 +1070,11 @@ expect_impl(Id, Err, Index, any = _ExpectedVarbinds) ->
 	     {"Type: ~w, ErrStat: ~w, Idx: ~w", [Type2, Err2, Index2]}};
 
 	{error, Reason} -> 
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected (receive) response: "
-                    "~n      ~p", [Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end;
 
@@ -1119,8 +1152,11 @@ expect_impl(Id, Err, Index, ExpectedVarbinds) ->
 	      [Type2,Err2,Index2,VBs]}};
 
 	{error, Reason} ->
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive pdu error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end.
 
@@ -1169,8 +1205,11 @@ expect_impl(Id, trap, Enterp, Generic, Specific, ExpectedVarbinds) ->
 	      [Ent2, G2, Spec2, VBs]}};
 
 	{error, Reason} -> 
+            %% We did not get the message we wanted,
+            %% but what did we get?
             ?EPRINT("unexpected receive trap pdu error: ~w"
-                    "~n   ~p", [Id, Reason]),
+                    "~n   Reason:  ~p"
+                    "~n   Msg Que: ~p", [Id, Reason, ?MQUEUE()]),
 	    format_reason(Id, Reason)
     end.
 

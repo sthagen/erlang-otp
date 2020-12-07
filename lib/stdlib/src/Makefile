@@ -71,6 +71,7 @@ MODULES= \
 	erl_posix_msg \
 	erl_pp \
 	erl_scan \
+	erl_stdlib_errors \
 	erl_tar \
 	error_logger_file_h \
 	error_logger_tty_h \
@@ -160,11 +161,7 @@ endif
 # FLAGS
 # ----------------------------------------------------
 
-ifeq ($(NATIVE_LIBS_ENABLED),yes)
-ERL_COMPILE_FLAGS += +native
-else
 ERL_COMPILE_FLAGS += -Werror
-endif
 ERL_COMPILE_FLAGS += -I../include -I../../kernel/include
 
 # ----------------------------------------------------

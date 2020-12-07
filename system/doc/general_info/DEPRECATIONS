@@ -29,6 +29,28 @@ disk_log:accessible_logs/0 since=24 remove=26
 disk_log:lclose/1 since=24 remove=26
 disk_log:lclose/2 since=24 remove=26
 erlang:phash/2 since=24
+code:is_module_native/1 since=24 remove=26
+zlib:inflateChunk/1 since=24 remove=27
+zlib:inflateChunk/2 since=24 remove=27
+zlib:getBufSize/1 since=24 remove=27
+zlib:setBufSize/2 since=24 remove=27
+zlib:crc32/1 since=24 remove=27
+zlib:crc32/2 since=24 remove=27
+zlib:crc32/3 since=24 remove=27
+zlib:adler32/2 since=24 remove=27
+zlib:adler32/3 since=24 remove=27
+zlib:crc32_combine/4 since=24 remove=27
+zlib:adler32_combine/4 since=24 remove=27
+
+#
+# Added in OTP 23.2.
+#
+igor:_/_ since=23 remove=24
+erl_tidy:dir/0 since=23 remove=24
+erl_tidy:dir/1 since=23 remove=24
+erl_tidy:file/1 since=23 remove=24
+erl_tidy:module/1 since=23 remove=24
+erl_tidy:module/2 since=23 remove=24
 
 #
 # Added in OTP 23.
@@ -127,7 +149,7 @@ gen_fsm:_/_ since=20
 # Added in OTP 19.
 #
 
-code:rehash/0 since=19
+code:rehash/0 since=19 remove=26
 crypto:rand_bytes/1 since=19
 queue:lait/1 since=19
 random:_/_ since=19

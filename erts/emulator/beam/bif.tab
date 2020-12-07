@@ -457,12 +457,6 @@ bif erts_debug:lcnt_control/1
 bif erts_debug:lcnt_collect/0
 bif erts_debug:lcnt_clear/0
 
-#
-# New Bifs in R8.
-#
-
-bif code:make_stub_module/3
-bif code:is_module_native/1
 
 #
 # New Bifs in R9C.
@@ -769,7 +763,13 @@ bif erts_internal:get_creation/0
 #
 # New in 24
 #
+
 bif erts_internal:prepare_loading/2
 bif erts_internal:beamfile_chunk/2
 bif erts_internal:beamfile_module_md5/1
 bif os:env/0
+bif erlang:alias/1
+bif erlang:unalias/1
+bif erlang:monitor/3
+bif erlang:error/3
+

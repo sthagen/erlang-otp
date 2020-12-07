@@ -80,6 +80,7 @@
 	 hostkey_fingerprint_check_sha512/1,
 	 hostkey_fingerprint_check_list/1,
          save_accepted_host_option/1,
+         raw_option/1,
          config_file/1,
          config_file_modify_algorithms_order/1
 	]).
@@ -139,6 +140,7 @@ all() ->
      id_string_own_string_server_trail_space,
      id_string_random_server,
      save_accepted_host_option,
+     raw_option,
      config_file,
      config_file_modify_algorithms_order,
      {group, hardening_tests}
@@ -1468,7 +1470,7 @@ max_sessions_drops_tcp_connects(Config) ->
                              {max_sessions, MaxSessions}
                             ]),
     Host = ssh_test_lib:mangle_connect_address(Host0),
-    ct:pal("~p Listen ~p:~p for max ~p sessions. Mangled Host = ~p",
+    ct:log("~p Listen ~p:~p for max ~p sessions. Mangled Host = ~p",
            [Pid,Host0,Port,MaxSessions,Host]),
     
     %% Log in UseSessions connections
@@ -1480,7 +1482,7 @@ max_sessions_drops_tcp_connects(Config) ->
                                           {user, "carni"},
                                           {password, "meat"}
                                          ]),
-                         ct:pal("~p: ssh:connect -> ~p", [N,R]),
+                         ct:log("~p: ssh:connect -> ~p", [N,R]),
                          R
                  end,
 
@@ -1489,18 +1491,18 @@ max_sessions_drops_tcp_connects(Config) ->
         UseSessions ->
             %% As expected
             %% Try gen_tcp:connect
-            [ct:pal("~p: gen_tcp:connect -> ~p", 
+            [ct:log("~p: gen_tcp:connect -> ~p", 
                     [N, gen_tcp:connect(Host, Port, [])])
              || N <- lists:seq(UseSessions+1, MaxSessions)
             ],
 
-            ct:pal("Now try ~p gen_tcp:connect to be rejected", [FloodSessions]),
-            [ct:pal("~p: gen_tcp:connect -> ~p", 
+            ct:log("Now try ~p gen_tcp:connect to be rejected", [FloodSessions]),
+            [ct:log("~p: gen_tcp:connect -> ~p", 
                     [N, gen_tcp:connect(Host, Port, [])])
              || N <- lists:seq(MaxSessions+1, MaxSessions+1+FloodSessions)
             ],
             
-            ct:pal("try ~p ssh:connect", [MaxSessions - UseSessions]),
+            ct:log("try ~p ssh:connect", [MaxSessions - UseSessions]),
             try_ssh_connect(MaxSessions - UseSessions, NegTimeOut, SSHconnect);
 
         Len1 ->
@@ -1551,6 +1553,12 @@ save_accepted_host_option(Config) ->
                                         {user_dir, UserDir}]),
     {ok,_} = file:read_file(KnownHosts),
     ssh:stop_daemon(Pid).
+
+%%--------------------------------------------------------------------
+raw_option(_Config) ->
+    Opts = [{raw,1,2,3,4}],
+    #{socket_options := Opts} = ssh_options:handle_options(client, Opts),
+    #{socket_options := Opts} = ssh_options:handle_options(server, Opts).
 
 %%--------------------------------------------------------------------
 config_file(Config) ->

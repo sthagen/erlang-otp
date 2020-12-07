@@ -82,29 +82,25 @@ typedef struct ErtsCodeInfo_ {
     BeamInstr op;           /* OpCode(i_func_info) */
     union {
         struct generic_bp* gen_bp;     /* Trace breakpoint */
-#ifdef HIPE
-        void (*ncallee)(void);
-        struct hipe_call_count* hcc;
-#endif
-    }u;
+    } u;
     ErtsCodeMFA mfa;
 } ErtsCodeInfo;
 
 /* Get the code associated with a ErtsCodeInfo ptr. */
 ERTS_GLB_INLINE
-const BeamInstr *erts_codeinfo_to_code(const ErtsCodeInfo *ci);
+ErtsCodePtr erts_codeinfo_to_code(const ErtsCodeInfo *ci);
 
 /* Get the ErtsCodeInfo for from a code ptr. */
 ERTS_GLB_INLINE
-const ErtsCodeInfo *erts_code_to_codeinfo(const BeamInstr *I);
+const ErtsCodeInfo *erts_code_to_codeinfo(ErtsCodePtr I);
 
 /* Get the code associated with a ErtsCodeMFA ptr. */
 ERTS_GLB_INLINE
-const BeamInstr *erts_codemfa_to_code(const ErtsCodeMFA *mfa);
+ErtsCodePtr erts_codemfa_to_code(const ErtsCodeMFA *mfa);
 
 /* Get the ErtsCodeMFA from a code ptr. */
 ERTS_GLB_INLINE
-const ErtsCodeMFA *erts_code_to_codemfa(const BeamInstr *I);
+const ErtsCodeMFA *erts_code_to_codemfa(ErtsCodePtr I);
 
 /* Called once at emulator initialization.
  */
@@ -186,39 +182,40 @@ extern erts_atomic32_t the_staging_code_index;
 #if ERTS_GLB_INLINE_INCL_FUNC_DEF
 
 ERTS_GLB_INLINE
-const BeamInstr *erts_codeinfo_to_code(const ErtsCodeInfo *ci)
+ErtsCodePtr erts_codeinfo_to_code(const ErtsCodeInfo *ci)
 {
 #ifndef BEAMASM
     ASSERT(BeamIsOpCode(ci->op, op_i_func_info_IaaI) || !ci->op);
 #endif
     ASSERT_MFA(&ci->mfa);
-    return (const BeamInstr*)(ci + 1);
+    return (ErtsCodePtr)&ci[1];
 }
 
 ERTS_GLB_INLINE
-const ErtsCodeInfo *erts_code_to_codeinfo(const BeamInstr *I)
+const ErtsCodeInfo *erts_code_to_codeinfo(ErtsCodePtr I)
 {
-    ErtsCodeInfo *ci = ((ErtsCodeInfo *)(((char *)(I)) - sizeof(ErtsCodeInfo)));
+    const ErtsCodeInfo *ci = &((const ErtsCodeInfo *)I)[-1];
+
 #ifndef BEAMASM
     ASSERT(BeamIsOpCode(ci->op, op_i_func_info_IaaI) || !ci->op);
 #endif
     ASSERT_MFA(&ci->mfa);
+
     return ci;
 }
 
 ERTS_GLB_INLINE
-const BeamInstr *erts_codemfa_to_code(const ErtsCodeMFA *mfa)
+ErtsCodePtr erts_codemfa_to_code(const ErtsCodeMFA *mfa)
 {
     ASSERT_MFA(mfa);
-    return (const BeamInstr*)(mfa + 1);
+    return (ErtsCodePtr)&mfa[1];
 }
 
 ERTS_GLB_INLINE
-const ErtsCodeMFA *erts_code_to_codemfa(const BeamInstr *I)
+const ErtsCodeMFA *erts_code_to_codemfa(ErtsCodePtr I)
 {
-    const ErtsCodeMFA *mfa;
+    const ErtsCodeMFA *mfa = &((const ErtsCodeMFA *)I)[-1];
 
-    mfa = ((const ErtsCodeMFA *)(((const char *)(I)) - sizeof(ErtsCodeMFA)));
     ASSERT_MFA(mfa);
 
     return mfa;

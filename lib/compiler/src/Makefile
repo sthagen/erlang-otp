@@ -60,6 +60,7 @@ MODULES =  \
 	beam_opcodes \
 	beam_peep \
 	beam_ssa \
+	beam_ssa_bc_size \
 	beam_ssa_bool \
 	beam_ssa_bsm \
 	beam_ssa_codegen \
@@ -133,11 +134,7 @@ APPUP_TARGET= $(EBIN)/$(APPUP_FILE)
 # FLAGS
 # ----------------------------------------------------
 
-ifeq ($(NATIVE_LIBS_ENABLED),yes)
-ERL_COMPILE_FLAGS += +native
-else
 ERL_COMPILE_FLAGS += -Werror
-endif
 ERL_COMPILE_FLAGS += +inline +warn_unused_import \
  -I../../stdlib/include -I$(EGEN) -W +warn_missing_spec
 

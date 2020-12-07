@@ -35,10 +35,6 @@
 #include "error.h"
 #include "big.h"
 #include "erl_gc.h"
-#ifdef HIPE
-#include "hipe_stack.h"
-#include "hipe_mode_switch.h"
-#endif
 #include "dtrace-wrapper.h"
 #include "erl_bif_unique.h"
 #include "dist.h"
@@ -154,9 +150,6 @@ static void grow_new_heap(Process *p, Uint new_sz, Eterm* objv, int nobj);
 static void sweep_off_heap(Process *p, int fullsweep);
 static void offset_heap(Eterm* hp, Uint sz, Sint offs, char* area, Uint area_size);
 static void offset_heap_ptr(Eterm* hp, Uint sz, Sint offs, char* area, Uint area_size);
-#ifdef HIPE
-static void offset_heap_ptr_nstack(Eterm* hp, Uint sz, Sint offs, char* area, Uint area_size);
-#endif
 static void offset_rootset(Process *p, Sint offs, char* area, Uint area_size,
 			   Eterm* objv, int nobj);
 static void offset_off_heap(Process* p, Sint offs, char* area, Uint area_size);
@@ -419,17 +412,10 @@ erts_gc_after_bif_call_lhf(Process* p, ErlHeapFragment *live_hf_end,
 {
     int cost;
 
-    if ((p->flags & F_HIBERNATE_SCHED) ||
-        (p->sig_qs.flags & FS_HIPE_RECV_LOCKED)) {
+    if (p->flags & F_HIBERNATE_SCHED) {
 	/*
 	 * We just hibernated. We do *not* want to mess
 	 * up the hibernation by an ordinary GC...
-         *
-         * OR
-         *
-         * We left a receive in HiPE with message
-         * queue lock locked, and we do not want to
-         * do a GC with message queue locked...
 	 */
 	return result;
     }
@@ -447,11 +433,6 @@ erts_gc_after_bif_call_lhf(Process* p, ErlHeapFragment *live_hf_end,
 
     if (is_non_value(result)) {
 	if (p->freason == TRAP) {
-#ifdef HIPE
-	    if (regs == NULL) {
-		regs = erts_proc_sched_data(p)->registers->x_reg_array.d;
-	    }
-#endif
 	    cost = garbage_collect(p, live_hf_end, 0, regs, p->arity, p->fcalls, 0);
 	} else {
 	    cost = garbage_collect(p, live_hf_end, 0, regs, arity, p->fcalls, 0);
@@ -973,7 +954,7 @@ garbage_collect_hibernate(Process* p, int check_long_gc)
 
     /* Only allow one continuation pointer. */
     ASSERT(p->stop == p->hend - CP_SIZE);
-    ASSERT(p->stop[0] == make_cp(BeamCodeNormalExit()));
+    ASSERT(p->stop[0] == make_cp(beam_normal_exit));
 
     /*
      * Do it.
@@ -1037,7 +1018,7 @@ garbage_collect_hibernate(Process* p, int check_long_gc)
 
     p->hend = heap + heap_size;
     p->stop = p->hend - CP_SIZE;
-    p->stop[0] = make_cp(BeamCodeNormalExit());
+    p->stop[0] = make_cp(beam_normal_exit);
 
     offs = heap - p->heap;
     area = (char *) p->heap;
@@ -1079,95 +1060,10 @@ erts_garbage_collect_hibernate(Process* p)
     BUMP_REDS(p, reds);
 }
 
-/*
- * HiPE native code stack scanning procedures:
- * - fullsweep_nstack()
- * - gensweep_nstack()
- * - offset_nstack()
- * - sweep_literals_nstack()
- */
-#if defined(HIPE)
-
-#define GENSWEEP_NSTACK(p,old_htop,n_htop)				\
-	do {								\
-		Eterm *tmp_old_htop = old_htop;				\
-		Eterm *tmp_n_htop = n_htop;				\
-		gensweep_nstack((p), &tmp_old_htop, &tmp_n_htop);	\
-		old_htop = tmp_old_htop;				\
-		n_htop = tmp_n_htop;					\
-	} while(0)
-
-
-/*
- * offset_nstack() can ignore the descriptor-based traversal the other
- * nstack procedures use and do a simpler word by word traversal instead.
- * This relies on two facts:
- * 1. The only live non-Erlang terms on an nstack are return addresses,
- *    and they will be skipped thanks to the low/high range check.
- * 2. Dead values, even if mistaken for pointers into the low/high area,
- *    can be offset safely since they won't be dereferenced.
- *
- * XXX: WARNING: If HiPE starts storing other non-Erlang values on the
- * nstack, such as floats, then this will have to be changed.
- */
-static ERTS_INLINE void offset_nstack(Process* p, Sint offs,
-				      char* area, Uint area_size)
-{
-    if (p->hipe.nstack) {
-	ASSERT(p->hipe.nsp && p->hipe.nstend);
-	offset_heap_ptr_nstack(hipe_nstack_start(p), hipe_nstack_used(p),
-                               offs, area, area_size);
-    }
-    else {
-	ASSERT(!p->hipe.nsp && !p->hipe.nstend);
-    }
-}
-
-/*
- * This is the same as offset_heap_ptr()
- *
- * Except for VALGRIND. It allows benign offsetting of undefined (dead) words
- * on the nstack while also retaining them as undefined. This suppresses
- * valgrinds "Conditional jump or move depends on uninitialised value(s)".
- */
-static void
-offset_heap_ptr_nstack(Eterm* hp, Uint sz, Sint offs,
-                       char* area, Uint area_size)
-{
-    while (sz--) {
-	Eterm val = *hp;
-#ifdef VALGRIND
-        Eterm val_vbits;
-        VALGRIND_GET_VBITS(&val, &val_vbits, sizeof(val));
-        VALGRIND_MAKE_MEM_DEFINED(&val, sizeof(val));
-#endif
-	switch (primary_tag(val)) {
-	case TAG_PRIMARY_LIST:
-	case TAG_PRIMARY_BOXED:
-	    if (ErtsInArea(ptr_val(val), area, area_size)) {
-#ifdef VALGRIND
-                VALGRIND_SET_VBITS(&val, val_vbits, sizeof(val));
-#endif
-		*hp = offset_ptr(val, offs);
-	    }
-	    hp++;
-	    break;
-	default:
-	    hp++;
-	    break;
-	}
-    }
-}
-
-
-#else /* !HIPE */
-
 #define fullsweep_nstack(p,n_htop)		        	(n_htop)
 #define GENSWEEP_NSTACK(p,old_htop,n_htop)	        	do{}while(0)
 #define offset_nstack(p,offs,area,area_size)	        	do{}while(0)
 #define sweep_literals_nstack(p,old_htop,area,area_size)	(old_htop)
-
-#endif /* HIPE */
 
 int
 erts_garbage_collect_literals(Process* p, Eterm* literals,
@@ -1946,13 +1842,6 @@ full_sweep_heaps(Process *p,
         n_htop = collect_live_heap_frags(p, live_hf_end, n_htop);
     }
 
-#ifdef HIPE
-    if (hibernate)
-	hipe_empty_nstack(p);
-    else
-	n_htop = fullsweep_nstack(p, n_htop);
-#endif
-
     roots = rootset.roots;
     while (n--) {
 	Eterm* g_ptr = roots->v;
@@ -2518,7 +2407,7 @@ erts_copy_one_frag(Eterm** hpp, ErlOffHeap* off_heap,
 	    case ARITYVAL_SUBTAG:
 		break;
 	    case REF_SUBTAG:
-		if (is_ordinary_ref_thing(fhp - 1))
+		if (!is_magic_ref_thing(fhp - 1))
 		    goto the_default;
 	    case REFC_BINARY_SUBTAG:
 	    case FUN_SUBTAG:
@@ -2665,9 +2554,10 @@ setup_rootset(Process *p, Eterm *objv, int nobj, Rootset *rootset)
              * queue that might refer to the heap...
              */
             for (mp = p->sig_inq.first; mp; mp = mp->next) {
-                if (ERTS_SIG_IS_INTERNAL_MSG(mp) && !mp->data.attached) {
-                    int i;
-                    for (i = 0; i < ERL_MESSAGE_REF_ARRAY_SZ; i++) {
+                if ((ERTS_SIG_IS_INTERNAL_MSG(mp) && !mp->data.attached)
+                    || ERTS_SIG_IS_HEAP_ALIAS_MSG(mp)) {
+                    int i = ERTS_SIG_IS_INTERNAL_MSG(mp) ? 0 : 1;
+                    for (; i < ERL_MESSAGE_REF_ARRAY_SZ; i++) {
                         ASSERT(is_immed(mp->m[i])
                                || erts_is_literal(mp->m[i],
                                                   ptr_val(mp->m[i])));
@@ -2693,13 +2583,16 @@ setup_rootset(Process *p, Eterm *objv, int nobj, Rootset *rootset)
         ERTS_FOREACH_SIG_PRIVQS(
             p, mp,
             {
+                /* Add signal data that may refer to heap... */
                 if (ERTS_SIG_IS_INTERNAL_MSG(mp) && !mp->data.attached) {
-                    /*
-                     * Message may refer data on heap;
-                     * add it to rootset...
-                     */
                     roots[n].v = mp->m;
                     roots[n].sz = ERL_MESSAGE_REF_ARRAY_SZ;
+                    n++;
+                }
+                else if (ERTS_SIG_IS_HEAP_ALIAS_MSG(mp)) {
+                    /* Exclude message slot... */
+                    roots[n].v = &mp->m[1];
+                    roots[n].sz = ERL_MESSAGE_REF_ARRAY_SZ - 1;
                     n++;
                 }
             });
@@ -2795,7 +2688,7 @@ shrink_new_heap(Process *p, Uint new_sz, Eterm *objv, int nobj)
 
         /*
          * Normally, we don't expect a shrunk heap to move, but you never
-         * know on some strange embedded systems...  Or when using purify.
+         * know on some strange embedded systems...
          */
 
         offset_heap(new_heap, heap_size, offs, area, area_size);
@@ -3152,7 +3045,7 @@ offset_heap(Eterm* hp, Uint sz, Sint offs, char* area, Uint area_size)
 	      tari = thing_arityval(val);
 	      switch (thing_subtag(val)) {
 	      case REF_SUBTAG:
-		  if (is_ordinary_ref_thing(hp))
+		  if (!is_magic_ref_thing(hp))
 		      break;
 	      case REFC_BINARY_SUBTAG:
 	      case FUN_SUBTAG:
@@ -3248,7 +3141,7 @@ static ERTS_INLINE void
 offset_message(ErtsMessage *mp, Sint offs, char* area, Uint area_size)
 {
     Eterm mesg = ERL_MESSAGE_TERM(mp);
-    if (ERTS_SIG_IS_MSG_TAG(mesg)) {
+    if (ERTS_SIG_IS_MSG_TAG(mesg) || ERTS_SIG_IS_HEAP_ALIAS_MSG_TAG(mesg)) {
         if (ERTS_SIG_IS_INTERNAL_MSG_TAG(mesg)) {
             switch (primary_tag(mesg)) {
             case TAG_PRIMARY_LIST:
@@ -3262,6 +3155,10 @@ offset_message(ErtsMessage *mp, Sint offs, char* area, Uint area_size)
         mesg = ERL_MESSAGE_TOKEN(mp);
         if (is_boxed(mesg) && ErtsInArea(ptr_val(mesg), area, area_size)) {
             ERL_MESSAGE_TOKEN(mp) = offset_ptr(mesg, offs);
+        }
+        mesg = ERL_MESSAGE_FROM(mp);
+        if (is_boxed(mesg) && ErtsInArea(ptr_val(mesg), area, area_size)) {
+            ERL_MESSAGE_FROM(mp) = offset_ptr(mesg, offs);
         }
 
         ERTS_OFFSET_DT_UTAG(mp, area, area_size, offs);

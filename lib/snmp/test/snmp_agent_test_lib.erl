@@ -26,7 +26,7 @@
 	 start_v2_agent/1,        start_v2_agent/2, 
 	 start_v3_agent/1,        start_v3_agent/2, 
 	 start_bilingual_agent/1, start_bilingual_agent/2, 
-	 start_mt_agent/1,        start_mt_agent/2, 
+	 start_mt_agent/1,        start_mt_agent/2,         start_mt_agent/3, 
 	 stop_agent/1,
 
 	 %% start_sup/0,      stop_sup/2,
@@ -475,22 +475,28 @@ tc_run(Mod, Func, Args, Opts) ->
             "~n   StdM:        ~p"
             "~n", [M,Vsn,Dir,User,SecLevel,EngineID,CtxEngineID,Community,StdM]),
     case snmp_test_mgr:start_link([%% {agent, snmp_test_lib:hostname()},
-			      {packet_server_debug, true},
-			      {debug,               false},
-			      {agent,               get(master_host)}, 
-			      {ipfamily,            get(ipfamily)},
-			      {agent_udp,           4000},
-			      {trap_udp,            5000},
-			      {recbuf,              65535},
-			      quiet,
-			      Vsn, 
-			      {community,           Community},
-			      {user,                User},
-			      {sec_level,           SecLevel},
-			      {engine_id,           EngineID},
-			      {context_engine_id,   CtxEngineID},
-			      {dir,                 Dir},
-			      {mibs,                mibs(StdM, M)}]) of
+                                   {packet_server_debug, true},
+                                   {debug,               false},
+                                   {agent,               get(master_host)}, 
+                                   {ipfamily,            get(ipfamily)},
+                                   {agent_udp,           4000},
+                                   %% <SEP-TRANSPORTS>
+                                   %% First port is used to request replies
+                                   %% Second port is used for traps sent
+                                   %% by the agent.
+                                   %% {agent_udp,           {4000, 4001}},
+                                   %% </SEP-TRANSPORTS>
+                                   {trap_udp,            5000},
+                                   {recbuf,              65535},
+                                   quiet,
+                                   Vsn, 
+                                   {community,           Community},
+                                   {user,                User},
+                                   {sec_level,           SecLevel},
+                                   {engine_id,           EngineID},
+                                   {context_engine_id,   CtxEngineID},
+                                   {dir,                 Dir},
+                                   {mibs,                mibs(StdM, M)}]) of
 	{ok, _Pid} ->
 	    case (catch apply(Mod, Func, Args)) of
 		{'EXIT', {skip, Reason}} ->
@@ -567,12 +573,18 @@ start_bilingual_agent(Config, Opts)
   when is_list(Config) andalso is_list(Opts) ->
     start_agent(Config, [v1,v2], Opts).
  
-start_mt_agent(Config) when is_list(Config) ->
-    start_agent(Config, [v2], [{multi_threaded, true}]).
+start_mt_agent(Config) ->
+    start_mt_agent(Config, true, []).
  
-start_mt_agent(Config, Opts) when is_list(Config) andalso is_list(Opts) ->
-    start_agent(Config, [v2], [{multi_threaded, true}|Opts]).
- 
+start_mt_agent(Config, MT) ->
+    start_mt_agent(Config, MT, []).
+
+start_mt_agent(Config, MT, Opts)
+  when is_list(Config) andalso 
+       ((MT =:= true) orelse (MT =:= extended)) andalso 
+       is_list(Opts) ->
+    start_agent(Config, [v2], [{multi_threaded, MT} | Opts]).
+
 start_agent(Config, Vsns) ->
     start_agent(Config, Vsns, []).
 start_agent(Config, Vsns, Opts) -> 
@@ -1584,14 +1596,28 @@ config(Vsns, MgrDir, AgentConfDir, MIp, AIp, IpFamily) ->
     ?line {Domain, ManagerAddr} =
 	case IpFamily of
 	    inet6 ->
-		Ipv6Domain = transportDomainUdpIpv6,
-		AgentIpv6Addr = {AIp, 4000},
-		ManagerIpv6Addr = {MIp, ?TRAP_UDP},
+		TransportDomain6 = transportDomainUdpIpv6,
+		AgentAddr6       = {AIp, 4000},
+		ManagerAddr6     = {MIp, ?TRAP_UDP},
 		?line ok =
 		    snmp_config:write_agent_snmp_files(
 		      AgentConfDir, Vsns,
-		      Ipv6Domain, ManagerIpv6Addr, AgentIpv6Addr, "test"),
-		{Ipv6Domain, ManagerIpv6Addr};
+		      TransportDomain6, ManagerAddr6, AgentAddr6, "test"),
+		{TransportDomain6, ManagerAddr6};
+	    inet ->
+		TransportDomain4 = transportDomainUdpIpv4,
+                AIp2 = maybe_fix_addr(AIp),
+		ManagerAddr4     = {MIp, ?TRAP_UDP},
+                %% AgentPreTransport  =
+                %%     [#{addr => {AIp2, 4000}, kind => req_responder},
+                %%      #{addr => {AIp2, 4001}, kind => trap_sender}],
+                AgentPreTransport  = [#{addr => {AIp2, 4000}}],
+		?line ok =
+		    snmp_config:write_agent_snmp_files(
+		      AgentConfDir, Vsns,
+		      TransportDomain4, ManagerAddr4, AgentPreTransport,
+                      "test"),
+		{TransportDomain4, ManagerAddr4};
 	    _ ->
 		?line ok =
 		    snmp_config:write_agent_snmp_files(
@@ -1614,6 +1640,12 @@ config(Vsns, MgrDir, AgentConfDir, MIp, AIp, IpFamily) ->
     ?line write_notify_conf(AgentConfDir),
     ok.
 
+maybe_fix_addr(Addr) when is_list(Addr) ->
+    list_to_tuple(Addr);
+maybe_fix_addr(Addr) when is_tuple(Addr) ->
+    Addr.
+
+    
 delete_files(Config) ->
     AgentDir = ?config(agent_dir, Config),
     delete_files(AgentDir, [db, conf]).

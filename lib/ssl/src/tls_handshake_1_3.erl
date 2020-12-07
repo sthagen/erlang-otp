@@ -241,7 +241,11 @@ filter_tls13_algs(Algo) ->
 %%     opaque certificate_request_context<0..2^8-1>;
 %%     CertificateEntry certificate_list<0..2^24-1>;
 %% } Certificate;
-certificate(OwnCert, CertDbHandle, CertDbRef, _CRContext, Role) ->
+certificate(undefined, _, _, _, client) ->
+    {ok, #certificate_1_3{
+            certificate_request_context = <<>>,
+            certificate_list = []}};
+certificate([OwnCert], CertDbHandle, CertDbRef, _CRContext, Role) ->
     case ssl_certificate:certificate_chain(OwnCert, CertDbHandle, CertDbRef) of
 	{ok, _, Chain} ->
             CertList = chain_to_cert_list(Chain),
@@ -263,8 +267,12 @@ certificate(OwnCert, CertDbHandle, CertDbRef, _CRContext, Role) ->
             {ok, #certificate_1_3{
                     certificate_request_context = <<>>,
                     certificate_list = []}}
-    end.
-
+    end;
+certificate([_,_| _] = Chain, _,_,_,_) ->
+    CertList = chain_to_cert_list(Chain),
+    {ok, #certificate_1_3{
+            certificate_request_context = <<>>,
+            certificate_list = CertList}}.
 
 certificate_verify(PrivateKey, SignatureScheme,
                    #state{connection_states = ConnectionStates,
@@ -581,11 +589,12 @@ build_content(Context, THash) ->
 %% TLS Server
 do_start(#client_hello{cipher_suites = ClientCiphers,
                        session_id = SessionId,
-                       extensions = Extensions} = _Hello,
+                       extensions = Extensions} = Hello,
          #state{ssl_options = #{ciphers := ServerCiphers,
                                 signature_algs := ServerSignAlgs,
                                 supported_groups := ServerGroups0,
                                 alpn_preferred_protocols := ALPNPreferredProtocols,
+                                keep_secrets := KeepSecrets,
                                 honor_cipher_order := HonorCipherOrder}} = State0) ->
     SNI = maps:get(sni, Extensions, undefined),
     ClientGroups0 = maps:get(elliptic_curves, Extensions, undefined),
@@ -612,7 +621,7 @@ do_start(#client_hello{cipher_suites = ClientCiphers,
 
     try
         #state{connection_states = ConnectionStates0,
-               session = #session{own_certificate = Cert}} = State1 =
+               session = #session{own_certificates = [Cert | _]}} = State1 =
             Maybe(ssl_connection:handle_sni_extension_tls13(SNI, State0)),
 
         Maybe(validate_cookie(Cookie, State1)),
@@ -654,7 +663,13 @@ do_start(#client_hello{cipher_suites = ClientCiphers,
                          State1
                  end,
 
-        State = update_start_state(State2,
+        State3 = if KeepSecrets =:= true ->
+                         set_client_random(State2, Hello#client_hello.random);
+                    true ->
+                         State2
+                 end,
+
+        State = update_start_state(State3,
                                    #{cipher => Cipher,
                                      key_share => KeyShare,
                                      session_id => SessionId,
@@ -698,7 +713,7 @@ do_start(#server_hello{cipher_suite = SelectedCipherSuite,
                                 use_ticket := UseTicket,
                                 session_tickets := SessionTickets,
                                 log_level := LogLevel} = SslOpts,
-                session = #session{own_certificate = Cert} = Session0,
+                session = #session{own_certificates = OwnCerts} = Session0,
                 connection_states = ConnectionStates0
                } = State0) ->
     ClientGroups = get_supported_groups(ClientGroups0),
@@ -730,7 +745,7 @@ do_start(#server_hello{cipher_suite = SelectedCipherSuite,
         TicketData = get_ticket_data(self(), SessionTickets, UseTicket),
         OcspNonce = maps:get(ocsp_nonce, OcspState, undefined),
         Hello0 = tls_handshake:client_hello(Host, Port, ConnectionStates0, SslOpts,
-                                           SessionId, Renegotiation, Cert, ClientKeyShare,
+                                           SessionId, Renegotiation, OwnCerts, ClientKeyShare,
                                            TicketData, OcspNonce),
         %% Echo cookie received in HelloRetryrequest
         Hello1 = maybe_add_cookie_extension(Cookie, Hello0),
@@ -888,28 +903,20 @@ do_wait_finished(#finished{verify_data = VerifyData},
 
     try
         Maybe(validate_finished(State0, VerifyData)),
-
         %% D.4.  Middlebox Compatibility Mode
         State1 = maybe_queue_change_cipher_spec(State0, first),
-
         %% Maybe send Certificate + CertificateVerify
         State2 = Maybe(maybe_queue_cert_cert_cv(State1)),
-
         Finished = finished(State2),
-
         %% Encode Finished
         State3 = tls_connection:queue_handshake(Finished, State2),
-
         %% Send first flight
         {State4, _} = tls_connection:send_handshake_flight(State3),
-
         State5 = calculate_traffic_secrets(State4),
         State6 = maybe_calculate_resumption_master_secret(State5),
         State7 = forget_master_secret(State6),
-
         %% Configure traffic keys
         ssl_record:step_encryption_state(State7)
-
     catch
         {Ref, #alert{} = Alert} ->
             Alert
@@ -1116,7 +1123,7 @@ maybe_queue_cert_cert_cv(#state{client_certificate_requested = false} = State) -
     {ok, State};
 maybe_queue_cert_cert_cv(#state{connection_states = _ConnectionStates0,
                                 session = #session{session_id = _SessionId,
-                                                   own_certificate = OwnCert},
+                                                   own_certificates = OwnCerts},
                                 ssl_options = #{} = _SslOpts,
                                 key_share = _KeyShare,
                                 handshake_env = #handshake_env{tls_handshake_history = _HHistory0},
@@ -1130,11 +1137,10 @@ maybe_queue_cert_cert_cv(#state{connection_states = _ConnectionStates0,
     {Ref,Maybe} = maybe(),
     try
         %% Create Certificate
-        Certificate = Maybe(certificate(OwnCert, CertDbHandle, CertDbRef, <<>>, client)),
+        Certificate = Maybe(certificate(OwnCerts, CertDbHandle, CertDbRef, <<>>, client)),
 
         %% Encode Certificate
         State1 = tls_connection:queue_handshake(Certificate, State0),
-
         %% Maybe create and queue CertificateVerify
         State = Maybe(maybe_queue_cert_verify(Certificate, State1)),
         {ok, State}
@@ -1233,11 +1239,11 @@ maybe_send_certificate_request(State, #{verify := verify_peer,
 
 maybe_send_certificate(State, PSK) when  PSK =/= undefined ->
     {ok, State};
-maybe_send_certificate(#state{session = #session{own_certificate = OwnCert},
+maybe_send_certificate(#state{session = #session{own_certificates = OwnCerts},
                               static_env = #static_env{
                                               cert_db = CertDbHandle,
                                               cert_db_ref = CertDbRef}} = State, _) ->
-    case certificate(OwnCert, CertDbHandle, CertDbRef, <<>>, server) of
+    case certificate(OwnCerts, CertDbHandle, CertDbRef, <<>>, server) of
         {ok, Certificate} ->
             {ok, tls_connection:queue_handshake(Certificate, State)};
         Error ->
@@ -1304,12 +1310,13 @@ create_change_cipher_spec(#state{ssl_options = #{log_level := LogLevel}}) ->
     [BinChangeCipher].
 
 process_certificate_request(#certificate_request_1_3{},
-                            #state{session = #session{own_certificate = undefined}} = State) ->
+                            #state{session = #session{own_certificates = undefined}} = State) ->
     {ok, {State#state{client_certificate_requested = true}, wait_cert}};
 
 process_certificate_request(#certificate_request_1_3{
                               extensions = Extensions},
-                            #state{session = #session{own_certificate = Cert} = Session} = State) ->
+                            #state{session = #session{own_certificates = [Cert|_]} = Session} = 
+                                State) ->
     ServerSignAlgs = get_signature_scheme_list(
                        maps:get(signature_algs, Extensions, undefined)),
     ServerSignAlgsCert = get_signature_scheme_list(
@@ -1324,7 +1331,7 @@ process_certificate_request(#certificate_request_1_3{
         {error, _} ->
             %% Certificate not supported: send empty certificate in state 'wait_finished'
             {ok, {State#state{client_certificate_requested = true,
-                              session = Session#session{own_certificate = undefined}}, wait_cert}}
+                              session = Session#session{own_certificates = undefined}}, wait_cert}}
     end.
 
 
@@ -1339,7 +1346,6 @@ process_certificate(#certificate_1_3{
                        certificate_list = []},
                     #state{ssl_options =
                                #{fail_if_no_peer_cert := true}} = State0) ->
-
     %% At this point the client believes that the connection is up and starts using
     %% its traffic secrets. In order to be able send an proper Alert to the client
     %% the server should also change its connection state and use the traffic
@@ -1385,57 +1391,31 @@ update_encryption_state(client, State) ->
 validate_certificate_chain(CertEntries, CertDbHandle, CertDbRef,
                            #{server_name_indication := ServerNameIndication,
                              partial_chain := PartialChain,
-                             verify_fun := VerifyFun,
-                             customize_hostname_check := CustomizeHostnameCheck,
-                             crl_check := CrlCheck,
-                             log_level := LogLevel,
-                             depth := Depth,
-                             ocsp_responder_certs := OcspResponderCerts,
-                             signature_algs := SignAlgs,
-                             signature_algs_cert := SignAlgsCert
+                             ocsp_responder_certs := OcspResponderCerts
                             } = SslOptions, CRLDbHandle, Role, Host, OcspState0) ->
     {Certs, CertExt, OcspState} = split_cert_entries(CertEntries, OcspState0),
     ServerName = ssl_handshake:server_name(ServerNameIndication, Host, Role),
-    [PeerCert | ChainCerts ] = Certs,
+    [PeerCert | _ChainCerts ] = Certs,
      try
-        {TrustedCert, CertPath}  =
-            ssl_certificate:trusted_cert_and_path(Certs, CertDbHandle, CertDbRef,
+         PathsAndAnchors =
+            ssl_certificate:trusted_cert_and_paths(Certs, CertDbHandle, CertDbRef,
                                                   PartialChain),
-        ValidationFunAndState =
-            ssl_handshake:validation_fun_and_state(VerifyFun, #{role => Role,
-                                                                certdb => CertDbHandle,
-                                                                certdb_ref => CertDbRef,
-                                                                server_name => ServerName,
-                                                                customize_hostname_check =>
-                                                                    CustomizeHostnameCheck,
-                                                                crl_check => CrlCheck,
-                                                                crl_db => CRLDbHandle,
-                                                                signature_algs => filter_tls13_algs(SignAlgs),
-                                                                signature_algs_cert => filter_tls13_algs(SignAlgsCert),
-                                                                version => {3,4},
-                                                                issuer => TrustedCert,
-                                                                cert_ext => CertExt,
-                                                                ocsp_responder_certs => OcspResponderCerts,
-                                                                ocsp_state => OcspState
-                                                               }, 
-                                                   CertPath, LogLevel),
-        Options = [{max_path_length, Depth},
-                   {verify_fun, ValidationFunAndState}],
-        case public_key:pkix_path_validation(TrustedCert, CertPath, Options) of
-            {ok, {PublicKeyInfo,_}} ->
-                {ok, {PeerCert, PublicKeyInfo}};
-            {error, Reason} ->
-                {ok, ssl_handshake:handle_path_validation_error(Reason, PeerCert, ChainCerts,
-                                                                SslOptions, Options,
-                                                                CertDbHandle, CertDbRef)}
-        end
-    catch
-        error:{badmatch,{error, {asn1, Asn1Reason}}} ->
-            %% ASN-1 decode of certificate somehow failed
-            {error, ?ALERT_REC(?FATAL, ?CERTIFICATE_UNKNOWN, {failed_to_decode_certificate, Asn1Reason})};
-        error:OtherReason ->
-            {error, ?ALERT_REC(?FATAL, ?INTERNAL_ERROR, {unexpected_error, OtherReason})}
-    end.
+         case path_validate(PathsAndAnchors, ServerName, Role, CertDbHandle, CertDbRef, CRLDbHandle,
+                            {3, 4}, SslOptions, #{cert_ext => CertExt,
+                                                  ocsp_state => OcspState,
+                                                  ocsp_responder_certs => OcspResponderCerts}) of
+             {ok, {PublicKeyInfo,_}} ->
+                 {ok, {PeerCert, PublicKeyInfo}};
+             {error, Reason} ->
+                 {ok, ssl_handshake:path_validation_alert(Reason)}
+         end
+     catch
+         error:{badmatch,{error, {asn1, Asn1Reason}}} ->
+             %% ASN-1 decode of certificate somehow failed
+             {error, ?ALERT_REC(?FATAL, ?CERTIFICATE_UNKNOWN, {failed_to_decode_certificate, Asn1Reason})};
+         error:OtherReason ->
+             {error, ?ALERT_REC(?FATAL, ?INTERNAL_ERROR, {unexpected_error, OtherReason})}
+     end.
 
 store_peer_cert(#state{session = Session,
                        handshake_env = HsEnv} = State, PeerCert, PublicKeyInfo) ->
@@ -1532,7 +1512,9 @@ calculate_handshake_secrets(PublicKey, PrivateKey, SelectedGroup, PSK,
     ReadFinishedKey = tls_v1:finished_key(ClientHSTrafficSecret, HKDFAlgo),
     WriteFinishedKey = tls_v1:finished_key(ServerHSTrafficSecret, HKDFAlgo),
 
-    update_pending_connection_states(State0, HandshakeSecret, undefined,
+    State1 = maybe_store_handshake_traffic_secret(State0, ClientHSTrafficSecret, ServerHSTrafficSecret),
+
+    update_pending_connection_states(State1, HandshakeSecret, undefined,
                                      undefined, undefined,
                                      ReadKey, ReadIV, ReadFinishedKey,
                                      WriteKey, WriteIV, WriteFinishedKey).
@@ -1687,6 +1669,36 @@ forget_master_secret(#state{connection_states =
 overwrite_master_secret(ConnectionState = #{security_parameters := SecurityParameters0}) ->
     SecurityParameters = SecurityParameters0#security_parameters{master_secret = {master_secret, <<0>>}},
     ConnectionState#{security_parameters => SecurityParameters}.
+
+
+set_client_random(#state{connection_states =
+                             #{pending_read := PendingRead,
+                               pending_write := PendingWrite,
+                               current_read := CurrentRead,
+                               current_write := CurrentWrite} = CS} = State, ClientRandom) ->
+    State#state{connection_states = CS#{pending_read => overwrite_client_random(PendingRead, ClientRandom),
+                                        pending_write => overwrite_client_random(PendingWrite, ClientRandom),
+                                        current_read => overwrite_client_random(CurrentRead, ClientRandom),
+                                        current_write => overwrite_client_random(CurrentWrite, ClientRandom)}}.
+
+
+overwrite_client_random(ConnectionState = #{security_parameters := SecurityParameters0}, ClientRandom) ->
+    SecurityParameters = SecurityParameters0#security_parameters{client_random = ClientRandom},
+    ConnectionState#{security_parameters => SecurityParameters}.
+
+
+maybe_store_handshake_traffic_secret(#state{connection_states =
+                                                #{pending_read := PendingRead} = CS,
+                                            ssl_options = #{keep_secrets := true}} = State,
+                                     ClientHSTrafficSecret, ServerHSTrafficSecret) ->
+    PendingRead1 = store_handshake_traffic_secret(PendingRead, ClientHSTrafficSecret, ServerHSTrafficSecret),
+    State#state{connection_states = CS#{pending_read => PendingRead1}};
+maybe_store_handshake_traffic_secret(State, _, _) ->
+    State.
+
+store_handshake_traffic_secret(ConnectionState, ClientHSTrafficSecret, ServerHSTrafficSecret) ->
+    ConnectionState#{client_handshake_traffic_secret => ClientHSTrafficSecret,
+                     server_handshake_traffic_secret => ServerHSTrafficSecret}.
 
 
 update_pending_connection_states(#state{
@@ -2531,3 +2543,53 @@ process_ticket(Bin, N) when is_binary(Bin) ->
 %% (see Section 4.6.1), modulo 2^32.
 obfuscate_ticket_age(TicketAge, AgeAdd) ->
     (TicketAge + AgeAdd) rem round(math:pow(2,32)).
+
+path_validate([{TrustedCert, Path}], ServerName, Role, CertDbHandle, CertDbRef, CRLDbHandle,
+              Version, SslOptions, CertExt) ->
+    path_validation(TrustedCert, Path, ServerName, Role, CertDbHandle, CertDbRef, 
+                    CRLDbHandle, Version, SslOptions, CertExt);
+path_validate([{TrustedCert, Path} | Rest], ServerName, Role, CertDbHandle, CertDbRef, CRLDbHandle,
+              Version, SslOptions, CertExt) ->
+    case path_validation(TrustedCert, Path, ServerName, 
+                         Role, CertDbHandle, CertDbRef, CRLDbHandle, 
+                         Version, SslOptions, CertExt) of
+        {ok, _} = Result ->
+            Result;
+        {error, _} ->
+            path_validate(Rest, ServerName, Role, CertDbHandle, CertDbRef, CRLDbHandle,
+                          Version, SslOptions, CertExt)
+    end.
+
+path_validation(TrustedCert, Path, ServerName, Role, CertDbHandle, CertDbRef, CRLDbHandle, Version,
+                #{verify_fun := VerifyFun,
+                  customize_hostname_check := CustomizeHostnameCheck,
+                  crl_check := CrlCheck,
+                  log_level := LogLevel,
+                  signature_algs := SignAlgos,
+                  signature_algs_cert := SignAlgosCert,
+                  depth := Depth}, 
+                #{cert_ext := CertExt,
+                  ocsp_responder_certs := OcspResponderCerts,
+                  ocsp_state := OcspState}) ->
+    ValidationFunAndState = 
+        ssl_handshake:validation_fun_and_state(VerifyFun, #{role => Role,
+                                                            certdb => CertDbHandle,
+                                                            certdb_ref => CertDbRef,
+                                                            server_name => ServerName,
+                                                            customize_hostname_check =>
+                                                                CustomizeHostnameCheck,
+                                                            crl_check => CrlCheck,
+                                                            crl_db => CRLDbHandle,
+                                                            signature_algs => filter_tls13_algs(SignAlgos),
+                                                            signature_algs_cert => 
+                                                                filter_tls13_algs(SignAlgosCert),
+                                                            version => Version,
+                                                            issuer => TrustedCert,
+                                                            cert_ext => CertExt,
+                                                            ocsp_responder_certs => OcspResponderCerts,
+                                                            ocsp_state => OcspState
+                                                           }, 
+                                               Path, LogLevel),
+    Options = [{max_path_length, Depth},
+               {verify_fun, ValidationFunAndState}],
+    public_key:pkix_path_validation(TrustedCert, Path, Options).

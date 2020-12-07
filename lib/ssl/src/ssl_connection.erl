@@ -230,10 +230,15 @@ recv(Pid, Length, Timeout) ->
 %%--------------------------------------------------------------------
 -spec connection_information(pid(), boolean()) -> {ok, list()} | {error, reason()}.
 %%
-%% Description: Get the SNI hostname
+%% Description: Get connection information
 %%--------------------------------------------------------------------
 connection_information(Pid, IncludeSecrityInfo) when is_pid(Pid) ->
-    call(Pid, {connection_information, IncludeSecrityInfo}).
+    case call(Pid, {connection_information, IncludeSecrityInfo}) of
+        {ok, Info} when IncludeSecrityInfo == true ->
+            {ok, maybe_add_keylog(Info)};
+        Other ->
+            Other
+    end.
 
 %%--------------------------------------------------------------------
 -spec close(pid(), {close, Timeout::integer() | 
@@ -799,12 +804,12 @@ ssl_config(Opts, Role, #state{static_env = InitStatEnv0,
            crl_db_info := CRLDbHandle,
            private_key := Key,
            dh_params := DHParams,
-           own_certificate := OwnCert}} =
+           own_certificates := OwnCerts}} =
 	ssl_config:init(Opts, Role), 
     TimeStamp = erlang:monotonic_time(),
     Session = State0#state.session,
     
-    State0#state{session = Session#session{own_certificate = OwnCert,
+    State0#state{session = Session#session{own_certificates = OwnCerts,
                                            time_stamp = TimeStamp},
                  static_env = InitStatEnv0#static_env{
                                 file_ref_db = FileRefHandle,
@@ -1111,7 +1116,7 @@ certify(internal, #certificate_request{},
                      Version, ?FUNCTION_NAME, State);
 certify(internal, #certificate_request{},
 	#state{static_env = #static_env{role = client},
-               session = #session{own_certificate = undefined}} = State, Connection) ->
+               session = #session{own_certificates = undefined}} = State, Connection) ->
     %% The client does not have a certificate and will send an empty reply, the server may fail 
     %% or accept the connection by its own preference. No signature algorihms needed as there is
     %% no certificate to verify.
@@ -1120,7 +1125,7 @@ certify(internal, #certificate_request{} = CertRequest,
 	#state{static_env = #static_env{role = client},
                handshake_env = HsEnv,
                connection_env = #connection_env{negotiated_version = Version},
-               session = #session{own_certificate = Cert},
+               session = #session{own_certificates = [Cert|_]},
                ssl_options = #{signature_algs := SupportedHashSigns}} = State, Connection) ->
     case ssl_handshake:select_hashsign(CertRequest, Cert, 
                                        SupportedHashSigns, ssl:tls_version(Version)) of
@@ -1717,13 +1722,37 @@ connection_info(#state{static_env = #static_env{protocol_cb = Connection},
      {sni_hostname, SNIHostname},
      {srp_username, SrpUsername} | CurveInfo] ++ MFLInfo ++ ssl_options_list(Opts).
 
-security_info(#state{connection_states = ConnectionStates}) ->
+security_info(#state{connection_states = ConnectionStates,
+                     static_env = #static_env{role = Role},
+                     ssl_options = #{keep_secrets := KeepSecrets}}) ->
+    ReadState = ssl_record:current_connection_state(ConnectionStates, read),
     #{security_parameters :=
 	  #security_parameters{client_random = ClientRand, 
                                server_random = ServerRand,
-                               master_secret = MasterSecret}} =
-	ssl_record:current_connection_state(ConnectionStates, read),
-    [{client_random, ClientRand}, {server_random, ServerRand}, {master_secret, MasterSecret}].
+                               master_secret = MasterSecret,
+                               application_traffic_secret = AppTrafSecretRead}} = ReadState,
+    BaseSecurityInfo = [{client_random, ClientRand}, {server_random, ServerRand}, {master_secret, MasterSecret}],
+    if KeepSecrets =/= true ->
+            BaseSecurityInfo;
+       true ->
+            #{security_parameters :=
+                  #security_parameters{application_traffic_secret = AppTrafSecretWrite}} =
+                ssl_record:current_connection_state(ConnectionStates, write),
+            BaseSecurityInfo ++
+                if Role == server ->
+                        [{server_traffic_secret_0, AppTrafSecretWrite}, {client_traffic_secret_0, AppTrafSecretRead}];
+                   true ->
+                        [{client_traffic_secret_0, AppTrafSecretWrite}, {server_traffic_secret_0, AppTrafSecretRead}]
+                end ++
+                case ReadState of
+                    #{client_handshake_traffic_secret := ClientHSTrafficSecret,
+                      server_handshake_traffic_secret := ServerHSTrafficSecret} ->
+                        [{client_handshake_traffic_secret, ClientHSTrafficSecret},
+                         {server_handshake_traffic_secret, ServerHSTrafficSecret}];
+                   _ ->
+                        []
+                end
+    end.
 
 do_server_hello(Type, #{next_protocol_negotiation := NextProtocols} =
 		    ServerHelloExt,
@@ -1876,9 +1905,9 @@ certify_client(#state{static_env = #static_env{role = client,
                                                cert_db = CertDbHandle,
                                                cert_db_ref = CertDbRef},
                       client_certificate_requested = true,
-		      session = #session{own_certificate = OwnCert}}
+		      session = #session{own_certificates = OwnCerts}}
 	       = State, Connection) ->
-    Certificate = ssl_handshake:certificate(OwnCert, CertDbHandle, CertDbRef, client),
+    Certificate = ssl_handshake:certificate(OwnCerts, CertDbHandle, CertDbRef, client),
     Connection:queue_handshake(Certificate, State);
 certify_client(#state{client_certificate_requested = false} = State, _) ->
     State.
@@ -1890,9 +1919,9 @@ verify_client_cert(#state{static_env = #static_env{role = client},
                                                            private_key = PrivateKey},
                           client_certificate_requested = true,
 			  session = #session{master_secret = MasterSecret,
-					     own_certificate = OwnCert}} = State, Connection) ->
+					     own_certificates = OwnCerts}} = State, Connection) ->
 
-    case ssl_handshake:client_certificate_verify(OwnCert, MasterSecret,
+    case ssl_handshake:client_certificate_verify(OwnCerts, MasterSecret,
 						 ssl:tls_version(Version), HashSign, PrivateKey, Hist) of
         #certificate_verify{} = Verified ->
            Connection:queue_handshake(Verified, State);
@@ -2010,8 +2039,8 @@ certify_server(#state{handshake_env = #handshake_env{kex_algorithm = KexAlg}} =
     State;
 certify_server(#state{static_env = #static_env{cert_db = CertDbHandle,
                                                cert_db_ref = CertDbRef},
-		      session = #session{own_certificate = OwnCert}} = State, Connection) ->
-    case ssl_handshake:certificate(OwnCert, CertDbHandle, CertDbRef, server) of
+		      session = #session{own_certificates = OwnCerts}} = State, Connection) ->
+    case ssl_handshake:certificate(OwnCerts, CertDbHandle, CertDbRef, server) of
 	Cert = #certificate{} ->
 	    Connection:queue_handshake(Cert, State);
 	Alert = #alert{} ->
@@ -2868,14 +2897,12 @@ ssl_options_list([{Key, Value}|T], Acc) ->
 
 handle_active_option(false, connection = StateName, To, Reply, State) ->
     hibernate_after(StateName, State, [{reply, To, Reply}]);
-
-handle_active_option(_, connection = StateName, To, _Reply, #state{static_env = #static_env{role = Role},
-                                                                   connection_env = #connection_env{terminated = true},
-                                                                   user_data_buffer = {_,0,_}} = State) ->
-    Alert = ?ALERT_REC(?FATAL, ?CLOSE_NOTIFY, all_data_deliverd),
-    handle_normal_shutdown(Alert#alert{role = Role}, StateName, 
-                           State#state{start_or_recv_from = To}),
-    {stop,{shutdown, peer_close}, State};
+handle_active_option(_, connection = StateName, To, Reply, #state{static_env = #static_env{role = Role},
+                                                                  connection_env = #connection_env{terminated = true},
+                                                                  user_data_buffer = {_,0,_}} = State) ->
+    Alert = ?ALERT_REC(?FATAL, ?CLOSE_NOTIFY, all_data_delivered),
+    handle_normal_shutdown(Alert#alert{role = Role}, StateName, State),
+    {stop_and_reply,{shutdown, peer_close}, [{reply, To, Reply}]};
 handle_active_option(_, connection = StateName0, To, Reply, #state{static_env = #static_env{protocol_cb = Connection},
                                                                    user_data_buffer = {_,0,_}} = State0) ->
     case Connection:next_event(StateName0, no_record, State0) of
@@ -3179,10 +3206,10 @@ handle_sni_hostname(Hostname,
                    crl_db_info := CRLDbHandle,
                    private_key := Key,
                    dh_params := DHParams,
-                   own_certificate := OwnCert}} =
+                   own_certificates := OwnCerts}} =
                  ssl_config:init(NewOptions, Role),
              State0#state{
-               session = State0#state.session#session{own_certificate = OwnCert},
+               session = State0#state.session#session{own_certificates = OwnCerts},
                static_env = InitStatEnv0#static_env{
                                         file_ref_db = FileRefHandle,
                                         cert_db_ref = Ref,
@@ -3249,3 +3276,52 @@ ocsp_info(#{ocsp_expect := no_staple} = OcspState, _, PeerCert) ->
       ocsp_responder_certs => [],
       ocsp_state => OcspState
      }.
+
+%% Maybe add NSS keylog info according to
+%% https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Key_Log_Format
+maybe_add_keylog(Info) ->
+    maybe_add_keylog(lists:keyfind(protocol, 1, Info), Info).
+
+maybe_add_keylog({_, 'tlsv1.2'}, Info) ->
+    try
+        {client_random, ClientRandomBin} = lists:keyfind(client_random, 1, Info),
+        {master_secret, MasterSecretBin} = lists:keyfind(master_secret, 1, Info),
+        ClientRandom = binary:decode_unsigned(ClientRandomBin),
+        MasterSecret = binary:decode_unsigned(MasterSecretBin),
+        Keylog = [io_lib:format("CLIENT_RANDOM ~64.16.0B ~96.16.0B", [ClientRandom, MasterSecret])],
+        Info ++ [{keylog,Keylog}]
+    catch
+        _Cxx:_Exx ->
+            Info
+    end;
+maybe_add_keylog({_, 'tlsv1.3'}, Info) ->
+    try
+        {client_random, ClientRandomBin} = lists:keyfind(client_random, 1, Info),
+        {client_traffic_secret_0, ClientTrafficSecret0Bin} = lists:keyfind(client_traffic_secret_0, 1, Info),
+        {server_traffic_secret_0, ServerTrafficSecret0Bin} = lists:keyfind(server_traffic_secret_0, 1, Info),
+        {client_handshake_traffic_secret, ClientHSecretBin} = lists:keyfind(client_handshake_traffic_secret, 1, Info),
+        {server_handshake_traffic_secret, ServerHSecretBin} = lists:keyfind(server_handshake_traffic_secret, 1, Info),
+        {selected_cipher_suite, #{prf := Prf}} = lists:keyfind(selected_cipher_suite, 1, Info),
+        ClientRandom = binary:decode_unsigned(ClientRandomBin),
+        ClientTrafficSecret0 = keylog_secret(ClientTrafficSecret0Bin, Prf),
+        ServerTrafficSecret0 = keylog_secret(ServerTrafficSecret0Bin, Prf),
+        ClientHSecret = keylog_secret(ClientHSecretBin, Prf),
+        ServerHSecret = keylog_secret(ServerHSecretBin, Prf),
+        Keylog = [io_lib:format("CLIENT_HANDSHAKE_TRAFFIC_SECRET ~64.16.0B ", [ClientRandom]) ++ ClientHSecret,
+                  io_lib:format("SERVER_HANDSHAKE_TRAFFIC_SECRET ~64.16.0B ", [ClientRandom]) ++ ServerHSecret,
+                  io_lib:format("CLIENT_TRAFFIC_SECRET_0 ~64.16.0B ", [ClientRandom]) ++ ClientTrafficSecret0,
+                  io_lib:format("SERVER_TRAFFIC_SECRET_0 ~64.16.0B ", [ClientRandom]) ++ ServerTrafficSecret0],
+        Info ++ [{keylog,Keylog}]
+    catch
+        _Cxx:_Exx ->
+            Info
+    end;
+maybe_add_keylog(_, Info) ->
+    Info.
+
+keylog_secret(SecretBin, sha256) ->
+    io_lib:format("~64.16.0B", [binary:decode_unsigned(SecretBin)]);
+keylog_secret(SecretBin, sha384) ->
+    io_lib:format("~96.16.0B", [binary:decode_unsigned(SecretBin)]);
+keylog_secret(SecretBin, sha512) ->
+    io_lib:format("~128.16.0B", [binary:decode_unsigned(SecretBin)]).

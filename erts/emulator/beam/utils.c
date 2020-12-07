@@ -56,9 +56,6 @@
 #define ERTS_WANT_TIMER_WHEEL_API
 #include "erl_time.h"
 #include "atom.h"
-#ifdef HIPE
-#  include "hipe_mode_switch.h"
-#endif
 #define ERTS_WANT_NFUNC_SCHED_INTERNALS__
 #include "erl_nfunc_sched.h"
 #include "erl_proc_sig_queue.h"
@@ -3084,14 +3081,6 @@ not_equal:
  *
  */
 
-/* cmp(Eterm a, Eterm b)
- *  For compatibility with HiPE - arith-based compare.
- */
-Sint cmp(Eterm a, Eterm b)
-{
-    return erts_cmp(a, b, 0, 0);
-}
-
 Sint erts_cmp_compound(Eterm a, Eterm b, int exact, int eq_only);
 
 /* erts_cmp(Eterm a, Eterm b, int exact)
@@ -3963,7 +3952,7 @@ store_external_or_ref_(Uint **hpp, ErlOffHeap* oh, Eterm ns)
 	ASSERT(is_external(ns));
         erts_ref_node_entry(etp->node, 2, make_boxed(to_hp));
     }
-    else if (is_ordinary_ref_thing(from_hp))
+    else if (!is_magic_ref_thing(from_hp))
 	return make_internal_ref(to_hp);
     else {
 	ErtsMRefThing *mreft = (ErtsMRefThing *) from_hp;
@@ -5065,10 +5054,8 @@ int erts_check_if_stack_grows_downwards(char *ptr)
  * a stack trace.
  */
 Eterm*
-erts_build_mfa_item(FunctionInfo* fi, Eterm* hp, Eterm args, Eterm* mfa_p)
+erts_build_mfa_item(FunctionInfo* fi, Eterm* hp, Eterm args, Eterm* mfa_p, Eterm loc)
 {
-    Eterm loc = NIL;
-
     if (fi->loc != LINE_INVALID_LOCATION) {
 	Eterm tuple;
 	int line = LOC_LINE(fi->loc);

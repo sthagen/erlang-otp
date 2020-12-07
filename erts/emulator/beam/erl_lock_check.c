@@ -85,9 +85,6 @@ static erts_lc_lock_order_t erts_lock_order[] = {
     {	"proc_main",				"pid"			},
     {   "old_code",                             "address"               },
     {   "nif_call_tab",                         NULL                    },
-#ifdef HIPE
-    {	"hipe_mfait_lock",			NULL			},
-#endif
     {	"nodes_monitors",			NULL			},
     {	"meta_name_tab",	         	"address"		},
     {	"db_tab",				"address"		},
@@ -146,6 +143,7 @@ static erts_lc_lock_order_t erts_lock_order[] = {
     {	"tracer_mtx", 				NULL			},
     {   "port_table",                           NULL                    },
     {	"magic_ref_table",			"address"		},
+    {	"pid_ref_table",			"address"		},
     {	"mtrace_op",				NULL			},
     {	"instr_x",				NULL			},
     {	"instr",				NULL			},

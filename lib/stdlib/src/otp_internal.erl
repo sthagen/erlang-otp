@@ -31,8 +31,10 @@ obsolete(auth, is_auth, 1) ->
     {deprecated, "use net_adm:ping/1 instead"};
 obsolete(calendar, local_time_to_universal_time, 1) ->
     {deprecated, "use calendar:local_time_to_universal_time_dst/1 instead"};
+obsolete(code, is_module_native, 1) ->
+    {deprecated, "HiPE has been removed", "OTP 26"};
 obsolete(code, rehash, 0) ->
-    {deprecated, "the code path cache feature has been removed"};
+    {deprecated, "the code path cache feature has been removed", "OTP 26"};
 obsolete(crypto, block_decrypt, 3) ->
     {deprecated, "use crypto:crypto_one_time/4 or crypto:crypto_init/3 + crypto:crypto_update/2 + crypto:crypto_final/1 instead", "OTP 24"};
 obsolete(crypto, block_decrypt, 4) ->
@@ -71,6 +73,16 @@ obsolete(disk_log, lclose, 1) ->
     {deprecated, "use disk_log:close/1 instead", "OTP 26"};
 obsolete(disk_log, lclose, 2) ->
     {deprecated, "use disk_log:close/1 instead", "OTP 26"};
+obsolete(erl_tidy, dir, 0) ->
+    {deprecated, "use https://github.com/richcarl/erl_tidy", "OTP 24"};
+obsolete(erl_tidy, dir, 1) ->
+    {deprecated, "use https://github.com/richcarl/erl_tidy", "OTP 24"};
+obsolete(erl_tidy, file, 1) ->
+    {deprecated, "use https://github.com/richcarl/erl_tidy", "OTP 24"};
+obsolete(erl_tidy, module, 1) ->
+    {deprecated, "use https://github.com/richcarl/erl_tidy", "OTP 24"};
+obsolete(erl_tidy, module, 2) ->
+    {deprecated, "use https://github.com/richcarl/erl_tidy", "OTP 24"};
 obsolete(erlang, now, 0) ->
     {deprecated, "see the \"Time and Time Correction in Erlang\" chapter of the ERTS User's Guide for more information"};
 obsolete(erlang, phash, 2) ->
@@ -118,13 +130,13 @@ obsolete(queue, lait, 1) ->
 obsolete(snmp, add_agent_caps, 2) ->
     {deprecated, "use snmpa:add_agent_caps/2 instead.", "OTP 24"};
 obsolete(snmp, c, 1) ->
-    {deprecated, "use snmpa:c/1 instead.", "OTP 24"};
+    {deprecated, "use snmpc:compile/1 instead.", "OTP 24"};
 obsolete(snmp, c, 2) ->
-    {deprecated, "use snmpa:c/2 instead.", "OTP 24"};
+    {deprecated, "use snmpc:compile/2 instead.", "OTP 24"};
 obsolete(snmp, change_log_size, 1) ->
     {deprecated, "use snmpa:change_log_size/1 instead.", "OTP 24"};
 obsolete(snmp, compile, 3) ->
-    {deprecated, "use snmpa:compile/3 instead.", "OTP 24"};
+    {deprecated, "use snmpc:compile/3 instead.", "OTP 24"};
 obsolete(snmp, current_address, 0) ->
     {deprecated, "use snmpa:current_address/0 instead.", "OTP 24"};
 obsolete(snmp, current_community, 0) ->
@@ -158,7 +170,7 @@ obsolete(snmp, int_to_enum, 2) ->
 obsolete(snmp, int_to_enum, 3) ->
     {deprecated, "use snmpa:int_to_enum/3 instead.", "OTP 24"};
 obsolete(snmp, is_consistent, 1) ->
-    {deprecated, "use snmpa:is_consistent/1 instead.", "OTP 24"};
+    {deprecated, "use snmpc:is_consistent/1 instead.", "OTP 24"};
 obsolete(snmp, load_mibs, 2) ->
     {deprecated, "use snmpa:load_mibs/2 instead.", "OTP 24"};
 obsolete(snmp, log_to_txt, 2) ->
@@ -168,7 +180,7 @@ obsolete(snmp, log_to_txt, 3) ->
 obsolete(snmp, log_to_txt, 4) ->
     {deprecated, "use snmpa:log_to_txt/4 instead.", "OTP 24"};
 obsolete(snmp, mib_to_hrl, 1) ->
-    {deprecated, "use snmpa:mib_to_hrl/1 instead.", "OTP 24"};
+    {deprecated, "use snmpc:mib_to_hrl/1 instead.", "OTP 24"};
 obsolete(snmp, name_to_oid, 1) ->
     {deprecated, "use snmpa:name_to_oid/1 instead.", "OTP 24"};
 obsolete(snmp, name_to_oid, 2) ->
@@ -301,6 +313,28 @@ obsolete(wxPostScriptDC, setResolution, 1) ->
     {deprecated, "not available in wxWidgets-2.9 and later"};
 obsolete(wxWindowDC, new, 0) ->
     {deprecated, "not available in wxWidgets-2.9 and later"};
+obsolete(zlib, adler32, 2) ->
+    {deprecated, "use erlang:adler32/1 instead", "OTP 27"};
+obsolete(zlib, adler32, 3) ->
+    {deprecated, "use erlang:adler32/2 instead", "OTP 27"};
+obsolete(zlib, adler32_combine, 4) ->
+    {deprecated, "use erlang:adler_combine/3 instead", "OTP 27"};
+obsolete(zlib, crc32, 1) ->
+    {deprecated, "use erlang:crc32/1 on the uncompressed data instead", "OTP 27"};
+obsolete(zlib, crc32, 2) ->
+    {deprecated, "use erlang:crc32/1 instead", "OTP 27"};
+obsolete(zlib, crc32, 3) ->
+    {deprecated, "use erlang:crc32/2 instead", "OTP 27"};
+obsolete(zlib, crc32_combine, 4) ->
+    {deprecated, "use erlang:crc32_combine/3 instead", "OTP 27"};
+obsolete(zlib, getBufSize, 1) ->
+    {deprecated, "this function will be removed in a future release", "OTP 27"};
+obsolete(zlib, inflateChunk, 1) ->
+    {deprecated, "use safeInflate/2 instead", "OTP 27"};
+obsolete(zlib, inflateChunk, 2) ->
+    {deprecated, "use safeInflate/2 instead", "OTP 27"};
+obsolete(zlib, setBufSize, 2) ->
+    {deprecated, "this function will be removed in a future release", "OTP 27"};
 obsolete(core_lib, get_anno, 1) ->
     {removed, "use cerl:get_ann/1 instead"};
 obsolete(core_lib, is_literal, 1) ->
@@ -485,8 +519,6 @@ obsolete(crypto, next_iv, _) ->
     {deprecated, "see the 'New and Old API' chapter of the CRYPTO User's guide", "OTP 24"};
 obsolete(crypto, stream_init, _) ->
     {deprecated, "use crypto:crypto_init/3 + crypto:crypto_update/2 + crypto:crypto_final/1 or crypto:crypto_one_time/4 instead", "OTP 24"};
-obsolete(filename, find_src, _) ->
-    {deprecated, "use filelib:find_source/1,3 instead", "OTP 24"};
 obsolete(ssl, ssl_accept, _) ->
     {deprecated, "use ssl_handshake/1,2,3 instead", "OTP 24"};
 obsolete(asn1ct, decode, _) ->
@@ -505,8 +537,12 @@ obsolete(erl_scan, attributes_info, _) ->
     {removed, "use erl_anno:{column,line,location,text}/1 instead"};
 obsolete(erl_scan, token_info, _) ->
     {removed, "use erl_scan:{category,column,line,location,symbol,text}/1 instead"};
+obsolete(filename, find_src, _) ->
+    {removed, "use filelib:find_source/1,3 instead"};
 obsolete(gen_fsm, _, _) ->
     {deprecated, "use the 'gen_statem' module instead"};
+obsolete(igor, _, _) ->
+    {deprecated, "use https://github.com/richcarl/igor", "OTP 24"};
 obsolete(pg2, _, _) ->
     {deprecated, "use 'pg' instead", "OTP 24"};
 obsolete(random, _, _) ->

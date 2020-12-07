@@ -278,6 +278,7 @@ public:
 #ifdef DEBUG
         a.addValidationOptions(BaseEmitter::kValidationOptionAssembler);
 #endif
+        a.addEncodingOptions(BaseEmitter::kEncodingOptionOptimizeForSize);
         code.setErrorHandler(this);
     }
 
@@ -419,6 +420,13 @@ protected:
         return x86::Mem(Src, -TAG_PRIMARY_LIST + sizeof(Eterm), size);
     }
 
+    void align_erlang_cp() {
+        /* Align so that the current address forms a valid CP. */
+        ERTS_CT_ASSERT(_CPMASK == 3);
+        a.align(kAlignCode, 4);
+        ASSERT(is_CP(a.offset()));
+    }
+
     void load_x_reg_array(x86::Gp reg) {
         /* By definition. */
         a.mov(reg, registers);
@@ -469,9 +477,9 @@ protected:
 
         a.jmp(Target);
 
-        /* Need to align this label in order for it to be recognized as is_CP.
-         */
-        a.align(kAlignCode, 8);
+        /* Need to align this label in order for it to be recognized as
+         * is_CP. */
+        align_erlang_cp();
         a.bind(next);
 #endif
     }
@@ -548,12 +556,13 @@ protected:
      * CP. */
     template<typename OperandType>
     void aligned_call(OperandType target, size_t size) {
-        /* The return address must be 8-byte aligned to form a valid CP, so
+        /* The return address must be 4-byte aligned to form a valid CP, so
          * we'll align according to the size of the call instruction. */
         ssize_t next_address = (a.offset() + size);
 
-        if (next_address % 8) {
-            ssize_t nop_count = 8 - next_address % 8;
+        ERTS_CT_ASSERT(_CPMASK == 3);
+        if (next_address % 4) {
+            ssize_t nop_count = 4 - next_address % 4;
 
             for (int i = 0; i < nop_count; i++) {
                 a.nop();
@@ -566,7 +575,7 @@ protected:
 #endif
 
         a.call(target);
-        ASSERT((a.offset() % 8) == 0);
+        ASSERT(is_CP(a.offset()));
     }
 
     void runtime_call(x86::Gp func, unsigned args) {
@@ -896,18 +905,9 @@ protected:
              *
              * Thus, "xor eax, eax" is five bytes shorter than "mov rax, 0".
              *
-             * Note: xor clears ZF and C; mov does not change any flags.
+             * Note: xor clears ZF and CF; mov does not change any flags.
              */
             a.xor_(to.r32(), to.r32());
-        } else if (Support::isInt32(value)) {
-            /*
-             * Generate the shortest instruction to set the register
-             * to an unsigned immediate value that fits in 32 bits.
-             *
-             *   48 c7 c0 2a 00 00 00    mov    rax, 42
-             *   b8 2a 00 00 00          mov    eax, 42
-             */
-            a.mov(to.r32(), imm(value));
         } else {
             a.mov(to, imm(value));
         }
@@ -948,8 +948,8 @@ public:
     }
 
     struct AsmRange {
-        const BeamInstr *start;
-        const BeamInstr *stop;
+        ErtsCodePtr start;
+        ErtsCodePtr stop;
         std::string name;
 
         /* Not used yet */
@@ -1178,7 +1178,7 @@ public:
 
     void codegen(char *buff, size_t len);
 
-    BeamInstr *getCode(unsigned label);
+    ErtsCodePtr getCode(unsigned label);
     void *getCode(Label label) {
         return BeamAssembler::getCode(label);
     }
@@ -1195,7 +1195,7 @@ public:
 
     void copyCodeHeader(BeamCodeHeader *hdr);
     BeamCodeHeader *getCodeHeader(void);
-    BeamInstr *getOnLoad(void);
+    const ErtsCodeInfo *getOnLoad(void);
 
     unsigned patchCatches(char *rw_base);
     void patchLambda(char *rw_base, unsigned index, BeamInstr I);

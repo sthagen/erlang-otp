@@ -34,14 +34,11 @@
 #include "dist.h"
 #include "beam_catches.h"
 #include "beam_common.h"
-#ifdef HIPE
-#include "hipe_mode_switch.h"
-#endif
 
 static Eterm *get_freason_ptr_from_exc(Eterm exc);
-static BeamInstr* next_catch(Process* c_p, Eterm *reg);
+static ErtsCodePtr next_catch(Process* c_p, Eterm *reg);
 static void terminate_proc(Process* c_p, Eterm Value);
-static void save_stacktrace(Process* c_p, const BeamInstr* pc, Eterm* reg,
+static void save_stacktrace(Process* c_p, ErtsCodePtr pc, Eterm* reg,
                             const ErtsCodeMFA *bif_mfa, Eterm args);
 
 static Eterm make_arglist(Process* c_p, Eterm* reg, int a);
@@ -184,7 +181,6 @@ void erts_dirty_process_main(ErtsSchedulerData *esdp)
     ERTS_REQ_PROC_MAIN_LOCK(c_p);
     PROCESS_MAIN_CHK_LOCKS(c_p);
 
-    ASSERT(!(c_p->flags & F_HIPE_MODE));
     ERTS_MSACC_UPDATE_CACHE_X();
 
     /* Set fcalls even though we ignore it, so we don't
@@ -220,7 +216,7 @@ void erts_dirty_process_main(ErtsSchedulerData *esdp)
 	 * in a register gives smaller code than referencing a global variable).
 	 */
 
-	I = c_p->i;
+	I = (const BeamInstr*)c_p->i;
 
 	SWAPIN;
 
@@ -271,23 +267,13 @@ void erts_dirty_process_main(ErtsSchedulerData *esdp)
 	ERTS_UNREQ_PROC_MAIN_LOCK(c_p);
 
 	ASSERT(!ERTS_PROC_IS_EXITING(c_p));
-#ifdef BEAMASM
-	if (*I == op_call_bif_W) {
-	    exiting = erts_call_dirty_bif(esdp, c_p, I, reg);
-	}
-	else {
-	    ASSERT(*I == op_call_nif_WWW);
+
+        if (BeamIsOpCode(I[0], op_call_bif_W)) {
+            exiting = erts_call_dirty_bif(esdp, c_p, I, reg);
+        } else {
+            ASSERT(BeamIsOpCode(I[0], op_call_nif_WWW));
             exiting = erts_call_dirty_nif(esdp, c_p, I, reg);
-	}
-#else
-        if (BeamIsOpCode(*I,op_call_bif_W)) {
-	    exiting = erts_call_dirty_bif(esdp, c_p, I, reg);
-	}
-	else {
-	    ASSERT(BeamIsOpCode(*I, op_call_nif_WWW));
-            exiting = erts_call_dirty_nif(esdp, c_p, I, reg);
-	}
-#endif
+        }
 
 	ASSERT(!(c_p->flags & F_HIBERNATE_SCHED));
 
@@ -350,7 +336,7 @@ void copy_in_registers(Process *c_p, Eterm *reg) {
 
 void check_monitor_long_schedule(Process *c_p,
                                  Uint64 start_time,
-                                 const BeamInstr* start_time_i) {
+                                 ErtsCodePtr start_time_i) {
     Sint64 diff = erts_timestamp_millis() - start_time;
     if (diff > 0 && (Uint) diff >  erts_system_monitor_long_schedule) {
         const ErtsCodeMFA *inptr = erts_find_function_from_pc(start_time_i);
@@ -411,13 +397,13 @@ Eterm error_atom[NUMBER_EXIT_CODES] = {
  *
  * This is needed to generate correct stacktraces when throwing errors from
  * instructions that return like an ordinary function, such as call_nif. */
-BeamInstr *erts_printable_return_address(Process* p, Eterm *E) {
+ErtsCodePtr erts_printable_return_address(Process* p, Eterm *E) {
     Eterm *ptr = E;
 
     ASSERT(is_CP(*ptr));
 
     while (ptr < STACK_START(p)) {
-        BeamInstr *cp = cp_val(*ptr);
+        ErtsCodePtr cp = cp_val(*ptr);
 
         if (BeamIsReturnTrace(cp)) {
             ptr += 3;
@@ -435,17 +421,6 @@ BeamInstr *erts_printable_return_address(Process* p, Eterm *E) {
 }
 
 /*
- * To fully understand the error handling, one must keep in mind that
- * when an exception is thrown, the search for a handler can jump back
- * and forth between Beam and native code. Upon each mode switch, a
- * dummy handler is inserted so that if an exception reaches that point,
- * the handler is invoked (like any handler) and transfers control so
- * that the search for a real handler is continued in the other mode.
- * Therefore, c_p->freason and c_p->fvalue must still hold the exception
- * info when the handler is executed, but normalized so that creation of
- * error terms and saving of the stack trace is only done once, even if
- * we pass through the error handling code several times.
- *
  * When a new exception is raised, the current stack trace information
  * is quick-saved in a small structure allocated on the heap. Depending
  * on how the exception is eventually caught (perhaps by causing the
@@ -454,8 +429,8 @@ BeamInstr *erts_printable_return_address(Process* p, Eterm *E) {
  * at the point of the original exception.
  */
 
-const BeamInstr*
-handle_error(Process* c_p, const BeamInstr* pc, Eterm* reg,
+ErtsCodePtr
+handle_error(Process* c_p, ErtsCodePtr pc, Eterm* reg,
              const ErtsCodeMFA *bif_mfa)
 {
     Eterm* hp;
@@ -478,16 +453,29 @@ handle_error(Process* c_p, const BeamInstr* pc, Eterm* reg,
     c_p->i = pc;    /* In case we call erts_exit(). */
 
     /*
-     * Check if we have an arglist for the top level call. If so, this
-     * is encoded in Value, so we have to dig out the real Value as well
-     * as the Arglist.
+     * Check if we have an arglist and possibly an `error_info` term
+     * for the top level call. If so, this is encoded in Value, so we
+     * have to dig out the real Value as well as the Arglist and the
+     * `error_info` term.
      */
+
     if (c_p->freason & EXF_ARGLIST) {
-	  Eterm* tp;
-	  ASSERT(is_tuple(Value));
-	  tp = tuple_val(Value);
-	  Value = tp[1];
-	  Args = tp[2];
+	Eterm* tp;
+	tp = tuple_val(Value);
+	Value = tp[1];
+	Args = tp[2];
+	switch (arityval(tp[0])) {
+	case 2:
+	    break;
+	case 3:
+	    /* Dig out the `error_info` term passed to error/3. */
+	    ASSERT(c_p->freason & EXF_HAS_EXT_INFO);
+	    c_p->fvalue = tp[3];
+	    break;
+	default:
+	    ASSERT(0);
+	    break;
+	}
     }
 
     /*
@@ -522,7 +510,7 @@ handle_error(Process* c_p, const BeamInstr* pc, Eterm* reg,
     /* Find a handler or die */
     if ((c_p->catches > 0 || IS_TRACED_FL(c_p, F_EXCEPTION_TRACE))
 	&& !(c_p->freason & EXF_PANIC)) {
-	BeamInstr *new_pc;
+	ErtsCodePtr new_pc;
         /* The Beam handler code (catch_end or try_end) checks reg[0]
 	   for THE_NON_VALUE to see if the previous code finished
 	   abnormally. If so, reg[1], reg[2] and reg[3] should hold the
@@ -565,7 +553,7 @@ handle_error(Process* c_p, const BeamInstr* pc, Eterm* reg,
 /*
  * Find the nearest catch handler
  */
-static BeamInstr*
+static ErtsCodePtr
 next_catch(Process* c_p, Eterm *reg) {
     int active_catches = c_p->catches > 0;
     int have_return_to_trace = 0;
@@ -592,32 +580,22 @@ next_catch(Process* c_p, Eterm *reg) {
 	else if (is_CP(*ptr)) {
 	    prev = ptr;
 	    if (BeamIsReturnTrace(cp_val(*prev))) {
-		/* Skip stack frame variables */
-		while (++ptr, ptr < STACK_START(c_p) && is_not_CP(*ptr)) {
-		    if (is_catch(*ptr) && active_catches) goto found_catch;
-		}
 		if (cp_val(*prev) == beam_exception_trace) {
-                    ErtsCodeMFA *mfa = (ErtsCodeMFA*)cp_val(ptr[0]);
+                    ErtsCodeMFA *mfa = (ErtsCodeMFA*)cp_val(ptr[1]);
 		    erts_trace_exception(c_p, mfa,
 					 reg[1], reg[2],
-                                         ERTS_TRACER_FROM_ETERM(ptr+1));
+                                         ERTS_TRACER_FROM_ETERM(ptr+2));
 		}
-		/* Skip return_trace parameters */
-		ptr += 2;
+		/* Skip MFA, tracer, and CP. */
+                ptr += 3;
 	    } else if (BeamIsReturnToTrace(cp_val(*prev))) {
-		/* Skip stack frame variables */
-		while (++ptr, ptr < STACK_START(c_p) && is_not_CP(*ptr)) {
-		    if (is_catch(*ptr) && active_catches) goto found_catch;
-		}
 		have_return_to_trace = !0; /* Record next cp */
 		return_to_trace_ptr = NULL;
-	    } else if (BeamIsReturnTimeTrace(cp_val(*prev))) {
-		/* Skip stack frame variables */
-		while (++ptr, ptr < STACK_START(c_p) && is_not_CP(*ptr)) {
-		    if (is_catch(*ptr) && active_catches) goto found_catch;
-		}
-		/* Skip return_trace parameters */
+		/* Skip CP. */
 		ptr += 1;
+	    } else if (BeamIsReturnTimeTrace(cp_val(*prev))) {
+		/* Skip prev_info and CP. */
+		ptr += 2;
 	    } else {
 		if (have_return_to_trace) {
 		    /* Record this cp as possible return_to trace cp */
@@ -744,7 +722,7 @@ expand_error_value(Process* c_p, Uint freason, Eterm Value) {
 static void
 gather_stacktrace(Process* p, struct StackTrace* s, int depth)
 {
-    const BeamInstr *prev;
+    ErtsCodePtr prev;
     Eterm *ptr;
 
     if (depth == 0) {
@@ -765,7 +743,7 @@ gather_stacktrace(Process* p, struct StackTrace* s, int depth)
 
     while (ptr < STACK_START(p) && depth > 0) {
         if (is_CP(*ptr)) {
-            BeamInstr *cp = cp_val(*ptr);
+            ErtsCodePtr cp = cp_val(*ptr);
 
             if (BeamIsReturnTrace(cp)) {
                 ptr += 3;
@@ -788,7 +766,7 @@ gather_stacktrace(Process* p, struct StackTrace* s, int depth)
 		    adjusted_cp = ((char *) cp) - 1;
 #else
 		    /* Subtract one word from the pointer. */
-		    adjusted_cp = cp - 1;
+		    adjusted_cp = ((char *) cp) - sizeof(UWord);
 #endif
                     s->trace[s->depth++] = adjusted_cp;
                     depth--;
@@ -836,11 +814,12 @@ gather_stacktrace(Process* p, struct StackTrace* s, int depth)
  */
 
 static void
-save_stacktrace(Process* c_p, const BeamInstr* pc, Eterm* reg,
+save_stacktrace(Process* c_p, ErtsCodePtr pc, Eterm* reg,
                 const ErtsCodeMFA *bif_mfa, Eterm args) {
     struct StackTrace* s;
     int sz;
     int depth = erts_backtrace_depth;    /* max depth (never negative) */
+    Eterm error_info = THE_NON_VALUE;
 
     if (depth > 0) {
 	/* There will always be a current function */
@@ -848,7 +827,7 @@ save_stacktrace(Process* c_p, const BeamInstr* pc, Eterm* reg,
     }
 
     /* Create a container for the exception data */
-    sz = (offsetof(struct StackTrace, trace) + sizeof(BeamInstr *)*depth
+    sz = (offsetof(struct StackTrace, trace) + sizeof(ErtsCodePtr) * depth
           + sizeof(Eterm) - 1) / sizeof(Eterm);
     s = (struct StackTrace *) HAlloc(c_p, 1 + sz);
     /* The following fields are inside the bignum */
@@ -858,14 +837,17 @@ save_stacktrace(Process* c_p, const BeamInstr* pc, Eterm* reg,
 
     /*
      * If the failure was in a BIF other than 'error/1', 'error/2',
-     * 'exit/1' or 'throw/1', save BIF-MFA and save the argument
-     * registers by consing up an arglist.
+     * 'error/3', 'exit/1', or 'throw/1', save BIF MFA and save the
+     * argument registers by consing up an arglist.
      */
     if (bif_mfa) {
+	Eterm *hp;
+        Eterm format_module = THE_NON_VALUE;
+
 	if (bif_mfa->module == am_erlang) {
 	    switch (bif_mfa->function) {
 	    case am_error:
-		if (bif_mfa->arity == 1 || bif_mfa->arity == 2)
+		if (bif_mfa->arity == 1 || bif_mfa->arity == 2 || bif_mfa->arity == 3)
 		    goto non_bif_stacktrace;
 		break;
 	    case am_exit:
@@ -888,7 +870,56 @@ save_stacktrace(Process* c_p, const BeamInstr* pc, Eterm* reg,
 	    depth--;
 	}
 	s->pc = NULL;
-	args = make_arglist(c_p, reg, bif_mfa->arity); /* Overwrite CAR(c_p->ftrace) */
+
+        /*
+         * All format_error/2 functions for BIFs must be in separate modules,
+         * to allow them to be removed from application systems with tight
+         * storage constraints.
+         */
+
+        switch (bif_mfa->module) {
+            /* Erts */
+        case am_atomics:
+            format_module = am_erl_erts_errors;
+            break;
+        case am_counters:
+            format_module = am_erl_erts_errors;
+            break;
+        case am_erlang:
+            format_module = am_erl_erts_errors;
+            break;
+        case am_persistent_term:
+            format_module = am_erl_erts_errors;
+            break;
+
+            /* Kernel */
+        case am_os:
+            format_module = am_erl_kernel_errors;
+            break;
+
+            /* STDLIB */
+        case am_ets:
+            format_module = am_erl_stdlib_errors;
+            break;
+
+        default:
+            ASSERT((c_p->freason & EXF_HAS_EXT_INFO) == 0);
+            break;
+        }
+
+        if (is_value(format_module)) {
+            if (c_p->freason & EXF_HAS_EXT_INFO) {
+                hp = HAlloc(c_p, MAP2_SZ);
+                error_info = MAP2(hp,
+                                  am_cause, c_p->fvalue,
+                                  am_module, format_module);
+            } else {
+                hp = HAlloc(c_p, MAP1_SZ);
+                error_info = MAP1(hp, am_module, format_module);
+            }
+        }
+
+	args = make_arglist(c_p, reg, bif_mfa->arity);
     } else {
 
     non_bif_stacktrace:
@@ -903,18 +934,35 @@ save_stacktrace(Process* c_p, const BeamInstr* pc, Eterm* reg,
 	    int a;
 	    ASSERT(s->current);
 	    a = s->current->arity;
-	    args = make_arglist(c_p, reg, a); /* Overwrite CAR(c_p->ftrace) */
+	    args = make_arglist(c_p, reg, a);
 	    s->pc = NULL; /* Ignore pc */
 	} else {
 	    s->pc = pc;
 	}
     }
 
+    if (c_p->freason == EXC_ERROR_3) {
+	error_info = c_p->fvalue;
+    }
+
     /* Package args and stack trace */
     {
 	Eterm *hp;
-	hp = HAlloc(c_p, 2);
-	c_p->ftrace = CONS(hp, args, make_big((Eterm *) s));
+	Uint sz = 4;
+
+	if (is_value(error_info)) {
+	    sz += 3 + 2;
+	}
+	hp = HAlloc(c_p, sz);
+	if (is_non_value(error_info)) {
+	    error_info = NIL;
+	} else {
+	    error_info = TUPLE2(hp, am_error_info, error_info);
+	    hp += 3;
+	    error_info = CONS(hp, error_info, NIL);
+	    hp += 2;
+	}
+	c_p->ftrace = TUPLE3(hp, make_big((Eterm *) s), args, error_info);
     }
 
     /* Save the actual stack trace */
@@ -935,8 +983,9 @@ static struct StackTrace *get_trace_from_exc(Eterm exc) {
     if (exc == NIL) {
 	return NULL;
     } else {
-	ASSERT(is_list(exc));
-	return (struct StackTrace *) big_val(CDR(list_val(exc)));
+	Eterm* tuple_ptr = tuple_val(exc);
+	ASSERT(tuple_ptr[0] == make_arityval(3));
+	return (struct StackTrace *) big_val(tuple_ptr[1]);
     }
 }
 
@@ -954,8 +1003,19 @@ static Eterm get_args_from_exc(Eterm exc) {
     if (exc == NIL) {
 	return NIL;
     } else {
-	ASSERT(is_list(exc));
-	return CAR(list_val(exc));
+	Eterm* tuple_ptr = tuple_val(exc);
+	ASSERT(tuple_ptr[0] == make_arityval(3));
+	return tuple_ptr[2];
+    }
+}
+
+static Eterm get_error_info_from_exc(Eterm exc) {
+    if (exc == NIL) {
+	return NIL;
+    } else {
+	Eterm* tuple_ptr = tuple_val(exc);
+	ASSERT(tuple_ptr[0] == make_arityval(3));
+	return tuple_ptr[3];
     }
 }
 
@@ -963,8 +1023,8 @@ static int is_raised_exc(Eterm exc) {
     if (exc == NIL) {
         return 0;
     } else {
-        ASSERT(is_list(exc));
-        return bignum_header_is_neg(*big_val(CDR(list_val(exc))));
+	Eterm* tuple_ptr = tuple_val(exc);
+        return bignum_header_is_neg(*big_val(tuple_ptr[1]));
     }
 }
 
@@ -981,8 +1041,9 @@ static Eterm *get_freason_ptr_from_exc(Eterm exc) {
          */
 	return &dummy_freason;
     } else {
-	ASSERT(is_list(exc));
-        s = (struct StackTrace *) big_val(CDR(list_val(exc)));
+	Eterm* tuple_ptr = tuple_val(exc);
+	ASSERT(tuple_ptr[0] == make_arityval(3));
+	s = (struct StackTrace *) big_val(tuple_ptr[1]);
         return &s->freason;
     }
 }
@@ -1055,18 +1116,13 @@ build_stacktrace(Process* c_p, Eterm exc) {
     Uint heap_size;
     Eterm* hp;
     Eterm mfa;
+    Eterm error_info;
     int i;
 
     if (! (s = get_trace_from_exc(exc))) {
         return NIL;
-    }
-#ifdef HIPE
-    if (s->freason & EXF_NATIVE) {
-	return hipe_build_stacktrace(c_p, s);
-    }
-#endif
-    if (is_raised_exc(exc)) {
-	return get_args_from_exc(exc);
+    } else if (is_raised_exc(exc)) {
+        return get_args_from_exc(exc);
     }
 
     /*
@@ -1083,6 +1139,7 @@ build_stacktrace(Process* c_p, Eterm exc) {
     }
 
     depth = s->depth;
+
     /*
      * If fi.current is still NULL, and we have no
      * stack at all, default to the initial function
@@ -1096,13 +1153,19 @@ build_stacktrace(Process* c_p, Eterm exc) {
 	args = get_args_from_exc(exc);
     }
 
+    error_info = get_error_info_from_exc(exc);
+
+    /*
+     * Initialize needed heap.
+     */
+    heap_size = fi.mfa ? fi.needed + 2 : 0;
+
     /*
      * Look up all saved continuation pointers and calculate
      * needed heap space.
      */
     stk = stkp = (FunctionInfo *) erts_alloc(ERTS_ALC_T_TMP,
 				      depth*sizeof(FunctionInfo));
-    heap_size = fi.mfa ? fi.needed + 2 : 0;
     for (i = 0; i < depth; i++) {
 	erts_lookup_function_info(stkp, s->trace[i], 1);
 	if (stkp->mfa) {
@@ -1117,13 +1180,14 @@ build_stacktrace(Process* c_p, Eterm exc) {
     hp = HAlloc(c_p, heap_size);
     while (stkp > stk) {
 	stkp--;
-	hp = erts_build_mfa_item(stkp, hp, am_true, &mfa);
+	hp = erts_build_mfa_item(stkp, hp, am_true, &mfa, NIL);
 	res = CONS(hp, mfa, res);
 	hp += 2;
     }
     if (fi.mfa) {
-	hp = erts_build_mfa_item(&fi, hp, args, &mfa);
+	hp = erts_build_mfa_item(&fi, hp, args, &mfa, error_info);
 	res = CONS(hp, mfa, res);
+	hp += 2;
     }
 
     erts_free(ERTS_ALC_T_TMP, (void *) stk);
@@ -1224,8 +1288,8 @@ apply_setup_error_handler(Process* p, Eterm module, Eterm function, Uint arity, 
 
 static ERTS_INLINE void
 apply_bif_error_adjustment(Process *p, Export *ep,
-			   Eterm *reg, Uint arity,
-			   const BeamInstr *I, Uint stack_offset)
+                           Eterm *reg, Uint arity,
+                           ErtsCodePtr I, Uint stack_offset)
 {
     int apply_only;
     Uint need;
@@ -1240,6 +1304,7 @@ apply_bif_error_adjustment(Process *p, Export *ep,
      */
     if (!(I && (ep->bif_number == BIF_error_1 ||
                 ep->bif_number == BIF_error_2 ||
+                ep->bif_number == BIF_error_3 ||
                 ep->bif_number == BIF_exit_1 ||
                 ep->bif_number == BIF_throw_1))) {
         return;
@@ -1247,8 +1312,8 @@ apply_bif_error_adjustment(Process *p, Export *ep,
 
     /*
      * We are about to tail apply one of the BIFs erlang:error/1,
-     * erlang:error/2, erlang:exit/1, or erlang:throw/1. Error handling of
-     * these BIFs is special!
+     * erlang:error/2, erlang:error/3, erlang:exit/1, or
+     * erlang:throw/1. Error handling of these BIFs is special!
      *
      * We need the topmost continuation pointer to point into the calling
      * function when handling the error after the BIF has been applied. This in
@@ -1291,7 +1356,7 @@ apply_bif_error_adjustment(Process *p, Export *ep,
 }
 
 Export*
-apply(Process* p, Eterm* reg, const BeamInstr *I, Uint stack_offset)
+apply(Process* p, Eterm* reg, ErtsCodePtr I, Uint stack_offset)
 {
     int arity;
     Export* ep;
@@ -1392,7 +1457,7 @@ apply(Process* p, Eterm* reg, const BeamInstr *I, Uint stack_offset)
 
 Export*
 fixed_apply(Process* p, Eterm* reg, Uint arity,
-            const BeamInstr *I, Uint stack_offset)
+            ErtsCodePtr I, Uint stack_offset)
 {
     Export* ep;
     Eterm module;
@@ -1505,9 +1570,9 @@ erts_hibernate(Process* c_p, Eterm* reg)
     c_p->arg_reg[1] = function;
     c_p->arg_reg[2] = args;
     c_p->stop = c_p->hend - CP_SIZE;  /* Keep first continuation pointer */
-    ASSERT(c_p->stop[0] == make_cp(BeamCodeNormalExit()));
+    ASSERT(c_p->stop[0] == make_cp(beam_normal_exit));
     c_p->catches = 0;
-    c_p->i = BeamCodeApply();
+    c_p->i = beam_apply;
 
     /*
      * If there are no waiting messages, garbage collect and
@@ -1532,7 +1597,7 @@ erts_hibernate(Process* c_p, Eterm* reg)
     return 1;
 }
 
-const BeamInstr*
+ErtsCodePtr
 call_fun(Process* p,    /* Current process. */
          int arity,     /* Number of arguments for Fun. */
          Eterm* reg,    /* Contents of registers. */
@@ -1552,7 +1617,7 @@ call_fun(Process* p,    /* Current process. */
     if (is_fun_header(hdr)) {
 	ErlFunThing* funp = (ErlFunThing *) fun_val(fun);
 	ErlFunEntry* fe = funp->fe;
-	const BeamInstr* code_ptr = fe->address;
+	ErtsCodePtr code_ptr = fe->address;
 	Eterm* var_ptr;
 	unsigned num_free = funp->num_free;
         const ErtsCodeMFA *mfa = erts_code_to_codemfa(code_ptr);
@@ -1699,7 +1764,7 @@ call_fun(Process* p,    /* Current process. */
     }
 }
 
-const BeamInstr*
+ErtsCodePtr
 apply_fun(Process* p, Eterm fun, Eterm args, Eterm* reg, Export **epp)
 {
     int arity;
@@ -1733,17 +1798,22 @@ apply_fun(Process* p, Eterm fun, Eterm args, Eterm* reg, Export **epp)
 ErlFunThing*
 new_fun_thing(Process* p, ErlFunEntry* fe, int num_free)
 {
-    ErlFunThing* funp = (ErlFunThing*) p->htop;
+    const ErtsCodeMFA *mfa;
+    ErlFunThing* funp;
 
+    mfa = erts_code_to_codemfa(fe->address);
+    funp = (ErlFunThing*) p->htop;
     p->htop += ERL_FUN_SIZE + num_free;
     erts_refc_inc(&fe->refc, 2);
+
     funp->thing_word = HEADER_FUN;
     funp->next = MSO(p).first;
     MSO(p).first = (struct erl_off_heap_header*) funp;
     funp->fe = fe;
     funp->num_free = num_free;
     funp->creator = p->common.id;
-    funp->arity = (int)fe->address[-1] - num_free;
+    funp->arity = mfa->arity - num_free;
+
     return funp;
 }
 
@@ -1850,7 +1920,7 @@ do {						\
 
 Eterm
 erts_gc_new_map(Process* p, Eterm* reg, Uint live,
-                Uint n, const BeamInstr* ptr)
+                Uint n, const Eterm* ptr)
 {
     Uint i;
     Uint need = n + 1 /* hdr */ + 1 /*size*/ + 1 /* ptr */ + 1 /* arity */;
@@ -1908,7 +1978,7 @@ erts_gc_new_map(Process* p, Eterm* reg, Uint live,
 
 Eterm
 erts_gc_new_small_map_lit(Process* p, Eterm* reg, Eterm keys_literal,
-                          Uint live, const BeamInstr* ptr)
+                          Uint live, const Eterm* ptr)
 {
     Eterm* keys = tuple_val(keys_literal);
     Uint n = arityval(*keys);
@@ -1943,7 +2013,7 @@ erts_gc_new_small_map_lit(Process* p, Eterm* reg, Eterm keys_literal,
 
 Eterm
 erts_gc_update_map_assoc(Process* p, Eterm* reg, Uint live,
-                         Uint n, const BeamInstr* new_p)
+                         Uint n, const Eterm* new_p)
 {
     Uint num_old;
     Uint num_updates;

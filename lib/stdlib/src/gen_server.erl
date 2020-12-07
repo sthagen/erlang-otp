@@ -97,7 +97,8 @@
          start_monitor/3, start_monitor/4,
 	 stop/1, stop/3,
 	 call/2, call/3,
-         send_request/2, wait_response/2, check_response/2,
+         send_request/2, wait_response/2,
+         receive_response/2, check_response/2,
 	 cast/2, reply/2,
 	 abcast/2, abcast/3,
 	 multi_call/2, multi_call/3, multi_call/4,
@@ -260,6 +261,11 @@ send_request(Name, Request) ->
 wait_response(RequestId, Timeout) ->
     gen:wait_response(RequestId, Timeout).
 
+-spec receive_response(RequestId::request_id(), timeout()) ->
+        {reply, Reply::term()} | 'timeout' | {error, {Reason::term(), server_ref()}}.
+receive_response(RequestId, Timeout) ->
+    gen:receive_response(RequestId, Timeout).
+
 -spec check_response(Msg::term(), RequestId::request_id()) ->
         {reply, Reply::term()} | 'no_reply' | {error, {Reason::term(), server_ref()}}.
 check_response(Msg, RequestId) ->
@@ -290,6 +296,9 @@ cast_msg(Request) -> {'$gen_cast',Request}.
 %% -----------------------------------------------------------------
 %% Send a reply to the client.
 %% -----------------------------------------------------------------
+reply({To, [alias|Alias] = Tag}, Reply) when is_pid(To), is_reference(Alias) ->
+    Alias ! {Tag, Reply},
+    ok;
 reply({To, Tag}, Reply) ->
     catch To ! {Tag, Reply},
     ok.
@@ -491,6 +500,15 @@ do_send(Dest, Msg) ->
     end,
     ok.
 
+do_multi_call([Node], Name, Req, infinity) when Node =:= node() ->
+    % Special case when multi_call is used with local node only.
+    % In that case we can leverage the benefit of recv_mark optimisation
+    % existing in simple gen:call.
+    try gen:call(Name, '$gen_call', Req, infinity) of
+        {ok, Res} -> {[{Node, Res}],[]}
+    catch exit:_ ->
+        {[], [Node]}
+    end;
 do_multi_call(Nodes, Name, Req, infinity) ->
     Tag = make_ref(),
     Monitors = send_nodes(Nodes, Name, Tag, Req),

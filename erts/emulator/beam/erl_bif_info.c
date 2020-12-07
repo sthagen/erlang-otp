@@ -52,9 +52,6 @@
 #include "erl_time.h"
 #include "erl_proc_sig_queue.h"
 #include "erl_alloc_util.h"
-#ifdef HIPE
-#include "hipe_arch.h"
-#endif
 #include "erl_global_literals.h"
 
 #ifdef ERTS_ENABLE_LOCK_COUNT
@@ -108,9 +105,6 @@ static char erts_system_version[] = ("Erlang/OTP " ERLANG_OTP_RELEASE
 				     " [jit:no-native-stack]"
 #endif
 #endif
-#ifdef HIPE
-				     " [hipe]"
-#endif	
 #ifdef ET_DEBUG
 #if ET_DEBUG
 				     " [type-assertions]"
@@ -128,9 +122,6 @@ static char erts_system_version[] = ("Erlang/OTP " ERLANG_OTP_RELEASE
 #ifdef ERTS_OPCODE_COUNTER_SUPPORT
 				     " [instruction-counting]"
 #endif
-#ifdef PURIFY
-				     " [purify-compiled]"
-#endif	
 #ifdef VALGRIND
 				     " [valgrind-compiled]"
 #endif
@@ -2029,7 +2020,7 @@ current_function(Process *c_p, ErtsHeapFactory *hfact, Process* rp,
     }
 
     if (c_p == rp && !(flags & ERTS_PI_FLAG_REQUEST_FOR_OTHER)) {
-        BeamInstr* return_address;
+        ErtsCodePtr return_address;
         FunctionInfo caller_fi;
 
         /*
@@ -2055,7 +2046,7 @@ current_function(Process *c_p, ErtsHeapFactory *hfact, Process* rp,
 	res = am_undefined;
     } else if (full_info) {
         hp = erts_produce_heap(hfact, fi.needed, reserve_size);
-	erts_build_mfa_item(&fi, hp, am_true, &res);
+        erts_build_mfa_item(&fi, hp, am_true, &res, NIL);
     } else {
         hp = erts_produce_heap(hfact, 4, reserve_size);
 	res = TUPLE3(hp, rp->current->module,
@@ -2081,7 +2072,7 @@ current_stacktrace(Process *p, ErtsHeapFactory *hfact, Process* rp,
     Eterm res = NIL;
 
     depth = erts_backtrace_depth;
-    sz = offsetof(struct StackTrace, trace) + sizeof(BeamInstr *)*depth;
+    sz = offsetof(struct StackTrace, trace) + sizeof(ErtsCodePtr) * depth;
     s = (struct StackTrace *) erts_alloc(ERTS_ALC_T_TMP, sz);
     s->depth = 0;
     s->pc = NULL;
@@ -2118,7 +2109,7 @@ current_stacktrace(Process *p, ErtsHeapFactory *hfact, Process* rp,
         sz = stkp->needed + 2;
         ERTS_PI_UNRESERVE(reserve_size, sz);
         hp = erts_produce_heap(hfact, sz, reserve_size);
-	hp = erts_build_mfa_item(stkp, hp, am_true, &mfa);
+        hp = erts_build_mfa_item(stkp, hp, am_true, &mfa, NIL);
 	res = CONS(hp, mfa, res);
     }
 
@@ -2189,44 +2180,22 @@ info_1_tuple(Process* BIF_P,	/* Pointer to current process. */
 	    goto badarg;
 	ERTS_BIF_PREP_TRAP1(ret, erts_format_cpu_topology_trap, BIF_P, res);
 	return ret;
-#if defined(PURIFY) || defined(VALGRIND)
+#if defined(VALGRIND)
     } else if (ERTS_IS_ATOM_STR("error_checker", sel)
-#if defined(PURIFY)
-	       || sel == am_purify
-#elif defined(VALGRIND)
-	       || ERTS_IS_ATOM_STR("valgrind", sel)
-#endif
-	) {
+	       || ERTS_IS_ATOM_STR("valgrind", sel)) {
 	if (*tp == am_memory) {
-#if defined(PURIFY)
-	    BIF_RET(erts_make_integer(purify_new_leaks(), BIF_P));
-#elif defined(VALGRIND)
 #  ifdef VALGRIND_DO_ADDED_LEAK_CHECK
 	    VALGRIND_DO_ADDED_LEAK_CHECK;
 #  else
 	    VALGRIND_DO_LEAK_CHECK;
 #  endif
 	    BIF_RET(make_small(0));
-#endif
 	} else if (*tp == am_fd) {
-#if defined(PURIFY)
-	    BIF_RET(erts_make_integer(purify_new_fds_inuse(), BIF_P));
-#elif defined(VALGRIND)
 	    /* Not present in valgrind... */
 	    BIF_RET(make_small(0));
-#endif
 	} else if (*tp == am_running) {
-#if defined(PURIFY)
-	    BIF_RET(purify_is_running() ? am_true : am_false);
-#elif defined(VALGRIND)
 	    BIF_RET(RUNNING_ON_VALGRIND ? am_true : am_false);
-#endif
 	} else if (is_list(*tp)) {
-#if defined(PURIFY)
-#  define ERTS_ERROR_CHECKER_PRINTF purify_printf
-#elif defined(VALGRIND)
-#  define ERTS_ERROR_CHECKER_PRINTF VALGRIND_PRINTF
-#endif
 	    ErlDrvSizeT buf_size = 8*1024; /* Try with 8KB first */
 	    char *buf = erts_alloc(ERTS_ALC_T_TMP, buf_size);
 	    ErlDrvSizeT r = erts_iolist_to_buf(*tp, (char*) buf, buf_size - 1);
@@ -2241,25 +2210,9 @@ info_1_tuple(Process* BIF_P,	/* Pointer to current process. */
 		ASSERT(r == buf_size - 1);
 	    }
 	    buf[buf_size - 1 - r] = '\0';
-            ERTS_ERROR_CHECKER_PRINTF("%s\n", buf);
+            VALGRIND_PRINTF("%s\n", buf);
 	    erts_free(ERTS_ALC_T_TMP, (void *) buf);
 	    BIF_RET(am_true);
-#undef ERTS_ERROR_CHECKER_PRINTF
-	}
-#endif
-#ifdef QUANTIFY
-    } else if (sel == am_quantify) {
-	if (*tp == am_clear) {
-	    quantify_clear_data();
-	    BIF_RET(am_true);
-	} else if (*tp == am_start) {
-	    quantify_start_recording_data();
-	    BIF_RET(am_true);
-	} else if (*tp == am_stop) {
-	    quantify_stop_recording_data();
-	    BIF_RET(am_true);
-	} else if (*tp == am_running) {
-	    BIF_RET(quantify_is_running() ? am_true : am_false);
 	}
 #endif
 #if defined(__GNUC__) && defined(HAVE_SOLARIS_SPARC_PERFMON)
@@ -2451,15 +2404,6 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
 #if defined(DEBUG)
 	ERTS_DECL_AM(debug);
 	BIF_RET(AM_debug);
-#elif defined(PURIFY)
-	ERTS_DECL_AM(purify);
-	BIF_RET(AM_purify);
-#elif defined(QUANTIFY)
-	ERTS_DECL_AM(quantify);
-	BIF_RET(AM_quantify);
-#elif defined(PURECOV)
-	ERTS_DECL_AM(purecov);
-	BIF_RET(AM_purecov);
 #elif defined(ERTS_GCOV)
 	ERTS_DECL_AM(gcov);
 	BIF_RET(AM_gcov);
@@ -2533,12 +2477,8 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
     } else if (BIF_ARG_1 == am_allocated_areas) {
 	res = erts_allocated_areas(NULL, NULL, BIF_P);
 	BIF_RET(res);
-    } else if (BIF_ARG_1 == am_hipe_architecture) {
-#if defined(HIPE)
-	BIF_RET(hipe_arch_name);
-#else
+    } else if (ERTS_IS_ATOM_STR("hipe_architecture", BIF_ARG_1)) {
 	BIF_RET(am_undefined);
-#endif
     } else if (BIF_ARG_1 == am_trace_control_word) {
 	BIF_RET(db_get_trace_control_word(BIF_P));
     } else if (ERTS_IS_ATOM_STR("ets_realloc_moves", BIF_ARG_1)) {
@@ -3544,9 +3484,12 @@ fun_info_2(BIF_ALIST_2)
 	    val = make_small(funp->arity);
 	    break;
 	case am_name:
-	    hp = HAlloc(p, 3);
-	    val = funp->fe->address[-2];
-	    break;
+            {
+                const ErtsCodeMFA *mfa = erts_code_to_codemfa((funp->fe)->address);
+                hp = HAlloc(p, 3);
+                val = mfa->function;
+            }
+            break;
 	default:
 	    goto error;
 	}
@@ -3615,9 +3558,16 @@ fun_info_mfa_1(BIF_ALIST_1)
     Eterm* hp;
 
     if (is_fun(fun)) {
-	ErlFunThing* funp = (ErlFunThing *) fun_val(fun);
-	hp = HAlloc(p, 4);
-	BIF_RET(TUPLE3(hp,funp->fe->module,funp->fe->address[-2],make_small(funp->arity)));
+        const ErtsCodeMFA *mfa;
+        ErlFunThing* funp;
+        funp = (ErlFunThing *) fun_val(fun);
+        mfa = erts_code_to_codemfa((funp->fe)->address);
+
+        hp = HAlloc(p, 4);
+        BIF_RET(TUPLE3(hp,
+                       (funp->fe)->module,
+                       mfa->function,
+                       make_small(funp->arity)));
     } else if (is_export(fun)) {
 	Export* exp = (Export *) ((UWord) (export_val(fun))[1]);
 	hp = HAlloc(p, 4);
@@ -4466,8 +4416,6 @@ BIF_RETTYPE erts_internal_system_check_1(BIF_ALIST_1)
     BIF_ERROR(BIF_P, BADARG);
 }
 
-static erts_atomic_t hipe_test_reschedule_flag;
-
 #if defined(VALGRIND) && defined(__GNUC__)
 /* Force noinline for valgrind suppression */
 static void broken_halt_test(Eterm bif_arg_2) __attribute__((noinline));
@@ -4673,30 +4621,6 @@ BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
 		max_loops = erts_unicode_set_loop_limit(max_loops);
 		BIF_RET(make_small(max_loops));
 	    }
-	}
-	else if (ERTS_IS_ATOM_STR("hipe_test_reschedule_suspend", BIF_ARG_1)) {
-	    /* Used by hipe test suites */
-	    erts_aint_t flag = erts_atomic_read_nob(&hipe_test_reschedule_flag);
-	    if (!flag && BIF_ARG_2 != am_false) {
-		erts_atomic_set_nob(&hipe_test_reschedule_flag, 1);
-		erts_suspend(BIF_P, ERTS_PROC_LOCK_MAIN, NULL);
-		ERTS_BIF_YIELD2(BIF_TRAP_EXPORT(BIF_erts_debug_set_internal_state_2),
-				BIF_P, BIF_ARG_1, BIF_ARG_2);
-	    }
-	    erts_atomic_set_nob(&hipe_test_reschedule_flag, !flag);
-	    BIF_RET(NIL);
-	}
-	else if (ERTS_IS_ATOM_STR("hipe_test_reschedule_resume", BIF_ARG_1)) {
-	    /* Used by hipe test suites */
-	    Eterm res = am_false;
-	    Process *rp = erts_pid2proc(BIF_P, ERTS_PROC_LOCK_MAIN,
-					BIF_ARG_2, ERTS_PROC_LOCK_STATUS);
-	    if (rp) {
-		erts_resume(rp, ERTS_PROC_LOCK_STATUS);
-		res = am_true;
-		erts_proc_unlock(rp, ERTS_PROC_LOCK_STATUS);
-	    }
-	    BIF_RET(res);
 	}
 	else if (ERTS_IS_ATOM_STR("test_long_gc_sleep", BIF_ARG_1)) {
 	    if (term_to_Uint(BIF_ARG_2, &erts_test_long_gc_sleep) > 0)
@@ -5191,13 +5115,7 @@ nifs_in_module(Process* p, Eterm module)
 static Eterm
 has_native(const BeamCodeHeader *code_hdr)
 {
-    Eterm result = am_false;
-#ifdef HIPE
-    if (erts_is_module_native(code_hdr)) {
-        result = am_true;
-    }
-#endif
-    return result;
+    return am_false;
 }
 
 /* Builds a list of all functions including native addresses.
@@ -5205,36 +5123,7 @@ has_native(const BeamCodeHeader *code_hdr)
 static Eterm
 native_addresses(Process* p, const BeamCodeHeader* code_hdr)
 {
-    Eterm result = NIL;
-#ifdef HIPE
-    int i;
-    Eterm* hp;
-    Uint num_functions;
-    Uint need;
-    Eterm* hp_end;
-
-    num_functions = code_hdr->num_functions;
-    need = (6+BIG_UINT_HEAP_SIZE)*num_functions;
-    hp = HAlloc(p, need);
-    hp_end = hp + need;
-    for (i = num_functions-1; i >= 0 ; i--) {
-        ErtsCodeInfo *ci = code_hdr->functions[i];
-        Eterm tuple;
-
-        ASSERT(is_atom(ci->mfa.function)
-               || is_nil(ci->mfa.function)); /* [] if BIF stub */
-        if (ci->u.ncallee != NULL) {
-            Eterm addr;
-            ASSERT(is_atom(ci->mfa.function));
-            addr = erts_bld_uint(&hp, NULL, (Uint)ci->u.ncallee);
-            tuple = erts_bld_tuple(&hp, NULL, 3, ci->mfa.function,
-                                   make_small(ci->mfa.arity), addr);
-            result = erts_bld_cons(&hp, NULL, tuple, result);
-        }
-    }
-    HRelease(p, hp_end, hp);
-#endif
-    return result;
+    return NIL;
 }
 
 /* Builds a list of all exported functions in the given module:
@@ -5393,9 +5282,6 @@ module_info_0(Process* p, Eterm module)
     list = CONS(hp, tup, list)
 
     BUILD_INFO(am_md5);
-#ifdef HIPE
-    BUILD_INFO(am_native);
-#endif
     BUILD_INFO(am_compile);
     BUILD_INFO(am_attributes);
     BUILD_INFO(am_exports);
@@ -5865,7 +5751,6 @@ void
 erts_bif_info_init(void)
 {
     erts_atomic_init_nob(&available_internal_state, 0);
-    erts_atomic_init_nob(&hipe_test_reschedule_flag, 0);
 
     alloc_info_trap = erts_export_put(am_erlang, am_alloc_info, 1);
     alloc_sizes_trap = erts_export_put(am_erlang, am_alloc_sizes, 1);

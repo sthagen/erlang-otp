@@ -54,8 +54,14 @@ ifeq ($(TYPE),valgrind)
 TYPEMARKER = .valgrind
 TYPE_FLAGS = $(subst -O3,,$(subst -O2,,$(CFLAGS))) -DVALGRIND
 else
+ifeq ($(TYPE),gprof)
+TYPEMARKER = .gprof
+TYPE_EXTRA_CFLAGS = -DGPROF -pg
+TYPE_FLAGS = $(CFLAGS) $(TYPE_EXTRA_CFLAGS)
+else
 TYPEMARKER =
 TYPE_FLAGS = $(CFLAGS)
+endif
 endif
 endif
 
@@ -100,7 +106,6 @@ CRYPTO_OBJS = $(OBJDIR)/crypto$(TYPEMARKER).o \
 	$(OBJDIR)/rsa$(TYPEMARKER).o \
 	$(OBJDIR)/srp$(TYPEMARKER).o
 CALLBACK_OBJS = $(OBJDIR)/crypto_callback$(TYPEMARKER).o
-NIF_MAKEFILE = $(PRIVDIR)/Makefile
 CRYPTO_STATIC_OBJS = $(patsubst $(OBJDIR)/%$(TYPEMARKER).o,$(OBJDIR)/%_static$(TYPEMARKER).o,$(CRYPTO_OBJS) $(CALLBACK_OBJS))
 
 NIF_ARCHIVE = $(LIBDIR)/crypto$(TYPEMARKER).a
@@ -142,10 +147,10 @@ ifndef RANLIB
 RANLIB=true
 endif
 
-CONFIGURE_ARGS = -DDISABLE_EVP_DH=@DISABLE_EVP_DH@
+CONFIGURE_ARGS = -DDISABLE_EVP_DH=@DISABLE_EVP_DH@ -DDISABLE_EVP_HMAC=@DISABLE_EVP_HMAC@
 
 ALL_CFLAGS = $(TYPE_FLAGS) $(EXTRA_FLAGS) $(CONFIGURE_ARGS) $(INCLUDES)
-ALL_STATIC_CFLAGS = @DED_STATIC_CFLAGS@ $(CONFIGURE_ARGS) $(INCLUDES)
+ALL_STATIC_CFLAGS = @DED_STATIC_CFLAGS@ $(TYPE_EXTRA_CFLAGS) $(CONFIGURE_ARGS) $(INCLUDES)
 
 # ----------------------------------------------------
 # Targets
@@ -225,16 +230,11 @@ docs:
 include $(ERL_TOP)/make/otp_release_targets.mk
 
 release_spec: opt
-	$(INSTALL_DIR) "$(RELSYSDIR)/priv/obj"
 	$(INSTALL_DIR) "$(RELSYSDIR)/priv/lib"
-	$(INSTALL_DATA) $(NIF_MAKEFILE) "$(RELSYSDIR)/priv/obj"
-	$(INSTALL_PROGRAM) $(CRYPTO_OBJS) "$(RELSYSDIR)/priv/obj"
 	$(INSTALL_PROGRAM) $(NIF_LIB) "$(RELSYSDIR)/priv/lib"
 ifeq ($(DYNAMIC_CRYPTO_LIB),yes)
-	$(INSTALL_PROGRAM) $(CALLBACK_OBJS) "$(RELSYSDIR)/priv/obj"
 	$(INSTALL_PROGRAM) $(CALLBACK_LIB) "$(RELSYSDIR)/priv/lib"
 endif
-	$(INSTALL_PROGRAM) $(TEST_ENGINE_OBJS) "$(RELSYSDIR)/priv/obj"
 	$(INSTALL_PROGRAM) $(TEST_ENGINE_LIB) "$(RELSYSDIR)/priv/lib"
 
 release_docs_spec:

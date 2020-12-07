@@ -46,7 +46,7 @@
 
          recv/1, recv/2, recv/3, recv/4,
          recvfrom/1, recvfrom/2, recvfrom/3, recvfrom/4,
-         recvmsg/1, recvmsg/2, recvmsg/3, recvmsg/5,
+         recvmsg/1, recvmsg/2, recvmsg/3, recvmsg/4, recvmsg/5,
 
          close/1,
          shutdown/2,
@@ -124,6 +124,11 @@
 -define(REGISTRY, socket_registry).
 
 -type invalid() :: {invalid, What :: term()}.
+
+-type info() ::
+        #{counters := #{atom() := non_neg_integer()},
+          iov_max := non_neg_integer(),
+          use_registry := boolean()}.
 
 -type socket_counters() :: #{read_byte     := non_neg_integer(),
                              read_fails    := non_neg_integer(),
@@ -520,7 +525,7 @@
            %% destination address for a message.
            addr => sockaddr(),
                     
-           iov := [binary()],
+           iov := erlang:iovec(),
 
            %% *Optional* control message list (ancillary data).
            %% The maximum size of the control buffer is platform
@@ -541,7 +546,7 @@
            %% source address for a message.
            addr => sockaddr_recv(),
 
-           iov := [binary()],
+           iov := erlang:iovec(),
 
            %% Control messages (ancillary data).
            %% The maximum size of the control buffer is platform
@@ -674,9 +679,6 @@
 
 -define(SELECT_INFO(Tag, SelectHandle),
         {select_info, Tag, SelectHandle}).
--define(SELECT(Tag, SelectHandle),
-        {select, ?SELECT_INFO(Tag, SelectHandle)}).
-
 
 %% ===========================================================================
 %%
@@ -762,12 +764,6 @@ which_sockets(Other) ->
 %% ===========================================================================
 
 
--spec info() -> map().
-%%
-info() ->
-    prim_socket:info().
-
-
 -spec debug(D :: boolean()) -> 'ok'.
 %%
 debug(D) when is_boolean(D) ->
@@ -793,13 +789,20 @@ use_registry(D) when is_boolean(D) ->
 
 %% ===========================================================================
 %%
-%% info - Get miscellaneous information about a socket.
+%% info - Get miscellaneous information about a socket
+%% or about the socket library.
 %%
 %% Generates a list of various info about the socket, such as counter values.
 %%
 %% Do *not* call this function often.
 %% 
 %% ===========================================================================
+
+-spec info() -> info().
+%%
+info() ->
+    prim_socket:info().
+
 
 -spec info(Socket) -> socket_info() when
       Socket :: socket().
@@ -1082,11 +1085,11 @@ connect(Socket, SockAddr) ->
 %% <KOLLA>
 %% Is it possible to connect with family = local for the (dest) sockaddr?
 %% </KOLLA>
-connect(?socket(SockRef) = Socket, SockAddr, Timeout)
+connect(?socket(SockRef), SockAddr, Timeout)
   when is_reference(SockRef) ->
     case deadline(Timeout) of
-        badarg = Reason ->
-            erlang:error(Reason, [Socket, SockAddr, Timeout]);
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
         nowait ->
             SelectHandle = make_ref(),
             connect_nowait(SockRef, SockAddr, SelectHandle);
@@ -1102,7 +1105,7 @@ connect(Socket, SockAddr, Timeout) ->
 connect_nowait(SockRef, SockAddr, SelectHandle) ->
     case prim_socket:connect(SockRef, SelectHandle, SockAddr) of
         select ->
-            ?SELECT(connect, SelectHandle);
+            {select, ?SELECT_INFO(connect, SelectHandle)};
         Result ->
             Result
     end.
@@ -1209,11 +1212,11 @@ accept(ListenSocket) ->
       Socket       :: socket(),
       Reason       :: posix() | 'closed' | invalid() | 'timeout'.
 
-accept(?socket(LSockRef) = ListenSocket, Timeout)
+accept(?socket(LSockRef), Timeout)
   when is_reference(LSockRef) ->
     case deadline(Timeout) of
-        badarg = Reason ->
-            erlang:error(Reason, [ListenSocket, Timeout]);
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
         nowait ->
             SelectHandle = make_ref(),
             accept_nowait(LSockRef, SelectHandle);
@@ -1229,7 +1232,7 @@ accept(ListenSocket, Timeout) ->
 accept_nowait(LSockRef, SelectHandle) ->
     case prim_socket:accept(LSockRef, SelectHandle) of
         select ->
-            ?SELECT(accept, SelectHandle);
+            {select, ?SELECT_INFO(accept, SelectHandle)};
         Result ->
             accept_result(LSockRef, SelectHandle, Result)
     end.
@@ -1271,351 +1274,645 @@ accept_result(LSockRef, AccRef, Result) ->
 %% send, sendto, sendmsg - send a message on a socket
 %%
 
--spec send(Socket, Data) -> 'ok' | {'error', Reason} when
-      Socket  :: socket(),
-      Data    :: iodata(),
-      Reason  :: {posix() | 'closed' | invalid(),
-                  Remaining :: pos_integer()}.
+-spec send(Socket, Data) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid().
 
 send(Socket, Data) ->
     send(Socket, Data, ?ESOCK_SEND_FLAGS_DEFAULT, ?ESOCK_SEND_TIMEOUT_DEFAULT).
 
 
--spec send(Socket, Data, Flags) -> 'ok' | {'error', Reason} when
+-spec send(Socket, Data, Flags) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket     :: socket(),
       Data       :: iodata(),
       Flags      :: [msg_flag() | integer()],
-      Reason     :: {posix() | 'closed' | invalid(),
-                     Remaining :: pos_integer()};
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
 
-          (Socket, Data, Timeout :: 'nowait') ->
+          (Socket, Data, Cont) ->
                   'ok' |
-                  {'select', SelectInfo} |
-                  {'ok', {RestData, SelectInfo}} |
-                  {'error', Reason} when
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket     :: socket(),
       Data       :: iodata(),
-      RestData   :: erlang:iovec(),
-      SelectInfo :: select_info(),
-      Reason     :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      Cont       :: select_info(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
 
-          (Socket, Data, SelectHandle) ->
+          (Socket, Data, SelectHandle :: 'nowait') ->
                   'ok' |
+                  {'ok', RestData} |
                   {'select', SelectInfo} |
                   {'ok', {RestData, SelectInfo}} |
-                  {'error', Reason} when
+                  {'error', Reason}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      RestData   :: binary(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+          (Socket, Data, SelectHandle :: select_handle()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
       Socket       :: socket(),
       Data         :: iodata(),
-      RestData     :: erlang:iovec(),
+      RestData     :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
-      Reason       :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      Reason       :: posix() | 'closed' | invalid();
 
-          (Socket, Data, Timeout) -> 'ok' | {'error', Reason} when
+          (Socket, Data, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket     :: socket(),
       Data       :: iodata(),
-      Timeout    :: 'infinity',
-      Reason     :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
 
-          (Socket, Data, Timeout) -> 'ok' | {'error', Reason} when
+          (Socket, Data, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
       Socket     :: socket(),
       Data       :: iodata(),
-      Timeout    :: non_neg_integer(),
-      Reason     :: {posix() | 'closed' | invalid() | 'timeout',
-                     RestData :: erlang:iovec()}.
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid().
 
-send(Socket, Data, Flags) when is_list(Flags) ->
-    send(Socket, Data, Flags, ?ESOCK_SEND_TIMEOUT_DEFAULT);
+send(Socket, Data, Flags_Cont)
+  when is_list(Flags_Cont);
+       is_tuple(Flags_Cont) ->
+    send(Socket, Data, Flags_Cont, ?ESOCK_SEND_TIMEOUT_DEFAULT);
 send(Socket, Data, Timeout) ->
     send(Socket, Data, ?ESOCK_SEND_FLAGS_DEFAULT, Timeout).
 
 
--spec send(Socket, Data, Flags, Timeout :: 'nowait') ->
+-spec send(Socket, Data, Flags, SelectHandle :: 'nowait') ->
                   'ok' |
+                  {'ok', RestData} |
                   {'select', SelectInfo} |
                   {'ok', {RestData, SelectInfo}} |
-                  {'error', Reason} when
+                  {'error', Reason}
+                      when
       Socket     :: socket(),
       Data       :: iodata(),
       Flags      :: [msg_flag() | integer()],
-      RestData   :: erlang:iovec(),
+      RestData   :: binary(),
       SelectInfo :: select_info(),
-      Reason     :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      Reason     :: posix() | 'closed' | invalid();
 
-          (Socket, Data, Flags, SelectHandle) ->
+          (Socket, Data, Flags, SelectHandle :: select_handle()) ->
                   'ok' |
+                  {'ok', RestData} |
                   {'select', SelectInfo} |
                   {'ok', {RestData, SelectInfo}} |
-                  {'error', Reason} when
+                  {'error', Reason}
+                      when
       Socket       :: socket(),
       Data         :: iodata(),
       Flags        :: [msg_flag() | integer()],
-      RestData     :: erlang:iovec(),
+      RestData     :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
-      Reason       :: {posix() | 'closed' | invalid(),
-                       RestData :: erlang:iovec()};
+      Reason       :: posix() | 'closed' | invalid();
 
-          (Socket, Data, Flags, Timeout) -> 'ok' | {'error', Reason} when
-      Socket  :: socket(),
-      Data    :: iodata(),
-      Flags   :: [msg_flag() | integer()],
-      Timeout :: 'infinity',
-      Reason  :: {posix() | 'closed' | invalid(),
-                  RestData :: erlang:iovec()};
+          (Socket, Data, Flags, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Flags      :: [msg_flag() | integer()],
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
 
-          (Socket, Data, Flags, Timeout) -> 'ok' | {'error', Reason} when
-      Socket  :: socket(),
-      Data    :: iodata(),
-      Flags   :: [msg_flag() | integer()],
-      Timeout :: non_neg_integer(),
-      Reason  :: {posix() | 'closed' | invalid() | 'timeout',
-                  RestData :: erlang:iovec()}.
+          (Socket, Data, Flags, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Flags      :: [msg_flag() | integer()],
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
 
-send(Socket, [Bin], Flags, Timeout) when is_binary(Bin) ->
-    send(Socket, Bin, Flags, Timeout);
-send(Socket, Data, Flags, Timeout) when is_list(Data) ->
-    Bin = erlang:list_to_binary(Data),
-    send(Socket, Bin, Flags, Timeout);
-send(?socket(SockRef) = Socket, Data, Flags, Timeout)
-  when is_reference(SockRef), is_binary(Data), is_list(Flags) ->
-    To = undefined,
+          (Socket, Data, Cont, SelectHandle :: 'nowait') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Cont       :: select_info(),
+      RestData   :: binary(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+          (Socket, Data, Cont, SelectHandle :: select_handle()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
+      Socket       :: socket(),
+      Data         :: iodata(),
+      Cont         :: select_info(),
+      RestData     :: binary(),
+      SelectInfo   :: select_info(),
+      Reason       :: posix() | 'closed' | invalid();
+
+          (Socket, Data, Cont, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Cont       :: select_info(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
+
+          (Socket, Data, Cont, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Cont       :: select_info(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid().
+
+send(?socket(SockRef), Data, ?SELECT_INFO({send, Cont}, _), Timeout)
+  when is_reference(SockRef), is_binary(Data) ->
     case deadline(Timeout) of
-        badarg = Reason ->
-            erlang:error(Reason, [Socket, Data, Flags, Timeout]);
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
         nowait ->
             SelectHandle = make_ref(),
-            send_common_nowait(
-              SockRef, Data, To, Flags, SelectHandle, send);
+            send_nowait_cont(SockRef, Data, Cont, SelectHandle);
         select_handle ->
             SelectHandle = Timeout,
-            send_common_nowait(
-              SockRef, Data, To, Flags, SelectHandle, send);
+            send_nowait_cont(SockRef, Data, Cont, SelectHandle);
         Deadline ->
-            send_common_deadline(SockRef, Data, To, Flags, Deadline, send)
+            HasWritten = false,
+            send_deadline_cont(SockRef, Data, Cont, Deadline, HasWritten)
+    end;
+send(?socket(SockRef), Data, Flags, Timeout)
+  when is_reference(SockRef), is_binary(Data), is_list(Flags) ->
+    case deadline(Timeout) of
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
+        nowait ->
+            SelectHandle = make_ref(),
+            send_nowait(SockRef, Data, Flags, SelectHandle);
+        select_handle ->
+            SelectHandle = Timeout,
+            send_nowait(SockRef, Data, Flags, SelectHandle);
+        Deadline ->
+            send_deadline(SockRef, Data, Flags, Deadline)
+    end;
+send(?socket(SockRef) = Socket, [Bin], Flags, Timeout)
+  when is_reference(SockRef), is_binary(Bin) ->
+    send(Socket, Bin, Flags, Timeout);
+send(?socket(SockRef) = Socket, Data, Flags, Timeout)
+  when is_reference(SockRef), is_list(Data) ->
+    try erlang:list_to_binary(Data) of
+        Bin ->
+            send(Socket, Bin, Flags, Timeout)
+    catch
+        error : badarg ->
+            erlang:error({invalid, {data, Data}})
     end;
 send(Socket, Data, Flags, Timeout) ->
     erlang:error(badarg, [Socket, Data, Flags, Timeout]).
 
-send_common_nowait(SockRef, Data, To, Flags, SelectHandle, SendName) ->
-    case
-        case SendName of
-            send ->
-                prim_socket:send(SockRef, SelectHandle, Data, Flags);
-            sendto ->
-                prim_socket:sendto(SockRef, SelectHandle, Data, To, Flags)
-        end
-    of
-        ok ->
-            ok;
-        {ok, Written} ->
-	    %% We are partially done, but the user don't want to wait (here) 
-            %% for completion
-            <<_:Written/binary, Rest/binary>> = Data,
-            {ok, {[Rest], ?SELECT_INFO(SendName, SelectHandle)}};
-        select ->
-            ?SELECT(SendName, SelectHandle);
-        {error, Reason} ->
-            send_common_error(Reason, Data)
-    end.
+send_nowait(SockRef, Bin, Flags, SelectHandle) ->
+    send_common_nowait_result(
+      SelectHandle, send,
+      prim_socket:send(SockRef, Bin, Flags, SelectHandle)).
 
-send_common_deadline(SockRef, Data, To, Flags, Deadline, SendName) ->
+send_nowait_cont(SockRef, Bin, Cont, SelectHandle) ->
+    send_common_nowait_result(
+      SelectHandle, send,
+      prim_socket:send(SockRef, Bin, Cont, SelectHandle)).
+
+send_deadline(SockRef, Bin, Flags, Deadline) ->
     SelectHandle = make_ref(),
-    case
-        case SendName of
-            send ->
-                prim_socket:send(SockRef, SelectHandle, Data, Flags);
-            sendto ->
-                prim_socket:sendto(SockRef, SelectHandle, Data, To, Flags)
-        end
-    of
-        ok ->
-            ok;
-        {ok, Written} ->
-	    %% We are partially done, wait for continuation
-            Timeout = timeout(Deadline),
-            receive
-                ?socket_msg(_Socket, select, SelectHandle)
-                  when (Written > 0) -> 
-                    <<_:Written/binary, Rest/binary>> = Data,
-                    send_common_deadline(
-                      SockRef, Rest, To, Flags, Deadline, SendName);
-                ?socket_msg(_Socket, select, SelectHandle) ->
-                    send_common_deadline(
-                      SockRef, Data, To, Flags, Deadline, SendName);
-                ?socket_msg(_Socket, abort, {SelectHandle, Reason}) ->
-                    send_common_error(Reason, Data)
-            after Timeout ->
-                    _ = cancel(SockRef, SendName, SelectHandle),
-                    send_common_error(timeout, Data)
-            end;
-        select ->
-            %% Wait for continuation
-            Timeout = timeout(Deadline),
-            receive
-                ?socket_msg(_Socket, select, SelectHandle) ->
-                    send_common_deadline(
-                      SockRef, Data, To, Flags, Deadline, SendName);
-                ?socket_msg(_Socket, abort, {SelectHandle, Reason}) ->
-                    send_common_error(Reason, Data)
-            after Timeout ->
-                    _ = cancel(SockRef, SendName, SelectHandle),
-                    send_common_error(timeout, Data)
-            end;
-        {error, Reason} ->
-            send_common_error(Reason, Data)
+    HasWritten = false,
+    send_common_deadline_result(
+       SockRef, Bin, SelectHandle, Deadline, HasWritten,
+       send, fun send_deadline_cont/5,
+       prim_socket:send(SockRef, Bin, Flags, SelectHandle)).
+
+send_deadline_cont(SockRef, Bin, Cont, Deadline, HasWritten) ->
+    SelectHandle = make_ref(),
+    send_common_deadline_result(
+       SockRef, Bin, SelectHandle, Deadline, HasWritten,
+       send, fun send_deadline_cont/5,
+       prim_socket:send(SockRef, Bin, Cont, SelectHandle)).
+
+
+
+-compile({inline, [send_common_nowait_result/3]}).
+send_common_nowait_result(SelectHandle, Op, Result) ->
+    case Result of
+        {select, Cont} ->
+            {select, ?SELECT_INFO({Op, Cont}, SelectHandle)};
+        {select, Data, Cont} ->
+            {ok, {Data, ?SELECT_INFO({Op, Cont}, SelectHandle)}};
+        %%
+        Result ->
+            Result
     end.
 
-send_common_error(Reason, Data) ->
-    {error, {Reason, [Data]}}.
+-compile({inline, [send_common_deadline_result/8]}).
+send_common_deadline_result(
+  SockRef, Data, SelectHandle, Deadline, HasWritten,
+  Op, Fun, SendResult) ->
+    %%
+    case SendResult of
+        {select, Cont} ->
+            %% Would block, wait for continuation
+            Timeout = timeout(Deadline),
+            receive
+                ?socket_msg(_Socket, select, SelectHandle) ->
+                    Fun(SockRef, Data, Cont, Deadline, HasWritten);
+                ?socket_msg(_Socket, abort, {SelectHandle, Reason}) ->
+                    send_common_error(Reason, Data, HasWritten)
+            after Timeout ->
+                    _ = cancel(SockRef, Op, SelectHandle),
+                    send_common_error(timeout, Data, HasWritten)
+            end;
+        {select, Data_1, Cont} ->
+            %% Partial send success, wait for continuation
+            Timeout = timeout(Deadline),
+            receive
+                ?socket_msg(_Socket, select, SelectHandle) ->
+                    Fun(SockRef, Data_1, Cont, Deadline, true);
+                ?socket_msg(_Socket, abort, {SelectHandle, Reason}) ->
+                    send_common_error(Reason, Data_1, true)
+            after Timeout ->
+                    _ = cancel(SockRef, Op, SelectHandle),
+                    send_common_error(timeout, Data_1, true)
+            end;
+        %%
+        {error, {_Reason, RestIOV}} = Error when is_list(RestIOV) ->
+            Error;
+        {error, Reason} ->
+            send_common_error(Reason, Data, HasWritten);
+        Result ->
+            Result
+    end.
+
+
+send_common_error(Reason, Data, HasWritten) ->
+    case HasWritten of
+        false ->
+            %% We have not managed to send any data;
+            %% do not return what remains
+            {error, Reason};
+        true ->
+            %% Error on subsequent send - we have sent some data;
+            %% return the remaining
+            case Data of
+                Bin when is_binary(Bin) ->
+                    {error, {Reason, Bin}};
+                IOVec when is_list(IOVec) ->
+                    {error, {Reason, IOVec}};
+                #{iov := IOVec} = _Msg ->
+                    {error, {Reason, IOVec}}
+            end
+    end.
 
 
 %% ---------------------------------------------------------------------------
 %%
 
 -spec sendto(Socket, Data, Dest) ->
-                    'ok' | {'error', Reason} when
-      Socket :: socket(),
-      Data   :: iodata(),
-      Dest   :: sockaddr(),
-      Reason :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()}.
-
-sendto(Socket, Data, Dest) ->
-    sendto(Socket, Data, Dest, ?ESOCK_SENDTO_FLAGS_DEFAULT).
-
--spec sendto(Socket, Data, Dest, Flags) ->
-                    'ok' | {'error', Reason} when
-      Socket :: socket(),
-      Data   :: iodata(),
-      Dest   :: sockaddr(),
-      Flags  :: [msg_flag() | integer()],
-      Reason :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
-
-            (Socket, Data, Dest, Timeout :: 'nowait') ->
-                    'ok' |
-                    {'select', SelectInfo} |
-                    {'error', Reason} when
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket     :: socket(),
       Data       :: iodata(),
       Dest       :: sockaddr(),
-      SelectInfo :: select_info(),
-      Reason     :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
+            (Socket, Data, Cont) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Cont       :: select_info(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid().
 
-            (Socket, Data, Dest, SelectHandle) ->
-                    'ok' |
-                    {'select', SelectInfo} |
-                    {'error', Reason} when
+sendto(Socket, Data, Dest_Cont) ->
+    sendto(Socket, Data, Dest_Cont, ?ESOCK_SENDTO_FLAGS_DEFAULT).
+
+-spec sendto(Socket, Data, Dest, Flags) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Dest       :: sockaddr(),
+      Flags      :: [msg_flag() | integer()],
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
+
+            (Socket, Data, Dest, SelectHandle :: 'nowait') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Dest       :: sockaddr(),
+      RestData   :: binary(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+            (Socket, Data, Dest, SelectHandle :: select_handle()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
       Socket       :: socket(),
       Data         :: iodata(),
       Dest         :: sockaddr(),
+      RestData     :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
-      Reason       :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      Reason       :: posix() | 'closed' | invalid();
 
-            (Socket, Data, Dest, Timeout) ->
-                    'ok' | {'error', Reason} when
-      Socket  :: socket(),
-      Data    :: iodata(),
-      Dest    :: sockaddr(),
-      Timeout :: 'infinity',
-      Reason  :: {posix() | 'closed' | invalid(),
-                  RestData :: erlang:iovec()};
+            (Socket, Data, Dest, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Dest       :: sockaddr(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
 
-            (Socket, Data, Dest, Timeout) ->
-                    'ok' | {'error', Reason} when
-      Socket  :: socket(),
-      Data    :: iodata(),
-      Dest    :: sockaddr(),
-      Timeout :: non_neg_integer(),
-      Reason  :: {posix() | 'closed' | invalid() | 'timeout',
-                  RestData :: erlang:iovec()}.
+            (Socket, Data, Dest, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Dest       :: sockaddr(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
+
+            (Socket, Data, Cont, SelectHandle :: 'nowait') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Cont       :: select_info(),
+      RestData   :: binary(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+            (Socket, Data, Cont, SelectHandle :: select_handle()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
+      Socket       :: socket(),
+      Data         :: iodata(),
+      Cont         :: select_info(),
+      RestData     :: binary(),
+      SelectInfo   :: select_info(),
+      Reason       :: posix() | 'closed' | invalid();
+
+            (Socket, Data, Cont, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Cont       :: select_info(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
+
+            (Socket, Data, Cont, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: iodata(),
+      Cont       :: select_info(),
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid().
 
 sendto(Socket, Data, Dest, Flags) when is_list(Flags) ->
     sendto(Socket, Data, Dest, Flags, ?ESOCK_SENDTO_TIMEOUT_DEFAULT);
+sendto(
+  ?socket(SockRef) = Socket, Data,
+  ?SELECT_INFO({sendto, Cont}, _) = SI, Timeout)
+  when is_reference(SockRef) ->
+    case Data of
+        Bin when is_binary(Bin) ->
+            sendto_timeout_cont(SockRef, Bin, Cont, Timeout);
+        [Bin] when is_binary(Bin) ->
+            sendto_timeout_cont(SockRef, Bin, Cont, Timeout);
+        IOV when is_list(IOV) ->
+            try erlang:list_to_binary(IOV) of
+                Bin ->
+                    sendto_timeout_cont(SockRef, Bin, Cont, Timeout)
+            catch
+                error : badarg ->
+                    erlang:error({invalid, {data, Data}})
+            end;
+        _ ->
+            erlang:error(badarg, [Socket, Data, SI, Timeout])
+    end;
 sendto(Socket, Data, Dest, Timeout) ->
     sendto(Socket, Data, Dest, ?ESOCK_SENDTO_FLAGS_DEFAULT, Timeout).
 
 
--spec sendto(Socket, Data, Dest, Flags, Timeout :: 'nowait') ->
-                    'ok' |
-                    {'ok', {binary(), SelectInfo}} |
-                    {'select', SelectInfo} |
-                    {'error', Reason} when
+-spec sendto(Socket, Data, Dest, Flags, SelectHandle :: 'nowait') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
       Socket     :: socket(),
-      Data       :: binary(),
+      Data       :: iodata(),
       Dest       :: sockaddr(),
       Flags      :: [msg_flag() | integer()],
+      RestData   :: binary(),
       SelectInfo :: select_info(),
-      Reason     :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      Reason     :: posix() | 'closed' | invalid();
 
-            (Socket, Data, Dest, Flags, SelectHandle) ->
-                    'ok' |
-                    {'ok', {binary(), SelectInfo}} |
-                    {'select', SelectInfo} |
-                    {'error', Reason} when
+            (Socket, Data, Dest, Flags, SelectHandle :: select_handle()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason}
+                      when
       Socket       :: socket(),
-      Data         :: binary(),
+      Data         :: iodata(),
       Dest         :: sockaddr(),
       Flags        :: [msg_flag() | integer()],
+      RestData     :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
-      Reason       :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      Reason       :: posix() | 'closed' | invalid();
 
-            (Socket, Data, Dest, Flags, Timeout) ->
-                    'ok' | {'error', Reason} when
+            (Socket, Data, Dest, Flags, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket     :: socket(),
-      Data       :: binary(),
+      Data       :: iodata(),
       Dest       :: sockaddr(),
       Flags      :: [msg_flag() | integer()],
-      Timeout    :: 'infinity',
-      Reason     :: {posix() | 'closed' | invalid(),
-                     RestData :: erlang:iovec()};
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid();
 
-            (Socket, Data, Dest, Flags, Timeout) ->
-                    'ok' | {'error', Reason} when
+            (Socket, Data, Dest, Flags, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
       Socket     :: socket(),
-      Data       :: binary(),
+      Data       :: iodata(),
       Dest       :: sockaddr(),
       Flags      :: [msg_flag() | integer()],
-      Timeout    :: non_neg_integer(),
-      Reason     :: {posix() | 'closed' | invalid() | 'timeout',
-                     RestData :: erlang:iovec()}.
+      RestData   :: binary(),
+      Reason     :: posix() | 'closed' | invalid().
 
-sendto(Socket, [Bin], Dest, Flags, Timeout) when is_binary(Bin) ->
-    sendto(Socket, Bin, Dest, Flags, Timeout);
-sendto(Socket, Data, Dest, Flags, Timeout) when is_list(Data) ->
-    Bin = erlang:list_to_binary(Data),
-    sendto(Socket, Bin, Dest, Flags, Timeout);
-sendto(?socket(SockRef) = Socket, Data, Dest, Flags, Timeout)
+sendto(?socket(SockRef), Data, Dest, Flags, Timeout)
   when is_reference(SockRef), is_binary(Data), is_list(Flags) ->
+    %%
     case deadline(Timeout) of
-        badarg = Reason ->
-            erlang:error(Reason, [Socket, Data, Dest, Flags, Timeout]);
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
         nowait ->
             SelectHandle = make_ref(),
-            send_common_nowait(
-              SockRef, Data, Dest, Flags, SelectHandle, sendto);
+            sendto_nowait(SockRef, Data, Dest, Flags, SelectHandle);
         select_handle ->
             SelectHandle = Timeout,
-            send_common_nowait(
-              SockRef, Data, Dest, Flags, SelectHandle, sendto);
+            sendto_nowait(SockRef, Data, Dest, Flags, SelectHandle);
         Deadline ->
-            send_common_deadline(
-              SockRef, Data, Dest, Flags, Deadline, sendto)
+            HasWritten = false,
+            sendto_deadline(SockRef, Data, Dest, Flags, Deadline, HasWritten)
+    end;
+sendto(?socket(SockRef) = Socket, [Bin], Dest, Flags, Timeout)
+  when is_reference(SockRef), is_binary(Bin) ->
+    sendto(Socket, Bin, Dest, Flags, Timeout);
+sendto(?socket(SockRef) = Socket, Data, Dest, Flags, Timeout)
+  when is_reference(SockRef), is_list(Data) ->
+    try erlang:list_to_binary(Data) of
+        Bin ->
+            sendto(Socket, Bin, Dest, Flags, Timeout)
+    catch
+        error : badarg ->
+            erlang:error({invalid, {data, Data}})
     end;
 sendto(Socket, Data, Dest, Flags, Timeout) ->
     erlang:error(badarg, [Socket, Data, Dest, Flags, Timeout]).
 
+sendto_timeout_cont(SockRef, Bin, Cont, Timeout) ->
+    case deadline(Timeout) of
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
+        nowait ->
+            SelectHandle = make_ref(),
+            sendto_nowait_cont(SockRef, Bin, Cont, SelectHandle);
+        select_handle ->
+            SelectHandle = Timeout,
+            sendto_nowait_cont(SockRef, Bin, Cont, SelectHandle);
+        Deadline ->
+            HasWritten = false,
+            sendto_deadline_cont(SockRef, Bin, Cont, Deadline, HasWritten)
+    end.
+
+sendto_nowait(SockRef, Bin, To, Flags, SelectHandle) ->
+    send_common_nowait_result(
+      SelectHandle, sendto,
+      prim_socket:sendto(SockRef, Bin, To, Flags, SelectHandle)).
+
+sendto_nowait_cont(SockRef, Bin, Cont, SelectHandle) ->
+    send_common_nowait_result(
+      SelectHandle, sendto,
+      prim_socket:sendto(SockRef, Bin, Cont, SelectHandle)).
+
+sendto_deadline(SockRef, Bin, To, Flags, Deadline, HasWritten) ->
+    SelectHandle = make_ref(),
+    send_common_deadline_result(
+       SockRef, Bin, SelectHandle, Deadline, HasWritten,
+       sendto, fun sendto_deadline_cont/5,
+       prim_socket:sendto(SockRef, Bin, To, Flags, SelectHandle)).
+
+sendto_deadline_cont(SockRef, Bin, Cont, Deadline, HasWritten) ->
+    SelectHandle = make_ref(),
+    send_common_deadline_result(
+       SockRef, Bin, SelectHandle, Deadline, HasWritten,
+       sendto, fun sendto_deadline_cont/5,
+       prim_socket:sendto(SockRef, Bin, Cont, SelectHandle)).
 
 %% ---------------------------------------------------------------------------
 %%
@@ -1626,13 +1923,15 @@ sendto(Socket, Data, Dest, Flags, Timeout) ->
 %%
 
 -spec sendmsg(Socket, Msg) ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'error', Reason} when
-      Socket    :: socket(),
-      Msg       :: msg_send(),
-      Remaining :: erlang:iovec(),
-      Reason    :: term().
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Msg        :: msg_send(),
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid().
 
 sendmsg(Socket, Msg) ->
     sendmsg(Socket, Msg,
@@ -1640,190 +1939,264 @@ sendmsg(Socket, Msg) ->
 
 
 -spec sendmsg(Socket, Msg, Flags) ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'error', Reason} when
-      Socket :: socket(),
-      Msg    :: msg_send(),
-      Flags  :: [msg_flag() | integer()],
-      Remaining  :: erlang:iovec(),
-      Reason :: posix() | 'closed';
-
-             (Socket, Msg, Timeout :: 'nowait') ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'select', SelectInfo} |
-                     {'error', Reason} when
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket     :: socket(),
       Msg        :: msg_send(),
-      Remaining  :: erlang:iovec(),
-      SelectInfo :: select_info(),
-      Reason     :: posix() | 'closed';
+      Flags      :: [msg_flag() | integer()],
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid();
 
-             (Socket, Msg, SelectHandle) ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'select', SelectInfo} |
-                     {'error', Reason} when
+             (Socket, Data, Cont) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: erlang:iovec(),
+      Cont       :: select_info(),
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid();
+
+             (Socket, Msg, Timeout :: 'nowait') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Msg        :: msg_send(),
+      RestData   :: erlang:iovec(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+             (Socket, Msg, SelectHandle :: select_handle()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket       :: socket(),
       Msg          :: msg_send(),
-      Remaining    :: erlang:iovec(),
-      SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
-      Reason       :: posix() | 'closed';
+      RestData     :: erlang:iovec(),
+      SelectInfo :: select_info(),
+      Reason       :: posix() | 'closed' | invalid();
 
-             (Socket, Msg, Timeout) ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'error', Reason} when
-      Socket  :: socket(),
-      Msg     :: msg_send(),
-      Timeout :: 'infinity',
-      Remaining    :: erlang:iovec(),
-      Reason  :: posix() | 'closed';
+             (Socket, Msg, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Msg        :: msg_send(),
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid();
 
-             (Socket, Msg, Timeout) ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'error', Reason} when
-      Socket  :: socket(),
-      Msg     :: msg_send(),
-      Timeout :: non_neg_integer(),
-      Remaining    :: erlang:iovec(),
-      Reason  :: posix() | 'closed' | 'timeout'.
+             (Socket, Msg, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
+      Socket     :: socket(),
+      Msg        :: msg_send(),
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid().
 
-sendmsg(Socket, Msg, Flags) when is_list(Flags) ->
-    sendmsg(Socket, Msg, Flags, ?ESOCK_SENDMSG_TIMEOUT_DEFAULT);
+sendmsg(Socket, Data, Flags_Cont)
+  when is_list(Flags_Cont);
+       is_tuple(Flags_Cont) ->
+    sendmsg(Socket, Data, Flags_Cont, ?ESOCK_SENDMSG_TIMEOUT_DEFAULT);
 sendmsg(Socket, Msg, Timeout) ->
     sendmsg(Socket, Msg, ?ESOCK_SENDMSG_FLAGS_DEFAULT, Timeout).
 
 
--spec sendmsg(Socket, Msg, Flags, 'nowait') ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'select', SelectInfo} |
-                     {'error', Reason} when
+-spec sendmsg(Socket, Msg, Flags, SelectHandle :: 'nowait') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket     :: socket(),
       Msg        :: msg_send(),
       Flags      :: [msg_flag() | integer()],
-      Remaining  :: erlang:iovec(),
+      RestData   :: erlang:iovec(),
       SelectInfo :: select_info(),
-      Reason     :: posix() | 'closed';
+      Reason     :: posix() | 'closed' | invalid();
 
-             (Socket, Msg, Flags, SelectHandle) ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'select', SelectInfo} |
-                     {'error', Reason} when
+             (Socket, Msg, Flags, SelectHandle :: select_handle()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket       :: socket(),
       Msg          :: msg_send(),
       Flags        :: [msg_flag() | integer()],
-      Remaining    :: erlang:iovec(),
+      RestData     :: erlang:iovec(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
-      Reason       :: posix() | 'closed';
+      Reason       :: posix() | 'closed' | invalid();
 
-             (Socket, Msg, Flags, Timeout) ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'error', Reason} when
+             (Socket, Msg, Flags, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
       Socket     :: socket(),
       Msg        :: msg_send(),
       Flags      :: [msg_flag() | integer()],
-      Timeout    :: 'infinity',
-      Remaining  :: erlang:iovec(),
-      Reason     :: posix() | 'closed';
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid();
 
-             (Socket, Msg, Flags, Timeout) ->
-                     'ok' |
-                     {'ok', Remaining} |
-                     {'error', Reason} when
+             (Socket, Msg, Flags, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
       Socket     :: socket(),
       Msg        :: msg_send(),
       Flags      :: [msg_flag() | integer()],
-      Timeout    :: non_neg_integer(),
-      Remaining  :: erlang:iovec(),
-      Reason     :: posix() | 'closed' | 'timeout'.
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid();
 
-sendmsg(?socket(SockRef) = Socket, Msg, Flags, Timeout)
-  when is_reference(SockRef), is_map(Msg), is_list(Flags) ->
+             (Socket, Data, Cont, SelectHandle :: 'nowait') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: msg_send() | erlang:iovec(),
+      Cont       :: select_info(),
+      RestData   :: erlang:iovec(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+             (Socket, Data, Cont, SelectHandle :: select_handle()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'select', SelectInfo} |
+                  {'ok', {RestData, SelectInfo}} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: msg_send() | erlang:iovec(),
+      Cont       :: select_info(),
+      RestData   :: erlang:iovec(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+             (Socket, Data, Cont, Timeout :: 'infinity') ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason} |
+                  {'error', {Reason, RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: msg_send() | erlang:iovec(),
+      Cont       :: select_info(),
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid();
+
+             (Socket, Data, Cont, Timeout :: non_neg_integer()) ->
+                  'ok' |
+                  {'ok', RestData} |
+                  {'error', Reason | 'timeout'} |
+                  {'error', {Reason | 'timeout', RestData}}
+                      when
+      Socket     :: socket(),
+      Data       :: msg_send() | erlang:iovec(),
+      Cont       :: select_info(),
+      RestData   :: erlang:iovec(),
+      Reason     :: posix() | 'closed' | invalid().
+
+sendmsg(
+  ?socket(SockRef) = Socket, RestData,
+  ?SELECT_INFO({sendmsg, Cont}, _) = SI, Timeout) ->
+    %%
+    case RestData of
+        #{iov := IOV} ->
+            sendmsg_timeout_cont(SockRef, IOV, Cont, Timeout);
+        IOV when is_list(IOV) ->
+            sendmsg_timeout_cont(SockRef, IOV, Cont, Timeout);
+        _ ->
+            erlang:error(badarg, [Socket, RestData, SI, Timeout])
+    end;
+sendmsg(?socket(SockRef), #{iov := IOV} = Msg, Flags, Timeout)
+  when is_reference(SockRef), is_list(Flags) ->
     case deadline(Timeout) of
-        badarg = Reason ->
-            erlang:error(Reason, [Socket, Msg, Flags, Timeout]);
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
         nowait ->
             SelectHandle = make_ref(),
-            sendmsg_nowait(SockRef, Msg, Flags, SelectHandle);
+            sendmsg_nowait(SockRef, Msg, Flags, SelectHandle, IOV);
         select_handle ->
             SelectHandle = Timeout,
-            sendmsg_nowait(SockRef, Msg, Flags, SelectHandle);
+            sendmsg_nowait(SockRef, Msg, Flags, SelectHandle, IOV);
         Deadline ->
-            sendmsg_deadline(SockRef, Msg, Flags, Deadline)
+            HasWritten = false,
+            sendmsg_deadline(SockRef, Msg, Flags, Deadline, HasWritten, IOV)
     end;
 sendmsg(Socket, Msg, Flags, Timeout) ->
     erlang:error(badarg, [Socket, Msg, Flags, Timeout]).
 
-sendmsg_nowait(SockRef, Msg, Flags, SelectHandle) ->
-    case prim_socket:sendmsg(SockRef, SelectHandle, Msg, Flags) of
-        ok ->
-            %% We are done
-            ok;
-        %%
-        {ok, Written} when is_integer(Written) andalso (Written > 0) ->
-            %% We should not retry here since the protocol may not
-            %% be able to handle a message being split. Leave it to
-            %% the caller to figure out (call again with the rest).
-            %%
-            %% We need to cancel this partial write.
-            %%
-            _ = cancel(SockRef, sendmsg, SelectHandle),
-            {ok, sendmsg_rest(maps:get(iov, Msg), Written)};
-        %%
-        select ->
-            ?SELECT(sendmsg, SelectHandle);
-        %%
-        {error, _} = ERROR ->
-            ERROR
+sendmsg_timeout_cont(SockRef, RestData, Cont, Timeout) ->
+    case deadline(Timeout) of
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
+        nowait ->
+            SelectHandle = make_ref(),
+            sendmsg_nowait_cont(SockRef, RestData, Cont, SelectHandle);
+        select_handle ->
+            SelectHandle = Timeout,
+            sendmsg_nowait_cont(SockRef, RestData, Cont, SelectHandle);
+        Deadline ->
+            HasWritten = false,
+            sendmsg_deadline_cont(
+              SockRef, RestData, Cont, Deadline, HasWritten)
     end.
 
-sendmsg_deadline(SockRef, Msg, Flags, Deadline) ->
+sendmsg_nowait(SockRef, Msg, Flags, SelectHandle, IOV) ->
+    send_common_nowait_result(
+      SelectHandle, sendmsg,
+      prim_socket:sendmsg(SockRef, Msg, Flags, SelectHandle, IOV)).
+
+sendmsg_nowait_cont(SockRef, RestData, Cont, SelectHandle) ->
+    send_common_nowait_result(
+      SelectHandle, sendmsg,
+      prim_socket:sendmsg(SockRef, RestData, Cont, SelectHandle)).
+
+sendmsg_deadline(SockRef, Msg, Flags, Deadline, HasWritten, IOV) ->
     SelectHandle = make_ref(),
-    case prim_socket:sendmsg(SockRef, SelectHandle, Msg, Flags) of
-        ok ->
-            %% We are done
-            ok;
-        %%
-        {ok, Written} when is_integer(Written) andalso (Written > 0) ->
-            %% We should not retry here since the protocol may not
-            %% be able to handle a message being split. Leave it to
-            %% the caller to figure out (call again with the rest).
-            %%
-            %% We need to cancel this partial write.
-            %%
-            _ = cancel(SockRef, sendmsg, SelectHandle),
-            {ok, sendmsg_rest(maps:get(iov, Msg), Written)};
-        %%
-        select ->
-	    Timeout = timeout(Deadline),
-            receive
-                ?socket_msg(?socket(SockRef), select, SelectHandle) ->
-                    sendmsg_deadline(SockRef, Msg, Flags, Deadline);
-                ?socket_msg(_Socket, abort, {SelectHandle, Reason}) ->
-                    {error, Reason}
-            after Timeout ->
-                    _ = cancel(SockRef, sendmsg, SelectHandle),
-                    {error, timeout}
-            end;
-        %%
-        {error, _} = ERROR ->
-            ERROR
-    end.
+    send_common_deadline_result(
+      SockRef, IOV, SelectHandle, Deadline, HasWritten,
+      sendmsg, fun sendmsg_deadline_cont/5,
+      prim_socket:sendmsg(SockRef, Msg, Flags, SelectHandle, IOV)).
 
-sendmsg_rest([B|IOVec], Written) when Written >= byte_size(B) ->
-    sendmsg_rest(IOVec, Written - byte_size(B));
-sendmsg_rest([B|IOVec], Written) ->
-    <<_:Written/binary, Rest/binary>> = B,
-    [Rest|IOVec].
-
+sendmsg_deadline_cont(SockRef, Data, Cont, Deadline, HasWritten) ->
+    SelectHandle = make_ref(),
+    send_common_deadline_result(
+      SockRef, Data, SelectHandle, Deadline, HasWritten,
+      sendmsg, fun sendmsg_deadline_cont/5,
+      prim_socket:sendmsg(SockRef, Data, Cont, SelectHandle)).
 
 %% ===========================================================================
 %%
@@ -1850,162 +2223,207 @@ sendmsg_rest([B|IOVec], Written) ->
 
 -spec recv(Socket) ->
                   {'ok', Data} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket :: socket(),
       Data   :: binary(),
-      Reason ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()}.
+      Reason :: posix() | 'closed' | invalid().
                           
 recv(Socket) ->
-    recv(Socket, 0).
+    recv(Socket, 0, ?ESOCK_RECV_FLAGS_DEFAULT, ?ESOCK_RECV_TIMEOUT_DEFAULT).
 
--spec recv(Socket, Length) ->
+-spec recv(Socket, Flags) ->
                   {'ok', Data} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
+      Socket :: socket(),
+      Flags  :: [msg_flag() | integer()],
+      Data   :: binary(),
+      Reason :: posix() | 'closed' | invalid();
+
+          (Socket, Length) ->
+                  {'ok', Data} |
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket :: socket(),
       Length :: non_neg_integer(),
       Data   :: binary(),
-      Reason ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()}.
+      Reason :: posix() | 'closed' | invalid().
 
+recv(Socket, Flags) when is_list(Flags) ->
+    recv(Socket, 0, Flags, ?ESOCK_RECV_TIMEOUT_DEFAULT);
 recv(Socket, Length) ->
-    recv(Socket, Length,
-         ?ESOCK_RECV_FLAGS_DEFAULT,
-         ?ESOCK_RECV_TIMEOUT_DEFAULT).
+    recv(
+      Socket, Length,
+      ?ESOCK_RECV_FLAGS_DEFAULT, ?ESOCK_RECV_TIMEOUT_DEFAULT).
 
--spec recv(Socket, Length, Flags) ->
+-spec recv(Socket, Flags, SelectHandle :: 'nowait') ->
                   {'ok', Data} |
-                  {'error', Reason} when
+                  {'ok', {Data, SelectInfo}} |
+                  {'select', SelectInfo} |
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
+      Socket     :: socket(),
+      Flags  :: [msg_flag() | integer()],
+      Data       :: binary(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+          (Socket, Flags, SelectHandle :: select_handle()) ->
+                  {'ok', Data} |
+                  {'ok', {Data, SelectInfo}} |
+                  {'select', SelectInfo} |
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
+      Socket       :: socket(),
+      Flags  :: [msg_flag() | integer()],
+      Data         :: binary(),
+      SelectInfo   :: select_info(),
+      Reason       :: posix() | 'closed' | invalid();
+
+          (Socket, Flags, Timeout :: 'infinity') ->
+                  {'ok', Data} |
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
+      Socket  :: socket(),
+      Flags  :: [msg_flag() | integer()],
+      Data    :: binary(),
+      Reason  :: posix() | 'closed' | invalid();
+
+          (Socket, Flags, Timeout :: non_neg_integer()) ->
+                  {'ok', Data} |
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
+      Socket  :: socket(),
+      Flags  :: [msg_flag() | integer()],
+      Data    :: binary(),
+      Reason  :: posix() | 'closed' | invalid() | 'timeout';
+
+          (Socket, Length, Flags) ->
+                  {'ok', Data} |
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket :: socket(),
       Length :: non_neg_integer(),
       Flags  :: [msg_flag() | integer()],
       Data   :: binary(),
-      Reason ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()};
+      Reason :: posix() | 'closed' | invalid();
 
-          (Socket, Length, 'nowait') ->
+          (Socket, Length, SelectHandle :: 'nowait') ->
                   {'ok', Data} |
                   {'ok', {Data, SelectInfo}} |
                   {'select', SelectInfo} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket     :: socket(),
       Length     :: non_neg_integer(),
       Data       :: binary(),
       SelectInfo :: select_info(),
-      Reason     ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()};
+      Reason     :: posix() | 'closed' | invalid();
 
-          (Socket, Length, SelectHandle) ->
+          (Socket, Length, SelectHandle :: select_handle()) ->
                   {'ok', Data} |
                   {'ok', {Data, SelectInfo}} |
                   {'select', SelectInfo} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket       :: socket(),
       Length       :: non_neg_integer(),
       Data         :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
-      Reason       ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()};
+      Reason       :: posix() | 'closed' | invalid();
 
-          (Socket, Length, Timeout) ->
+          (Socket, Length, Timeout :: 'infinity') ->
                   {'ok', Data} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket  :: socket(),
       Length  :: non_neg_integer(),
-      Timeout :: 'infinity',
       Data    :: binary(),
-      Reason  ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()};
+      Reason  :: posix() | 'closed' | invalid();
 
-          (Socket, Length, Timeout) ->
+          (Socket, Length, Timeout :: non_neg_integer()) ->
                   {'ok', Data} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket  :: socket(),
       Length  :: non_neg_integer(),
-      Timeout :: non_neg_integer(),
       Data    :: binary(),
-      Reason  ::
-        posix() | 'closed' | invalid() | 'timeout' |
-        {posix() | 'closed' | invalid() | 'timeout', Data :: binary()}.
+      Reason  :: posix() | 'closed' | invalid() | 'timeout'.
 
+recv(Socket, Flags, Timeout) when is_list(Flags) ->
+    recv(Socket, 0, Flags, Timeout);
 recv(Socket, Length, Flags) when is_list(Flags) ->
     recv(Socket, Length, Flags, ?ESOCK_RECV_TIMEOUT_DEFAULT);
 recv(Socket, Length, Timeout) ->
     recv(Socket, Length, ?ESOCK_RECV_FLAGS_DEFAULT, Timeout).
 
--spec recv(Socket, Length, Flags, 'nowait') ->
+-spec recv(Socket, Length, Flags, SelectHandle :: 'nowait') ->
                   {'ok', Data} |
                   {'ok', {Data, SelectInfo}} |
                   {'select', SelectInfo} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket     :: socket(),
       Length     :: non_neg_integer(),
       Flags      :: [msg_flag() | integer()],
       Data       :: binary(),
       SelectInfo :: select_info(),
-      Reason     ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()};
+      Reason     :: posix() | 'closed' | invalid();
 
-          (Socket, Length, Flags, SelectHandle) ->
+          (Socket, Length, Flags, SelectHandle :: select_handle()) ->
                   {'ok', Data} |
                   {'ok', {Data, SelectInfo}} |
                   {'select', SelectInfo} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket       :: socket(),
       Length       :: non_neg_integer(),
       Flags        :: [msg_flag() | integer()],
       Data         :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
-      Reason       ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()};
+      Reason       :: posix() | 'closed' | invalid();
 
-          (Socket, Length, Flags, Timeout) ->
+          (Socket, Length, Flags, Timeout :: 'infinity') ->
                   {'ok', Data} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket  :: socket(),
       Length  :: non_neg_integer(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: 'infinity',
       Data    :: binary(),
-      Reason  ::
-        posix() | 'closed' | invalid() |
-        {posix() | 'closed' | invalid(), Data :: binary()};
+      Reason  :: posix() | 'closed' | invalid();
 
-          (Socket, Length, Flags, Timeout) ->
+          (Socket, Length, Flags, Timeout :: non_neg_integer()) ->
                   {'ok', Data} |
-                  {'error', Reason} when
+                  {'error', Reason} |
+                  {'error', {Reason, Data}} when
       Socket  :: socket(),
       Length  :: non_neg_integer(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: non_neg_integer(),
       Data    :: binary(),
-      Reason  ::
-        posix() | 'closed' | invalid() | 'timeout' |
-        {posix() | 'closed' | invalid() | 'timeout', Data :: binary()}.
+      Reason  :: posix() | 'closed' | invalid() | 'timeout'.
 
-recv(?socket(SockRef) = Socket, Length, Flags, Timeout)
+recv(?socket(SockRef), Length, Flags, Timeout)
   when is_reference(SockRef),
        is_integer(Length), Length >= 0,
        is_list(Flags) ->
     case deadline(Timeout) of
-        badarg = Reason ->
-            erlang:error(Reason, [Socket, Length, Flags, Timeout]);
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
         nowait ->
             SelectHandle = make_ref(),
             recv_nowait(SockRef, Length, Flags, SelectHandle, <<>>);
         select_handle ->
             SelectHandle = Timeout,
             recv_nowait(SockRef, Length, Flags, SelectHandle, <<>>);
+        zero ->
+            case prim_socket:recv(SockRef, Length, Flags, zero) of
+                ok ->
+                    {error, timeout};
+                Result ->
+                    Result
+            end;
         Deadline ->
             recv_deadline(SockRef, Length, Flags, Deadline, <<>>)
     end;
@@ -2016,7 +2434,7 @@ recv(Socket, Length, Flags, Timeout) ->
 %% so Length == 0 means to return all available data also when recursing
 
 recv_nowait(SockRef, Length, Flags, SelectHandle, Acc) ->
-    case prim_socket:recv(SockRef, SelectHandle, Length, Flags) of
+    case prim_socket:recv(SockRef, Length, Flags, SelectHandle) of
         {more, Bin} ->
             %% We got what we requested but will not waste more time
             %% although there might be more data available
@@ -2027,10 +2445,10 @@ recv_nowait(SockRef, Length, Flags, SelectHandle, Acc) ->
             {ok, {bincat(Acc, Bin), ?SELECT_INFO(recv, SelectHandle)}};
         select ->
             %% The caller will get a select message when there
-            %% might me data to read
+            %% might be data to read
             if
                 byte_size(Acc) =:= 0 ->
-                    ?SELECT(recv, SelectHandle);
+                    {select, ?SELECT_INFO(recv, SelectHandle)};
                 true ->
                     {ok, {Acc, ?SELECT_INFO(recv, SelectHandle)}}
             end;
@@ -2040,7 +2458,7 @@ recv_nowait(SockRef, Length, Flags, SelectHandle, Acc) ->
 
 recv_deadline(SockRef, Length, Flags, Deadline, Acc) ->
     SelectHandle = make_ref(),
-    case prim_socket:recv(SockRef, SelectHandle, Length, Flags) of
+    case prim_socket:recv(SockRef, Length, Flags, SelectHandle) of
         {more, Bin} ->
             %% There is more data readily available
             %% - repeat unless time's up
@@ -2137,7 +2555,9 @@ recv_error(Acc, Reason) ->
 %% is needed, possibly with a then adjusted buffer size.
 %%
 
--spec recvfrom(Socket) -> {'ok', {Source, Data}} | {'error', Reason} when
+-spec recvfrom(Socket) ->
+                      {'ok', {Source, Data}} |
+                      {'error', Reason} when
       Socket    :: socket(),
       Source    :: sockaddr_recv(),
       Data      :: binary(),
@@ -2146,19 +2566,32 @@ recv_error(Acc, Reason) ->
 recvfrom(Socket) ->
     recvfrom(Socket, 0).
 
--spec recvfrom(Socket, BufSz) -> {'ok', {Source, Data}} | {'error', Reason} when
+-spec recvfrom(Socket, Flags) ->
+                      {'ok', {Source, Data}} |
+                      {'error', Reason} when
+      Socket    :: socket(),
+      Flags     :: [msg_flag() | integer()],
+      Source    :: sockaddr_recv(),
+      Data      :: binary(),
+      Reason    :: posix() | 'closed' | invalid();
+
+              (Socket, BufSz) ->
+                      {'ok', {Source, Data}} |
+                      {'error', Reason} when
       Socket    :: socket(),
       BufSz     :: non_neg_integer(),
       Source    :: sockaddr_recv(),
       Data      :: binary(),
       Reason    :: posix() | 'closed' | invalid().
 
+recvfrom(Socket, Flags) when is_list(Flags) ->
+    recvfrom(Socket, 0, Flags, ?ESOCK_RECV_TIMEOUT_DEFAULT);
 recvfrom(Socket, BufSz) ->
     recvfrom(Socket, BufSz,
              ?ESOCK_RECV_FLAGS_DEFAULT,
              ?ESOCK_RECV_TIMEOUT_DEFAULT).
 
--spec recvfrom(Socket, Flags, 'nowait') ->
+-spec recvfrom(Socket, Flags, SelectHandle :: 'nowait') ->
                       {'ok', {Source, Data}} |
                       {'select', SelectInfo} |
                       {'error', Reason} when
@@ -2169,7 +2602,7 @@ recvfrom(Socket, BufSz) ->
       SelectInfo :: select_info(),
       Reason     :: posix() | 'closed' | invalid();
 
-              (Socket, Flags, SelectHandle) ->
+              (Socket, Flags, SelectHandle :: select_handle()) ->
                       {'ok', {Source, Data}} |
                       {'select', SelectInfo} |
                       {'error', Reason} when
@@ -2178,31 +2611,29 @@ recvfrom(Socket, BufSz) ->
       Source       :: sockaddr_recv(),
       Data         :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
       Reason       :: posix() | 'closed' | invalid();
 
-              (Socket, Flags, Timeout) -> 
+              (Socket, Flags, Timeout :: 'infinity') ->
                       {'ok', {Source, Data}} |
                       {'error', Reason} when
       Socket  :: socket(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: 'infinity',
       Source  :: sockaddr_recv(),
       Data    :: binary(),
       Reason  :: posix() | 'closed' | invalid();
 
-              (Socket, Flags, Timeout) ->
+              (Socket, Flags, Timeout :: non_neg_integer()) ->
                       {'ok', {Source, Data}} |
                       {'error', Reason} when
       Socket  :: socket(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: non_neg_integer(),
       Source  :: sockaddr_recv(),
       Data    :: binary(),
       Reason  :: posix() | 'closed' | invalid() | 'timeout';
 
               (Socket, BufSz, Flags) -> 
-                      {'ok', {Source, Data}} | {'error', Reason} when
+                      {'ok', {Source, Data}} |
+                      {'error', Reason} when
       Socket :: socket(),
       BufSz  :: non_neg_integer(),
       Flags  :: [msg_flag() | integer()],
@@ -2210,7 +2641,7 @@ recvfrom(Socket, BufSz) ->
       Data   :: binary(),
       Reason :: posix() | 'closed' | invalid();
 
-              (Socket, BufSz, 'nowait') ->
+              (Socket, BufSz, SelectHandle :: 'nowait') ->
                       {'ok', {Source, Data}} |
                       {'select', SelectInfo} |
                       {'error', Reason} when
@@ -2221,7 +2652,7 @@ recvfrom(Socket, BufSz) ->
       SelectInfo :: select_info(),
       Reason     :: posix() | 'closed' | invalid();
 
-              (Socket, BufSz, SelectHandle) ->
+              (Socket, BufSz, SelectHandle :: select_handle()) ->
                       {'ok', {Source, Data}} |
                       {'select', SelectInfo} |
                       {'error', Reason} when
@@ -2230,23 +2661,22 @@ recvfrom(Socket, BufSz) ->
       Source       :: sockaddr_recv(),
       Data         :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
       Reason       :: posix() | 'closed' | invalid();
 
-              (Socket, BufSz, Timeout) -> 
-                      {'ok', {Source, Data}} | {'error', Reason} when
+              (Socket, BufSz, Timeout :: 'infinity') ->
+                      {'ok', {Source, Data}} |
+                      {'error', Reason} when
       Socket  :: socket(),
       BufSz   :: non_neg_integer(),
-      Timeout :: 'infinity',
       Source  :: sockaddr_recv(),
       Data    :: binary(),
       Reason  :: posix() | 'closed' | invalid();
 
-              (Socket, BufSz, Timeout) ->
-                      {'ok', {Source, Data}} | {'error', Reason} when
+              (Socket, BufSz, Timeout :: non_neg_integer()) ->
+                      {'ok', {Source, Data}} |
+                      {'error', Reason} when
       Socket  :: socket(),
       BufSz   :: non_neg_integer(),
-      Timeout :: non_neg_integer(),
       Source  :: sockaddr_recv(),
       Data    :: binary(),
       Reason  :: posix() | 'closed' | invalid() | 'timeout'.
@@ -2258,7 +2688,7 @@ recvfrom(Socket, BufSz, Flags) when is_list(Flags) ->
 recvfrom(Socket, BufSz, Timeout) ->
     recvfrom(Socket, BufSz, ?ESOCK_RECV_FLAGS_DEFAULT, Timeout).
 
--spec recvfrom(Socket, BufSz, Flags, 'nowait') ->
+-spec recvfrom(Socket, BufSz, Flags, SelectHandle :: 'nowait') ->
                       {'ok', {Source, Data}} |
                       {'select', SelectInfo} |
                       {'error', Reason} when
@@ -2270,7 +2700,7 @@ recvfrom(Socket, BufSz, Timeout) ->
       SelectInfo :: select_info(),
       Reason     :: posix() | 'closed' | invalid();
 
-              (Socket, BufSz, Flags, SelectHandle) ->
+              (Socket, BufSz, Flags, SelectHandle :: select_handle()) ->
                       {'ok', {Source, Data}} |
                       {'select', SelectInfo} |
                       {'error', Reason} when
@@ -2280,44 +2710,48 @@ recvfrom(Socket, BufSz, Timeout) ->
       Source       :: sockaddr_recv(),
       Data         :: binary(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
       Reason       :: posix() | 'closed' | invalid();
 
-              (Socket, BufSz, Flags, Timeout) -> 
+              (Socket, BufSz, Flags, Timeout :: 'infinity') ->
                       {'ok', {Source, Data}} |
                       {'error', Reason} when
       Socket  :: socket(),
       BufSz   :: non_neg_integer(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: 'infinity',
       Source  :: sockaddr_recv(),
       Data    :: binary(),
       Reason  :: posix() | 'closed' | invalid();
 
-              (Socket, BufSz, Flags, Timeout) ->
+              (Socket, BufSz, Flags, Timeout :: non_neg_integer()) ->
                       {'ok', {Source, Data}} |
                       {'error', Reason} when
       Socket  :: socket(),
       BufSz   :: non_neg_integer(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: non_neg_integer(),
       Source  :: sockaddr_recv(),
       Data    :: binary(),
       Reason  :: posix() | 'closed' | invalid() | 'timeout'.
 
-recvfrom(?socket(SockRef) = Socket, BufSz, Flags, Timeout)
+recvfrom(?socket(SockRef), BufSz, Flags, Timeout)
   when is_reference(SockRef),
        is_integer(BufSz), 0 =< BufSz,
        is_list(Flags) ->
     case deadline(Timeout) of
-        badarg = Reason ->
-            erlang:error(Reason, [Socket, BufSz, Flags, Timeout]);
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
         nowait ->
             SelectHandle = make_ref(),
             recvfrom_nowait(SockRef, BufSz, SelectHandle, Flags);
         select_handle ->
             SelectHandle = Timeout,
             recvfrom_nowait(SockRef, BufSz, SelectHandle, Flags);
+        zero ->
+            case prim_socket:recvfrom(SockRef, BufSz, Flags, zero) of
+                ok ->
+                    {error, timeout};
+                Result ->
+                    recvfrom_result(Result)
+            end;
         Deadline ->
             recvfrom_deadline(SockRef, BufSz, Flags, Deadline)
     end;
@@ -2325,16 +2759,16 @@ recvfrom(Socket, BufSz, Flags, Timeout) ->
     erlang:error(badarg, [Socket, BufSz, Flags, Timeout]).
 
 recvfrom_nowait(SockRef, BufSz, SelectHandle, Flags) ->
-    case prim_socket:recvfrom(SockRef, SelectHandle, BufSz, Flags) of
+    case prim_socket:recvfrom(SockRef, BufSz, Flags, SelectHandle) of
         select ->
-            ?SELECT(recvfrom, SelectHandle);
+            {select, ?SELECT_INFO(recvfrom, SelectHandle)};
         Result ->
             recvfrom_result(Result)
     end.
 
 recvfrom_deadline(SockRef, BufSz, Flags, Deadline) ->
     SelectHandle = make_ref(),
-    case prim_socket:recvfrom(SockRef, SelectHandle, BufSz, Flags) of
+    case prim_socket:recvfrom(SockRef, BufSz, Flags, SelectHandle) of
         select ->
             %% There is nothing just now, but we will be notified when there
             %% is something to read (a select message).
@@ -2364,7 +2798,9 @@ recvfrom_result(Result) ->
 %% ---------------------------------------------------------------------------
 %%
 
--spec recvmsg(Socket) -> {'ok', Msg} | {'error', Reason} when
+-spec recvmsg(Socket) ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
       Socket :: socket(),
       Msg    :: msg_recv(),
       Reason :: posix() | 'closed' | invalid().
@@ -2373,40 +2809,44 @@ recvmsg(Socket) ->
     recvmsg(Socket, 0, 0,
             ?ESOCK_RECV_FLAGS_DEFAULT, ?ESOCK_RECV_TIMEOUT_DEFAULT).
 
--spec recvmsg(Socket, Flags) -> {'ok', Msg} | {'error', Reason} when
+
+-spec recvmsg(Socket, Flags) ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
       Socket :: socket(),
       Flags  :: [msg_flag() | integer()],
       Msg    :: msg_recv(),
       Reason :: posix() | 'closed' | invalid();
 
-             (Socket, Timeout :: 'nowait')
-             -> {'ok', Msg} |
-                {'select', SelectInfo} |
-                {'error', Reason} when
+             (Socket, Timeout :: 'nowait') ->
+                     {'ok', Msg} |
+                     {'select', SelectInfo} |
+                     {'error', Reason} when
       Socket     :: socket(),
       Msg        :: msg_recv(),
       SelectInfo :: select_info(),
       Reason     :: posix() | 'closed' | invalid();
 
-             (Socket, SelectHandle)
-             -> {'ok', Msg} |
-                {'select', SelectInfo} |
-                {'error', Reason} when
+             (Socket, SelectHandle :: select_handle()) ->
+                     {'ok', Msg} |
+                     {'select', SelectInfo} |
+                     {'error', Reason} when
       Socket       :: socket(),
       Msg          :: msg_recv(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
       Reason       :: posix() | 'closed' | invalid();
 
-             (Socket, Timeout) -> {'ok', Msg} | {'error', Reason} when
+             (Socket, Timeout :: 'infinity') ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
       Socket  :: socket(),
-      Timeout :: 'infinity',
       Msg     :: msg_recv(),
       Reason  :: posix() | 'closed' | invalid();
 
-             (Socket, Timeout) -> {'ok', Msg} | {'error', Reason} when
+             (Socket, Timeout :: non_neg_integer()) ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
       Socket  :: socket(),
-      Timeout :: non_neg_integer(),
       Msg     :: msg_recv(),
       Reason  :: posix() | 'closed' | invalid() | 'timeout'.
 
@@ -2415,42 +2855,90 @@ recvmsg(Socket, Flags) when is_list(Flags) ->
 recvmsg(Socket, Timeout) ->
     recvmsg(Socket, 0, 0, ?ESOCK_RECV_FLAGS_DEFAULT, Timeout).
 
--spec recvmsg(Socket, Flags, Timeout :: 'nowait')
-             -> {'ok', Msg} |
-                {'select', SelectInfo} |
-                {'error', Reason} when
+
+-spec recvmsg(Socket, BufSz, CtrlSz, SelectHandle :: 'nowait') ->
+                     {'ok', Msg} |
+                     {'select', SelectInfo} |
+                     {'error', Reason} when
+      Socket     :: socket(),
+      BufSz      :: non_neg_integer(),
+      CtrlSz     :: non_neg_integer(),
+      Msg        :: msg_recv(),
+      SelectInfo :: select_info(),
+      Reason     :: posix() | 'closed' | invalid();
+
+             (Socket, BufSz, CtrlSz, SelectHandle :: select_handle()) ->
+                     {'ok', Msg} |
+                     {'select', SelectInfo} |
+                     {'error', Reason} when
+      Socket       :: socket(),
+      BufSz        :: non_neg_integer(),
+      CtrlSz       :: non_neg_integer(),
+      Msg          :: msg_recv(),
+      SelectInfo   :: select_info(),
+      Reason       :: posix() | 'closed' | invalid();
+
+             (Socket, BufSz, CtrlSz, Timeout :: 'infinity') ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
+      Socket  :: socket(),
+      BufSz   :: non_neg_integer(),
+      CtrlSz  :: non_neg_integer(),
+      Msg     :: msg_recv(),
+      Reason  :: posix() | 'closed' | invalid();
+
+             (Socket, BufSz, CtrlSz, Timeout :: non_neg_integer()) ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
+      Socket  :: socket(),
+      BufSz   :: non_neg_integer(),
+      CtrlSz  :: non_neg_integer(),
+      Msg     :: msg_recv(),
+      Reason  :: posix() | 'closed' | invalid() | 'timeout'.
+
+recvmsg(Socket, BufSz, CtrlSz, Timeout) ->
+    recvmsg(Socket, BufSz, CtrlSz, ?ESOCK_RECV_FLAGS_DEFAULT, Timeout).
+
+
+-spec recvmsg(Socket, Flags, Timeout :: 'nowait') ->
+                     {'ok', Msg} |
+                     {'select', SelectInfo} |
+                     {'error', Reason} when
       Socket     :: socket(),
       Flags      :: [msg_flag() | integer()],
       Msg        :: msg_recv(),
       SelectInfo :: select_info(),
       Reason     :: posix() | 'closed' | invalid();
 
-             (Socket, Flags, SelectHandle)
-             -> {'ok', Msg} |
-                {'select', SelectInfo} |
-                {'error', Reason} when
+             (Socket, Flags, SelectHandle :: select_handle()) ->
+                     {'ok', Msg} |
+                     {'select', SelectInfo} |
+                     {'error', Reason} when
       Socket       :: socket(),
       Flags        :: [msg_flag() | integer()],
       Msg          :: msg_recv(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
       Reason       :: posix() | 'closed' | invalid();
 
-             (Socket, Flags, Timeout) -> {'ok', Msg} | {'error', Reason} when
+             (Socket, Flags, Timeout :: 'infinity') ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
       Socket  :: socket(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: 'infinity',
       Msg     :: msg_recv(),
       Reason  :: posix() | 'closed' | invalid();
 
-             (Socket, Flags, Timeout) -> {'ok', Msg} | {'error', Reason} when
+             (Socket, Flags, Timeout :: non_neg_integer()) ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
       Socket  :: socket(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: non_neg_integer(),
       Msg     :: msg_recv(),
       Reason  :: posix() | 'closed' | invalid() | 'timeout';
 
-             (Socket, BufSz, CtrlSz) -> {'ok', Msg} | {'error', Reason} when
+             (Socket, BufSz, CtrlSz) ->
+                     {'ok', Msg} |
+                     {'error', Reason} when
       Socket :: socket(),
       BufSz  :: non_neg_integer(),
       CtrlSz :: non_neg_integer(),
@@ -2464,7 +2952,7 @@ recvmsg(Socket, BufSz, CtrlSz) when is_integer(BufSz), is_integer(CtrlSz) ->
             ?ESOCK_RECV_FLAGS_DEFAULT, ?ESOCK_RECV_TIMEOUT_DEFAULT).
 
 
--spec recvmsg(Socket, BufSz, CtrlSz, Flags, 'nowait') ->
+-spec recvmsg(Socket, BufSz, CtrlSz, Flags, SelectHandle :: 'nowait') ->
                      {'ok', Msg} |
                      {'select', SelectInfo} |
                      {'error', Reason} when
@@ -2476,7 +2964,7 @@ recvmsg(Socket, BufSz, CtrlSz) when is_integer(BufSz), is_integer(CtrlSz) ->
       SelectInfo :: select_info(),
       Reason     :: posix() | 'closed' | invalid();
 
-             (Socket, BufSz, CtrlSz, Flags, SelectHandle) ->
+             (Socket, BufSz, CtrlSz, Flags, SelectHandle :: select_handle()) ->
                      {'ok', Msg} |
                      {'select', SelectInfo} |
                      {'error', Reason} when
@@ -2486,45 +2974,49 @@ recvmsg(Socket, BufSz, CtrlSz) when is_integer(BufSz), is_integer(CtrlSz) ->
       Flags        :: [msg_flag() | integer()],
       Msg          :: msg_recv(),
       SelectInfo   :: select_info(),
-      SelectHandle :: select_handle(),
       Reason       :: posix() | 'closed' | invalid();
 
-             (Socket, BufSz, CtrlSz, Flags, Timeout) ->
+             (Socket, BufSz, CtrlSz, Flags, Timeout :: 'infinity') ->
                      {'ok', Msg} |
                      {'error', Reason} when
       Socket  :: socket(),
       BufSz   :: non_neg_integer(),
       CtrlSz  :: non_neg_integer(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: 'infinity',
       Msg     :: msg_recv(),
       Reason  :: posix() | 'closed' | invalid();
 
-             (Socket, BufSz, CtrlSz, Flags, Timeout) ->
+             (Socket, BufSz, CtrlSz, Flags, Timeout :: non_neg_integer()) ->
                      {'ok', Msg} |
                      {'error', Reason} when
       Socket  :: socket(),
       BufSz   :: non_neg_integer(),
       CtrlSz  :: non_neg_integer(),
       Flags   :: [msg_flag() | integer()],
-      Timeout :: non_neg_integer(),
       Msg     :: msg_recv(),
       Reason  :: posix() | 'closed' | invalid() | 'timeout'.
 
-recvmsg(?socket(SockRef) = Socket, BufSz, CtrlSz, Flags, Timeout)
+recvmsg(?socket(SockRef), BufSz, CtrlSz, Flags, Timeout)
   when is_reference(SockRef),
        is_integer(BufSz), 0 =< BufSz,
        is_integer(CtrlSz), 0 =< CtrlSz,
        is_list(Flags) ->
     case deadline(Timeout) of
-        badarg = Reason ->
-            erlang:error(Reason, [Socket, BufSz, CtrlSz, Flags, Timeout]);
+        invalid ->
+            erlang:error({invalid, {timeout, Timeout}});
         nowait ->
             SelectHandle = make_ref(),
             recvmsg_nowait(SockRef, BufSz, CtrlSz, Flags, SelectHandle);
         select_handle ->
             SelectHandle = Timeout,
             recvmsg_nowait(SockRef, BufSz, CtrlSz, Flags, SelectHandle);
+        zero ->
+            case prim_socket:recvmsg(SockRef, BufSz, CtrlSz, Flags, zero) of
+                ok ->
+                    {error, timeout};
+                Result ->
+                    recvmsg_result(Result)
+            end;
         Deadline ->
             recvmsg_deadline(SockRef, BufSz, CtrlSz, Flags, Deadline)
     end;
@@ -2532,16 +3024,16 @@ recvmsg(Socket, BufSz, CtrlSz, Flags, Timeout) ->
     erlang:error(badarg, [Socket, BufSz, CtrlSz, Flags, Timeout]).
 
 recvmsg_nowait(SockRef, BufSz, CtrlSz, Flags, SelectHandle)  ->
-    case prim_socket:recvmsg(SockRef, SelectHandle, BufSz, CtrlSz, Flags) of
+    case prim_socket:recvmsg(SockRef, BufSz, CtrlSz, Flags, SelectHandle) of
         select ->
-            ?SELECT(recvmsg, SelectHandle);
+            {select, ?SELECT_INFO(recvmsg, SelectHandle)};
         Result ->
             recvmsg_result(Result)
     end.
 
 recvmsg_deadline(SockRef, BufSz, CtrlSz, Flags, Deadline)  ->
     SelectHandle = make_ref(),
-    case prim_socket:recvmsg(SockRef, SelectHandle, BufSz, CtrlSz, Flags) of
+    case prim_socket:recvmsg(SockRef, BufSz, CtrlSz, Flags, SelectHandle) of
         select ->
             %% There is nothing just now, but we will be notified when there
             %% is something to read (a select message).
@@ -2556,12 +3048,6 @@ recvmsg_deadline(SockRef, BufSz, CtrlSz, Flags, Deadline)  ->
                     cancel(SockRef, recvmsg, SelectHandle),
                     {error, timeout}
             end;
-        %%
-        {error, ealready = Reason} ->
-            %% Internal error:
-            %%   we called recvmsg, got eagain, and called recvmsg again
-            %%   - without waiting for select message
-            erlang:error(Reason);
         Result ->
             recvmsg_result(Result)
     end.
@@ -2819,7 +3305,12 @@ peername(Socket) ->
 
 cancel(?socket(SockRef), ?SELECT_INFO(Tag, Ref))
   when is_reference(SockRef) ->
-    cancel(SockRef, Tag, Ref);
+    case Tag of
+        {OpName, _} when is_atom(OpName) ->
+            cancel(SockRef, Tag, Ref);
+        OpName when is_atom(OpName) ->
+            cancel(SockRef, Tag, Ref)
+    end;
 cancel(Socket, SelectInfo) ->
     erlang:error(badarg, [Socket, SelectInfo]).
 
@@ -2886,21 +3377,20 @@ flush_abort_msg(SockRef, Ref) ->
 %%                       [YYYY, MM, DD, Hour, Min, Sec] ++ ArgsExtra),
 %%     lists:flatten(FormatDate).
 
-
 deadline(Timeout) ->
     case Timeout of
         nowait ->
             Timeout;
         infinity ->
             Timeout;
+        SelectHandle when is_reference(SelectHandle) ->
+            select_handle;
         0 ->
             zero;
         _ when is_integer(Timeout), 0 < Timeout ->
             timestamp() + Timeout;
-        _ when is_reference(Timeout) ->
-            select_handle;
         _ ->
-            badarg
+            invalid
     end.
 
 timeout(Deadline) ->

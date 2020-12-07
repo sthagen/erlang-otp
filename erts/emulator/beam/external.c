@@ -37,9 +37,7 @@
 #include "erl_process.h"
 #include "error.h"
 #include "external.h"
-#define ERL_WANT_HIPE_BIF_WRAPPER__
 #include "bif.h"
-#undef ERL_WANT_HIPE_BIF_WRAPPER__
 #include "big.h"
 #include "dist.h"
 #include "erl_binary.h"
@@ -98,7 +96,7 @@
  */
 #define IS_SSMALL32(x) (((Uint) (((x) >> (32-1)) + 1)) < 2)
 
-static Export *term_to_binary_trap_export;
+static Export term_to_binary_trap_export;
 
 static byte* enc_term(ErtsAtomCacheMap *, Eterm, byte*, Uint64, struct erl_off_heap_header** off_heap);
 struct TTBEncodeContext_;
@@ -122,7 +120,7 @@ static Uint encode_size_struct2(ErtsAtomCacheMap *, Eterm, Uint64);
 static ErtsExtSzRes encode_size_struct_int(TTBSizeContext*, ErtsAtomCacheMap *acmp,
                                            Eterm obj, Uint64 dflags, Sint *reds, Uint *res);
 
-static Export *binary_to_term_trap_export;
+static Export binary_to_term_trap_export;
 static BIF_RETTYPE binary_to_term_trap_1(BIF_ALIST_1);
 static Sint transcode_dist_obuf(ErtsDistOutputBuf*, DistEntry*, Uint64 dflags, Sint reds);
 static byte *hopefull_bit_binary(TTBEncodeContext* ctx, byte **epp, Binary *pb_val, Eterm pb_term,
@@ -490,7 +488,7 @@ Sint erts_encode_ext_dist_header_finalize(ErtsDistOutputBuf* ob,
     ip = &instr_buf[0];
     sys_memcpy((void *) ip, (void *) ep, sz);
     ep += sz;
-    ASSERT(ep == (byte *) (ob->eiov->iov[1].iov_base + ob->eiov->iov[1].iov_len));
+    ASSERT(ep == &((byte *)ob->eiov->iov[1].iov_base)[ob->eiov->iov[1].iov_len]);
     if (ci > 0) {
 	Uint32 flgs_buf[((ERTS_DIST_HDR_ATOM_CACHE_FLAG_BYTES(
 			      ERTS_MAX_INTERNAL_ATOM_CACHE_ENTRIES)-1)
@@ -1369,7 +1367,7 @@ static BIF_RETTYPE term_to_binary_trap_1(BIF_ALIST_1)
     }
     if (is_tuple(res)) {
 	ASSERT(BIF_P->flags & F_DISABLE_GC);
-	BIF_TRAP1(term_to_binary_trap_export,BIF_P,res);
+	BIF_TRAP1(&term_to_binary_trap_export,BIF_P,res);
     } else {
         if (erts_set_gc_state(BIF_P, 1)
             || MSO(BIF_P).overhead > BIN_VHEAP_SZ(BIF_P))
@@ -1378,8 +1376,6 @@ static BIF_RETTYPE term_to_binary_trap_1(BIF_ALIST_1)
             BIF_RET(res);
     }
 }
-
-HIPE_WRAPPER_BIF_DISABLE_GC(term_to_binary, 1)
 
 BIF_RETTYPE term_to_binary_1(BIF_ALIST_1)
 {
@@ -1393,14 +1389,12 @@ BIF_RETTYPE term_to_binary_1(BIF_ALIST_1)
     }
     if (is_tuple(res)) {
 	erts_set_gc_state(BIF_P, 0);
-	BIF_TRAP1(term_to_binary_trap_export,BIF_P,res);
+	BIF_TRAP1(&term_to_binary_trap_export,BIF_P,res);
     } else {
 	ASSERT(!(BIF_P->flags & F_DISABLE_GC));
 	BIF_RET(res);
     }
 }
-
-HIPE_WRAPPER_BIF_DISABLE_GC(term_to_iovec, 1)
 
 BIF_RETTYPE term_to_iovec_1(BIF_ALIST_1)
 {
@@ -1414,7 +1408,7 @@ BIF_RETTYPE term_to_iovec_1(BIF_ALIST_1)
     }
     if (is_tuple(res)) {
 	erts_set_gc_state(BIF_P, 0);
-	BIF_TRAP1(term_to_binary_trap_export,BIF_P,res);
+	BIF_TRAP1(&term_to_binary_trap_export,BIF_P,res);
     } else {
 	ASSERT(!(BIF_P->flags & F_DISABLE_GC));
 	BIF_RET(res);
@@ -1488,8 +1482,6 @@ parse_t2b_opts(Eterm opts, Uint *flagsp, int *levelp, int *iovecp, Uint *fsizep)
     return !0; /* ok */
 }
 
-HIPE_WRAPPER_BIF_DISABLE_GC(term_to_binary, 2)
-
 BIF_RETTYPE term_to_binary_2(BIF_ALIST_2)
 {
     int level;
@@ -1510,14 +1502,12 @@ BIF_RETTYPE term_to_binary_2(BIF_ALIST_2)
     }
     if (is_tuple(res)) {
 	erts_set_gc_state(BIF_P, 0);
-	BIF_TRAP1(term_to_binary_trap_export,BIF_P,res);
+	BIF_TRAP1(&term_to_binary_trap_export,BIF_P,res);
     } else {
 	ASSERT(!(BIF_P->flags & F_DISABLE_GC));
 	BIF_RET(res);
     }
 }
-
-HIPE_WRAPPER_BIF_DISABLE_GC(term_to_iovec, 2)
 
 BIF_RETTYPE term_to_iovec_2(BIF_ALIST_2)
 {
@@ -1539,7 +1529,7 @@ BIF_RETTYPE term_to_iovec_2(BIF_ALIST_2)
     }
     if (is_tuple(res)) {
 	erts_set_gc_state(BIF_P, 0);
-	BIF_TRAP1(term_to_binary_trap_export,BIF_P,res);
+	BIF_TRAP1(&term_to_binary_trap_export,BIF_P,res);
     } else {
 	ASSERT(!(BIF_P->flags & F_DISABLE_GC));
 	BIF_RET(res);
@@ -1568,7 +1558,7 @@ erts_debug_term_to_binary(Process *p, Eterm term, Eterm opts)
         }
         else if (is_tuple(res)) {
             erts_set_gc_state(p, 0);
-            ERTS_BIF_PREP_TRAP1(ret, term_to_binary_trap_export,p,res);
+            ERTS_BIF_PREP_TRAP1(ret, &term_to_binary_trap_export,p,res);
         }
         else {
             ASSERT(!(p->flags & F_DISABLE_GC));
@@ -2054,13 +2044,11 @@ static BIF_RETTYPE binary_to_term_int(Process* p, Eterm bin, B2TContext *ctx)
     }
     BUMP_ALL_REDS(p);
 
-    ERTS_BIF_PREP_TRAP1(ret_val, binary_to_term_trap_export,
+    ERTS_BIF_PREP_TRAP1(ret_val, &binary_to_term_trap_export,
 			p, ctx->trap_bin);
 
     return ret_val;
 }
-
-HIPE_WRAPPER_BIF_DISABLE_GC(binary_to_term, 1)
 
 BIF_RETTYPE binary_to_term_1(BIF_ALIST_1)
 {
@@ -2074,8 +2062,6 @@ BIF_RETTYPE binary_to_term_1(BIF_ALIST_1)
     ctx.arg[1] = THE_NON_VALUE;
     return binary_to_term_int(BIF_P, BIF_ARG_1, &ctx);
 }
-
-HIPE_WRAPPER_BIF_DISABLE_GC(binary_to_term, 2)
 
 BIF_RETTYPE binary_to_term_2(BIF_ALIST_2)
 {
@@ -3399,9 +3385,7 @@ enc_term_int(TTBEncodeContext* ctx, ErtsAtomCacheMap *acmp, Eterm obj, byte* ep,
 		/* now the erts_snprintf which does the work */
 		i = sys_double_to_chars(f.fd, (char*) ep, (size_t)31);
 
-		/* Don't leave garbage after the float!  (Bad practice in general,
-		 * and Purify complains.)
-		 */
+		/* Don't leave garbage after the float */
 		sys_memset(ep+i, 0, 31-i);
 		ep += 31;
 	    }
@@ -4260,9 +4244,6 @@ dec_term_atom_common:
 	case NEW_FLOAT_EXT:
 	    {
 		FloatDef ff;
-#ifndef NO_FPE_SIGNALS
-		volatile unsigned long *fpexnp = erts_get_current_fp_exception();
-#endif
 
 #if defined(WORDS_BIGENDIAN) || defined(DOUBLE_MIDDLE_ENDIAN)
 		ff.fw[0] = get_int32(ep);
@@ -4274,9 +4255,12 @@ dec_term_atom_common:
 		ep += 4;
 		ff.fw[0] = get_int32(ep);
 		ep += 4;
-#endif		
-		__ERTS_FP_CHECK_INIT(fpexnp);
-		__ERTS_FP_ERROR_THOROUGH(fpexnp, ff.fd, goto error);
+#endif
+
+        if (!erts_isfinite(ff.fd)) {
+            goto error;
+        }
+
 		*objp = make_float(hp);
 		PUT_DOUBLE(ff, hp);
 		hp += FLOAT_SIZE_OBJECT;
@@ -4392,14 +4376,15 @@ dec_term_atom_common:
 		r0 = get_int32(ep);
 		ep += 4;
 
-	    ref_ext_common: {
-		ErtsORefThing *rtp;
+	    ref_ext_common:
 
 		if (ref_words > ERTS_MAX_REF_NUMBERS)
 		    goto error;
 
 		node = dec_get_node(sysname, cre, make_boxed(hp));
 		if(node == erts_this_node) {
+                    Eterm *rtp = hp;
+                    Uint32 ref_num_buf[ERTS_MAX_REF_NUMBERS];
                     if (r0 >= MAX_REFERENCE) {
                           /*
                            * Must reject local refs with more than 18 bits
@@ -4407,9 +4392,13 @@ dec_term_atom_common:
                            */
                         goto error;
                     }
-	
-		    rtp = (ErtsORefThing *) hp;
-		    ref_num = &rtp->num[0];
+
+                    ref_num = &ref_num_buf[0];
+                    ref_num[0] = r0;
+                    for(i = 1; i < ref_words; i++) {
+                        ref_num[i] = get_int32(ep);
+                        ep += 4;
+                    }
 		    if (ref_words != ERTS_REF_NUMBERS) {
                         int i;
                         if (ref_words > ERTS_REF_NUMBERS)
@@ -4417,17 +4406,36 @@ dec_term_atom_common:
                         for (i = ref_words; i < ERTS_REF_NUMBERS; i++)
                             ref_num[i] = 0;
 		    }
-
-#ifdef ERTS_ORDINARY_REF_MARKER
-		    rtp->marker = ERTS_ORDINARY_REF_MARKER;
-#endif
-		    hp += ERTS_REF_THING_SIZE;
-		    rtp->header = ERTS_REF_THING_HEADER;
+                    if (erts_is_ordinary_ref_numbers(ref_num)) {
+                    make_ordinary_internal_ref:
+                        write_ref_thing(hp, ref_num[0], ref_num[1], ref_num[2]);
+                        hp += ERTS_REF_THING_SIZE;
+                    }
+                    else {
+                        /* Check if it is a pid reference... */
+                        Eterm pid = erts_pid_ref_lookup(ref_num);
+                        if (is_internal_pid(pid)) {
+                            write_pid_ref_thing(hp, ref_num[0], ref_num[1],
+                                                ref_num[2], pid);
+                            hp += ERTS_PID_REF_THING_SIZE;
+                        }
+                        else {
+                            /* Check if it is a magic reference... */
+                            ErtsMagicBinary *mb = erts_magic_ref_lookup_bin(ref_num);
+                            if (!mb)
+                                goto make_ordinary_internal_ref;
+                            /* Refc on binary was increased by lookup above... */
+                            ASSERT(rtp);
+                            write_magic_ref_thing(hp, factory->off_heap, mb);
+                            OH_OVERHEAD(factory->off_heap,
+                                        mb->orig_size / sizeof(Eterm));
+                            hp += ERTS_MAGIC_REF_THING_SIZE;
+                        }
+                    }
 		    *objp = make_internal_ref(rtp);
 		}
 		else {
 		    ExternalThing *etp = (ExternalThing *) hp;
-		    rtp = NULL;
 #if defined(ARCH_64)
 		    hp += EXTERNAL_THING_HEAD_SIZE + ref_words/2 + 1;
 #else
@@ -4448,37 +4456,19 @@ dec_term_atom_common:
 #if defined(ARCH_64)
 		    *(ref_num++) = ref_words /* 32-bit arity */;
 #endif
-		}
 
-		ref_num[0] = r0;
+                    ref_num[0] = r0;
 
-		for(i = 1; i < ref_words; i++) {
-		    ref_num[i] = get_int32(ep);
-		    ep += 4;
-		}
+                    for(i = 1; i < ref_words; i++) {
+                        ref_num[i] = get_int32(ep);
+                        ep += 4;
+                    }
 #if defined(ARCH_64)
-		if ((1 + ref_words) % 2)
-		    ref_num[ref_words] = 0;
+                    if ((1 + ref_words) % 2)
+                        ref_num[ref_words] = 0;
 #endif
-		if (node == erts_this_node) {
-		    /* Check if it was a magic reference... */
-		    ErtsMagicBinary *mb = erts_magic_ref_lookup_bin(ref_num);
-		    if (mb) {
-			/*
-			 * Was a magic ref; adjust it...
-			 *
-			 * Refc on binary was increased by lookup above...
-			 */
-			ASSERT(rtp);
-			hp = (Eterm *) rtp;
-			write_magic_ref_thing(hp, factory->off_heap, mb);
-                        OH_OVERHEAD(factory->off_heap,
-                                    mb->orig_size / sizeof(Eterm));
-			hp += ERTS_MAGIC_REF_THING_SIZE;
-		    }
-		}
-		break;
 	    }
+		break;
 	    }
 	case BINARY_EXT:
 	    {
@@ -4749,11 +4739,6 @@ dec_term_atom_common:
 		funp->fe = erts_put_fun_entry2(module, old_uniq, old_index,
 					       uniq, index, arity);
 		funp->arity = arity;
-#ifdef HIPE
-		if (funp->fe->native_address == NULL) {
-		    hipe_set_closure_stub(funp->fe);
-		}
-#endif
 		hp = factory->hp;
 
 		/* Environment */
@@ -5766,17 +5751,24 @@ Sint transcode_dist_obuf(ErtsDistOutputBuf* ob,
     ep = iov[2].iov_base;
     ASSERT(ep[0] == SMALL_TUPLE_EXT || ep[0] == LARGE_TUPLE_EXT);
 
-    if (~dflags & (DFLAG_DIST_MONITOR | DFLAG_DIST_MONITOR_NAME)
-        && ep[0] == SMALL_TUPLE_EXT
-        && ep[1] == 4
-        && ep[2] == SMALL_INTEGER_EXT
-        && (ep[3] == DOP_MONITOR_P ||
-            ep[3] == DOP_MONITOR_P_EXIT ||
-            ep[3] == DOP_DEMONITOR_P)) {
+    if (((~dflags & (DFLAG_DIST_MONITOR | DFLAG_DIST_MONITOR_NAME))
+         && ep[0] == SMALL_TUPLE_EXT
+         && ep[1] == 4
+         && ep[2] == SMALL_INTEGER_EXT
+         && (ep[3] == DOP_MONITOR_P ||
+             ep[3] == DOP_MONITOR_P_EXIT ||
+             ep[3] == DOP_DEMONITOR_P)
+         /* The receiver does not support process monitoring.
+            Suppress monitor control msg (see erts_dsig_send_monitor). */)
+        || (!(dflags & DFLAG_ALIAS)
+            && ep[0] == SMALL_TUPLE_EXT
+            && (ep[1] == 3 || ep[1] == 4)
+            && ep[2] == SMALL_INTEGER_EXT
+            && ((ep[3] == DOP_ALIAS_SEND) || (ep[3] == DOP_ALIAS_SEND_TT))
+        /* The receiver does not support alias, so the alias
+               is obviously not present at the receiver. */)) {
         /*
-         * Receiver does not support process monitoring.
-         * Suppress monitor control msg (see erts_dsig_send_monitor)
-         * by converting it to an empty (tick) packet.
+         * Drop packet by converting it to an empty (tick) packet...
          */
         int i;
         for (i = 1; i < ob->eiov->vsize; i++) {
@@ -5982,7 +5974,7 @@ Sint transcode_dist_obuf(ErtsDistOutputBuf* ob,
                 bitsize = *ep++;
 
                 /* write fallback prolog... */
-                iov[hopefull_ix].iov_base -= 4;
+                iov[hopefull_ix].iov_base = &((byte*)iov[hopefull_ix].iov_base)[-4];
                 ep = (byte *) iov[hopefull_ix].iov_base;
 
                 *ep++ = SMALL_TUPLE_EXT;
@@ -6020,7 +6012,7 @@ Sint transcode_dist_obuf(ErtsDistOutputBuf* ob,
 
                 ASSERT(1 == iov[hopefull_ix].iov_len);
 
-                iov[hopefull_ix].iov_base -= 4;
+                iov[hopefull_ix].iov_base = &((byte*)iov[hopefull_ix].iov_base)[-4];
                 ep = (byte *) iov[hopefull_ix].iov_base;
                 new_hopefull_ix = get_int32(ep);
                 ASSERT(new_hopefull_ix == ERTS_NO_HIX
@@ -6074,7 +6066,7 @@ Sint transcode_dist_obuf(ErtsDistOutputBuf* ob,
         if (payload_ix) {
             ASSERT(0 < payload_ix && payload_ix < eiov->vsize);
             /* Prepend version magic on payload. */
-            iov[payload_ix].iov_base--;
+            iov[payload_ix].iov_base = &((byte*)iov[payload_ix].iov_base)[-1];
             *((byte *) iov[payload_ix].iov_base) = VERSION_MAGIC;
             iov[payload_ix].iov_len++;
             eiov->size++;
