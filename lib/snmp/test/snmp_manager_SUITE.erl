@@ -1420,14 +1420,14 @@ usm_priv_aes(Config) when is_list(Config) ->
                                         {dir,       ConfDir},
                                         {db_dir,    DbDir}]}],
 
-                  io:format("[~s] try starting manager", [?FTS()]),
+                  ?IPRINT("try starting manager"),
                   ok = snmpm:start(Opts),
                   ?SLEEP(1000), % Give it time to settle
                   ok
           end,
     Case = fun(_) -> do_usm_priv_aes(Config) end,
     Post = fun(_) ->
-                   io:format("[~s] try stop manager", [?FTS()]),
+                   ?IPRINT("try stop manager"),
                    ok = snmpm:stop(),
                    ?SLEEP(1000), % Give it time to settle
                    ok
@@ -1435,10 +1435,13 @@ usm_priv_aes(Config) when is_list(Config) ->
     ?TC_TRY(usm_priv_aes, Pre, Case, Post).
 
 do_usm_priv_aes(Config) ->
-    io:format("[~s] starting with Config: "
-              "~n   ~p", [?FTS(), Config]),
+    ?IPRINT("starting with Config: "
+            "~n   ~p", [Config]),
 
-    io:format("[~s] generate AES-encrypted message", [?FTS()]),
+    put(sname,     "TC[usm-priv-aes]"),
+    put(verbosity, trace),
+
+    ?IPRINT("generate AES-encrypted message"),
 
     EngineID = [128,0,0,0,6],
     SecName  = "v3_user",
@@ -1465,6 +1468,7 @@ do_usm_priv_aes(Config) ->
         {sec_name,  SecName}
       ],
 
+    ?IPRINT("register user, usm-user and agent"),
     snmpm:register_user(SecName, snmpm_user_default, nil),
     snmpm:register_usm_user(EngineID, SecName, Credentials),
     snmpm:register_agent(SecName, "v3_agent", AgentConfig),
@@ -1494,9 +1498,11 @@ do_usm_priv_aes(Config) ->
         _MsgPrivacyParameters        = PrivKey
       },
 
+    ?IPRINT("get engine mms"),
     {ok, MsgMaxSize} =
       snmpm_config:get_engine_max_message_size(),
 
+    ?IPRINT("encode scoped pdu"),
     Message =
       { message,
         _Version = 'version-3',
@@ -1515,6 +1521,7 @@ do_usm_priv_aes(Config) ->
 
     SecLevel = 2,
 
+    ?IPRINT("generate outgoing message"),
     Msg =
       snmpm_usm:generate_outgoing_msg(
         Message,
@@ -1524,11 +1531,13 @@ do_usm_priv_aes(Config) ->
         SecLevel
       ),
 
-    io:format("[~s] got AES-encrypted message, now decrypt: "
-              "~n   ~p", [?FTS(), Msg]),
+    ?IPRINT("got AES-encrypted message, now decrypt: "
+            "~n   ~p", [Msg]),
 
     {message, _Version, Hdr, NextData} =
       snmp_pdus:dec_message_only(Msg),
+
+    ?IPRINT("AES-encrypted message decrypted - now match"),
 
     { v3_hdr,
       _MsgID,
@@ -1538,6 +1547,8 @@ do_usm_priv_aes(Config) ->
       SecParams,
       _Hdr_size
     } = Hdr,
+
+    ?IPRINT("process incoming message"),
 
     { ok,
       { _MsgAuthEngineID,
@@ -1555,7 +1566,7 @@ do_usm_priv_aes(Config) ->
 
     Data = ScopedPDUBytes,
 
-    io:format("[~s] Message decrypted", [?FTS()]),
+    ?IPRINT("message decrypted"),
     ok.
 
 
@@ -2139,10 +2150,22 @@ do_simple_sync_get3(Config, Get, PostVerify) ->
 
 do_simple_sync_get3(Node, TargetName, Oids, Get, PostVerify) 
   when is_function(Get, 3) andalso is_function(PostVerify, 0) ->
-    ?line {ok, Reply, _Rem} = Get(Node, TargetName, Oids),
 
-    ?DBG("~n   Reply: ~p"
-	 "~n   Rem:   ~w", [Reply, _Rem]),
+    ?IPRINT("try get for ~p (on ~p):"
+            "~n      Oids: ~p", [TargetName, Node, Oids]),
+    ?line Reply =
+        case Get(Node, TargetName, Oids) of
+            {ok, R, _Rem} ->
+                ?IPRINT("get reply: "
+                        "~n       Reply: ~p"
+                        "~n       Rem:   ~w", [R, _Rem]),
+
+                R;
+            {error, Reason} = ERROR ->
+                ?EPRINT("get failed: "
+                        "~n      ~p", [Reason]),
+                ERROR
+        end,
 
     %% verify that the operation actually worked:
     %% The order should be the same, so no need to search
@@ -5320,11 +5343,11 @@ start_manager(Node, Vsns, Config) ->
     start_manager(Node, Vsns, Config, []).
 start_manager(Node, Vsns, Conf0, _Opts) ->
 
-    ?DBG("start_manager -> entry with"
-	 "~n   Node:   ~p"
-	 "~n   Vsns:   ~p"
-	 "~n   Conf0:  ~p"
-	 "~n   Opts:   ~p", [Node, Vsns, Conf0, _Opts]),
+    ?IPRINT("start_manager -> entry with"
+            "~n   Node:   ~p"
+            "~n   Vsns:   ~p"
+            "~n   Conf0:  ~p"
+            "~n   Opts:   ~p", [Node, Vsns, Conf0, _Opts]),
 
     AtlDir  = ?config(manager_log_dir,  Conf0),
     ConfDir = ?config(manager_conf_dir, Conf0),
@@ -5490,16 +5513,16 @@ start_manager_node() ->
 start_node(Name) ->
     start_node(Name, true).
 start_node(Name, Retry) ->
+
+    ?IPRINT("start_node -> entry with"
+            "~n   Name: ~p"
+            "~n when"
+            "~n   hostname of this node: ~p",
+            [Name, list_to_atom(?HOSTNAME(node()))]),
+
     Pa   = filename:dirname(code:which(?MODULE)),
-    Args = case init:get_argument('CC_TEST') of
-               {ok, [[]]} ->
-                   " -pa /clearcase/otp/libraries/snmp/ebin ";
-               {ok, [[Path]]} ->
-                   " -pa " ++ Path;
-               error ->
-                      ""
-              end,
-    A = Args ++ " -pa " ++ Pa ++ 
+
+    A = " -pa " ++ Pa ++ 
         " -s " ++ atom_to_list(snmp_test_sys_monitor) ++ " start" ++ 
         " -s global sync",
     try ?START_NODE(Name, A) of

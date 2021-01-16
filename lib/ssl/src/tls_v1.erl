@@ -56,6 +56,7 @@
          hkdf_expand_label/5, 
          hkdf_extract/3, 
          hkdf_expand/4,
+         key_length/1,
          key_schedule/3, 
          key_schedule/4, 
          create_info/3,
@@ -455,12 +456,19 @@ update_traffic_secret(Algo, Secret) ->
 %%
 %%    [sender]_write_key = HKDF-Expand-Label(Secret, "key", "", key_length)
 %%    [sender]_write_iv  = HKDF-Expand-Label(Secret, "iv", "", iv_length)
--spec calculate_traffic_keys(atom(), atom(), binary()) -> {binary(), binary()}.
-calculate_traffic_keys(HKDFAlgo, Cipher, Secret) ->
-    Key = hkdf_expand_label(Secret, <<"key">>, <<>>, ssl_cipher:key_material(Cipher), HKDFAlgo),
+-spec calculate_traffic_keys(atom(), integer(), binary()) -> {binary(), binary()}.
+calculate_traffic_keys(HKDFAlgo, KeyLength, Secret) ->
+    Key = hkdf_expand_label(Secret, <<"key">>, <<>>, KeyLength, HKDFAlgo),
     %% TODO: remove hard coded IV size
     IV = hkdf_expand_label(Secret, <<"iv">>, <<>>, 12, HKDFAlgo),
     {Key, IV}.
+
+-spec key_length(CipherSuite) -> KeyLength when
+      CipherSuite :: binary(),
+      KeyLength :: 0 | 8 | 16 | 24 | 32.
+key_length(CipherSuite) ->
+    #{cipher := Cipher} = ssl_cipher_format:suite_bin_to_map(CipherSuite),
+    ssl_cipher:key_material(Cipher).
 
 %% TLS v1.3  ---------------------------------------------------
 
@@ -486,26 +494,12 @@ mac_hash(Method, Mac_write_secret, Seq_num, Type, {Major, Minor},
 -spec suites(1|2|3|4) -> [ssl_cipher_format:cipher_suite()].
 
 suites(Minor) when Minor == 1; Minor == 2 ->
-    [
-      ?TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-      ?TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-      ?TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
-      ?TLS_DHE_DSS_WITH_AES_256_CBC_SHA,
-      ?TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA,
-      ?TLS_ECDH_RSA_WITH_AES_256_CBC_SHA,
-
-      ?TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
-      ?TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-      ?TLS_DHE_RSA_WITH_AES_128_CBC_SHA,
-      ?TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
-      ?TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA,
-      ?TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
-    ];
+    exclusive_suites(2);
 suites(3) ->
-    exclusive_suites(3) ++ suites(2);
+    exclusive_suites(3) ++ exclusive_suites(2);
 
 suites(4) ->
-    exclusive_suites(4) ++ suites(3).
+    exclusive_suites(4) ++ exclusive_suites(3).
 
 exclusive_suites(4) ->
     [?TLS_AES_256_GCM_SHA384,
@@ -518,8 +512,20 @@ exclusive_suites(3) ->
     [?TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
      ?TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 
+     ?TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
+     ?TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
+
      ?TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
      ?TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+
+     ?TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+     ?TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+
+     ?TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+     ?TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+
+     ?TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
+     ?TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
 
      ?TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384,
      ?TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384,
@@ -527,27 +533,21 @@ exclusive_suites(3) ->
      ?TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384,
      ?TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384,
 
+     ?TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256,
+     ?TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256,
+
+     ?TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+     ?TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+
+     ?TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256,
+     ?TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256,
+
      ?TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
      ?TLS_DHE_DSS_WITH_AES_256_GCM_SHA384,
 
      ?TLS_DHE_RSA_WITH_AES_256_CBC_SHA256,
      ?TLS_DHE_DSS_WITH_AES_256_CBC_SHA256,
-
-     ?TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-     ?TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-
-     ?TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-     ?TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-
-     ?TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-     ?TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
-
-     ?TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256,
-     ?TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256,
-
-     ?TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256,
-     ?TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256,
-
+    
      ?TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
      ?TLS_DHE_DSS_WITH_AES_128_GCM_SHA256,
      
@@ -564,19 +564,19 @@ exclusive_suites(3) ->
     ];
 exclusive_suites(Minor) when Minor == 1; Minor == 2 ->
     [
-      ?TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-      ?TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-      ?TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
-      ?TLS_DHE_DSS_WITH_AES_256_CBC_SHA,
-      ?TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA,
-      ?TLS_ECDH_RSA_WITH_AES_256_CBC_SHA,
-
-      ?TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
-      ?TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-      ?TLS_DHE_RSA_WITH_AES_128_CBC_SHA,
-      ?TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
-      ?TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA,
-      ?TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
+     ?TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+     ?TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+     ?TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
+     ?TLS_DHE_DSS_WITH_AES_256_CBC_SHA,
+     ?TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA,
+     ?TLS_ECDH_RSA_WITH_AES_256_CBC_SHA,
+     
+     ?TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+     ?TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+     ?TLS_DHE_RSA_WITH_AES_128_CBC_SHA,
+     ?TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
+     ?TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA,
+     ?TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
     ].
 
 signature_algs({3, 4}, HashSigns) ->

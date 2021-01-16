@@ -70,7 +70,8 @@
          hash_size/1, 
          effective_key_bits/1,
          key_material/1, 
-         signature_algorithm_to_scheme/1]).
+         signature_algorithm_to_scheme/1,
+         bulk_cipher_algorithm/1]).
 
 %% RFC 8446 TLS 1.3
 -export([generate_client_shares/1,
@@ -530,13 +531,15 @@ rsa_suites(0) ->
      ?TLS_RSA_WITH_AES_128_CBC_SHA,
      ?TLS_RSA_WITH_3DES_EDE_CBC_SHA
     ];  
-rsa_suites(N) when N =< 4 ->
+rsa_suites(N) when N >= 3 ->
     [
      ?TLS_RSA_WITH_AES_256_GCM_SHA384,
      ?TLS_RSA_WITH_AES_256_CBC_SHA256,
      ?TLS_RSA_WITH_AES_128_GCM_SHA256,
      ?TLS_RSA_WITH_AES_128_CBC_SHA256
-    ].
+    ];
+rsa_suites(_) ->
+    [].
 
 %%--------------------------------------------------------------------
 -spec filter(undefined | binary(), [ssl_cipher_format:cipher_suite()], 
