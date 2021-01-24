@@ -50,7 +50,8 @@ i_recv_mark() {
      *
      * Save the current end of message queue
      */
-    erts_msgq_recv_marker_insert_bind(c_p, am_default); /* inlined here... */
+    /* inlined here... */
+    erts_msgq_recv_marker_insert_bind(c_p, erts_old_recv_marker_id);
 }
 
 i_recv_set() {
@@ -60,10 +61,27 @@ i_recv_set() {
      *
      * If previously saved recv mark, set save pointer to it
      */
-    erts_msgq_recv_marker_set_save(c_p, am_default); /* inlined here... */
+    /* inlined here... */
+    erts_msgq_recv_marker_set_save(c_p, erts_old_recv_marker_id);
     SET_I($NEXT_INSTRUCTION);
     goto loop_rec_top__;
     //| -no_next
+}
+
+recv_marker_reserve(Dst) {
+    $Dst = erts_msgq_recv_marker_insert(c_p);
+}
+
+recv_marker_bind(Marker, Reference) {
+    erts_msgq_recv_marker_bind(c_p, $Marker, $Reference);
+}
+
+recv_marker_clear(Reference) {
+    erts_msgq_recv_marker_clear(c_p, $Reference);
+}
+
+recv_marker_use(Reference) {
+    erts_msgq_recv_marker_set_save(c_p, $Reference);
 }
 
 i_loop_rec(Dest) {

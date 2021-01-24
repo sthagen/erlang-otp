@@ -1756,7 +1756,6 @@ find_rm_act([#b_set{op=Op}|Is]) ->
         peek_message -> prune;
         recv_next -> prune;
         wait_timeout -> prune;
-        wait -> prune;
         _ -> find_rm_act(Is)
     end;
 find_rm_act([]) ->
@@ -2635,10 +2634,11 @@ use_zreg({float,clearerror}) -> yes;
 use_zreg(kill_try_tag) -> yes;
 use_zreg(landingpad) -> yes;
 use_zreg(put_tuple_elements) -> yes;
+use_zreg(recv_marker_bind) -> yes;
+use_zreg(recv_marker_clear) -> yes;
 use_zreg(remove_message) -> yes;
 use_zreg(set_tuple_element) -> yes;
 use_zreg(succeeded) -> yes;
-use_zreg(timeout) -> yes;
 use_zreg(wait_timeout) -> yes;
 %% There's no way we can combine these into a test instruction, so we must
 %% avoid using a z register if their result is used directly in a branch.

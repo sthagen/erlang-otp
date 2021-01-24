@@ -544,7 +544,7 @@ handle_error(Process* c_p, ErtsCodePtr pc, Eterm* reg,
 #endif
 #ifdef ERTS_SUPPORT_OLD_RECV_MARK_INSTRS
 	    /* No longer safe to use this position */
-            erts_msgq_recv_marker_clear(c_p, am_default);
+            erts_msgq_recv_marker_clear(c_p, erts_old_recv_marker_id);
 #endif
 	    return new_pc;
 	}
@@ -907,7 +907,25 @@ save_stacktrace(Process* c_p, ErtsCodePtr pc, Eterm* reg,
             break;
 
             /* STDLIB */
+        case am_binary:
+            format_module = am_erl_stdlib_errors;
+            break;
         case am_ets:
+            format_module = am_erl_stdlib_errors;
+            break;
+        case am_lists:
+            format_module = am_erl_stdlib_errors;
+            break;
+        case am_maps:
+            format_module = am_erl_stdlib_errors;
+            break;
+        case am_math:
+            format_module = am_erl_stdlib_errors;
+            break;
+        case am_re:
+            format_module = am_erl_stdlib_errors;
+            break;
+        case am_unicode:
             format_module = am_erl_stdlib_errors;
             break;
 

@@ -31,6 +31,21 @@
   </header>
   <p>This document describes the changes made to the Crypto application.</p>
 
+<section><title>Crypto 4.8.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Adding missing flag in BN-calls in SRP.</p>
+          <p>
+	    Own Id: OTP-17107</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Crypto 4.8.2</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -221,6 +236,21 @@
 	    marker="crypto:crypto#supports/1">crypto:supports(public_keys)</seemfa>.</p>
           <p>
 	    Own Id: OTP-16583</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Crypto 4.6.5.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Adding missing flag in BN-calls in SRP.</p>
+          <p>
+	    Own Id: OTP-17107</p>
         </item>
       </list>
     </section>
@@ -533,6 +563,21 @@
 	    api.</p>
           <p>
 	    Own Id: OTP-15771</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Crypto 4.4.2.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Adding missing flag in BN-calls in SRP.</p>
+          <p>
+	    Own Id: OTP-17107</p>
         </item>
       </list>
     </section>

@@ -2927,15 +2927,14 @@ lexpr(#c_receive{clauses=[],timeout=Timeout0,action=Action}, St0) ->
     LoopFun = #c_var{name={LoopName,0}},
     ApplyLoop = #c_apply{anno=[dialyzer_ignore],op=LoopFun,args=[]},
 
-    TimeoutCs = [#c_clause{anno=MaybeIgnore,pats=[True],guard=True,
-                           body=#c_seq{arg=primop(timeout),
-                                       body=Action}},
-                 #c_clause{anno=[compiler_generated,dialyzer_ignore],
-                           pats=[False],guard=True,
-                           body=ApplyLoop}],
+    AfterCs = [#c_clause{anno=MaybeIgnore,pats=[True],guard=True,
+                         body=Action},
+               #c_clause{anno=[compiler_generated,dialyzer_ignore],
+                         pats=[False],guard=True,
+                         body=ApplyLoop}],
     {TimeoutBool,St3} = new_var(St2),
     TimeoutCase = #c_case{anno=[receive_timeout],arg=TimeoutBool,
-                          clauses=TimeoutCs},
+                          clauses=AfterCs},
     TimeoutLet = #c_let{vars=[TimeoutBool],
                         arg=primop(recv_wait_timeout, [Timeout]),
                         body=TimeoutCase},
@@ -2985,13 +2984,11 @@ lexpr(#c_receive{anno=RecvAnno,clauses=Cs0,timeout=Timeout0,action=Action}, St0)
     {Msg,St3} = new_var(St2),
     {MsgCase,St4} = split_case(#c_case{anno=RecvAnno,arg=Msg,clauses=Cs}, St3),
 
-    TimeoutCs = [#c_clause{pats=[True],guard=True,
-                           body=#c_seq{arg=primop(timeout),
-                                       body=Action}},
-                 #c_clause{anno=[dialyzer_ignore],pats=[False],guard=True,
-                           body=ApplyLoop}],
+    AfterCs = [#c_clause{pats=[True],guard=True,body=Action},
+               #c_clause{anno=[dialyzer_ignore],pats=[False],guard=True,
+                         body=ApplyLoop}],
     {TimeoutBool,St5} = new_var(St4),
-    TimeoutCase = #c_case{arg=TimeoutBool,clauses=TimeoutCs},
+    TimeoutCase = #c_case{arg=TimeoutBool,clauses=AfterCs},
     TimeoutLet = #c_let{vars=[TimeoutBool],
                         arg=primop(recv_wait_timeout, [Timeout]),
                         body=TimeoutCase},
@@ -3004,7 +3001,7 @@ lexpr(#c_receive{anno=RecvAnno,clauses=Cs0,timeout=Timeout0,action=Action}, St0)
                         body=TimeoutLet}],
     PeekCase = #c_case{arg=PeekSucceeded,clauses=PeekCs},
     PeekLet = #c_let{vars=[PeekSucceeded,Msg],
-                     arg=primop(recv_peek_message),
+                     arg=primop(recv_peek_message, [], RecvAnno),
                      body=PeekCase},
     Fun = #c_fun{vars=[],body=PeekLet},
 
@@ -3030,7 +3027,10 @@ primop(Name) ->
     primop(Name, []).
 
 primop(Name, Args) ->
-    #c_primop{name=#c_literal{val=Name},args=Args}.
+    primop(Name, Args, []).
+
+primop(Name, Args, Anno) ->
+    #c_primop{anno=Anno,name=#c_literal{val=Name},args=Args}.
 
 %%%
 %%% Split patterns such as <<Size:32,Tail:Size>> that bind

@@ -28,6 +28,7 @@
          flatmapfold_instrs/4,
          fold_blocks/4,
          fold_instrs/4,
+         insert_on_edges/3,
          is_loop_header/1,
          linearize/1,
          mapfold_blocks/4,
@@ -118,8 +119,7 @@
                    'make_fun' | 'new_try_tag' | 'old_make_fun' |
                    'peek_message' | 'phi' | 'put_list' | 'put_map' | 'put_tuple' |
                    'raw_raise' | 'recv_next' | 'remove_message' | 'resume' |
-                   'timeout' |
-                   'wait' | 'wait_timeout'.
+                   'wait_timeout'.
 
 -type float_op() :: 'checkerror' | 'clearerror' | 'convert' | 'get' | 'put' |
                     '+' | '-' | '*' | '/'.
@@ -182,7 +182,6 @@ clobbers_xregs(#b_set{op=Op}) ->
         old_make_fun -> true;
         peek_message -> true;
         raw_raise -> true;
-        timeout -> true;
         wait_timeout -> true;
         _ -> false
     end.
@@ -219,6 +218,7 @@ no_side_effect(#b_set{op=Op}) ->
         is_nonempty_list -> true;
         is_tagged_tuple -> true;
         make_fun -> true;
+        phi -> true;
         put_map -> true;
         put_list -> true;
         put_tuple -> true;
@@ -226,18 +226,105 @@ no_side_effect(#b_set{op=Op}) ->
         _ -> false
     end.
 
+%% insert_on_edges(Insertions, BlockMap, Count) -> {BlockMap, Count}.
+%%  Inserts instructions on the specified normal edges. It will not work on
+%%  exception edges.
+%%
+%%  That is, `[{12, 34, [CallInstr]}]` will insert `CallInstr` on all jumps
+%%  from block 12 to block 34.
+-spec insert_on_edges(Insertions, Blocks, Count) -> Result when
+    Insertions :: [{From, To, Is}],
+    From :: label(),
+    To :: label(),
+    Is :: [b_set()],
+    Blocks :: block_map(),
+    Count :: label(),
+    Result :: {block_map(), label()}.
+
+insert_on_edges(Insertions, Blocks, Count) ->
+    %% Sort insertions to simplify the handling of duplicates.
+    insert_on_edges_1(sort(Insertions), Blocks, Count).
+
+insert_on_edges_1([{_, ?EXCEPTION_BLOCK, _} | _], _, _) ->
+    %% Internal error; we can't run code on specific exception edges without
+    %% adding try/catch everywhere. Passes must avoid this.
+    error(unsafe_edge);
+insert_on_edges_1([{From, To, IsA}, {From, To, IsB} | Insertions],
+                  Blocks, Count) ->
+    %% Join duplicate insertions into the same block so we won't have to track
+    %% which edges we've already inserted code on.
+    insert_on_edges_1([{From, To, IsA ++ IsB} | Insertions], Blocks, Count);
+insert_on_edges_1([{From, To, Is} | Insertions], Blocks0, Count0) ->
+    #b_blk{last=FromLast0} = FromBlk0 = map_get(From, Blocks0),
+    #b_blk{is=ToIs0} = ToBlk0 = map_get(To, Blocks0),
+
+    EdgeLbl = Count0,
+    Count = Count0 + 1,
+
+    FromLast = insert_on_edges_reroute(FromLast0, To, EdgeLbl),
+    FromBlk = FromBlk0#b_blk{last=FromLast},
+
+    {EdgeIs0, ToIs} = insert_on_edges_is(ToIs0, From, EdgeLbl, []),
+    EdgeIs = EdgeIs0 ++ Is,
+
+    Br = #b_br{bool=#b_literal{val=true},
+               succ=To,
+               fail=To},
+
+    EdgeBlk = #b_blk{is=EdgeIs,last=Br},
+    ToBlk = ToBlk0#b_blk{is=ToIs},
+
+    Blocks1 = Blocks0#{ EdgeLbl => EdgeBlk,
+                        From := FromBlk,
+                        To := ToBlk },
+    Blocks = update_phi_labels([To], From, EdgeLbl, Blocks1),
+
+    insert_on_edges_1(Insertions, Blocks, Count);
+insert_on_edges_1([], Blocks, Count) ->
+    {Blocks, Count}.
+
+insert_on_edges_reroute(#b_switch{fail=Fail0,list=List0}=Sw, Old, New) ->
+    Fail = rename_label(Fail0, Old, New),
+    List = [{Value, rename_label(Dst, Old, New)} || {Value, Dst} <- List0],
+    Sw#b_switch{fail=Fail,list=List};
+insert_on_edges_reroute(#b_br{succ=Succ0,fail=Fail0}=Br, Old, New) ->
+    Succ = rename_label(Succ0, Old, New),
+    Fail = rename_label(Fail0, Old, New),
+    Br#b_br{succ=Succ,fail=Fail}.
+
+insert_on_edges_is([#b_set{op=bs_extract}=I | Is], FromLbl, EdgeLbl, EdgeIs) ->
+    %% Bit-syntax instructions span across edges, so we must hoist them into
+    %% the edge block to avoid breaking them.
+    %%
+    %% This is safe because we *KNOW* that there are no other edges leading to
+    %% this block.
+    insert_on_edges_is(Is, FromLbl, EdgeLbl, [I | EdgeIs]);
+insert_on_edges_is(ToIs0, FromLbl, EdgeLbl, EdgeIs) ->
+    case ToIs0 of
+        [#b_set{op=landingpad} | _] ->
+            %% We can't run code on specific exception edges without adding
+            %% try/catch everywhere. Passes must avoid this.
+            error(unsafe_edge);
+        _ ->
+            ToIs = update_phi_labels_is(ToIs0, FromLbl, EdgeLbl),
+            {reverse(EdgeIs), ToIs}
+    end.
+
 %% is_loop_header(#b_set{}) -> true|false.
 %%  Test whether this instruction is a loop header.
 
 -spec is_loop_header(b_set()) -> boolean().
 
+is_loop_header(#b_set{op=wait_timeout,args=[Args]}) ->
+    case Args of
+        #b_literal{val=0} ->
+            %% Never jumps back to peek_message
+            false;
+        _ ->
+            true
+    end;
 is_loop_header(#b_set{op=Op}) ->
-    case Op of
-        peek_message -> true;
-        wait -> true;
-        wait_timeout -> true;
-        _ -> false
-    end.
+    Op =:= peek_message.
 
 -spec predecessors(Blocks) -> Result when
       Blocks :: block_map(),

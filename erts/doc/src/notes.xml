@@ -31,6 +31,25 @@
   </header>
   <p>This document describes the changes made to the ERTS application.</p>
 
+<section><title>Erts 11.1.7</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Make windows installer remove write access rights for non
+	    admin users when installing to a non default directory.
+	    Reduces the risk for DLL sideloading, but the user should
+	    always be aware of the access rights for the
+	    installation.</p>
+          <p>
+	    Own Id: OTP-17097</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Erts 11.1.6</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -3139,6 +3158,39 @@
 	    -remsh bar </c></p>
           <p>
 	    Own Id: OTP-15794 Aux Id: PR-2219 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 10.3.5.15</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fixed rare distribution bug in race between received
+	    signal (link/monitor/spawn_request/spawn_reply) and
+	    disconnection. Symptom: VM crash. Since: OTP 21.0.</p>
+          <p>
+	    Own Id: OTP-16869 Aux Id: ERL-1337 </p>
+        </item>
+        <item>
+          <p>
+	    The <c>suspend_process()</c> and <c>resume_process()</c>
+	    BIFs did not check their arguments properly which could
+	    cause an emulator crash.</p>
+          <p>
+	    Own Id: OTP-17080</p>
+        </item>
+        <item>
+          <p>
+	    The runtime system would get into an infinite loop if the
+	    runtime system was started with more than 1023 file
+	    descriptors already open.</p>
+          <p>
+	    Own Id: OTP-17088 Aux Id: ERIERL-580 </p>
         </item>
       </list>
     </section>

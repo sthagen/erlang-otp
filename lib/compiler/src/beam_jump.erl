@@ -22,7 +22,6 @@
 -module(beam_jump).
 
 -export([module/2,
-	 is_exit_instruction/1,
 	 remove_unused_labels/1]).
 
 %%% The following optimisations are done:
@@ -856,10 +855,6 @@ instr_labels({bs_put,Lbl,_,_}) ->
 instr_labels({put_map,Lbl,_Op,_Src,_Dst,_Live,_List}) ->
     do_instr_labels(Lbl);
 instr_labels({get_map_elements,Lbl,_Src,_List}) ->
-    do_instr_labels(Lbl);
-instr_labels({recv_mark,Lbl}) ->
-    do_instr_labels(Lbl);
-instr_labels({recv_set,Lbl}) ->
     do_instr_labels(Lbl);
 instr_labels({fcheckerror,Lbl}) ->
     do_instr_labels(Lbl);

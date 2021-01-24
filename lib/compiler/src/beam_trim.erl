@@ -292,6 +292,18 @@ remap([{make_fun3,F,Index,OldUniq,Dst0,{list,Env0}}|T], Map, Acc) ->
 remap([{deallocate,N}|Is], Map, Acc) ->
     I = {deallocate,Map({frame_size,N})},
     remap(Is, Map, [I|Acc]);
+remap([{recv_marker_bind,Mark,Ref}|Is], Map, Acc) ->
+    I = {recv_marker_bind,Map(Mark),Map(Ref)},
+    remap(Is, Map, [I|Acc]);
+remap([{recv_marker_clear,Ref}|Is], Map, Acc) ->
+    I = {recv_marker_clear,Map(Ref)},
+    remap(Is, Map, [I|Acc]);
+remap([{recv_marker_reserve,Mark}|Is], Map, Acc) ->
+    I = {recv_marker_reserve,Map(Mark)},
+    remap(Is, Map, [I|Acc]);
+remap([{recv_marker_use,Ref}|Is], Map, Acc) ->
+    I = {recv_marker_use,Map(Ref)},
+    remap(Is, Map, [I|Acc]);
 remap([{swap,Reg1,Reg2}|Is], Map, Acc) ->
     I = {swap,Map(Reg1),Map(Reg2)},
     remap(Is, Map, [I|Acc]);
@@ -400,11 +412,8 @@ frame_size([{call_fun,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{call,_,_}|Is], Safe) ->
     frame_size(Is, Safe);
-frame_size([{call_ext,_,_}=I|Is], Safe) ->
-    case beam_jump:is_exit_instruction(I) of
-	true -> throw(not_possible);
-	false -> frame_size(Is, Safe)
-    end;
+frame_size([{call_ext,_,_}|Is], Safe) ->
+    frame_size(Is, Safe);
 frame_size([{apply,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{bif,_,{f,L},_,_}|Is], Safe) ->
@@ -424,6 +433,14 @@ frame_size([{init_yregs,_}|Is], Safe) ->
 frame_size([{make_fun2,_,_,_,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{make_fun3,_,_,_,_,_}|Is], Safe) ->
+    frame_size(Is, Safe);
+frame_size([{recv_marker_bind,_,_}|Is], Safe) ->
+    frame_size(Is, Safe);
+frame_size([{recv_marker_clear,_}|Is], Safe) ->
+    frame_size(Is, Safe);
+frame_size([{recv_marker_reserve,_}|Is], Safe) ->
+    frame_size(Is, Safe);
+frame_size([{recv_marker_use,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{get_map_elements,{f,L},_,_}|Is], Safe) ->
     frame_size_branch(L, Is, Safe);
@@ -485,8 +502,8 @@ is_not_used(Y, [{bs_set_position,Src1,Src2}|Is]) ->
         is_not_used(Y, Is);
 is_not_used(Y, [{call,_,_}|Is]) ->
     is_not_used(Y, Is);
-is_not_used(Y, [{call_ext,_,_}=I|Is]) ->
-    beam_jump:is_exit_instruction(I) orelse is_not_used(Y, Is);
+is_not_used(Y, [{call_ext,_,_}|Is]) ->
+    is_not_used(Y, Is);
 is_not_used(Y, [{call_fun,_}|Is]) ->
     is_not_used(Y, Is);
 is_not_used(_Y, [{deallocate,_}|_]) ->
@@ -509,6 +526,14 @@ is_not_used(Y, [{make_fun2,_,_,_,_}|Is]) ->
     is_not_used(Y, Is);
 is_not_used(Y, [{make_fun3,_,_,_,Dst,{list,Env}}|Is]) ->
     is_not_used_ss_dst(Y, Env, Dst, Is);
+is_not_used(Y, [{recv_marker_bind,Mark,Ref}|Is]) ->
+    Y =/= Mark andalso Y =/= Ref andalso is_not_used(Y, Is);
+is_not_used(Y, [{recv_marker_clear,Ref}|Is]) ->
+    Y =/= Ref andalso is_not_used(Y, Is);
+is_not_used(Y, [{recv_marker_reserve,Dst}|Is]) ->
+    Y =/= Dst andalso is_not_used(Y, Is);
+is_not_used(Y, [{recv_marker_use,Ref}|Is]) ->
+    Y =/= Ref andalso is_not_used(Y, Is);
 is_not_used(Y, [{swap,Reg1,Reg2}|Is]) ->
     Y =/= Reg1 andalso Y =/= Reg2 andalso is_not_used(Y, Is);
 is_not_used(Y, [{test,_,_,Ss}|Is]) ->
