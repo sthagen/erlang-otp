@@ -1870,7 +1870,6 @@ AC_TYPE_SIZE_T
 
 AC_STRUCT_TM
 LM_STRUCT_SOCKADDR_SA_LEN
-LM_STRUCT_EXCEPTION
 
 AC_CHECK_SIZEOF(char, 1)
 AC_CHECK_SIZEOF(short)
@@ -3526,6 +3525,7 @@ dnl Check for log2
 dnl ----------------------------------------------------------------------
 AC_CHECK_FUNCS([log2])
 
+
 dnl ----------------------------------------------------------------------
 dnl Check for GCC diagnostic ignored "-Waddress-of-packed-member"
 dnl ----------------------------------------------------------------------
@@ -3539,6 +3539,7 @@ AC_TRY_COMPILE([],
          AC_DEFINE(HAVE_GCC_DIAG_IGNORE_WADDRESS_OF_PACKED_MEMBER,[1],
            [define if compiler support _Pragma('GCC diagnostic ignored '-Waddress-of-packed-member'')]))
 CFLAGS="$saved_CFLAGS"
+
 
 dnl ----------------------------------------------------------------------
 dnl Enable any -Werror flags

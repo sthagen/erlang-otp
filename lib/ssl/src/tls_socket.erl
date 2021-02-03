@@ -49,7 +49,7 @@
          start_link/3, 
          terminate/2, 
          inherit_tracker/3, 
-         session_id_tracker/1,
+         session_id_tracker/2,
 	 emulated_socket_options/2, 
          get_emulated_opts/1, 
 	 set_emulated_opts/2, 
@@ -63,7 +63,7 @@
 
 -record(state, {
 	  emulated_opts,
-	  port,
+          listen_monitor,      
 	  ssl_opts
 	 }).
 
@@ -79,12 +79,14 @@ listen(Transport, Port, #config{transport_info = {Transport, _, _, _, _},
     case Transport:listen(Port, Options ++ internal_inet_values()) of
 	{ok, ListenSocket} ->
 	    {ok, Tracker} = inherit_tracker(ListenSocket, EmOpts, SslOpts),
-            LifeTime = get_ticket_lifetime(),
-            TicketStoreSize = get_ticket_store_size(),
+            LifeTime = ssl_config:get_ticket_lifetime(),
+            TicketStoreSize = ssl_config:get_ticket_store_size(),
+            MaxEarlyDataSize = ssl_config:get_max_early_data_size(),
             %% TLS-1.3 session handling
-            {ok, SessionHandler} = session_tickets_tracker(LifeTime, TicketStoreSize, SslOpts),
+            {ok, SessionHandler} =
+                session_tickets_tracker(LifeTime, TicketStoreSize, MaxEarlyDataSize, SslOpts),
             %% PRE TLS-1.3 session handling
-            {ok, SessionIdHandle} = session_id_tracker(SslOpts),
+            {ok, SessionIdHandle} = session_id_tracker(ListenSocket, SslOpts),
             Trackers =  [{option_tracker, Tracker}, {session_tickets_tracker, SessionHandler},
                          {session_id_tracker, SessionIdHandle}],
             Socket = #sslsocket{pid = {ListenSocket, Config#config{trackers = Trackers}}},
@@ -261,27 +263,40 @@ inherit_tracker(ListenSocket, EmOpts, #{erl_dist := false} = SslOpts) ->
 inherit_tracker(ListenSocket, EmOpts, #{erl_dist := true} = SslOpts) ->
     ssl_listen_tracker_sup:start_child_dist([ListenSocket, EmOpts, SslOpts]).
 
-session_tickets_tracker(_, _, #{erl_dist := false,
-                                session_tickets := disabled}) ->
+session_tickets_tracker(_, _, _, #{erl_dist := false,
+                                   session_tickets := disabled}) ->
     {ok, disabled};
-session_tickets_tracker(Lifetime, TicketStoreSize, #{erl_dist := false,
-                                    session_tickets := Mode,
-                                    anti_replay := AntiReplay}) ->
-    tls_server_session_ticket_sup:start_child([Mode, Lifetime, TicketStoreSize, AntiReplay]);
-session_tickets_tracker(Lifetime, TicketStoreSize, #{erl_dist := true,
-                                                     session_tickets := Mode}) ->
-    tls_server_session_ticket_sup:start_child_dist([Mode, Lifetime, TicketStoreSize]).
-
-session_id_tracker(#{versions := [{3,4}]}) ->
+session_tickets_tracker(Lifetime, TicketStoreSize, MaxEarlyDataSize, 
+                        #{erl_dist := false,
+                          session_tickets := Mode,
+                          anti_replay := AntiReplay}) ->
+    tls_server_session_ticket_sup:start_child([Mode, Lifetime, TicketStoreSize, MaxEarlyDataSize, AntiReplay]);
+session_tickets_tracker(Lifetime, TicketStoreSize, MaxEarlyDataSize,
+                        #{erl_dist := true,
+                          session_tickets := Mode,
+                          anti_replay := AntiReplay}) ->
+    SupName = tls_server_session_ticket_sup:sup_name(dist),
+    Children = supervisor:count_children(SupName),
+    Workers = proplists:get_value(workers, Children),
+    case Workers of
+        0 ->
+            tls_server_session_ticket_sup:start_child([Mode, Lifetime, TicketStoreSize, MaxEarlyDataSize, AntiReplay]);
+        1 ->
+            [{_,Child,_, _}] = supervisor:which_children(SupName),
+            {ok, Child}
+    end.
+session_id_tracker(_, #{versions := [{3,4}]}) ->
     {ok, not_relevant};
 %% Regardless of the option reuse_sessions we need the session_id_tracker
 %% to generate session ids, but no sessions will be stored unless
 %% reuse_sessions = true.
-session_id_tracker(#{erl_dist := false}) ->
-    ssl_server_session_cache_sup:start_child(ssl_server_session_cache_sup:session_opts());
-session_id_tracker(#{erl_dist := true}) ->
-    ssl_server_session_cache_sup:start_child_dist(ssl_server_session_cache_sup:session_opts()).
-
+session_id_tracker(ssl_unknown_listener, #{erl_dist := false}) ->
+    ssl_upgrade_server_session_cache_sup:start_child(normal);
+session_id_tracker(ListenSocket, #{erl_dist := false}) ->
+    ssl_server_session_cache_sup:start_child(ListenSocket);
+session_id_tracker(_, #{erl_dist := true}) ->
+    ssl_upgrade_server_session_cache_sup:start_child(dist).
+       
 get_emulated_opts(TrackerPid) -> 
     call(TrackerPid, get_emulated_opts).
 set_emulated_opts(TrackerPid, InetValues) -> 
@@ -303,10 +318,12 @@ start_link(Port, SockOpts, SslOpts) ->
 %%
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
-init([Port, Opts, SslOpts]) ->
+init([Listen, Opts, SslOpts]) ->
     process_flag(trap_exit, true),
-    true = link(Port),
-    {ok, #state{emulated_opts = do_set_emulated_opts(Opts, []), port = Port, ssl_opts = SslOpts}}.
+    Monitor = monitor_listen(Listen),
+    {ok, #state{emulated_opts = do_set_emulated_opts(Opts, []), 
+                listen_monitor = Monitor,
+                ssl_opts = SslOpts}}.
 
 %%--------------------------------------------------------------------
 -spec handle_call(msg(), from(), #state{}) -> {reply, reply(), #state{}}. 
@@ -351,7 +368,7 @@ handle_cast(_, State)->
 %%
 %% Description: Handling all non call/cast messages
 %%-------------------------------------------------------------------
-handle_info({'EXIT', Port, _}, #state{port = Port} = State) ->
+handle_info({'DOWN', Monitor, _, _, _}, #state{listen_monitor = Monitor} = State) ->
     {stop, normal, State}.
 
 
@@ -379,6 +396,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 call(Pid, Msg) ->
     gen_server:call(Pid, Msg, infinity).
+
+monitor_listen(Listen) when is_port(Listen) ->
+    erlang:monitor(port, Listen).
 
 split_options(Opts) ->
     split_options(Opts, emulated_options(), [], []).
@@ -486,19 +506,3 @@ validate_inet_option(active, Value)
 validate_inet_option(_, _) ->
     ok.
 
-get_ticket_lifetime() ->
-    case application:get_env(ssl, server_session_ticket_lifetime) of
-	{ok, Seconds} when is_integer(Seconds) andalso
-                           Seconds =< 604800 ->  %% MUST be less than 7 days
-	    Seconds;
-	_  ->
-	    7200 %% Default 2 hours
-    end.
-
-get_ticket_store_size() ->
-    case application:get_env(ssl, server_session_ticket_store_size) of
-	{ok, Size} when is_integer(Size) ->
-	    Size;
-	_  ->
-	    1000
-    end.

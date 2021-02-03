@@ -29,7 +29,7 @@
 -export([env_compiler_options/0]).
 
 %% Erlc interface.
--export([compile/3,compile_asm/3,compile_core/3]).
+-export([compile/3,compile_asm/3,compile_core/3,compile_abstr/3]).
 
 %% Utility functions for compiler passes.
 -export([run_sub_passes/2]).
@@ -270,7 +270,7 @@ expand_opt(r21, Os) ->
 expand_opt(r22, Os) ->
     expand_opt(r23, [no_shared_fun_wrappers, no_swap | expand_opt(no_bsm4, Os)]);
 expand_opt(r23, Os) ->
-    expand_opt(no_make_fun3, [no_recv_opt, no_init_yregs | Os]);
+    expand_opt(no_make_fun3, [no_ssa_opt_float, no_recv_opt, no_init_yregs | Os]);
 expand_opt(no_make_fun3, Os) ->
     [no_make_fun3, no_fun_opt | Os];
 expand_opt({debug_info_key,_}=O, Os) ->
@@ -334,9 +334,7 @@ format_error({crash,Pass,Reason}) ->
 format_error({bad_return,Pass,Reason}) ->
     io_lib:format("internal error in ~p;\nbad return value: ~ts", [Pass,format_error_reason(Reason)]);
 format_error({module_name,Mod,Filename}) ->
-    io_lib:format("Module name '~s' does not match file name '~ts'", [Mod,Filename]);
-format_error(reparsing_invalid_unicode) ->
-    "Non-UTF-8 character(s) detected, but no encoding declared. Encode the file in UTF-8 or add \"%% coding: latin-1\" at the beginning of the file. Note: The compiler will remove support for latin-1 encoded source files without the \"%% coding: latin-1\" string at the beginning of the file in Erlang/OTP 24! Retrying with latin-1 encoding.".
+    io_lib:format("Module name '~s' does not match file name '~ts'", [Mod,Filename]).
 
 format_error_reason({Reason, Stack}) when is_list(Stack) ->
     StackFun = fun
@@ -375,7 +373,13 @@ internal({forms,Forms}, Opts0) ->
     Source = proplists:get_value(source, Opts0, ""),
     Opts1 = proplists:delete(source, Opts0),
     Compile = build_compile(Opts1),
-    internal_comp(Ps, Forms, Source, "", Compile);
+    NewForms = case with_columns(Opts0) of
+                   true ->
+                       Forms;
+                   false ->
+                       strip_columns(Forms)
+               end,
+    internal_comp(Ps, NewForms, Source, "", Compile);
 internal({file,File}, Opts) ->
     {Ext,Ps} = passes(file, Opts),
     Compile = build_compile(Opts),
@@ -600,6 +604,8 @@ passes_1([Opt|Opts]) ->
 passes_1([]) ->
     {".erl",[?pass(parse_module)|standard_passes()]}.
 
+pass(from_abstr) ->
+    {".abstr", [?pass(consult_abstr) | abstr_passes(non_verified_abstr)]};
 pass(from_core) ->
     {".core",[?pass(parse_core)|core_passes(non_verified_core)]};
 pass(from_asm) ->
@@ -610,6 +616,8 @@ pass(_) -> none.
 %% that retrieves the module name. The module name is needed for
 %% proper diagnostics and for compilation to native code.
 
+fix_first_pass([{consult_abstr, _} | Passes]) ->
+    [?pass(get_module_name_from_abstr) | Passes];
 fix_first_pass([{parse_core,_}|Passes]) ->
     [?pass(get_module_name_from_core)|Passes];
 fix_first_pass([{beam_consult_asm,_}|Passes]) ->
@@ -781,25 +789,33 @@ standard_passes() ->
      {iff,'dpp',{listing,"pp"}},
      ?pass(lint_module),
 
-     %% Add all -compile() directives to #compile.options
-     ?pass(compile_directives),
-
      {iff,'P',{src_listing,"P"}},
      {iff,'to_pp',{done,"P"}},
 
-     {iff,'dabstr',{listing,"abstr"}},
-     {delay,[{iff,debug_info,?pass(save_abstract_code)}]},
+     {iff,'dabstr',{listing,"abstr"}}
+     | abstr_passes(verified_abstr)].
 
-     ?pass(expand_records),
-     {iff,'dexp',{listing,"expand"}},
-     {iff,'E',{src_listing,"E"}},
-     {iff,'to_exp',{done,"E"}},
+abstr_passes(AbstrStatus) ->
+    case AbstrStatus of
+        non_verified_abstr -> [{unless, no_lint, ?pass(lint_module)}];
+        verified_abstr -> []
+    end ++
+        [
+         %% Add all -compile() directives to #compile.options
+         ?pass(compile_directives),
 
-     %% Conversion to Core Erlang.
-     ?pass(core),
-     {iff,'dcore',{listing,"core"}},
-     {iff,'to_core0',{done,"core"}}
-     | core_passes(verified_core)].
+         {delay,[{iff,debug_info,?pass(save_abstract_code)}]},
+
+         ?pass(expand_records),
+         {iff,'dexp',{listing,"expand"}},
+         {iff,'E',{src_listing,"E"}},
+         {iff,'to_exp',{done,"E"}},
+
+         %% Conversion to Core Erlang.
+         ?pass(core),
+         {iff,'dcore',{listing,"core"}},
+         {iff,'to_core0',{done,"core"}}
+         | core_passes(verified_core)].
 
 core_passes(CoreStatus) ->
     %% Optimization and transforms of Core Erlang code.
@@ -845,17 +861,17 @@ kernel_passes() ->
      {iff,dssa,{listing,"ssa"}},
      {iff,ssalint,{pass,beam_ssa_lint}},
      {delay,
-      [{unless,no_bool_opt,{pass,beam_ssa_bool}},
+      [{unless,no_share_opt,{pass,beam_ssa_share}},
+       {iff,dssashare,{listing,"ssashare"}},
+       {unless,no_share_opt,{iff,ssalint,{pass,beam_ssa_lint}}},
+
+       {unless,no_bool_opt,{pass,beam_ssa_bool}},
        {iff,dbool,{listing,"bool"}},
        {unless,no_bool_opt,{iff,ssalint,{pass,beam_ssa_lint}}},
 
        {unless,no_recv_opt,{pass,beam_ssa_recv}},
        {iff,drecv,{listing,"recv"}},
        {unless,no_recv_opt,{iff,ssalint,{pass,beam_ssa_lint}}},
-
-       {unless,no_share_opt,{pass,beam_ssa_share}},
-       {iff,dssashare,{listing,"ssashare"}},
-       {unless,no_share_opt,{iff,ssalint,{pass,beam_ssa_lint}}},
 
        {unless,no_bsm_opt,{pass,beam_ssa_bsm}},
        {iff,dssabsm,{listing,"ssabsm"}},
@@ -984,21 +1000,12 @@ get_module_name_from_asm(Asm, St) ->
     %% Invalid Beam assembly code. Let it crash in a later pass.
     {ok,Asm,St}.
 
-parse_module(_Code, St0) ->
-    case do_parse_module(utf8, St0) of
+parse_module(_Code, St) ->
+    case do_parse_module(utf8, St) of
 	{ok,_,_}=Ret ->
 	    Ret;
 	{error,_}=Ret ->
-	    Ret;
-	{invalid_unicode,File,Line} ->
-	    case do_parse_module(latin1, St0) of
-		{ok,Code,St} ->
-		    Es = [{File,[{Line,?MODULE,reparsing_invalid_unicode}]}],
-		    {ok,Code,St#compile{warnings=Es++St#compile.warnings}};
-		{error,St} ->
-		    Es = [{File,[{Line,?MODULE,reparsing_invalid_unicode}]}],
-		    {error,St#compile{errors=Es++St#compile.errors}}
-	    end
+	    Ret
     end.
 
 do_parse_module(DefEncoding, #compile{ifile=File,options=Opts,dir=Dir}=St) ->
@@ -1007,41 +1014,55 @@ do_parse_module(DefEncoding, #compile{ifile=File,options=Opts,dir=Dir}=St) ->
                      true -> filename:basename(SourceName0);
                      false -> SourceName0
                  end,
+    StartLocation = case with_columns(Opts) of
+                        true ->
+                            {1,1};
+                        false ->
+                            1
+                    end,
     R = epp:parse_file(File,
                        [{includes,[".",Dir|inc_paths(Opts)]},
                         {source_name, SourceName},
                         {macros,pre_defs(Opts)},
                         {default_encoding,DefEncoding},
+                        {location,StartLocation},
                         extra]),
     case R of
-	{ok,Forms,Extra} ->
+	{ok,Forms0,Extra} ->
 	    Encoding = proplists:get_value(encoding, Extra),
-	    case find_invalid_unicode(Forms, File) of
-		none ->
-		    {ok,Forms,St#compile{encoding=Encoding}};
-		{invalid_unicode,_,_}=Ret ->
-		    case Encoding of
-			none ->
-			    Ret;
-			_ ->
-			    {ok,Forms,St#compile{encoding=Encoding}}
-		    end
-	    end;
+            Forms = case with_columns(Opts ++ compile_options(Forms0)) of
+                        true ->
+                            Forms0;
+                        false ->
+                            strip_columns(Forms0)
+                    end,
+            {ok,Forms,St#compile{encoding=Encoding}};
 	{error,E} ->
 	    Es = [{St#compile.ifile,[{none,?MODULE,{epp,E}}]}],
 	    {error,St#compile{errors=St#compile.errors ++ Es}}
     end.
 
-find_invalid_unicode([H|T], File0) ->
-    case H of
-	{attribute,_,file,{File,_}} ->
-	    find_invalid_unicode(T, File);
-	{error,{Line,file_io_server,invalid_unicode}} ->
-	    {invalid_unicode,File0,Line};
-	_Other ->
-	    find_invalid_unicode(T, File0)
-    end;
-find_invalid_unicode([], _) -> none.
+with_columns(Opts) ->
+    proplists:get_value(error_location, Opts, column) =:= column.
+
+consult_abstr(_Code, St) ->
+    case file:consult(St#compile.ifile) of
+	{ok,Forms} ->
+            Encoding = epp:read_encoding(St#compile.ifile),
+	    {ok,Forms,St#compile{encoding=Encoding}};
+	{error,E} ->
+	    Es = [{St#compile.ifile,[{none,?MODULE,{open,E}}]}],
+	    {error,St#compile{errors=St#compile.errors ++ Es}}
+    end.
+
+get_module_name_from_abstr(Forms, St) ->
+    try get_module(Forms) of
+        Mod -> {ok, Forms, St#compile{module = Mod}}
+    catch
+        _:_ ->
+            %% Missing module declaration. Let it crash in a later pass.
+            {ok, Forms, St}
+    end.
 
 parse_core(_Code, St) ->
     case file:read_file(St#compile.ifile) of
@@ -1135,10 +1156,12 @@ foldl_transform([T|Ts], Code0, St) ->
                     Es = [{St#compile.ifile,[{none,compile,
                                               {parse_transform,T,R}}]}],
                     {error,St#compile{errors=St#compile.errors ++ Es}};
-                {warning, Forms, Ws} ->
+                {warning, Forms0, Ws} ->
+                    Forms = maybe_strip_columns(Forms0, T),
                     foldl_transform(Ts, Forms,
                                     St#compile{warnings=St#compile.warnings ++ Ws});
-                Forms ->
+                Forms0 ->
+                    Forms = maybe_strip_columns(Forms0, T),
                     foldl_transform(Ts, Forms, St)
             end;
         false ->
@@ -1147,6 +1170,27 @@ foldl_transform([T|Ts], Code0, St) ->
             {error,St#compile{errors=St#compile.errors ++ Es}}
     end;
 foldl_transform([], Code, St) -> {ok,Code,St}.
+
+%%% It is possible--although unlikely--that parse transforms add
+%%% columns to the abstract code, why this function is called for
+%%% every parse transform.
+maybe_strip_columns(Code, T) ->
+    case erlang:function_exported(T, parse_transform_info, 0) of
+        true ->
+            Info = T:parse_transform_info(),
+            case maps:get(error_location, Info, column) of
+                line ->
+                    strip_columns(Code);
+                _ ->
+                    Code
+            end;
+        false ->
+            Code
+    end.
+
+strip_columns(Code) ->
+    F = fun(A) -> erl_anno:set_location(erl_anno:line(A), A) end,
+    [erl_parse:map_anno(F, Form) || Form <- Code].
 
 get_core_transforms(Opts) -> [M || {core_transform,M} <- Opts].
 
@@ -1533,6 +1577,8 @@ keep_compile_option(from_asm, _Deterministic) ->
     false;
 keep_compile_option(from_core, _Deterministic) ->
     false;
+keep_compile_option(from_abstr, _Deterministic) ->
+    false;
 %% Parse transform and macros have already been applied.
 keep_compile_option({parse_transform, _}, _Deterministic) ->
     false;
@@ -1729,17 +1775,12 @@ format_message(F, P, [{none,Mod,E}|Es]) ->
     M = {none,io_lib:format("~ts: ~s~ts\n", [F,P,Mod:format_error(E)])},
     [M|format_message(F, P, Es)];
 format_message(F, P, [{{Line,Column}=Loc,Mod,E}|Es]) ->
-    M = {{F,Loc},io_lib:format("~ts:~w:~w ~s~ts\n",
+    M = {{F,Loc},io_lib:format("~ts:~w:~w: ~s~ts\n",
                                 [F,Line,Column,P,Mod:format_error(E)])},
     [M|format_message(F, P, Es)];
 format_message(F, P, [{Line,Mod,E}|Es]) ->
     M = {{F,{Line,0}},io_lib:format("~ts:~w: ~s~ts\n",
                                 [F,Line,P,Mod:format_error(E)])},
-    [M|format_message(F, P, Es)];
-format_message(F, P, [{Mod,E}|Es]) ->
-    %% Not documented and not expected to be used any more, but
-    %% keep a while just in case.
-    M = {none,io_lib:format("~ts: ~s~ts\n", [F,P,Mod:format_error(E)])},
     [M|format_message(F, P, Es)];
 format_message(_, _, []) -> [].
 
@@ -1753,11 +1794,6 @@ list_errors(F, [{{Line,Column},Mod,E}|Es]) ->
     list_errors(F, Es);
 list_errors(F, [{Line,Mod,E}|Es]) ->
     io:fwrite("~ts:~w: ~ts\n", [F,Line,Mod:format_error(E)]),
-    list_errors(F, Es);
-list_errors(F, [{Mod,E}|Es]) ->
-    %% Not documented and not expected to be used any more, but
-    %% keep a while just in case.
-    io:fwrite("~ts: ~ts\n", [F,Mod:format_error(E)]),
     list_errors(F, Es);
 list_errors(_F, []) -> ok.
 
@@ -1956,6 +1992,15 @@ compile_asm(File0, _OutFile, Opts) ->
 compile_core(File0, _OutFile, Opts) ->
     File = shorten_filename(File0),
     case file(File, [from_core|make_erl_options(Opts)]) of
+	{ok,_Mod} -> ok;
+	Other -> Other
+    end.
+
+-spec compile_abstr(file:filename(), _, #options{}) -> 'ok' | 'error'.
+
+compile_abstr(File0, _OutFile, Opts) ->
+    File = shorten_filename(File0),
+    case file(File, [from_abstr|make_erl_options(Opts)]) of
 	{ok,_Mod} -> ok;
 	Other -> Other
     end.

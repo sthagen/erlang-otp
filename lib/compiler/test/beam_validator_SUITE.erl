@@ -28,7 +28,7 @@
 	 dead_code/1,
 	 overwrite_catchtag/1,overwrite_trytag/1,accessing_tags/1,bad_catch_try/1,
 	 cons_guard/1,
-	 freg_range/1,freg_uninit/1,freg_state/1,
+	 freg_range/1,freg_uninit/1,
 	 bad_bin_match/1,bad_dsetel/1,
 	 state_after_fault_in_catch/1,no_exception_in_catch/1,
 	 undef_label/1,illegal_instruction/1,failing_gc_guard_bif/1,
@@ -63,7 +63,7 @@ groups() ->
        unsafe_catch,dead_code,
        overwrite_catchtag,overwrite_trytag,accessing_tags,
        bad_catch_try,cons_guard,freg_range,freg_uninit,
-       freg_state,bad_bin_match,bad_dsetel,
+       bad_bin_match,bad_dsetel,
        state_after_fault_in_catch,no_exception_in_catch,
        undef_label,illegal_instruction,failing_gc_guard_bif,
        map_field_lists,cover_bin_opt,val_dsetel,
@@ -99,7 +99,7 @@ compiler_bug(Config) when is_list(Config) ->
     %% the beam_validator module.
     {error,
      [{"compiler_bug",
-       [{beam_validator,_}]}],
+       [{_Pos,beam_validator,_}]}],
      []} = compile:file(File, [from_asm,return_errors,time]),
     ok.
 
@@ -262,19 +262,19 @@ freg_range(Config) when is_list(Config) ->
     Errors = do_val(freg_range, Config),
     [{{t,sum_1,2},
       {{bif,fadd,{f,0},[{fr,-1},{fr,1}],{fr,0}},
-       5,
+       4,
        {bad_source,{fr,-1}}}},
      {{t,sum_2,2},
       {{bif,fadd,{f,0},[{fr,0},{fr,1024}],{fr,0}},
-       6,
+       5,
        {uninitialized_reg,{fr,1024}}}},
      {{t,sum_3,2},
       {{bif,fadd,{f,0},[{fr,0},{fr,1}],{fr,-1}},
-       7,
+       6,
        {bad_register,{fr,-1}}}},
      {{t,sum_4,2},
       {{bif,fadd,{f,0},[{fr,0},{fr,1}],{fr,1024}},
-       7,
+       6,
        limit}}] = Errors,
     ok.
 
@@ -282,34 +282,12 @@ freg_uninit(Config) when is_list(Config) ->
     Errors = do_val(freg_uninit, Config),
     [{{t,sum_1,2},
       {{bif,fadd,{f,0},[{fr,0},{fr,1}],{fr,0}},
-       6,
+       5,
        {uninitialized_reg,{fr,1}}}},
      {{t,sum_2,2},
       {{bif,fadd,{f,0},[{fr,0},{fr,1}],{fr,0}},
-       10,
+       8,
        {uninitialized_reg,{fr,0}}}}] = Errors,
-    ok.
-
-freg_state(Config) when is_list(Config) ->
-    Errors = do_val(freg_state, Config),
-    [{{t,sum_1,2},
-      {{bif,fmul,{f,0},[{fr,0},{fr,1}],{fr,0}},
-       6,
-       {bad_floating_point_state,undefined}}},
-     {{t,sum_2,2},
-      {{fmove,{fr,0},{x,0}},
-       8,
-       {bad_floating_point_state,cleared}}},
-     {{t,sum_3,2},
-      {{bif,'-',{f,0},[{x,1},{x,0}],{x,1}},
-       8,
-       {unsafe_instruction,{float_error_state,cleared}}}},
-     {{t,sum_4,2},
-      {{fcheckerror,{f,0}},
-       4,
-       {bad_floating_point_state,undefined}}},
-     {{t,sum_5,2},
-      {fclearerror,5,{bad_floating_point_state,cleared}}}] = Errors,
     ok.
 
 bad_bin_match(Config) when is_list(Config) ->
@@ -914,7 +892,7 @@ do_val(Mod, Config) ->
     case compile:file(File, [from_asm,no_postopt,return_errors]) of
 	{error,L,[]} ->
 	    [{Base,Errors0}] = L,
-	    Errors = [E || {beam_validator,E} <- Errors0],
+	    Errors = [E || {_Pos,beam_validator,E} <- Errors0],
 	    _ = [io:put_chars(beam_validator:format_error(E)) ||
 		    E <- Errors],
 	    Errors;
@@ -925,7 +903,7 @@ do_val(Mod, Config) ->
 beam_val(M) ->
     Name = atom_to_list(element(1, M)),
     {error,[{Name,Errors0}]} = beam_validator:validate(M, strong),
-    Errors = [E || {beam_validator,E} <- Errors0],
+    Errors = [E || {_Pos,beam_validator,E} <- Errors0],
     _ = [io:put_chars(beam_validator:format_error(E)) ||
 	    E <- Errors],
     Errors.

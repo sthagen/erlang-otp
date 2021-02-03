@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2007-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -312,6 +312,9 @@ handle_parse({megaco_callback, Verifiers0} = _Instruction, State)
 
 handle_parse({trigger, Trigger} = Instruction, State)
   when is_function(Trigger) ->
+    {ok, Instruction, State};
+handle_parse({trigger, Desc, Trigger} = Instruction, State)
+  when is_list(Desc) andalso is_function(Trigger) ->
     {ok, Instruction, State};
 
 handle_parse(Instruction, _State) ->
@@ -888,6 +891,10 @@ handle_exec({megaco_cancel, Reason}, #state{conn_handle = CH} = State) ->
 
 handle_exec({trigger, Trigger}, State) when is_function(Trigger) ->
     p("trigger"),
+    (catch Trigger()),
+    {ok, State};
+handle_exec({trigger, Desc, Trigger}, State) when is_function(Trigger) ->
+    p("trigger: ~s", [Desc]),
     (catch Trigger()),
     {ok, State};
 

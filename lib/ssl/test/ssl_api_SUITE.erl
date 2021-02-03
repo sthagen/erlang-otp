@@ -162,12 +162,8 @@
          client_options_negative_dependency_role/1,
          client_options_negative_early_data/0,
          client_options_negative_early_data/1,
-         client_options_negative_max_early_data/0,
-         client_options_negative_max_early_data/1,
          server_options_negative_early_data/0,
          server_options_negative_early_data/1,
-         server_options_negative_max_early_data/0,
-         server_options_negative_max_early_data/1,
          server_options_negative_version_gap/0,
          server_options_negative_version_gap/1,
          server_options_negative_dependency_role/0,
@@ -328,9 +324,7 @@ tls13_group() ->
      client_options_negative_dependency_stateless,
      client_options_negative_dependency_role,
      client_options_negative_early_data,
-     client_options_negative_max_early_data,
      server_options_negative_early_data,
-     server_options_negative_max_early_data,
      server_options_negative_version_gap,
      server_options_negative_dependency_role,
      invalid_options_tls13,
@@ -2277,17 +2271,6 @@ client_options_negative_early_data(Config) when is_list(Config) ->
                                    {early_data, <<"test">>}],
                           econnrefused).
 
-client_options_negative_max_early_data() ->
-    [{doc,"Test server only option max_early_data."}].
-client_options_negative_max_early_data(Config) when is_list(Config) ->
-    start_client_negative(Config, [{versions, ['tlsv1.2']},
-                                   {max_early_data, "test"}],
-                          {options,dependency,
-                           {max_early_data,{versions,['tlsv1.3']}}}),
-    start_client_negative(Config, [{versions, ['tlsv1.2', 'tlsv1.3']},
-                                   {max_early_data, "test"}],
-                          {option, server_only, max_early_data}).
-
 %%--------------------------------------------------------------------
 server_options_negative_early_data() ->
     [{doc,"Test server option early_data."}].
@@ -2318,49 +2301,6 @@ server_options_negative_early_data(Config) when is_list(Config) ->
                                    {early_data, "test"}],
                           {options,role,
                            {early_data,{"test",{server,[disabled,enabled]}}}}).
-
-server_options_negative_max_early_data() ->
-    [{doc,"Test server only option max_early_data."}].
-server_options_negative_max_early_data(Config) when is_list(Config) ->
-    start_server_negative(Config, [{versions, ['tlsv1.2']},
-                                   {max_early_data, "test"}],
-                          {options,dependency,
-                           {max_early_data,{versions,['tlsv1.3']}}}),
-    start_server_negative(Config, [{versions, ['tlsv1.2', 'tlsv1.3']},
-                                   {max_early_data, "test"}],
-                          {options,dependency,
-                           {max_early_data,{session_tickets,[stateful,stateless]}}}),
-
-    start_server_negative(Config, [{versions, ['tlsv1.2', 'tlsv1.3']},
-                                   {session_tickets, manual},
-                                   {max_early_data, "test"}],
-                          {options,role,
-                           {session_tickets,
-                            {manual,{server,[disabled,stateful,stateless]}}}}),
-    start_server_negative(Config, [{versions, ['tlsv1.2', 'tlsv1.3']},
-                                   {session_tickets, disabled},
-                                   {max_early_data, "test"}],
-                          {options,dependency,
-                           {max_early_data,{session_tickets,[stateful,stateless]}}}),
-
-    start_server_negative(Config, [{versions, ['tlsv1.2', 'tlsv1.3']},
-                                   {session_tickets, stateful},
-                                   {max_early_data, "test"}],
-                          {options,dependency,
-                           {max_early_data,{early_data,[enabled]}}}),
-    start_server_negative(Config, [{versions, ['tlsv1.2', 'tlsv1.3']},
-                                   {session_tickets, stateful},
-                                   {early_data, disabled},
-                                   {max_early_data, "test"}],
-                          {options,dependency,
-                           {max_early_data,{early_data,[enabled]}}}),
-
-    start_server_negative(Config, [{versions, ['tlsv1.2', 'tlsv1.3']},
-                                   {session_tickets, stateful},
-                                   {early_data, enabled},
-                                   {max_early_data, "test"}],
-                          {options, type,
-                           {max_early_data, {"test", not_integer}}}).
 
 %%--------------------------------------------------------------------
 server_options_negative_version_gap() ->
@@ -2712,7 +2652,7 @@ prf_ciphers_and_expected(TlsVer, PRFs, Results) ->
         TlsVer when TlsVer == tlsv1
                     orelse TlsVer == 'tlsv1.1' orelse TlsVer == 'dtlsv1' ->
             Ciphers = ssl:cipher_suites(default, TlsVer),
-            {_, Expected} = lists:keyfind(md5sha, 1, Results),
+            Expected = [Expect#{prf := md5sha} || Expect <- Results],
             [[{tls_ver, TlsVer}, {ciphers, Ciphers}, {expected, Expected}, {prf, md5sha}]];
         TlsVer when  TlsVer == 'tlsv1.2' orelse  TlsVer == 'dtlsv1.2'->
             lists:foldl(
@@ -2723,7 +2663,7 @@ prf_ciphers_and_expected(TlsVer, PRFs, Results) ->
                               ct:log("No ciphers for PRF algorithm ~p. Skipping.", [PRF]),
                               Acc;
                           Ciphers ->
-                              {_, Expected} = lists:keyfind(PRF, 1, Results),
+                              Expected = [Expect#{prf := PRF} || Expect <- Results],
                               [[{tls_ver, TlsVer}, {ciphers, Ciphers}, {expected, Expected},
                                 {prf, PRF}] | Acc]
                       end
@@ -2731,14 +2671,15 @@ prf_ciphers_and_expected(TlsVer, PRFs, Results) ->
     end.
 
 prf_get_ciphers(TlsVer, PRF) ->
-    lists:filter(
-      fun(C) when tuple_size(C) == 4 andalso
-                  element(4, C) == PRF -> 
-              true;
-         (_) -> 
-              false
-      end, 
-      ssl:cipher_suites(default, TlsVer)).
+    PrfFilter = fun(Value) ->
+                        case Value of
+                            PRF ->
+                                true;
+                            _ ->
+                                false
+                        end
+                end,
+    ssl:filter_cipher_suites(ssl:cipher_suites(default, TlsVer), [{prf, PrfFilter}]).
 
 prf_run_test(_, TlsVer, [], _, Prf) ->
     ct:fail({error, cipher_list_empty, TlsVer, Prf});
