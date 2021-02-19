@@ -28,6 +28,8 @@
 -export([is_guard_expr/1]).
 -export([bool_option/4,value_option/3,value_option/7]).
 
+-export_type([error_info/0, error_description/0]).
+
 -import(lists, [all/2,any/2,
                 foldl/3,foldr/3,
                 map/2,mapfoldl/3,member/2,
@@ -129,8 +131,8 @@ value_option(Flag, Default, On, OnVal, Off, OffVal, Opts) ->
                warn_format=0,                   %Warn format calls
 	       enabled_warnings=[],		%All enabled warnings (ordset).
                nowarn_bif_clash=[],             %All no warn bif clashes (ordset).
-               errors=[],                       %Current errors
-               warnings=[],                     %Current warnings
+               errors=[]   :: [{file:filename(),error_info()}], %Current errors
+               warnings=[] :: [{file:filename(),error_info()}], %Current warnings
                file = ""        :: string(),	%From last file attribute
                recdef_top=false :: boolean(),	%true in record initialisation
 						%outside any fun or lc
@@ -154,7 +156,7 @@ value_option(Flag, Default, On, OnVal, Off, OffVal, Opts) ->
 
 -type lint_state() :: #lint{}.
 -type error_description() :: term().
--type error_info() :: {erl_anno:location(), module(), error_description()}.
+-type error_info() :: {erl_anno:location()|'none', module(), error_description()}.
 
 %% format_error(Error)
 %%  Return a string describing the error.
@@ -529,8 +531,9 @@ used_vars(Exprs, BindingsList) ->
 
 -spec(module(AbsForms) -> {ok, Warnings} | {error, Errors, Warnings} when
       AbsForms :: [erl_parse:abstract_form() | erl_parse:form_info()],
-      Warnings :: [{file:filename(),[ErrorInfo]}],
-      Errors :: [{FileName2 :: file:filename(),[ErrorInfo]}],
+      Warnings :: [{SourceFile,[ErrorInfo]}],
+      Errors :: [{SourceFile,[ErrorInfo]}],
+      SourceFile :: file:filename(),
       ErrorInfo :: error_info()).
 
 module(Forms) ->
@@ -542,8 +545,9 @@ module(Forms) ->
              {ok, Warnings} | {error, Errors, Warnings} when
       AbsForms :: [erl_parse:abstract_form() | erl_parse:form_info()],
       FileName :: atom() | string(),
-      Warnings :: [{file:filename(),[ErrorInfo]}],
-      Errors :: [{FileName2 :: file:filename(),[ErrorInfo]}],
+      Warnings :: [{SourceFile,[ErrorInfo]}],
+      Errors :: [{SourceFile,[ErrorInfo]}],
+      SourceFile :: file:filename(),
       ErrorInfo :: error_info()).
 
 module(Forms, FileName) ->
@@ -556,8 +560,9 @@ module(Forms, FileName) ->
       AbsForms :: [erl_parse:abstract_form() | erl_parse:form_info()],
       FileName :: atom() | string(),
       CompileOptions :: [compile:option()],
-      Warnings :: [{file:filename(),[ErrorInfo]}],
-      Errors :: [{FileName2 :: file:filename(),[ErrorInfo]}],
+      Warnings :: [{SourceFile,[ErrorInfo]}],
+      Errors :: [{SourceFile,[ErrorInfo]}],
+      SourceFile :: file:filename(),
       ErrorInfo :: error_info()).
 
 module(Forms, FileName, Opts0) ->
@@ -2014,7 +2019,7 @@ bit_type(Anno, Size0, Type, St) ->
 
 %% bit_size_check(Anno, Size, BitType, State) -> {BitSize,State}.
 %%  Do some checking & warnings on types
-%%   float == 32 or 64
+%%   float == 16 or 32 or 64
 
 bit_size_check(_Anno, unknown, _, St) -> {unknown,St};
 bit_size_check(_Anno, undefined, #bittype{type=Type}, St) ->
@@ -2030,6 +2035,7 @@ bit_size_check(Anno, Size, #bittype{type=Type,unit=Unit}, St) ->
     St2 = elemtype_check(Anno, Type, Sz, St),
     {Sz,St2}.
 
+elemtype_check(_Anno, float, 16, St) -> St;
 elemtype_check(_Anno, float, 32, St) -> St;
 elemtype_check(_Anno, float, 64, St) -> St;
 elemtype_check(Anno, float, _Size, St) ->
@@ -3345,7 +3351,9 @@ is_module_dialyzer_option(Option) ->
                   no_match,no_opaque,no_fail_call,no_contracts,
                   no_behaviours,no_undefined_callbacks,unmatched_returns,
                   error_handling,race_conditions,no_missing_calls,
-                  specdiffs,overspecs,underspecs,unknown]).
+                  specdiffs,overspecs,underspecs,unknown,
+                  no_underspecs
+                 ]).
 
 %% try_catch_clauses(Scs, Ccs, In, ImportVarTable, State) ->
 %%      {UpdVt,State}.

@@ -219,12 +219,12 @@ int ERTS_SELECT(int nfds, ERTS_fd_set *readfds, ERTS_fd_set *writefds,
 
 #else
 
-#define ERTS_POLLSET_SET_HAVE_UPDATE_REQUESTS(PS)
-#define ERTS_POLLSET_UNSET_HAVE_UPDATE_REQUESTS(PS)
+#define ERTS_POLLSET_SET_HAVE_UPDATE_REQUESTS(PS) do {} while(0)
+#define ERTS_POLLSET_UNSET_HAVE_UPDATE_REQUESTS(PS) do {} while(0)
 #define ERTS_POLLSET_HAVE_UPDATE_REQUESTS(PS) 0
 
-#define ERTS_POLLSET_LOCK(PS)
-#define ERTS_POLLSET_UNLOCK(PS)
+#define ERTS_POLLSET_LOCK(PS) do {} while(0)
+#define ERTS_POLLSET_UNLOCK(PS) do {} while(0)
 
 #endif
 
@@ -750,7 +750,8 @@ grow_fds_status(ErtsPollSet *ps, int min_fd)
 
 #if ERTS_POLL_USE_EPOLL
 static int
-update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op, ErtsPollEvents events)
+concurrent_update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op,
+                          ErtsPollEvents events)
 {
     int res;
     int epoll_op = EPOLL_CTL_MOD;
@@ -866,7 +867,8 @@ update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op, ErtsPollEvents events)
     } while(0)
 
 static int
-update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op, ErtsPollEvents events)
+concurrent_update_pollset(ErtsPollSet *ps, int fd, ErtsPollOp op,
+                          ErtsPollEvents events)
 {
     int res = 0, len = 0;
     struct kevent evts[2];
@@ -1154,6 +1156,8 @@ static int update_pollset(ErtsPollSet *ps, ErtsPollResFd pr[], int fd)
 	int last_pix;
 
         if (reset) {
+            /* pr is only null during poll initialization and then no reset should happen */
+            ASSERT(pr != NULL);
             /* When a fd has been reset, we tell the caller of erts_poll_wait
                this by setting the fd as ERTS_POLL_EV_NONE */
             ERTS_POLL_RES_SET_FD(&pr[res], fd);
@@ -1359,7 +1363,7 @@ poll_control(ErtsPollSet *ps, int fd, ErtsPollOp op,
 
     if (fd < ps->internal_fd_limit || fd >= max_fds) {
 	if (fd < 0 || fd >= max_fds) {
-	    new_events = ERTS_POLL_EV_ERR;
+	    new_events = ERTS_POLL_EV_NVAL;
 	    goto done;
 	}
 #if ERTS_POLL_USE_KERNEL_POLL
@@ -1382,7 +1386,7 @@ poll_control(ErtsPollSet *ps, int fd, ErtsPollOp op,
 
 #if ERTS_POLL_USE_CONCURRENT_UPDATE
 
-    new_events = update_pollset(ps, fd, op, events);
+    new_events = concurrent_update_pollset(ps, fd, op, events);
 
 #else /* !ERTS_POLL_USE_CONCURRENT_UPDATE */
     if (fd >= ps->fds_status_len)
