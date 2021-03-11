@@ -355,6 +355,7 @@ make_monitor_list(Process *p, int tree, ErtsMonitor *root, Eterm tail)
   -record(erl_link, {
             type, % process | port | dist_process
 	    pid, % Process or port
+            state, % linked | unlinking
             id % (address)
           }).
 */
@@ -363,13 +364,18 @@ static int calc_lnk_size(ErtsLink *lnk, void *vpsz, Sint reds)
 {
     Uint *psz = vpsz;
     Uint sz = 0;
-    ErtsLinkData *ldp = erts_link_to_data(lnk);
+    UWord addr;
 
-    (void) erts_bld_uword(NULL, &sz, (UWord) ldp);
+    if (lnk->type == ERTS_LNK_TYPE_DIST_PROC)
+        addr = (UWord) erts_link_to_elink(lnk);
+    else
+        addr = (UWord) lnk;
+
+    (void) erts_bld_uword(NULL, &sz, (UWord) addr);
 
     *psz += sz;
     *psz += is_immed(lnk->other.item) ? 0 : size_object(lnk->other.item);
-    *psz += 7; /* CONS + 4-tuple */
+    *psz += 8; /* CONS + 5-tuple */
     return 1;
 }
 
@@ -383,10 +389,23 @@ typedef struct {
 static int make_one_lnk_element(ErtsLink *lnk, void * vpllc, Sint reds)
 {
     LnkListContext *pllc = vpllc;
-    Eterm tup, t, pid, id;
-    ErtsLinkData *ldp = erts_link_to_data(lnk);
+    Eterm tup, t, pid, id, state;
+    UWord addr;
+    ERTS_DECL_AM(linked);
+    ERTS_DECL_AM(unlinking);
 
-    id = erts_bld_uword(&pllc->hp, NULL, (UWord) ldp);
+    if (lnk->type == ERTS_LNK_TYPE_DIST_PROC) {
+        ErtsELink *elnk = erts_link_to_elink(lnk);
+        state = elnk->unlinking ? AM_unlinking : AM_linked;
+        addr = (UWord) elnk;
+    }
+    else {
+        ErtsILink *ilnk = (ErtsILink *) lnk;
+        state = ilnk->unlinking ? AM_unlinking : AM_linked;
+        addr = (UWord) ilnk;
+    }
+
+    id = erts_bld_uword(&pllc->hp, NULL, (UWord) addr);
 
     if (is_immed(lnk->other.item))
         pid = lnk->other.item;
@@ -413,8 +432,8 @@ static int make_one_lnk_element(ErtsLink *lnk, void * vpllc, Sint reds)
         break;
     }
 
-    tup = TUPLE4(pllc->hp, pllc->tag, t, pid, id);
-    pllc->hp += 5;
+    tup = TUPLE5(pllc->hp, pllc->tag, t, pid, state, id);
+    pllc->hp += 6;
     pllc->res = CONS(pllc->hp, tup, pllc->res);
     pllc->hp += 2;
     return 1;
@@ -529,6 +548,15 @@ do {							\
 static int collect_one_link(ErtsLink *lnk, void *vmicp, Sint reds)
 {
     MonitorInfoCollection *micp = vmicp;
+    if (lnk->type != ERTS_LNK_TYPE_DIST_PROC) {
+        if (((ErtsILink *) lnk)->unlinking)
+            return 1;
+    }
+    else {
+        ErtsELink *elnk = erts_link_to_elink(lnk);
+        if (elnk->unlinking)
+            return 1;
+    }
     EXTEND_MONITOR_INFOS(micp);
     micp->mi[micp->mi_i].entity.term = lnk->other.item;
     micp->sz += 2 + NC_HEAP_SIZE(lnk->other.item);
@@ -4494,6 +4522,28 @@ static void broken_halt_test(Eterm bif_arg_2)
     erts_exit(ERTS_DUMP_EXIT, "%T", bif_arg_2);
 }
 
+static void
+test_multizero_timeout_in_timeout3(void *vproc)
+{
+    Process *proc = (Process *) vproc;
+    ErtsMessage *mp = erts_alloc_message(0, NULL);
+    ERTS_DECL_AM(multizero_timeout_in_timeout_done);
+    erts_queue_message(proc, 0, mp, AM_multizero_timeout_in_timeout_done, am_system);
+    erts_proc_dec_refc(proc);
+}
+
+static void
+test_multizero_timeout_in_timeout2(void *vproc)
+{
+    erts_start_timer_callback(0, test_multizero_timeout_in_timeout3, vproc);
+}
+
+static void
+test_multizero_timeout_in_timeout(void *vproc)
+{
+    erts_start_timer_callback(0, test_multizero_timeout_in_timeout2, vproc);
+}
+
 BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
 {
     /*
@@ -4536,30 +4586,6 @@ BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
 		}
 		BIF_RET(am_true);
 	    }
-	}
-	else if (ERTS_IS_ATOM_STR("recv_marker_insert", BIF_ARG_1)) {
-	    /* receive_SUITE (emulator) */
-	    Eterm res = erts_msgq_recv_marker_insert(BIF_P);
-	    ASSERT(is_small(res) || is_big(res) || res == am_undefined);
-	    BIF_RET(res);
-	}
-	else if (ERTS_IS_ATOM_STR("recv_marker_bind", BIF_ARG_1)) {
-	    /* receive_SUITE (emulator) */
-	    if (is_tuple_arity(BIF_ARG_2, 2)) {
-		Eterm *tp = tuple_val(BIF_ARG_2);
-		erts_msgq_recv_marker_bind(BIF_P, tp[1], tp[2]);
-		BIF_RET(am_ok);
-	    }
-	}
-	else if (ERTS_IS_ATOM_STR("recv_marker_set_save", BIF_ARG_1)) {
-	    /* receive_SUITE (emulator) */
-	    erts_msgq_recv_marker_set_save(BIF_P, BIF_ARG_2);
-	    BIF_RET(am_ok);		
-	}
-	else if (ERTS_IS_ATOM_STR("recv_marker_clear", BIF_ARG_1)) {
-	    /* receive_SUITE (emulator) */
-	    erts_msgq_recv_marker_clear(BIF_P, BIF_ARG_2);
-	    BIF_RET(am_ok);		
 	}
 	else if (ERTS_IS_ATOM_STR("block", BIF_ARG_1)
 		 || ERTS_IS_ATOM_STR("sleep", BIF_ARG_1)) {
@@ -4873,6 +4899,18 @@ BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
             case am_false:
                 erts_release_code_write_permission();
                 BIF_RET(am_true);
+            }
+        }
+        else if (ERTS_IS_ATOM_STR("multizero_timeout_in_timeout", BIF_ARG_1)) {
+            Sint64 timeout;
+            if (term_to_Sint64(BIF_ARG_2, &timeout)) {
+                if (timeout < 0)
+                    timeout = 0;
+                erts_proc_inc_refc(BIF_P);
+                erts_start_timer_callback((ErtsMonotonicTime) timeout,
+                                          test_multizero_timeout_in_timeout,
+                                          (void *) BIF_P);
+                BIF_RET(am_ok);
             }
         }
     }
