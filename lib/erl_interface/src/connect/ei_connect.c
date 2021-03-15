@@ -2166,15 +2166,13 @@ static int send_status(ei_socket_callbacks *cbs, void *ctx,
     if (err) {
 	EI_TRACE_ERR2("send_status","-> SEND_STATUS socket write failed: %s (%d)",
                       estr(err), err);
-	if (buf != dbuf)
-	    free(buf);        
         EI_CONN_SAVE_ERRNO__(err);
 	ret = -1;
     }
     else {
+        EI_TRACE_CONN1("send_status","-> SEND_STATUS (%s)",status);
         ret =  0;
     }
-    EI_TRACE_CONN1("send_status","-> SEND_STATUS (%s)",status);
 done:
     if (buf != dbuf)
 	free(buf);
@@ -2265,7 +2263,8 @@ static DistFlags preferred_flags(void)
         | DFLAG_EXPORT_PTR_TAG
         | DFLAG_BIT_BINARIES
         | DFLAG_HANDSHAKE_23
-        | DFLAG_V4_NC;
+        | DFLAG_V4_NC
+        | DFLAG_UNLINK_ID;
     if (ei_internal_use_21_bitstr_expfun()) {
         flags &= ~(DFLAG_EXPORT_PTR_TAG
                    | DFLAG_BIT_BINARIES);
@@ -2343,8 +2342,6 @@ static int send_name(ei_cnode *ec,
         err = EIO;
     if (err) {
 	EI_TRACE_ERR0("send_name", "SEND_NAME -> socket write failed");
-	if (buf != dbuf)
-	    free(buf);
         EI_CONN_SAVE_ERRNO__(err);
 	ret = -1;
     }
@@ -2417,8 +2414,6 @@ static int send_challenge(ei_cnode *ec,
         err = EIO;
     if (err) {
 	EI_TRACE_ERR0("send_challenge", "-> SEND_CHALLENGE socket write failed");
-	if (buf != dbuf)
-	    free(buf);
         EI_CONN_SAVE_ERRNO__(err);
 	ret = -1;
     }
@@ -2593,8 +2588,6 @@ static int send_complement(ei_cnode *ec,
             err = EIO;
         if (err) {
             EI_TRACE_ERR0("send_name", "SEND_NAME -> socket write failed");
-            if (buf != dbuf)
-                free(buf);
             EI_CONN_SAVE_ERRNO__(err);
             ret = -1;
         }
