@@ -439,6 +439,32 @@ void BeamGlobalAssembler::emit_call_light_bif_shared() {
         runtime_call(RET, 3);
 #endif
 
+#ifdef ERTS_MSACC_EXTENDED_STATES
+        {
+            Label skip_msacc = a.newLabel();
+
+            a.cmp(erts_msacc_cache, imm(0));
+            a.short_().je(skip_msacc);
+
+            /* update cache if it was changed in the bif */
+            a.mov(TMP_MEM1q, RET);
+            a.lea(ARG1, erts_msacc_cache);
+            runtime_call<1>(erts_msacc_update_cache);
+            a.mov(RET, TMP_MEM1q);
+
+            /* set state to emulator if msacc has been enabled */
+            a.cmp(erts_msacc_cache, imm(0));
+            a.short_().je(skip_msacc);
+            a.mov(ARG1, erts_msacc_cache);
+            a.mov(ARG2, imm(ERTS_MSACC_STATE_EMULATOR));
+            a.mov(ARG3, imm(1));
+            runtime_call<3>(erts_msacc_set_state_m__);
+            a.mov(RET, TMP_MEM1q);
+
+            a.bind(skip_msacc);
+        }
+#endif
+
         /* ERTS_IS_GC_DESIRED_INTERNAL */
         {
             a.mov(ARG2, x86::qword_ptr(c_p, offsetof(Process, stop)));
@@ -474,7 +500,8 @@ void BeamGlobalAssembler::emit_call_light_bif_shared() {
         a.bind(check_bif_return);
         emit_test_the_non_value(ARG3);
 
-        a.short_().je(trap);
+        /* NOTE: Short won't reach if JIT_HARD_DEBUG is defined. */
+        a.je(trap);
 
         a.mov(HTOP, ARG5);
 #ifdef NATIVE_ERLANG_STACK
@@ -639,99 +666,6 @@ void BeamModuleAssembler::emit_send() {
     fragment_call(ga->get_call_light_bif_shared());
 }
 
-static Eterm call_bif(Process *c_p,
-                      Eterm *reg,
-                      ErtsCodePtr I,
-                      ErtsBifFunc vbf,
-                      Uint arity) {
-    ErlHeapFragment *live_hf_end;
-    Eterm result;
-
-    ERTS_UNREQ_PROC_MAIN_LOCK(c_p);
-    {
-        live_hf_end = c_p->mbuf;
-
-        ERTS_CHK_MBUF_SZ(c_p);
-        ASSERT(!ERTS_PROC_IS_EXITING(c_p));
-        result = vbf(c_p, reg, I);
-        ASSERT(!ERTS_PROC_IS_EXITING(c_p) || is_non_value(result));
-        ERTS_CHK_MBUF_SZ(c_p);
-
-        ERTS_VERIFY_UNUSED_TEMP_ALLOC(c_p);
-        ERTS_HOLE_CHECK(c_p);
-    }
-    PROCESS_MAIN_CHK_LOCKS(c_p);
-    ERTS_REQ_PROC_MAIN_LOCK(c_p);
-
-    if (ERTS_IS_GC_DESIRED(c_p)) {
-        result = erts_gc_after_bif_call_lhf(c_p,
-                                            live_hf_end,
-                                            result,
-                                            reg,
-                                            arity);
-    }
-
-    return result;
-}
-
-typedef Eterm NifF(struct enif_environment_t *, int argc, Eterm argv[]);
-
-static Eterm call_nif(Process *c_p,
-                      ErtsCodePtr I,
-                      Eterm *reg,
-                      NifF *fp,
-                      struct erl_module_nif *NifMod) {
-    Eterm nif_bif_result;
-    Eterm bif_nif_arity;
-    ErlHeapFragment *live_hf_end;
-    const ErtsCodeMFA *codemfa;
-
-    codemfa = erts_code_to_codemfa(I);
-
-    c_p->current = codemfa; /* current and vbf set to please handle_error */
-
-    bif_nif_arity = codemfa->arity;
-    ERTS_UNREQ_PROC_MAIN_LOCK(c_p);
-
-    {
-        struct enif_environment_t env;
-        ASSERT(c_p->scheduler_data);
-        live_hf_end = c_p->mbuf;
-        ERTS_CHK_MBUF_SZ(c_p);
-        erts_pre_nif(&env, c_p, NifMod, NULL);
-
-        ASSERT((c_p->scheduler_data)->current_nif == NULL);
-        (c_p->scheduler_data)->current_nif = &env;
-
-        nif_bif_result = (*fp)(&env, bif_nif_arity, reg);
-        if (env.exception_thrown)
-            nif_bif_result = THE_NON_VALUE;
-
-        ASSERT((c_p->scheduler_data)->current_nif == &env);
-        (c_p->scheduler_data)->current_nif = NULL;
-
-        erts_post_nif(&env);
-        ERTS_CHK_MBUF_SZ(c_p);
-
-        PROCESS_MAIN_CHK_LOCKS(c_p);
-        ERTS_VERIFY_UNUSED_TEMP_ALLOC(c_p);
-        ASSERT(!env.exiting);
-        ASSERT(!ERTS_PROC_IS_EXITING(c_p));
-    }
-    ERTS_REQ_PROC_MAIN_LOCK(c_p);
-    ERTS_HOLE_CHECK(c_p);
-
-    if (ERTS_IS_GC_DESIRED(c_p)) {
-        nif_bif_result = erts_gc_after_bif_call_lhf(c_p,
-                                                    live_hf_end,
-                                                    nif_bif_result,
-                                                    reg,
-                                                    bif_nif_arity);
-    }
-
-    return nif_bif_result;
-}
-
 void BeamGlobalAssembler::emit_bif_nif_epilogue(void) {
     Label check_trap = a.newLabel(), trap = a.newLabel(), error = a.newLabel();
 
@@ -862,7 +796,7 @@ void BeamGlobalAssembler::emit_call_bif_shared(void) {
     a.mov(ARG1, c_p);
     load_x_reg_array(ARG2);
     /* ARG3 (I), ARG4 (func), and ARG5 (arity) have already been provided. */
-    runtime_call<5>(call_bif);
+    runtime_call<5>(beam_jit_call_bif);
 
 #ifdef ERTS_MSACC_EXTENDED_STATES
     a.mov(TMP_MEM1q, RET);
@@ -986,7 +920,7 @@ void BeamGlobalAssembler::emit_call_nif_shared(void) {
     a.mov(ARG4, x86::qword_ptr(ARG2, 8 + BEAM_ASM_FUNC_PROLOGUE_SIZE));
     a.mov(ARG5, x86::qword_ptr(ARG2, 16 + BEAM_ASM_FUNC_PROLOGUE_SIZE));
     a.mov(ARG6, x86::qword_ptr(ARG2, 24 + BEAM_ASM_FUNC_PROLOGUE_SIZE));
-    runtime_call<5>(call_nif);
+    runtime_call<5>(beam_jit_call_nif);
 
     emit_bif_nif_epilogue();
 }
@@ -1042,33 +976,6 @@ void BeamModuleAssembler::emit_call_nif(const ArgVal &Func,
     }
 }
 
-enum nif_load_ret { RET_NIF_success, RET_NIF_error, RET_NIF_yield };
-
-static enum nif_load_ret load_nif(Process *c_p, ErtsCodePtr I, Eterm *reg) {
-    if (erts_try_seize_code_write_permission(c_p)) {
-        Eterm result;
-
-        PROCESS_MAIN_CHK_LOCKS((c_p));
-        ERTS_UNREQ_PROC_MAIN_LOCK((c_p));
-        result = erts_load_nif(c_p, I, reg[0], reg[1]);
-        erts_release_code_write_permission();
-        ERTS_REQ_PROC_MAIN_LOCK(c_p);
-
-        if (ERTS_LIKELY(is_value(result))) {
-            reg[0] = result;
-            return RET_NIF_success;
-        } else {
-            c_p->freason = BADARG;
-            return RET_NIF_error;
-        }
-    } else {
-        /* Yield and try again. */
-        c_p->current = NULL;
-        c_p->arity = 2;
-        return RET_NIF_yield;
-    }
-}
-
 /* ARG2 = entry address. */
 void BeamGlobalAssembler::emit_i_load_nif_shared() {
     static ErtsCodeMFA bif_mfa = {am_erlang, am_load_nif, 2};
@@ -1082,7 +989,7 @@ void BeamGlobalAssembler::emit_i_load_nif_shared() {
     a.mov(ARG1, c_p);
     /* ARG2 has already been set by caller */
     load_x_reg_array(ARG3);
-    runtime_call<3>(load_nif);
+    runtime_call<3>(beam_jit_load_nif);
 
     emit_leave_runtime<Update::eStack | Update::eHeap>();
 
@@ -1142,7 +1049,7 @@ void BeamModuleAssembler::emit_i_load_nif() {
     a.mov(ARG1, c_p);
     a.lea(ARG2, x86::qword_ptr(currLabel));
     load_x_reg_array(ARG3);
-    runtime_call<3>(load_nif);
+    runtime_call<3>(beam_jit_load_nif);
 
     emit_leave_runtime<Update::eStack | Update::eHeap>();
 

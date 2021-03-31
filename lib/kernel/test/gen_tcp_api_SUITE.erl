@@ -186,6 +186,9 @@ end_per_suite(Config0) ->
        "~n      Config: ~p"
        "~n      Nodes:  ~p", [Config0, erlang:nodes()]),
 
+    %% Stop the local monitor
+    kernel_test_sys_monitor:stop(),
+
     Config1 = ?LIB:end_per_suite(Config0),
 
     ?P("end_per_suite -> "
@@ -354,15 +357,29 @@ do_recv_delim(Config) ->
         [{active,false}, {packet,line}, {line_delimiter,$X}],
     {ok, Client} = gen_tcp:connect(localhost, Port, Opts),
     {ok, A} = gen_tcp:accept(L),
+
     ?P("send the data"),
     ok = gen_tcp:send(A, "abcXefgX"),
+
     %% Why do we need a timeout?
     %% Sure, normally there would be no delay,
     %% but this testcase has nothing to do with timeouts?
     ?P("read the first chunk"),
-    {ok, "abcX"} = gen_tcp:recv(Client, 0), %, 200),
+    {ok, "abcX"} = gen_tcp:recv(Client, 0), % 200),
     ?P("read the second chunk"),
-    {ok, "efgX"} = gen_tcp:recv(Client, 0), %, 200),
+    {ok, "efgX"} = gen_tcp:recv(Client, 0), % 200),
+
+    ?P("set active = 2"),
+    ok = inet:setopts(Client, [{active,2}]),
+
+    ?P("send the data again"),
+    ok = gen_tcp:send(A, "abcXefgX"),
+
+    ?P("await the first chunk"),
+    receive {tcp, Client, "abcX"} -> ?P("received first chunck") end,
+    ?P("await the second chunk"),
+    receive {tcp, Client, "efgX"} -> ?P("received second chunck") end,
+
     ?P("cleanup"),
     ok = gen_tcp:close(Client),
     ok = gen_tcp:close(A),
