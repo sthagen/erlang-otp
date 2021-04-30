@@ -31,7 +31,7 @@
 	 getif/1, getif/0, getiflist/0, getiflist/1,
 	 ifget/3, ifget/2, ifset/3, ifset/2,
 	 getstat/1, getstat/2,
-         info/1,
+         info/1, socket_to_list/1,
 	 ip/1, stats/0, options/0, 
 	 pushf/3, popf/1, close/1, gethostname/0, gethostname/1, 
 	 parse_ipv4_address/1, parse_ipv6_address/1, parse_ipv4strict_address/1,
@@ -74,6 +74,9 @@
 
 %% timer interface
 -export([start_timer/1, timeout/1, timeout/2, stop_timer/1]).
+
+%% Socket monitoring
+-export([monitor/1, cancel_monitor/1]).
 
 -export_type([address_family/0, socket_protocol/0, hostent/0, hostname/0, ip4_address/0,
               ip6_address/0, ip_address/0, port_number/0,
@@ -207,6 +210,53 @@ close(Socket) ->
 	    ok
     end.
 
+
+%% -- Socket monitor
+
+-spec monitor(Socket) -> reference() when
+      Socket :: socket().
+
+monitor({'$inet', GenSocketMod, _} = Socket) when is_atom(GenSocketMod) ->
+    MRef = GenSocketMod:?FUNCTION_NAME(Socket),
+    case inet_db:put_socket_type(MRef, {socket, GenSocketMod}) of
+        ok ->
+            MRef;
+	error ->
+	    GenSocketMod:cancel_monitor(MRef),
+	    erlang:error({invalid, Socket})
+    end;
+monitor(Socket) when is_port(Socket) ->
+    MRef = erlang:monitor(port, Socket),
+    case inet_db:put_socket_type(MRef, port) of
+	ok ->
+	    MRef;
+	error ->
+	    erlang:demonitor(MRef, [flush]),
+	    erlang:error({invalid, Socket})
+    end;
+monitor(Socket) ->
+    erlang:error(badarg, [Socket]).
+
+
+%% -- Cancel socket monitor
+
+-spec cancel_monitor(MRef) -> boolean() when
+      MRef :: reference().
+
+cancel_monitor(MRef) when is_reference(MRef) ->
+    case inet_db:take_socket_type(MRef) of
+	{ok, port} ->
+	    erlang:demonitor(MRef, [info]);
+	{ok, {socket, GenSocketMod}} ->
+	    GenSocketMod:?FUNCTION_NAME(MRef);
+	error -> % Assume it has the monitor has already been cancel'ed
+	    false
+    end;
+cancel_monitor(MRef) ->
+    erlang:error(badarg, [MRef]).
+
+
+%% -- Socket peername
 
 -spec peername(Socket :: socket()) ->
 		      {ok,
@@ -603,6 +653,17 @@ gethostbyaddr(Address,Timeout) ->
 
 gethostbyaddr_tm(Address,Timer) ->
     gethostbyaddr_tm(Address, Timer, inet_db:res_option(lookup)).
+
+
+-spec socket_to_list(Socket) -> list() when
+      Socket :: socket().
+
+socket_to_list({'$inet', GenSocketMod, _} = Socket)
+  when is_atom(GenSocketMod) ->
+    GenSocketMod:to_list(Socket);
+socket_to_list(Socket) when is_port(Socket) ->
+    erlang:port_to_list(Socket).
+
 
 
 -spec info(Socket) -> Info when
@@ -1660,6 +1721,59 @@ upper(C) when C >= $a, C =< $z -> (C-$a) + $A;
 upper(C) -> C.
 
     
+info({'$inet', GenSocketMod, _} = S, F, Proto) when is_atom(GenSocketMod) ->
+    case F of
+	owner ->
+	    case GenSocketMod:info(S) of
+		#{owner := Owner} when is_pid(Owner) -> pid_to_list(Owner);
+		_ -> " "
+	    end;
+	port ->
+	    case GenSocketMod:getopts(S, [fd]) of
+		{ok, [{fd, FD}]} ->
+		    "esock[" ++ integer_to_list(FD) ++ "]";
+		_ ->
+		    "esock"
+	    end;
+	sent ->
+	    case GenSocketMod:getstat(S, [send_oct]) of
+		{ok, [{send_oct, N}]} -> integer_to_list(N);
+		_ -> " "
+	    end;
+	recv ->
+	    case GenSocketMod:getstat(S, [recv_oct]) of
+		{ok, [{recv_oct, N}]} -> integer_to_list(N);
+		_ -> " "
+	    end;
+	local_address ->
+	    fmt_addr(GenSocketMod:sockname(S), Proto);
+	foreign_address ->
+	    fmt_addr(GenSocketMod:peername(S), Proto);
+	state ->
+	    case GenSocketMod:info(S) of
+		#{rstates := RStates,
+		  wstates := WStates} -> fmt_compat_status(RStates, WStates);
+		_ -> " "
+	    end;
+	packet ->
+	    case GenSocketMod:which_packet_type(S) of
+		{ok, Type} -> atom_to_list(Type);
+		_ -> " "
+	    end;
+	type ->
+	    case GenSocketMod:info(S) of
+		#{type := stream} -> "STREAM";
+		_ -> " "
+	    end;
+	%% Why do we have this here? Its never called (see i/2 calling i/2).
+	fd ->
+	    case GenSocketMod:getopts(S, [fd]) of
+		{ok, [{fd, Fd}]} -> integer_to_list(Fd);
+		_ -> " "
+	    end;
+	module ->
+	    atom_to_list(GenSocketMod)
+    end;
 info(S, F, Proto) ->
     case F of
 	owner ->
@@ -1704,6 +1818,7 @@ info(S, F, Proto) ->
 		{ok,{_,seqpacket}} -> "SEQPACKET";
 		_ -> " "
 	    end;
+	%% Why do we have this here? Its never called (see i/2 calling i/2).
 	fd ->
 	    case prim_inet:getfd(S) of
 		{ok, Fd} -> integer_to_list(Fd);
@@ -1715,6 +1830,7 @@ info(S, F, Proto) ->
 		_ -> "prim_inet"
 	    end
     end.
+
 %% Possible flags: (sorted)
 %% [accepting,bound,busy,connected,connecting,listen,listening,open]
 %% Actually, we no longer gets listening...
@@ -1732,6 +1848,19 @@ fmt_status(Flags) ->
 	[]                            -> "CLOSED";
 	Sorted                        -> fmt_status2(Sorted)
     end.
+
+fmt_compat_status(RFlags, WFlags) ->
+    fmt_status(fmt_compat_status_merge(RFlags, WFlags)).
+
+fmt_compat_status_merge(RFlags, WFlags) ->
+    fmt_compat_status_merge(RFlags, WFlags, []).
+    
+fmt_compat_status_merge([], WFlags, Merged) ->
+    Merged ++ WFlags;
+fmt_compat_status_merge([RFlag|RFlags], WFlags, Merged) ->
+    fmt_compat_status_merge(RFlags,
+			    lists:delete(RFlag, WFlags),
+			    [RFlag|Merged]).
 
 fmt_status2([H]) ->
     fmt_status3(H);
@@ -1754,6 +1883,8 @@ fmt_status3(listening) ->
     "LG";
 fmt_status3(open) ->
     "O";
+fmt_status3(selected) ->
+    "SD";
 fmt_status3(X) when is_atom(X) ->
     string:uppercase(atom_to_list(X)).
 
@@ -1778,7 +1909,7 @@ fmt_port(N, Proto) ->
     end.
 
 %% Return a list of all tcp sockets
-tcp_sockets() -> port_list("tcp_inet").
+tcp_sockets() -> port_list("tcp_inet") ++ gen_tcp_socket:which_sockets().
 udp_sockets() -> port_list("udp_inet").
 sctp_sockets() -> port_list("sctp_inet").
 

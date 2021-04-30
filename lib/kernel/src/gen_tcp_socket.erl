@@ -21,18 +21,23 @@
 -module(gen_tcp_socket).
 -behaviour(gen_statem).
 
+-compile({no_auto_import, [monitor/1]}).
+
 %% gen_tcp
 -export([connect/4, listen/2, accept/2,
          send/2, recv/3,
          sendfile/4,
          shutdown/2, close/1, controlling_process/2]).
 %% inet
--export([setopts/2, getopts/2,
+-export([
+         monitor/1, cancel_monitor/1,
+         setopts/2, getopts/2,
          sockname/1, peername/1,
-         getstat/2]).
+         getstat/2
+        ]).
 
 %% Utility
--export([info/1]).
+-export([info/1, which_sockets/0, which_packet_type/1, socket_to_list/1]).
 
 -ifdef(undefined).
 -export([unrecv/2]).
@@ -490,12 +495,33 @@ controlling_process(S, NewOwner, Server, Msg) ->
     NewOwner ! Msg,
     controlling_process(S, NewOwner, Server).
 
+
 %% -------------------------------------------------------------------------
 %% Module inet backends
 %% -------------------------------------------------------------------------
 
+monitor(?MODULE_socket(_Server, ESock) = Socket) ->
+    %% The socket that is part of the down message:
+    case socket_registry:monitor(ESock, #{msocket => Socket}) of
+	{error, Reason} ->
+	    erlang:error({invalid, Reason});
+	MRef when is_reference(MRef) ->
+	    MRef
+    end;
+monitor(Socket) ->
+    erlang:error(badarg, [Socket]).
+
+cancel_monitor(MRef) when is_reference(MRef) ->
+    socket:cancel_monitor(MRef);
+cancel_monitor(MRef) ->
+    erlang:error(badarg, [MRef]).
+
+
+%% -------------------------------------------------------------------------
+
 setopts(?MODULE_socket(Server, _Socket), Opts) when is_list(Opts) ->
     call(Server, {setopts, Opts}).
+
 
 %% -------------------------------------------------------------------------
 
@@ -530,6 +556,51 @@ info(?MODULE_socket(Server, _Socket)) ->
     call(Server, info).
 
 
+%% -------------------------------------------------------------------------
+
+socket_to_list(?MODULE_socket(_Server, Socket)) ->
+    "#Socket" ++ Id = socket:to_list(Socket),
+    "#InetSocket" ++ Id;
+socket_to_list(Socket) ->
+    erlang:error(badarg, [Socket]).
+
+
+which_sockets() ->
+    which_sockets(socket:which_sockets(tcp)).
+
+which_sockets(Socks) ->
+    which_sockets(Socks, []).
+
+which_sockets([], Acc) ->
+    Acc;
+which_sockets([Sock|Socks], Acc) ->
+    case socket:getopt(Sock, {otp, meta}) of
+	{ok, undefined} ->
+	    which_sockets(Socks, Acc);
+	{ok, _Meta} ->
+	    %% One of ours - try to recreate the compat socket
+	    %% Currently we don't have the 'owner' in meta, so we need to look
+	    %% it up...
+	    #{owner := Owner} = socket:info(Sock),
+	    MSock = ?MODULE_socket(Owner, Sock),
+	    which_sockets(Socks, [MSock|Acc]);
+	_ ->
+	    which_sockets(Socks, Acc)
+    end.
+
+
+%% -------------------------------------------------------------------------
+
+which_packet_type(?MODULE_socket(_Server, Socket)) ->
+    %% quick and dirty...
+    case socket:getopt(Socket, {otp, meta}) of
+	{ok, #{packet := Type}} ->
+	    {ok, Type};
+	_ ->
+	    error
+    end.
+
+			 
 %%% ========================================================================
 %%% Socket glue code
 %%%
@@ -1250,8 +1321,8 @@ handle_event(
   #controlling_process{owner = NewOwner, state = State},
   {#params{owner = Owner, owner_mon = OwnerMon} = P, D}) ->
     %%
-    NewOwnerMon = monitor(process, NewOwner),
-    true = demonitor(OwnerMon, [flush]),
+    NewOwnerMon = erlang:monitor(process, NewOwner),
+    true = erlang:demonitor(OwnerMon, [flush]),
     {next_state, State,
      {P#params{owner = NewOwner, owner_mon = NewOwnerMon}, D},
      [{reply, From, ok}]};
@@ -1296,7 +1367,7 @@ handle_event({call, From}, {getopts, Opts}, State, {P, D}) ->
 
 %% Call: setopts/1
 handle_event({call, From}, {setopts, Opts}, State, {P, D}) ->
-    %% ?DBG([{opts, Opts}, {state, State}, {d, D}]),
+    %% ?DBG([{setopts, Opts}, {state, State}, {d, D}]),
     {Result, D_1} = state_setopts(P, D, State, Opts),
     %% ?DBG([{result, Result}, {d1, D_1}]),
     case Result of
@@ -1341,7 +1412,7 @@ handle_event({call, From}, info, State, {P, D}) ->
             {keep_state_and_data,
              [{reply, From, #{}}]};
         _ ->
-            {D_1, Result} = handle_info(P#params.socket, D),
+            {D_1, Result} = handle_info(P#params.socket, P#params.owner, D),
             {keep_state, {P, D_1},
              [{reply, From, Result}]}
     end;
@@ -2385,7 +2456,7 @@ state_getopts(P, D, State, [Tag | Tags], Acc) ->
             {error, einval}
     end.
 
-handle_info(Socket, D) -> 
+handle_info(Socket, Owner, D) -> 
     %% Read counters
     Counters_1 = socket_info_counters(Socket),
     %% Check for recent wraps
@@ -2399,7 +2470,7 @@ handle_info(Socket, D) ->
     Counters_3 = maps:merge(Counters_1, maps:with(Wrapped, Counters_2)),
     %% Go ahead with wrap updated counters
     Counters_4 = maps:from_list(getstat_what(D_1, Counters_3)),
-    {D_1, Info#{counters => Counters_4}}.
+    {D_1, Info#{counters => Counters_4, owner => Owner}}.
     
 getstat(Socket, D, What) ->
     %% Read counters
