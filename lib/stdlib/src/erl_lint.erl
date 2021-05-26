@@ -1084,11 +1084,7 @@ behaviour_add_conflict([], _, _, _, St) -> St.
 %% check_deprecated(Forms, State0) -> State
 
 check_deprecated(Forms, St0) ->
-    %% Get the correct list of exported functions.
-    Exports = case member(export_all, St0#lint.compile) of
-		  true -> St0#lint.defined;
-		  false -> St0#lint.exports
-	      end,
+    Exports = exports(St0),
     X = ignore_predefined_funcs(gb_sets:to_list(Exports)),
     #lint{module = Mod} = St0,
     Bad = [{E,Anno} || {attribute, Anno, deprecated, Depr} <- Forms,
@@ -1142,11 +1138,7 @@ deprecated_desc(_) -> false.
 %% check_removed(Forms, State0) -> State
 
 check_removed(Forms, St0) ->
-    %% Get the correct list of exported functions.
-    Exports = case member(export_all, St0#lint.compile) of
-                  true -> St0#lint.defined;
-                  false -> St0#lint.exports
-              end,
+    Exports = exports(St0),
     X = ignore_predefined_funcs(gb_sets:to_list(Exports)),
     #lint{module = Mod} = St0,
     Bad = [{E,Anno} || {attribute, Anno, removed, Removed} <- Forms,
@@ -3253,7 +3245,7 @@ add_missing_spec_warnings(Forms, St0, Type) ->
 		[{FA,Anno} || {function,Anno,F,A,_} <- Forms,
 			   not lists:member(FA = {F,A}, Specs)];
 	    exported ->
-		Exps0 = gb_sets:to_list(St0#lint.exports) -- pseudolocals(),
+                Exps0 = gb_sets:to_list(exports(St0)) -- pseudolocals(),
                 Exps = Exps0 -- Specs,
 		[{FA,Anno} || {function,Anno,F,A,_} <- Forms,
 			   member(FA = {F,A}, Exps)]
@@ -4115,7 +4107,7 @@ is_format_function(M, F) when is_atom(M), is_atom(F) -> false.
 %% check_format_1([Arg]) -> ok | {warn,Level,Format,[Arg]}.
 
 check_format_1([Fmt]) ->
-    check_format_1([Fmt,{nil,0}]);
+    check_format_1([Fmt,no_argument_list]);
 check_format_1([Fmt,As]) ->
     check_format_2(Fmt, canonicalize_string(As));
 check_format_1([_Dev,Fmt,As]) ->
@@ -4128,8 +4120,6 @@ canonicalize_string({string,Anno,Cs}) ->
 canonicalize_string(Term) ->
     Term.
 
-%% check_format_2([Arg]) -> ok | {warn,Level,Format,[Arg]}.
-
 check_format_2(Fmt, As) ->
     case Fmt of
         {string,A,S} ->
@@ -4141,6 +4131,8 @@ check_format_2(Fmt, As) ->
             {warn,2,Anno,"format string not a textual constant",[]}
     end.
 
+check_format_2a(Fmt, FmtAnno, no_argument_list=As) ->
+    check_format_3(Fmt, FmtAnno, As);
 check_format_2a(Fmt, FmtAnno, As) ->
     case args_list(As) of
         true ->
@@ -4153,18 +4145,43 @@ check_format_2a(Fmt, FmtAnno, As) ->
             {warn,2,Anno,"format arguments perhaps not a list",[]}
     end.
 
-%% check_format_3(FormatString, [Arg]) -> ok | {warn,Level,Format,[Arg]}.
-
 check_format_3(Fmt, FmtAnno, As) ->
     case check_format_string(Fmt) of
         {ok,Need} ->
-            case args_length(As) of
-                Len when length(Need) =:= Len -> ok;
-                _Len -> {warn,1,element(2, As),"wrong number of arguments in format call",[]}
-            end;
+            check_format_4(Need, FmtAnno, As);
         {error,S} ->
             {warn,1,FmtAnno,"format string invalid (~ts)",[S]}
     end.
+
+check_format_4([], _FmtAnno, no_argument_list) ->
+    ok;
+check_format_4(Need, FmtAnno, no_argument_list) ->
+    Msg = "the format string requires an argument list with ~s, but no argument list is given",
+    {warn,1,FmtAnno,Msg,[arguments(length(Need))]};
+check_format_4(Need, _FmtAnno, As) ->
+    Anno = element(2, As),
+    Prefix = "the format string requires an argument list with ~s, but the argument list ",
+    case {args_length(As),length(Need)} of
+        {Same,Same} ->
+            ok;
+        {Actual,0} ->
+            Msg = "the format string requires an empty argument list, but the argument list contains ~s",
+            {warn,1,Anno,Msg,[arguments(Actual)]};
+        {0,Needed} ->
+            Msg = Prefix ++ "is empty",
+            {warn,1,Anno,Msg,[arguments(Needed)]};
+        {Actual,Needed} when Actual < Needed ->
+            Msg = Prefix ++ "contains only ~s",
+            {warn,1,Anno,Msg,[arguments(Needed),arguments(Actual)]};
+        {Actual,Needed} when Actual > Needed ->
+            Msg = Prefix ++ "contains ~s",
+            {warn,1,Anno,Msg,[arguments(Needed),arguments(Actual)]}
+    end.
+
+arguments(1) ->
+    "1 argument";
+arguments(N) ->
+    [integer_to_list(N), " arguments"].
 
 args_list({cons,_A,_H,T}) -> args_list(T);
 %% Strange case: user has written something like [a | "bcd"]; pretend

@@ -3509,7 +3509,7 @@ otp_8051(Config) when is_list(Config) ->
 
 %% Check that format warnings are generated.
 format_warn(Config) when is_list(Config) ->
-    L1 = 14,
+    L1 = 16,
     L2 = 5,
     format_level(1, L1, Config),
     format_level(2, L1+L2, Config),
@@ -4491,13 +4491,22 @@ warn_missing_spec(Config) ->
               internal_with_spec() -> ok.
 
               internal_no_spec() -> ok.">>,
-    run(Config, [
-        {warn_missing_spec, Test, [warn_missing_spec],
-            {warnings, [{{6,15}, erl_lint, {missing_spec, {external_no_spec, 0}}}]}},
-        {warn_missing_spec_all, Test, [warn_missing_spec_all],
-            {warnings, [{{6,15}, erl_lint, {missing_spec, {external_no_spec, 0}}},
-                        {{11,15}, erl_lint, {missing_spec, {internal_no_spec, 0}}}]}}
-    ]).
+
+    %% Be sure to avoid adding export_all using the option-list-in-a-tuple trick.
+    {warnings, [{{6,15}, erl_lint, {missing_spec, {external_no_spec, 0}}}]} =
+        run_test(Config, Test, {[warn_missing_spec, nowarn_unused_function]}),
+
+    Ts = [{warn_missing_spec_all, Test, [warn_missing_spec_all],
+           {warnings, [{{6,15}, erl_lint, {missing_spec, {external_no_spec, 0}}},
+                       {{11,15}, erl_lint, {missing_spec, {internal_no_spec, 0}}}]}},
+          {warn_missing_spec_export_all,
+           <<"-compile([export_all, nowarn_export_all]).
+              -compile([warn_missing_spec]).
+              main(_) -> ok.
+             ">>,
+           [],
+           {warnings,[{{3,15},erl_lint,{missing_spec,{main,1}}}]}}],
+    run(Config, Ts).
 
 otp_16824(Config) ->
     Ts = [{otp_16824_1,
