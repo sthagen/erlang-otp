@@ -27,6 +27,22 @@
   </header>
   <p>This document describes the changes made to the SSL application.</p>
 
+<section><title>SSL 10.4.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix cache invalidation problem for CA certs provided by
+	    the cacertfile option.</p>
+          <p>
+	    Own Id: OTP-17435 Aux Id: ERIERL-653 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>SSL 10.4</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -87,6 +103,22 @@
 	    handling.</p>
           <p>
 	    Own Id: OTP-17384 Aux Id: GH-4800 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 10.3.1.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix cache invalidation problem for CA certs provided by
+	    the cacertfile option.</p>
+          <p>
+	    Own Id: OTP-17435 Aux Id: ERIERL-653 </p>
         </item>
       </list>
     </section>
@@ -177,6 +209,22 @@
 	    servers.</p>
           <p>
 	    Own Id: OTP-17042</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>SSL 10.2.4.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix cache invalidation problem for CA certs provided by
+	    the cacertfile option.</p>
+          <p>
+	    Own Id: OTP-17435 Aux Id: ERIERL-653 </p>
         </item>
       </list>
     </section>

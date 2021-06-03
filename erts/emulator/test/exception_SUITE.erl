@@ -323,6 +323,10 @@ stacktrace(Conf) when is_list(Conf) ->
         stacktrace_1({value,V}, error, {value,V}),
     {caught2,{throw,V},[{?MODULE,foo,1,_}|_]} =
         stacktrace_1({value,V}, error, {throw,V}),
+    {caught2,{error,V},[{?MODULE,foo,[a],_}|_]} =
+        stacktrace_1({value,V}, error, {error,{V,[a]}}),
+    {caught2,{error,V},[{?MODULE,foo,1,_}|_]} =
+        stacktrace_1({value,V}, error, {error,{V,none}}),
 
     try
         stacktrace_2()
@@ -442,7 +446,9 @@ foo({'add',{A,B}}) ->
     my_add(A, B);
 foo({'abs',X}) ->
     my_abs(X);
-foo({error,Error}) -> 
+foo({error,{Error, Args}}) ->
+    erlang:error(Error, Args);
+foo({error,Error}) ->
     erlang:error(Error);
 foo({throw,Throw}) ->
     erlang:throw(Throw);
@@ -675,6 +681,7 @@ do_error_3(Reason, Args, Options) ->
 error_info(_Config) ->
     DeadProcess = dead_process(),
     NewAtom = non_existing_atom(),
+    Eons = 1 bsl 50,
 
     %% We'll need an incorrect memory type for erlang:memory/1. We want to test an
     %% incorrect atom if our own allocators are enabled, but if they are disabled,
@@ -737,7 +744,9 @@ error_info(_Config) ->
          {binary_to_existing_atom, [abc, latin1]},
          {binary_to_existing_atom, [<<128,128,255>>,utf8]},
          {binary_to_existing_atom, [list_to_binary(NewAtom), latin1]},
+         {binary_to_existing_atom, [list_to_binary(NewAtom), utf8]},
          {binary_to_existing_atom, [list_to_binary(NewAtom), utf42]},
+         {binary_to_existing_atom, [[<<"abc">>], utf8]},
          {binary_to_existing_atom, [<<0:512/unit:8>>, latin1]},
 
          {binary_to_float, [abc]},
@@ -1113,7 +1122,13 @@ error_info(_Config) ->
          {send, [[bad,dest], message]},
          {send, [[bad,dest], message, bad]},
 
+         {send_after, [Eons, self(), message]},
+         {send_after, [Eons, {bad,dest}, message]},
          {send_after, [bad_time, {bad,dest}, message]},
+         {send_after, [20, ExternalPid, message]},
+
+         {send_after, [Eons, self(), message, bad_options]},
+         {send_after, [Eons, {bad,dest}, message, bad_options]},
          {send_after, [bad_time, {bad,dest}, message, bad_options]},
          {send_after, [20, self(), message, [bad]]},
          {send_after, [20, ExternalPid, message, []]},
@@ -1192,7 +1207,12 @@ error_info(_Config) ->
          {split_binary, [a, -1]},
          {split_binary, [<<>>, 1]},
 
+         {start_timer, [Eons, self(), message]},
+         {start_timer, [Eons, {bad,dest}, message]},
          {start_timer, [bad_time, {bad,dest}, message]},
+
+         {start_timer, [Eons, self(), message, []]},
+         {start_timer, [Eons, {bad,dest}, message, [bad]]},
          {start_timer, [bad_time, {bad,dest}, message, bad_options]},
          {start_timer, [20, self(), message, [bad]]},
          {start_timer, [20, ExternalPid, message, []]},

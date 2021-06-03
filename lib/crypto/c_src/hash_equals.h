@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2010-2018. All Rights Reserved.
+ * Copyright Ericsson AB 2010-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,20 +18,11 @@
  * %CopyrightEnd%
  */
 
-#ifndef E_BN_H__
-#define E_BN_H__ 1
+#ifndef E_HASH_EQUALS_H__
+#define E_HASH_EQUALS_H__ 1
 
 #include "common.h"
 
-ERL_NIF_TERM bin_from_bn(ErlNifEnv* env, const BIGNUM *bn);
-ERL_NIF_TERM mod_exp_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+ERL_NIF_TERM hash_equals_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 
-#ifdef HAVE_EC
-ERL_NIF_TERM bn2term(ErlNifEnv* env, size_t size, const BIGNUM *bn);
-#endif
-
-int get_bn_from_mpint(ErlNifEnv* env, ERL_NIF_TERM term, BIGNUM** bnp);
-int get_bn_from_bin(ErlNifEnv* env, ERL_NIF_TERM term, BIGNUM** bnp);
-int get_bn_from_bin_sz(ErlNifEnv* env, ERL_NIF_TERM term, BIGNUM** bnp, size_t* binsize);
-
-#endif /* E_BN_H__ */
+#endif /* E_HASH_EQUALS_H__ */

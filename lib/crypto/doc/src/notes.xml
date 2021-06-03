@@ -31,6 +31,22 @@
   </header>
   <p>This document describes the changes made to the Crypto application.</p>
 
+<section><title>Crypto 5.0.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    EC keys are now zero-padded to the expected length if
+	    needed.</p>
+          <p>
+	    Own Id: OTP-17442 Aux Id: GH-4861 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Crypto 5.0.1</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -147,6 +163,22 @@
 	    Add prop_aead attribute to map from crypto:cipher_info/1.</p>
           <p>
 	    Own Id: OTP-17313 Aux Id: PR-4686 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Crypto 4.9.0.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    EC keys are now zero-padded to the expected length if
+	    needed.</p>
+          <p>
+	    Own Id: OTP-17442 Aux Id: GH-4861 </p>
         </item>
       </list>
     </section>
@@ -427,6 +459,22 @@
 	    marker="crypto:crypto#supports/1">crypto:supports(public_keys)</seemfa>.</p>
           <p>
 	    Own Id: OTP-16583</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Crypto 4.6.5.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    EC keys are now zero-padded to the expected length if
+	    needed.</p>
+          <p>
+	    Own Id: OTP-17442 Aux Id: GH-4861 </p>
         </item>
       </list>
     </section>
