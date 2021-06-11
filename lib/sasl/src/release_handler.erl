@@ -134,9 +134,9 @@
 %%
 %% It is configurable where the start file is located, and what it
 %% is called.
-%%   The paramater is {sasl, start_prg} = File
+%%   The parameter is {sasl, start_prg} = File
 %% It is also configurable where the releases directory is located.
-%% Default is $ROOT/releases.  $RELDIR overrids, and
+%% Default is $ROOT/releases.  $RELDIR overrides, and
 %% {sasl, releases_dir} overrides both.
 %%-----------------------------------------------------------------
 start_link() ->
@@ -162,7 +162,7 @@ unpack_release(ReleaseName) ->
 %% Purpose: Checks the relup script for the specified version.
 %%          The release must be unpacked.
 %%          Options = [purge] - all old code that can be soft purged
-%%          will be purged if all checks succeeds. This can be usefull
+%%          will be purged if all checks succeeds. This can be useful
 %%          in order to reduce time needed in the following call to
 %%          install_release.
 %% Returns: {ok, FromVsn, Descr} | {error, Reason}
@@ -298,7 +298,7 @@ remove_release(Vsn) ->
 %%          .rel.
 %%          The release dir will be created.  The necessary files can
 %%          be installed by calling install_file/2.
-%%          The release_handler remebers where all libs are located.
+%%          The release_handler remembers where all libs are located.
 %%          If remove_release is called later,
 %%          those libs are removed as well (if no other releases uses
 %%          them).

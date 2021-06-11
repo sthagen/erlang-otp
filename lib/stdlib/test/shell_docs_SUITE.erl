@@ -30,7 +30,7 @@
 -include_lib("stdlib/include/assert.hrl").
 
 suite() ->
-    [{timetrap,{minutes,10}}].
+    [{timetrap,{minutes,20}}].
 
 all() ->
     [render_smoke, render, render_non_native, links, normalize, {group, prop}].
@@ -324,7 +324,7 @@ docsmap(Fun) ->
                       ok;
                   {error, cover_compiled} ->
                       ok;
-                  {error, E} when E =:= eperm; E =:= eacces ->
+                  {error, E} when E =:= eperm; E =:= eacces; E =:= eio ->
                       %% This can happen in BSD's for some reason...
                       ok;
                   {error, eisdir} ->
