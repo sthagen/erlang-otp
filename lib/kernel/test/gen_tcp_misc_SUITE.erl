@@ -66,7 +66,8 @@
 	 socket_monitor1_demon_after/1,
 	 socket_monitor2/1,
 	 socket_monitor2_manys/1,
-	 socket_monitor2_manyc/1
+	 socket_monitor2_manyc/1,
+	 otp_17492/1
 	]).
 
 %% Internal exports.
@@ -104,8 +105,10 @@ end_per_testcase(_Func, Config) ->
        "~n   Monitors: ~p",
        [Config, erlang:nodes(), pi(links), pi(monitors)]),
 
+    SysEvs = kernel_test_global_sys_monitor:events(),
+
     ?P("system events during test: "
-       "~n   ~p", [kernel_test_global_sys_monitor:events()]),
+       "~n   ~p", [SysEvs]),
 
     ?P("end_per_testcase -> done with"
        "~n   Nodes:    ~p"
@@ -188,7 +191,8 @@ all_cases() ->
      otp_8102, otp_9389,
      otp_12242, delay_send_error,
      bidirectional_traffic,
-     {group, socket_monitor}
+     {group, socket_monitor},
+     otp_17492
     ].
 
 close_cases() ->
@@ -5098,7 +5102,45 @@ send_timeout_para(Config, BinData, BufSz, TslTimeout, SndTimeout,
                 1;
             {Snd2, {{error, timeout}, N}} ->
                 ?P("[para] timeout received from sender 2 (~p, ~p)", [Snd2, N]),
-                2
+                2;
+
+            {'EXIT', _Pid, {timetrap_timeout, _Timeout, _Stack}} ->
+                %% The test case (timetrap) has timed out, which either means
+                %% we are running on very slow hw or some system functions
+                %% are slowing us down (this test case should never normally
+                %% time out like this).
+                ?P("Test case timetrap timeout - check for system events"),
+                case kernel_test_global_sys_monitor:events(?SECS(5)) of
+                    SysEvs when (SysEvs =/= []) ->
+                        ?P("timetrap timeout with system events: "
+                           "~n   System Events: ~p"
+                           "~n   Sender 1 Info: ~p"
+                           "~n   Sender 2 Info: ~p"
+                           "~n   Socket Info:   ~p",
+                           [SysEvs,
+                            process_info(Snd1), process_info(Snd2),
+                            SockInfo()]),
+                        ?SKIPT(?F("TC system ~w events", [length(SysEvs)]));
+                    {error, Reason} ->
+                        ?P("TC timetrap timeout but failed get system events: "
+                           "~n   Reason:        ~p"
+                           "~n   Sender 1 Info: ~p"
+                           "~n   Sender 2 Info: ~p"
+                           "~n   Socket Info:   ~p",
+                           [Reason,
+                            process_info(Snd1), process_info(Snd2),
+                            SockInfo()]),
+                        exit({timetrap, {failed_get_sys_evs, Reason}});
+                    [] ->
+                        ?P("TC timetrap *without* system events: "
+                           "~n   Sender 1 Info: ~p"
+                           "~n   Sender 2 Info: ~p"
+                           "~n   Socket Info:   ~p",
+                           [process_info(Snd1), process_info(Snd2),
+                            SockInfo()]),
+                        exit(timetrap)
+                end
+
         after 20000 ->
                 SockInfo1 = SockInfo(),
                 SockTo1   = SockTimeout(),
@@ -7137,6 +7179,69 @@ do_socket_monitor2_manyc(Config) ->
     sm_await_down(Pid3, Mon3, ok),
     sm_await_down(Pid4, Mon4, ok),
     sm_await_down(Pid5, Mon5, ok),
+    ?P("done"),
+    ok.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% This is the most basic of tests.
+%% Spawn a process that creates a (listen) socket, then spawns (client)
+%% processes that create monitors to it...
+otp_17492(Config) when is_list(Config) ->
+    ct:timetrap(?MINS(1)),
+    ?TC_TRY(otp_17492, fun() -> do_otp_17492(Config) end).
+
+do_otp_17492(Config) ->
+    ?P("begin"),
+
+    Self = self(),
+
+    ?P("try create listen socket"),
+    {ok, L} = ?LISTEN(Config, 0, []),
+
+    ?P("try get (created) listen socket info"),
+    try inet:info(L) of
+	#{owner := Owner} = Info when is_pid(Owner) andalso (Owner =:= Self) ->
+	    ?P("(created) Listen socket info: ~p", [Info]);
+	OBadInfo ->
+	    ?P("(created) listen socket info: ~p", [OBadInfo]),
+	    (catch gen_tcp:close(L)),
+	    ct:fail({invalid_created_info, OBadInfo})
+    catch
+	OC:OE:OS ->
+	    ?P("Failed get (created) listen socket info: "
+	       "~n   Class: ~p"
+	       "~n   Error: ~p"
+	       "~n   Stack: ~p", [OC, OE, OS]),
+	    (catch gen_tcp:close(L)),
+	    ct:fail({unexpected_created_info_result, {OC, OE, OS}})
+    end,
+
+    ?P("try close (listen) socket"),
+    ok = gen_tcp:close(L),
+
+    ?P("try get (closed) listen socket info"),
+    try inet:info(L) of
+	#{states := [closed]} = CInfo when is_port(L) ->
+	    ?P("(closed) listen socket info: "
+	       "~n   ~p", [CInfo]);
+	#{rstates := [closed], wstates := [closed]} = CInfo ->
+	    ?P("(closed) listen socket info: "
+	       "~n   ~p", [CInfo]);
+	CBadInfo ->
+	    ?P("(closed) listen socket info: ~p", [CBadInfo]),
+	    ct:fail({invalid_closed_info, CBadInfo})
+    catch
+	CC:CE:CS ->
+	    ?P("Failed get (closed) listen socket info: "
+	       "~n   Class: ~p"
+	       "~n   Error: ~p"
+	       "~n   Stack: ~p", [CC, CE, CS]),
+	    (catch gen_tcp:close(L)),
+	    ct:fail({unexpected_closed_info_result, {CC, CE, CS}})
+    end,
+
     ?P("done"),
     ok.
 
