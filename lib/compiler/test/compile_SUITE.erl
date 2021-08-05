@@ -33,12 +33,12 @@
 	 other_output/1, kernel_listing/1, encrypted_abstr/1,
 	 strict_record/1, utf8_atoms/1, utf8_functions/1, extra_chunks/1,
 	 cover/1, env/1, core_pp/1, tuple_calls/1,
-	 core_roundtrip/1, asm/1,
+	 core_roundtrip/1, asm/1, asm_labels/1,
 	 sys_pre_attributes/1, dialyzer/1, no_core_prepare/1,
 	 warnings/1, pre_load_check/1, env_compiler_options/1,
          bc_options/1, deterministic_include/1, deterministic_paths/1,
          compile_attribute/1, message_printing/1, other_options/1,
-         transforms/1, erl_compile_api/1
+         transforms/1, erl_compile_api/1, types_pp/1
 	]).
 
 suite() -> [{ct_hooks,[ts_install_cth]}].
@@ -52,12 +52,12 @@ all() ->
      binary, makedep, cond_and_ifdef, listings, listings_big,
      other_output, kernel_listing, encrypted_abstr, tuple_calls,
      strict_record, utf8_atoms, utf8_functions, extra_chunks,
-     cover, env, core_pp, core_roundtrip, asm, no_core_prepare,
+     cover, env, core_pp, core_roundtrip, asm, asm_labels, no_core_prepare,
      sys_pre_attributes, dialyzer, warnings, pre_load_check,
      env_compiler_options, custom_debug_info, bc_options,
      custom_compile_info, deterministic_include, deterministic_paths,
      compile_attribute, message_printing, other_options, transforms,
-     erl_compile_api].
+     erl_compile_api, types_pp].
 
 groups() -> 
     [].
@@ -495,16 +495,15 @@ do_file_listings(DataDir, PrivDir, [File|Files]) ->
     do_listing(Simple, TargetDir, to_pp, ".P"),
     do_listing(Simple, TargetDir, to_exp, ".E"),
     do_listing(Simple, TargetDir, to_core0, ".core"),
-    Listings = filename:join(PrivDir, listings),
-    ok = file:delete(filename:join(Listings, File ++ ".core")),
+    ok = file:delete(filename:join(TargetDir, File ++ ".core")),
     do_listing(Simple, TargetDir, to_core, ".core"),
     do_listing(Simple, TargetDir, to_kernel, ".kernel"),
     do_listing(Simple, TargetDir, to_dis, ".dis"),
 
     %% Final clean up.
     lists:foreach(fun(F) -> ok = file:delete(F) end,
-	filelib:wildcard(filename:join(Listings, "*"))),
-    ok = file:del_dir(Listings),
+	filelib:wildcard(filename:join(TargetDir, "*"))),
+    ok = file:del_dir(TargetDir),
 
     do_file_listings(DataDir,PrivDir,Files).
 
@@ -1283,6 +1282,26 @@ do_asm(Beam, Outdir) ->
 	    error
     end.
 
+%% Compile a crafted file which produces the three call instructions
+%% which should have a comment with the called function in clear
+%% text. We check that the expected functions and comments occur in
+%% the listing.
+
+asm_labels(Config) ->
+    DataDir = proplists:get_value(data_dir, Config),
+    PrivDir = proplists:get_value(priv_dir, Config),
+    InFile = filename:join(DataDir, "asm_labels.erl"),
+    OutDir = filename:join(PrivDir, "asm_labels"),
+    OutFile = filename:join(OutDir, "asm_labels.S"),
+    ok = file:make_dir(OutDir),
+    {ok,asm_labels} = compile:file(InFile, ['S',{outdir,OutDir}]),
+    {ok,Listing} = file:read_file(OutFile),
+    Os = [global,multiline,{capture,all_but_first,list}],
+    {match,[_]} = re:run(Listing, "({call,.+,{f,.+}}\\. % foo/1)", Os),
+    {match,[_]} = re:run(Listing, "({call_only,.+,{f,.+}}\\. % foo/1)", Os),
+    {match,[_]} = re:run(Listing, "({call_last,.+,{f,.+},.+}\\. % bar/1)", Os),
+    ok = file:del_dir_r(OutDir).
+
 sys_pre_attributes(Config) ->
     DataDir = proplists:get_value(data_dir, Config),
     File = filename:join(DataDir, "attributes.erl"),
@@ -1851,6 +1870,94 @@ erl_compile_api(Config) ->
     ok = file:delete(filename:join(PrivDir, "needs_defines.beam")),
 
     ok.
+
+%% Check that an ssa dump contains the pretty printed types we expect.
+%% The module we compile and dump, types_pp, is crafted so it contains
+%% calls to functions which have the result types we want to check the
+%% pretty printer for. We check all types except for bs_context,
+%% bs_matchable and the interval form of float as the first two never
+%% seem to appear in result types and the latter doesn't appear in any
+%% module compiled by diffable.
+types_pp(Config) when is_list(Config) ->
+    DataDir = proplists:get_value(data_dir, Config),
+    PrivDir = proplists:get_value(priv_dir, Config),
+    TargetDir = filename:join(PrivDir, types_pp),
+    File = filename:join(DataDir, "types_pp.erl"),
+    Listing = filename:join(TargetDir, "types_pp.ssaopt"),
+    ok = file:make_dir(TargetDir),
+
+    {ok,_} = compile:file(File, [dssaopt, {outdir, TargetDir}]),
+    {ok, Data} = file:read_file(Listing),
+    Lines = string:split(binary_to_list(Data), "\n", all),
+    ResultTypes = get_result_types(Lines),
+    io:format("Calls: ~p~n", [ResultTypes]),
+
+    TypesToCheck = [{make_atom, "'an_atom'"},
+                    {make_number, "number()"},
+                    {make_float, "3.14"},
+                    {make_integer, "17"},
+                    {make_integer_range, "0..3"},
+                    {make_nil, "nil()"},
+                    {make_list, "list(any())"},
+                    {make_list_of_ints, "list(integer())"},
+                    {make_maybe_improper_list,
+                     "maybe_improper_list(any(), any())"},
+                    {make_nonempty_list, "nonempty_list(any())"},
+                    {make_nonempty_improper_list,
+                     "nonempty_improper_list(any(), ''end'')"},
+                    {make_empty_map, "#{}"},
+                    {make_map, "map()"},
+                    {make_map_known_types, "#{integer()=>float()}"},
+                    {make_fun_unknown_arity_known_type,
+                     "fun((...) -> number())"},
+                    {make_fun_known_arity_known_type,
+                     "fun((_, _) -> number())"},
+                    {make_fun_unknown_arity_unknown_type,
+                     "fun()"},
+                    {make_fun_known_arity_unknown_type,
+                     "fun((_, _))"},
+                    {make_unconstrained_tuple, "{...}"},
+                    {make_known_size_tuple,
+                     "{any(), any(), any(), any(), any()}"},
+                    {make_inexact_tuple, "{any(), any(), any(), ...}"},
+                    {make_union,
+                     "'foo' | nonempty_list(1..3) | number() |"
+                     " {'tag0', 1, 2} | {'tag1', 3, 4} | bitstring(24)"},
+                    {make_bitstring, "bitstring(24)"},
+                    {make_none, "none()"}],
+    lists:foreach(fun({FunName, Expected}) ->
+                          Actual = map_get(atom_to_list(FunName), ResultTypes),
+                          case Actual of
+                              Expected ->
+                                  ok;
+                              _ ->
+                                  ct:fail("Expected type of ~p is ~s, found ~s",
+                                          [FunName, Expected, Actual])
+                          end
+                  end, TypesToCheck),
+    ok = file:del_dir_r(TargetDir),
+    ok.
+
+%% We assume that a call starts with a "Result type:"-line followed by
+%% a type line, which is followed by an optional annotation before the
+%% actual call.
+get_result_types(Lines) ->
+    get_result_types(Lines, #{}).
+
+get_result_types(["  %% Result type:"++_,"  %%    "++TypeLine|Lines], Acc) ->
+    get_result_types(Lines, TypeLine, Acc);
+get_result_types([_|Lines], Acc) ->
+    get_result_types(Lines, Acc);
+get_result_types([], Acc) ->
+    Acc.
+
+get_result_types(["  %% Anno: "++_|Lines], TypeLine, Acc) ->
+    get_result_types(Lines, TypeLine, Acc);
+get_result_types([CallLine|Lines], TypeLine, Acc) ->
+    [_,Callee,_] = string:split(CallLine, "`", all),
+    get_result_types(Lines, Acc#{ Callee => TypeLine }).
+
+
 
 %%%
 %%% Utilities.
