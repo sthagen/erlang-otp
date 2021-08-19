@@ -130,7 +130,7 @@ allow_garb() ->
     cast(allow_garb).
 
 
-%% The transaction log has either been swiched (latest -> previous) or
+%% The transaction log has either been switched (latest -> previous) or
 %% there is nothing to be dumped. This means that the previous
 %% transaction log only may contain commit records which refers to
 %% transactions noted in the last two of the 'Prev' tables. All other
@@ -428,7 +428,7 @@ check_what_happened([H | T], Aborts, Commits) ->
 check_what_happened([], Aborts, Commits) ->
     if
 	Aborts == 0, Commits == 0 -> aborted;  % None of the active nodes knows
-	Aborts > 0 -> aborted;                 % Someody has aborted
+	Aborts > 0 -> aborted;                 % Somebody has aborted
 	Aborts == 0, Commits > 0 -> committed  % All has committed
     end.
 
@@ -674,7 +674,7 @@ handle_call({connect_nodes, Ns}, From, State) ->
 	    erlang:send_after(2, self(), {connect_nodes,Ns,From}),
 	    {noreply, State};
 	[] ->
-	    %% No good noodes to connect to!
+	    %% No good nodes to connect to!
 	    %% We can't use reply here because this function can be
 	    %% called from handle_info
 	    gen_server:reply(From, {[], AlreadyConnected}),
