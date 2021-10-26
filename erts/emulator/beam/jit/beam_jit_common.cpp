@@ -241,66 +241,6 @@ void BeamModuleAssembler::codegen(JitAllocator *allocator,
                                   const void **executable_ptr,
                                   void **writable_ptr) {
     _codegen(allocator, executable_ptr, writable_ptr);
-
-#if !(defined(WIN32) || defined(__APPLE__) || defined(__MACH__) ||             \
-      defined(__DARWIN__))
-    if (functions.size()) {
-        char *buff = (char *)erts_alloc(ERTS_ALC_T_TMP, 1024);
-        std::vector<AsmRange> ranges;
-        std::string name = getAtom(mod);
-        ranges.reserve(functions.size() + 2);
-
-        /* Push info about the header */
-        ranges.push_back({.start = (ErtsCodePtr)getBaseAddress(),
-                          .stop = getCode(functions[0]),
-                          .name = name + "::codeHeader"});
-
-        for (unsigned i = 0; i < functions.size(); i++) {
-            ErtsCodePtr start, stop;
-            const ErtsCodeInfo *ci;
-            int n;
-
-            start = getCode(functions[i]);
-            ci = (const ErtsCodeInfo *)start;
-
-            n = erts_snprintf(buff,
-                              1024,
-                              "%T:%T/%d",
-                              ci->mfa.module,
-                              ci->mfa.function,
-                              ci->mfa.arity);
-            stop = ((const char *)erts_codeinfo_to_code(ci)) +
-                   BEAM_ASM_FUNC_PROLOGUE_SIZE;
-
-            /* We use a different symbol for CodeInfo and the Prologue
-               in order for the perf disassembly to be better. */
-            std::string name(buff, n);
-            ranges.push_back({.start = start,
-                              .stop = stop,
-                              .name = name + "-CodeInfoPrologue"});
-
-            /* The actual code */
-            start = stop;
-            if (i + 1 < functions.size()) {
-                stop = getCode(functions[i + 1]);
-            } else {
-                stop = getCode(code_end);
-            }
-
-            ranges.push_back({.start = start, .stop = stop, .name = name});
-        }
-
-        /* Push info about the footer */
-        ranges.push_back(
-                {.start = ranges.back().stop,
-                 .stop = (ErtsCodePtr)(code.baseAddress() + code.codeSize()),
-                 .name = name + "::codeFooter"});
-
-        update_gdb_jit_info(name, ranges);
-        beamasm_update_perf_info(name, ranges);
-        erts_free(ERTS_ALC_T_TMP, buff);
-    }
-#endif
 }
 
 void BeamModuleAssembler::codegen(char *buff, size_t len) {
@@ -311,6 +251,120 @@ void BeamModuleAssembler::codegen(char *buff, size_t len) {
     code.copyFlattenedData(buff,
                            code.codeSize(),
                            CodeHolder::kCopyPadSectionBuffer);
+}
+
+void BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
+#ifndef WIN32
+    const BeamCodeLineTab *line_table = header->line_table;
+
+    char name_buffer[MAX_ATOM_SZ_LIMIT];
+    std::string module_name = getAtom(mod);
+    std::vector<AsmRange> ranges;
+
+    ranges.reserve(functions.size() + 2);
+
+    ASSERT((ErtsCodePtr)getBaseAddress() == (ErtsCodePtr)header);
+
+    /* Push info about the header */
+    ranges.push_back({.start = (ErtsCodePtr)getBaseAddress(),
+                      .stop = getCode(functions[0]),
+                      .name = module_name + "::codeHeader"});
+
+    for (unsigned i = 0; i < functions.size(); i++) {
+        std::vector<AsmRange::LineData> lines;
+        ErtsCodePtr start, stop;
+        const ErtsCodeInfo *ci;
+        Sint n;
+
+        start = getCode(functions[i]);
+        ci = (const ErtsCodeInfo *)start;
+
+        stop = ((const char *)erts_codeinfo_to_code(ci)) +
+               BEAM_ASM_FUNC_PROLOGUE_SIZE;
+
+        n = erts_snprintf(name_buffer,
+                          1024,
+                          "%T:%T/%d",
+                          ci->mfa.module,
+                          ci->mfa.function,
+                          ci->mfa.arity);
+
+        /* We use a different symbol for CodeInfo and the Prologue
+         * in order for the perf disassembly to be better. */
+        std::string function_name(name_buffer, n);
+        ranges.push_back({.start = start,
+                          .stop = stop,
+                          .name = function_name + "-CodeInfoPrologue"});
+
+        /* The actual code */
+        start = stop;
+        if (i + 1 < functions.size()) {
+            stop = getCode(functions[i + 1]);
+        } else {
+            stop = getCode(code_end);
+        }
+
+        if (line_table) {
+            const void **line_cursor = line_table->func_tab[i];
+            const int loc_size = line_table->loc_size;
+
+            /* Register all lines belonging to this function. */
+            while ((intptr_t)line_cursor[0] < (intptr_t)stop) {
+                ptrdiff_t line_index;
+                Uint32 loc;
+
+                line_index = line_cursor - line_table->func_tab[0];
+
+                if (loc_size == 2) {
+                    loc = line_table->loc_tab.p2[line_index];
+                } else {
+                    ASSERT(loc_size == 4);
+                    loc = line_table->loc_tab.p4[line_index];
+                }
+
+                if (loc != LINE_INVALID_LOCATION) {
+                    Uint32 file;
+                    Eterm fname;
+                    int res;
+
+                    file = LOC_FILE(loc);
+                    fname = line_table->fname_ptr[file];
+
+                    ERTS_ASSERT(is_nil(fname) || is_list(fname));
+
+                    res = erts_unicode_list_to_buf(fname,
+                                                   (byte *)name_buffer,
+                                                   sizeof(name_buffer) / 4,
+                                                   &n);
+
+                    ERTS_ASSERT(res != -1);
+
+                    lines.push_back({.start = line_cursor[0],
+                                     .file = std::string(name_buffer, n),
+                                     .line = LOC_LINE(loc)});
+                }
+
+                line_cursor++;
+            }
+        }
+
+        ranges.push_back({.start = start,
+                          .stop = stop,
+                          .name = function_name,
+                          .lines = lines});
+    }
+
+    /* Push info about the footer */
+    ranges.push_back(
+            {.start = ranges.back().stop,
+             .stop = (ErtsCodePtr)(code.baseAddress() + code.codeSize()),
+             .name = module_name + "::codeFooter"});
+
+    beamasm_metadata_update(module_name,
+                            (ErtsCodePtr)code.baseAddress(),
+                            code.codeSize(),
+                            ranges);
+#endif
 }
 
 BeamCodeHeader *BeamModuleAssembler::getCodeHeader() {
@@ -572,39 +626,37 @@ void beam_jit_bs_add_argument_error(Process *c_p, Eterm A, Eterm B) {
 Eterm beam_jit_bs_init(Process *c_p,
                        Eterm *reg,
                        ERL_BITS_DECLARE_STATEP,
-                       Eterm BsOp1,
-                       Eterm BsOp2,
+                       Eterm num_bytes,
+                       Uint alloc,
                        unsigned Live) {
-    if (BsOp1 <= ERL_ONHEAP_BIN_LIMIT) {
+    erts_bin_offset = 0;
+    erts_writable_bin = 0;
+    if (num_bytes <= ERL_ONHEAP_BIN_LIMIT) {
         ErlHeapBin *hb;
         Uint bin_need;
 
-        bin_need = heap_bin_size(BsOp1);
-        erts_bin_offset = 0;
-        erts_writable_bin = 0;
-        gc_test(c_p, reg, 0, bin_need + BsOp2 + ERL_SUB_BIN_SIZE, Live);
+        bin_need = heap_bin_size(num_bytes);
+        gc_test(c_p, reg, 0, bin_need + alloc + ERL_SUB_BIN_SIZE, Live);
         hb = (ErlHeapBin *)c_p->htop;
         c_p->htop += bin_need;
-        hb->thing_word = header_heap_bin(BsOp1);
-        hb->size = BsOp1;
+        hb->thing_word = header_heap_bin(num_bytes);
+        hb->size = num_bytes;
         erts_current_bin = (byte *)hb->data;
         return make_binary(hb);
     } else {
         Binary *bptr;
         ProcBin *pb;
 
-        erts_bin_offset = 0;
-        erts_writable_bin = 0;
         test_bin_vheap(c_p,
                        reg,
-                       BsOp1 / sizeof(Eterm),
-                       BsOp2 + PROC_BIN_SIZE + ERL_SUB_BIN_SIZE,
+                       num_bytes / sizeof(Eterm),
+                       alloc + PROC_BIN_SIZE,
                        Live);
 
         /*
          * Allocate the binary struct itself.
          */
-        bptr = erts_bin_nrml_alloc(BsOp1);
+        bptr = erts_bin_nrml_alloc(num_bytes);
         erts_current_bin = (byte *)bptr->orig_bytes;
 
         /*
@@ -613,14 +665,14 @@ Eterm beam_jit_bs_init(Process *c_p,
         pb = (ProcBin *)c_p->htop;
         c_p->htop += PROC_BIN_SIZE;
         pb->thing_word = HEADER_PROC_BIN;
-        pb->size = BsOp1;
+        pb->size = num_bytes;
         pb->next = MSO(c_p).first;
         MSO(c_p).first = (struct erl_off_heap_header *)pb;
         pb->val = bptr;
         pb->bytes = (byte *)bptr->orig_bytes;
         pb->flags = 0;
 
-        OH_OVERHEAD(&(MSO(c_p)), BsOp1 / sizeof(Eterm));
+        OH_OVERHEAD(&(MSO(c_p)), num_bytes / sizeof(Eterm));
 
         return make_binary(pb);
     }
@@ -643,7 +695,9 @@ Eterm beam_jit_bs_init_bits(Process *c_p,
     } else {
         alloc += PROC_BIN_SIZE;
     }
-    gc_test(c_p, reg, 0, alloc, Live);
+
+    erts_bin_offset = 0;
+    erts_writable_bin = 0;
 
     /* num_bits = Number of bits to build
      * num_bytes = Number of bytes to allocate in the binary
@@ -653,38 +707,18 @@ Eterm beam_jit_bs_init_bits(Process *c_p,
     if (num_bytes <= ERL_ONHEAP_BIN_LIMIT) {
         ErlHeapBin *hb;
 
-        erts_bin_offset = 0;
-        erts_writable_bin = 0;
+        gc_test(c_p, reg, 0, alloc, Live);
         hb = (ErlHeapBin *)c_p->htop;
         c_p->htop += heap_bin_size(num_bytes);
         hb->thing_word = header_heap_bin(num_bytes);
         hb->size = num_bytes;
         erts_current_bin = (byte *)hb->data;
         new_binary = make_binary(hb);
-
-    do_bits_sub_bin:
-        if (num_bits & 7) {
-            ErlSubBin *sb;
-
-            sb = (ErlSubBin *)c_p->htop;
-            c_p->htop += ERL_SUB_BIN_SIZE;
-            sb->thing_word = HEADER_SUB_BIN;
-            sb->size = num_bytes - 1;
-            sb->bitsize = num_bits & 7;
-            sb->offs = 0;
-            sb->bitoffs = 0;
-            sb->is_writable = 0;
-            sb->orig = new_binary;
-            new_binary = make_binary(sb);
-        }
-        /*    HEAP_SPACE_VERIFIED(0); */
-        return new_binary;
     } else {
         Binary *bptr;
         ProcBin *pb;
 
-        erts_bin_offset = 0;
-        erts_writable_bin = 0;
+        test_bin_vheap(c_p, reg, num_bytes / sizeof(Eterm), alloc, Live);
 
         /*
          * Allocate the binary struct itself.
@@ -706,8 +740,24 @@ Eterm beam_jit_bs_init_bits(Process *c_p,
         pb->flags = 0;
         OH_OVERHEAD(&(MSO(c_p)), pb->size / sizeof(Eterm));
         new_binary = make_binary(pb);
-        goto do_bits_sub_bin;
     }
+
+    if (num_bits & 7) {
+        ErlSubBin *sb;
+
+        sb = (ErlSubBin *)c_p->htop;
+        c_p->htop += ERL_SUB_BIN_SIZE;
+        sb->thing_word = HEADER_SUB_BIN;
+        sb->size = num_bytes - 1;
+        sb->bitsize = num_bits & 7;
+        sb->offs = 0;
+        sb->bitoffs = 0;
+        sb->is_writable = 0;
+        sb->orig = new_binary;
+        new_binary = make_binary(sb);
+    }
+
+    return new_binary;
 }
 
 Eterm beam_jit_bs_get_integer(Process *c_p,
@@ -740,6 +790,117 @@ Eterm beam_jit_bs_get_integer(Process *c_p,
 
     mb = ms_matchbuffer(context);
     return erts_bs_get_integer_2(c_p, size, flags, mb);
+}
+
+void beam_jit_bs_construct_fail_info(Process *c_p,
+                                     Uint packed_error_info,
+                                     Eterm arg3,
+                                     Eterm arg1) {
+    Eterm *hp;
+    Eterm cause_tuple;
+    Eterm error_info;
+    Uint segment = beam_jit_get_bsc_segment(packed_error_info);
+    JitBSCOp op = beam_jit_get_bsc_op(packed_error_info);
+    JitBSCInfo info = beam_jit_get_bsc_info(packed_error_info);
+    JitBSCReason reason = beam_jit_get_bsc_reason(packed_error_info);
+    JitBSCValue value_location = beam_jit_get_bsc_value(packed_error_info);
+    Eterm Op = am_none;
+    Uint Reason = BADARG;
+    Eterm Info = am_none;
+    Eterm value = am_undefined;
+
+    switch (op) {
+    case BSC_OP_BINARY:
+        Op = am_binary;
+        break;
+    case BSC_OP_FLOAT:
+        Op = am_float;
+        break;
+    case BSC_OP_INTEGER:
+        Op = am_integer;
+        break;
+    case BSC_OP_UTF8:
+        Op = am_utf8;
+        break;
+    case BSC_OP_UTF16:
+        Op = am_utf16;
+        break;
+    case BSC_OP_UTF32:
+        Op = am_utf32;
+        break;
+    }
+
+    switch (value_location) {
+    case BSC_VALUE_ARG1:
+        value = arg1;
+        break;
+    case BSC_VALUE_ARG3:
+        value = arg3;
+        break;
+    case BSC_VALUE_FVALUE:
+        value = c_p->fvalue;
+        break;
+    }
+
+    switch (reason) {
+    case BSC_REASON_BADARG:
+        Reason = BADARG;
+        break;
+    case BSC_REASON_SYSTEM_LIMIT:
+        Reason = SYSTEM_LIMIT;
+        break;
+    case BSC_REASON_DEPENDS:
+        if ((is_small(value) && signed_val(value) >= 0) ||
+            (is_big(value) && !big_sign(value))) {
+            Reason = SYSTEM_LIMIT;
+        } else {
+            Reason = BADARG;
+        }
+        break;
+    }
+
+    switch (info) {
+    case BSC_INFO_FVALUE:
+        Info = c_p->fvalue;
+        break;
+    case BSC_INFO_TYPE:
+        Info = am_type;
+        break;
+    case BSC_INFO_SIZE:
+        Info = am_size;
+        break;
+    case BSC_INFO_UNIT:
+        Info = am_unit;
+        break;
+    case BSC_INFO_DEPENDS:
+        ASSERT(op == BSC_OP_BINARY);
+        Info = is_binary(value) ? am_short : am_type;
+        break;
+    }
+
+    hp = HAlloc(c_p, Sint(MAP3_SZ + 5));
+    cause_tuple = TUPLE4(hp, make_small(segment), Op, Info, value);
+    hp += 5;
+    error_info = MAP3(hp,
+                      am_cause,
+                      cause_tuple,
+                      am_function,
+                      am_format_bs_fail,
+                      am_module,
+                      am_erl_erts_errors);
+    c_p->fvalue = error_info;
+    c_p->freason = Reason | EXF_HAS_EXT_INFO;
+}
+
+Sint beam_jit_bs_bit_size(Eterm term) {
+    if (is_binary(term)) {
+        ASSERT(sizeof(Uint) == 8); /* Only support 64-bit machines. */
+        Uint byte_size = binary_size(term);
+        return (Sint)((byte_size << 3) + binary_bitsize(term));
+    }
+
+    /* Signal error */
+    return (Sint)-1;
 }
 
 ErtsMessage *beam_jit_decode_dist(Process *c_p, ErtsMessage *msgp) {
@@ -998,7 +1159,9 @@ Export *beam_jit_handle_unloaded_fun(Process *c_p,
     Export *ep;
 
     funp = (ErlFunThing *)fun_val(fun_thing);
-    fe = funp->fe;
+    ASSERT(is_local_fun(funp));
+
+    fe = funp->entry.fun;
     module = fe->module;
 
     ERTS_THR_READ_MEMORY_BARRIER;

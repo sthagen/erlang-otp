@@ -376,21 +376,26 @@ protected:
         }
     }
 
-    /* Returns the current code address for the export entry in `Src`
+    /* Returns the current code address for the `Export` or `ErlFunEntry` in
+     * `Src`.
      *
-     * Export tracing, save_calls, etc is implemented by shared fragments that
-     * assume that the export entry is in ARG1, so we have to copy it over if it
-     * isn't already. */
-    arm::Mem emit_setup_export_call(const arm::Gp &Src) {
-        return emit_setup_export_call(Src, active_code_ix);
+     * Export tracing, save_calls, etc are implemented by shared fragments that
+     * assume that the respective entry is in ARG1, so we have to copy it over
+     * if it isn't already. */
+    arm::Mem emit_setup_dispatchable_call(const arm::Gp &Src) {
+        return emit_setup_dispatchable_call(Src, active_code_ix);
     }
 
-    arm::Mem emit_setup_export_call(const arm::Gp &Src,
-                                    const arm::Gp &CodeIndex) {
+    arm::Mem emit_setup_dispatchable_call(const arm::Gp &Src,
+                                          const arm::Gp &CodeIndex) {
         if (ARG1 != Src) {
             a.mov(ARG1, Src);
         }
-        ERTS_CT_ASSERT(offsetof(Export, addresses) == 0);
+
+        ERTS_CT_ASSERT(offsetof(ErlFunEntry, dispatch) == 0);
+        ERTS_CT_ASSERT(offsetof(Export, dispatch) == 0);
+        ERTS_CT_ASSERT(offsetof(ErtsDispatchable, addresses) == 0);
+
         return arm::Mem(ARG1, CodeIndex, arm::lsl(3));
     }
 
@@ -763,15 +768,16 @@ public:
     struct AsmRange {
         ErtsCodePtr start;
         ErtsCodePtr stop;
-        std::string name;
+        const std::string name;
 
-        /* Not used yet */
-        std::string file;
-        unsigned line;
+        struct LineData {
+            ErtsCodePtr start;
+            const std::string file;
+            unsigned line;
+        };
+
+        const std::vector<LineData> lines;
     };
-
-    void update_gdb_jit_info(std::string modulename,
-                             std::vector<AsmRange> &functions);
 
     void embed(void *data, uint32_t size) {
         a.embed((char *)data, size);
@@ -800,6 +806,8 @@ class BeamGlobalAssembler : public BeamAssembler {
     _(bif_tuple_size_guard)                                                    \
     _(bs_add_guard_shared)                                                     \
     _(bs_add_body_shared)                                                      \
+    _(bs_bit_size_shared)                                                      \
+    _(bs_create_bin_error_shared)                                              \
     _(bs_get_tail_shared)                                                      \
     _(bs_size_check_shared)                                                    \
     _(call_bif_shared)                                                         \
@@ -1096,6 +1104,8 @@ public:
                  void **writable_ptr);
 
     void codegen(char *buff, size_t len);
+
+    void register_metadata(const BeamCodeHeader *header);
 
     ErtsCodePtr getCode(unsigned label);
     ErtsCodePtr getLambda(unsigned index);
@@ -1566,5 +1576,10 @@ protected:
     }
 };
 
-void beamasm_update_perf_info(std::string modulename,
-                              std::vector<BeamAssembler::AsmRange> &ranges);
+void beamasm_metadata_update(
+        std::string module_name,
+        ErtsCodePtr base_address,
+        size_t code_size,
+        const std::vector<BeamAssembler::AsmRange> &ranges);
+void beamasm_metadata_early_init();
+void beamasm_metadata_late_init();

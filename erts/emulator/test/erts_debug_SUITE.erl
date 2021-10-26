@@ -58,12 +58,12 @@ test_size(Config) when is_list(Config) ->
     0 = do_test_size([]),
     0 = do_test_size(42),
     ConsCellSz = do_test_size(ConsCell1),
-    1 = do_test_size({}),
+    0 = do_test_size({}),
     2 = do_test_size({[]}),
     3 = do_test_size({a,b}),
     7 = do_test_size({a,[b,c]}),
     8 = do_test_size(#{b => 2,c => 3}),
-    4 = do_test_size(#{}),
+    3 = do_test_size(#{}),
     32 = do_test_size(#{b => 2,c => 3,txt => "hello world"}),
 
     true = do_test_size(maps:from_list([{I,I}||I<-lists:seq(1,256)])) >= map_size_lower_bound(256),
@@ -89,7 +89,8 @@ test_size(Config) when is_list(Config) ->
 
     FunSz1 = do_test_size(fun() -> ConsCell1 end) - do_test_size(ConsCell1),
 
-    2 = do_test_size(fun lists:sort/1),
+    %% External funs are the same size as local ones without environment
+    FunSz0 = do_test_size(fun lists:sort/1),
 
     Arch = 8 * erlang:system_info({wordsize, external}),
     case {Arch, do_test_size(mk_ext_pid({a@b, 1}, 17, 42))} of

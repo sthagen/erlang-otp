@@ -327,6 +327,7 @@ int beam_load_finish_emit(LoaderState *stp) {
         BeamCodeLineTab* const line_tab = (BeamCodeLineTab *) (codev+stp->ci);
         const unsigned int ftab_size = stp->beam.code.function_count;
         const unsigned int num_instrs = stp->current_li;
+        const unsigned int num_names = stp->beam.lines.name_count;
         const void** const line_items =
             (const void**) &line_tab->func_tab[ftab_size + 1];
         const void *locp_base;
@@ -343,10 +344,10 @@ int beam_load_finish_emit(LoaderState *stp) {
         }
         line_items[i] = codev + stp->ci - 1;
 
-        line_tab->fname_ptr = (Eterm*) &line_items[i + 1];
-        if (stp->beam.lines.name_count) {
-            sys_memcpy((void*)line_tab->fname_ptr, stp->beam.lines.names,
-                       stp->beam.lines.name_count*sizeof(Eterm));
+        line_tab->fname_ptr = (Eterm*)&line_items[i + 1];
+        for (i = 0; i < num_names; i++) {
+            Eterm *fname = (Eterm*)&line_tab->fname_ptr[i];
+            *fname = beamfile_get_literal(&stp->beam, stp->beam.lines.names[i]);
         }
 
         locp_base = &line_tab->fname_ptr[stp->beam.lines.name_count];
@@ -627,7 +628,8 @@ void beam_load_finalize_code(LoaderState* stp, struct erl_module_instance* inst_
                 erts_refc_dectest(&fun_entry->refc, 1);
             }
 
-            fun_entry->address = stp->codev + stp->labels[lambda->label].value;
+            erts_set_fun_code(fun_entry,
+                              stp->codev + stp->labels[lambda->label].value);
         }
 
         lp = stp->lambda_patches;
@@ -683,7 +685,7 @@ void beam_load_finalize_code(LoaderState* stp, struct erl_module_instance* inst_
              */
             ep->trampoline.not_loaded.deferred = (BeamInstr) address;
         } else {
-            ep->addresses[erts_staging_code_ix()] = address;
+            ep->dispatch.addresses[erts_staging_code_ix()] = address;
         }
     }
 
@@ -696,7 +698,8 @@ void beam_load_finalize_code(LoaderState* stp, struct erl_module_instance* inst_
             Export *ep = erts_export_put(entry->module,
                                          entry->name,
                                          entry->arity);
-            const BeamInstr *addr = ep->addresses[erts_staging_code_ix()];
+            const BeamInstr *addr =
+                ep->dispatch.addresses[erts_staging_code_ix()];
 
             if (!ErtsInArea(addr, stp->codev, stp->ci * sizeof(BeamInstr))) {
                 erts_exit(ERTS_ABORT_EXIT,
@@ -934,7 +937,7 @@ int beam_load_emit_op(LoaderState *stp, BeamOp *tmp_op) {
             break;
         case 'A':        /* Arity value. */
             BeamLoadVerifyTag(stp, tag, TAG_u);
-            code[ci++] = make_arityval(tmp_op->a[arg].val);
+            code[ci++] = make_arityval_unchecked(tmp_op->a[arg].val);
             break;
         case 'f':                /* Destination label */
             BeamLoadVerifyTag(stp, tag_to_letter[tag], *sign);
@@ -1375,6 +1378,21 @@ int beam_load_emit_op(LoaderState *stp, BeamOp *tmp_op) {
     case op_i_bs_match_string_xfWW:
     case op_i_bs_match_string_yfWW:
         new_string_patch(stp, ci-1);
+        break;
+    case op_i_bs_create_bin_jIWdW:
+        {
+            int n = tmp_op->arity;
+            BeamInstr* p = &code[ci-n];
+            BeamInstr* end_p = &code[ci];
+            while (p < end_p) {
+                switch (*p) {
+                case BSC_STRING:
+                    new_string_patch(stp, p+3-code);
+                    break;
+                }
+                p += 5;
+            }
+        }
         break;
     case op_catch_yf:
         /* code[ci-3]        &&lb_catch_yf

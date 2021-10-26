@@ -722,7 +722,9 @@ garbage_collect(Process* p, ErlHeapFragment *live_hf_end,
     ERTS_CHK_OFFHEAP(p);
 
     ErtsGcQuickSanityCheck(p);
-
+#ifdef DEBUG
+    erts_dbg_check_no_empty_boxed_non_literal_on_heap(p, NULL);
+#endif
 #ifdef USE_VM_PROBES
     *pidbuf = '\0';
     if (DTRACE_ENABLED(gc_major_start)
@@ -1275,16 +1277,14 @@ erts_garbage_collect_literals(Process* p, Eterm* literals,
      */
 
     while (oh) {
-	if (IS_MOVED_BOXED(oh->thing_word)) {
-	    struct erl_off_heap_header* ptr;
+        if (IS_MOVED_BOXED(oh->thing_word)) {
+            struct erl_off_heap_header* ptr;
 
-            /*
-	     * This off-heap object has been copied to the heap.
-	     * We must increment its reference count and
-	     * link it into the MSO list for the process.
-	     */
+            /* This off-heap object has been copied to the heap.
+             * We must increment its reference count and
+             * link it into the MSO list for the process.*/
 
-	    ptr = (struct erl_off_heap_header*) boxed_val(oh->thing_word);
+            ptr = (struct erl_off_heap_header*) boxed_val(oh->thing_word);
             switch (thing_subtag(ptr->thing_word)) {
             case REFC_BINARY_SUBTAG:
                 {
@@ -1294,7 +1294,10 @@ erts_garbage_collect_literals(Process* p, Eterm* literals,
                 }
             case FUN_SUBTAG:
                 {
-                    ErlFunEntry* fe = ((ErlFunThing*)ptr)->fe;
+                    /* We _KNOW_ that this is a local fun, otherwise it would
+                     * not be part of the off-heap list. */
+                    ErlFunEntry* fe = ((ErlFunThing*)ptr)->entry.fun;
+                    ASSERT(is_local_fun((ErlFunThing*)ptr));
                     erts_refc_inc(&fe->refc, 2);
                     break;
                 }
@@ -1316,10 +1319,12 @@ erts_garbage_collect_literals(Process* p, Eterm* literals,
                     break;
                 }
             }
-	    *prev = ptr;
-	    prev = &ptr->next;
-	}
-	oh = oh->next;
+
+            *prev = ptr;
+            prev = &ptr->next;
+        }
+
+        oh = oh->next;
     }
 
     if (prev) {
@@ -2491,13 +2496,25 @@ erts_copy_one_frag(Eterm** hpp, ErlOffHeap* off_heap,
 		if (!is_magic_ref_thing(fhp - 1))
 		    goto the_default;
 	    case REFC_BINARY_SUBTAG:
-	    case FUN_SUBTAG:
 	    case EXTERNAL_PID_SUBTAG:
 	    case EXTERNAL_PORT_SUBTAG:
 	    case EXTERNAL_REF_SUBTAG:
 		oh = (struct erl_off_heap_header*) (hp-1);
 		cpy_sz = thing_arityval(val);
 		goto cpy_words;
+            case FUN_SUBTAG:
+            {
+                ErlFunThing *funp = (ErlFunThing*) (fhp - 1);
+
+                if (is_local_fun(funp)) {
+                    oh = (struct erl_off_heap_header*) (hp - 1);
+                } else {
+                    ASSERT(is_external_fun(funp) && funp->next == NULL);
+                }
+
+                cpy_sz = thing_arityval(val);
+                goto cpy_words;
+            }
 	    default:
 	    the_default:
 		cpy_sz = header_arity(val);
@@ -2997,10 +3014,17 @@ sweep_off_heap(Process *p, int fullsweep)
 		}
 	    case FUN_SUBTAG:
 		{
-		    ErlFunEntry* fe = ((ErlFunThing*)ptr)->fe;
-		    if (erts_refc_dectest(&fe->refc, 0) == 0) {
-			erts_erase_fun_entry(fe);
-		    }
+                    ErlFunThing* funp = ((ErlFunThing*)ptr);
+
+                    if (is_local_fun(funp)) {
+                        ErlFunEntry* fe = funp->entry.fun;
+
+                        if (erts_refc_dectest(&fe->refc, 0) == 0) {
+                            erts_erase_fun_entry(fe);
+                        }
+                    } else {
+                        ASSERT(is_external_fun(funp) && funp->next == NULL);
+                    }
 		    break;
 		}
 	    case REF_SUBTAG:
@@ -3865,6 +3889,156 @@ erts_dbg_within_proc(Eterm *ptr, Process *p, Eterm *real_htop)
 
 #endif
 
+#ifdef DEBUG
+
+#include "erl_global_literals.h"
+
+static int
+check_all_heap_terms_in_range(int (*check_eterm)(Eterm),
+                              Eterm* region_start,
+                              Eterm* region_end)
+{
+    Eterm* tp = region_start;
+    while (tp < region_end) {
+        Eterm val = *tp++;
+
+        switch (primary_tag(val)) {
+        case TAG_PRIMARY_IMMED1:
+            if (!check_eterm(val)) {
+                return 0;
+            }
+            break;
+        case TAG_PRIMARY_LIST:
+        case TAG_PRIMARY_BOXED:
+            if (!check_eterm(val)) {
+                return 0;
+            }
+            break;
+        case TAG_PRIMARY_HEADER:
+            switch (val & _HEADER_SUBTAG_MASK) {
+            case ARITYVAL_SUBTAG:
+                break;
+            case REFC_BINARY_SUBTAG:
+                goto off_heap_common;
+            case FUN_SUBTAG:
+                goto off_heap_common;
+            case EXTERNAL_PID_SUBTAG:
+            case EXTERNAL_PORT_SUBTAG:
+            case EXTERNAL_REF_SUBTAG:
+            off_heap_common:
+                {
+                    int tari = thing_arityval(val);
+                    tp += tari;
+                }
+                break;
+            case REF_SUBTAG: {
+                ErtsRefThing *rtp = (ErtsRefThing *) (tp - 1);
+                if (is_magic_ref_thing(rtp)) {
+                    goto off_heap_common;
+                }
+                /* Fall through... */
+            }
+            default:
+                {
+                    int tari = header_arity(val);
+                    tp += tari;
+                }
+                break;
+            }
+            break;
+        }
+    }
+    return 1;
+}
+
+int
+erts_dbg_check_heap_terms(int (*check_eterm)(Eterm),
+                          Process *p,
+                          Eterm *real_htop)
+{
+    ErlHeapFragment* bp;
+    ErtsMessage* mp;
+    Eterm *htop, *heap;
+
+    if (p->abandoned_heap) {
+	ERTS_GET_ORIG_HEAP(p, heap, htop);
+	if (!check_all_heap_terms_in_range(check_eterm,
+                                           heap, htop))
+	    return 0;
+    }
+
+    heap = p->heap;
+    htop = real_htop ? real_htop : HEAP_TOP(p);
+
+    if (OLD_HEAP(p) &&
+        !check_all_heap_terms_in_range(check_eterm,
+                                       OLD_HEAP(p), OLD_HTOP(p) /*OLD_HEND(p)*/)) {
+        return 0;
+    }
+
+    if (!check_all_heap_terms_in_range(check_eterm, heap, htop)) {
+        return 0;
+    }
+
+    mp = p->msg_frag;
+    bp = p->mbuf;
+
+    if (bp)
+	goto search_heap_frags;
+
+    while (mp) {
+
+        bp = erts_message_to_heap_frag(mp);
+	mp = mp->next;
+
+    search_heap_frags:
+
+	while (bp) {
+            if (!check_all_heap_terms_in_range(check_eterm,
+                                               bp->mem,
+                                               bp->mem + bp->used_size)) {
+                return 0;
+            }
+	    bp = bp->next;
+	}
+    }
+
+    return 1;
+}
+
+static int check_no_empty_boxed_non_literal_term(Eterm term) {
+   if (is_boxed(term)) {
+        Uint arity = header_arity(*boxed_val(term));
+
+        /* Maps can have 0 arity even though they have something after the
+         * arity word. */
+        if (arity == 0 && !is_map(term)) {
+            if (term != ERTS_GLOBAL_LIT_EMPTY_TUPLE) {
+                /* Empty tuples are the only type of boxed value that can
+                 * have an arity of 0. This can change in the feature and
+                 * the condition above needs to be changed if it does. */
+                erts_exit(ERTS_ABORT_EXIT,
+                          "Non-literal empty tuple found in heap.\n"
+                          "This is not allowed due to an optimization\n"
+                          "that assumes that the word after the arity\n"
+                          "word is allocated.\n");
+            }
+        }
+    }
+    return 1;
+}
+
+void
+erts_dbg_check_no_empty_boxed_non_literal_on_heap(Process *p,
+                                                  Eterm *real_htop)
+{
+    erts_dbg_check_heap_terms(check_no_empty_boxed_non_literal_term,
+                              p,
+                              real_htop);
+}
+
+#endif
+
 #ifdef ERTS_OFFHEAP_DEBUG
 
 #define ERTS_CHK_OFFHEAP_ASSERT(EXP)			\
@@ -3897,8 +4071,14 @@ repeat:
 	case REFC_BINARY_SUBTAG:
 	    refc = erts_refc_read(&u.pb->val->intern.refc, 1);
 	    break;
-	case FUN_SUBTAG:
-	    refc = erts_refc_read(&u.fun->fe->refc, 1);
+        case FUN_SUBTAG:
+            if (is_local_fun(u.fun)) {
+                refc = erts_refc_read(&u.fun->entry.fun->refc, 1);
+            } else {
+                /* Export fun, fake a valid refc. */
+                ASSERT(is_external_fun(u.fun) && u.fun->next == NULL);
+                refc = 1;
+            }
 	    break;
 	case EXTERNAL_PID_SUBTAG:
 	case EXTERNAL_PORT_SUBTAG:

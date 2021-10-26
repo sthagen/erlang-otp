@@ -45,8 +45,10 @@
 #include "erl_map.h"
 #include "erl_msacc.h"
 #include "erl_proc_sig_queue.h"
+#include "erl_fun.h"
 #include "ryu.h"
 #include "jit/beam_asm.h"
+#include "erl_global_literals.h"
 
 Export *erts_await_result;
 static Export await_exit_trap;
@@ -355,7 +357,6 @@ demonitor(Process *c_p, Eterm ref, Eterm *multip)
        return am_false; /* Not a monitor (may have been...) */
 
    switch (mon->flags & ERTS_ML_STATE_ALIAS_MASK) {
-   case ERTS_ML_STATE_ALIAS_ONCE:
    case ERTS_ML_STATE_ALIAS_UNALIAS: {
        ErtsMonitorData *amdp = erts_monitor_create(ERTS_MON_TYPE_ALIAS,
                                                    ref,
@@ -367,6 +368,7 @@ demonitor(Process *c_p, Eterm ref, Eterm *multip)
        erts_monitor_tree_replace(&ERTS_P_MONITORS(c_p), mon, &amdp->origin);
        break;
    }
+   case ERTS_ML_STATE_ALIAS_ONCE:
    case ERTS_ML_STATE_ALIAS_DEMONITOR:
        erts_pid_ref_delete(ref);
        /* fall through... */
@@ -1393,7 +1395,7 @@ BIF_RETTYPE raise_3(BIF_ALIST_3)
 	switch (arityval(tp[0])) {
 	case 2:
 	    /* {Fun,Args} */
-	    if (is_fun(tp[1])) {
+	    if (is_any_fun(tp[1])) {
 		must_copy = 1;
 	    } else {
 		goto error;
@@ -1405,7 +1407,7 @@ BIF_RETTYPE raise_3(BIF_ALIST_3)
 	     * {Fun,Args,Location}
 	     * {M,F,A}
 	     */
-	    if (is_fun(tp[1])) {
+	    if (is_any_fun(tp[1])) {
 		location = tp[3];
 	    } else if (is_atom(tp[1]) && is_atom(tp[2])) {
 		must_copy = 1;
@@ -2984,6 +2986,9 @@ BIF_RETTYPE make_tuple_2(BIF_ALIST_2)
     if (is_not_small(BIF_ARG_1) || (n = signed_val(BIF_ARG_1)) < 0 || n > ERTS_MAX_TUPLE_SIZE) {
 	BIF_ERROR(BIF_P, BADARG);
     }
+    if (n == 0) {
+        return ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+    }
     hp = HAlloc(BIF_P, n+1);
     res = make_tuple(hp);
     *hp++ = make_arityval(n);
@@ -3000,17 +3005,21 @@ BIF_RETTYPE make_tuple_3(BIF_ALIST_3)
     Eterm* hp;
     Eterm res;
     Eterm list = BIF_ARG_3;
-    Eterm* tup;
+    Eterm* tup = NULL;
 
     if (is_not_small(BIF_ARG_1) || (n = signed_val(BIF_ARG_1)) < 0 || n > ERTS_MAX_TUPLE_SIZE) {
     error:
 	BIF_ERROR(BIF_P, BADARG);
     }
     limit = (Uint) n;
-    hp = HAlloc(BIF_P, n+1);
-    res = make_tuple(hp);
-    *hp++ = make_arityval(n);
-    tup = hp;
+    if (n == 0) {
+        res = ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+    } else {
+        hp = HAlloc(BIF_P, n+1);
+        res = make_tuple(hp);
+        *hp++ = make_arityval(n);
+        tup = hp;
+    }
     while (n--) {
 	*hp++ = BIF_ARG_2;
     }
@@ -3127,6 +3136,10 @@ BIF_RETTYPE delete_element_2(BIF_ALIST_3)
 	BIF_ERROR(BIF_P, BADARG);
     }
 
+    if (arity == 1) {
+        return ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+    }
+
     hp  = HAlloc(BIF_P, arity + 1 - 1);
     res = make_tuple(hp);
     *hp = make_arityval(arity - 1);
@@ -3149,7 +3162,7 @@ BIF_RETTYPE atom_to_list_1(BIF_ALIST_1)
 {
     Atom* ap;
     Uint num_chars, num_built, num_eaten;
-    byte* err_pos;
+    const byte* err_pos;
     Eterm res;
     int ares;
 
@@ -3843,7 +3856,9 @@ BIF_RETTYPE list_to_tuple_1(BIF_ALIST_1)
     if ((len = erts_list_length(list)) < 0 || len > ERTS_MAX_TUPLE_SIZE) {
 	BIF_ERROR(BIF_P, BADARG);
     }
-
+    if (len == 0) {
+        BIF_RET(ERTS_GLOBAL_LIT_EMPTY_TUPLE);
+    }
     hp = HAlloc(BIF_P, len+1);
     res = make_tuple(hp);
     *hp++ = make_arityval(len);
@@ -4379,21 +4394,28 @@ BIF_RETTYPE ref_to_list_1(BIF_ALIST_1)
 
 BIF_RETTYPE make_fun_3(BIF_ALIST_3)
 {
-    Eterm* hp;
+    ErlFunThing *funp;
+    Eterm *hp;
+    Export *ep;
     Sint arity;
 
-    if (is_not_atom(BIF_ARG_1) || is_not_atom(BIF_ARG_2) || is_not_small(BIF_ARG_3)) {
-    error:
-	BIF_ERROR(BIF_P, BADARG);
+    if (is_not_atom(BIF_ARG_1) ||
+        is_not_atom(BIF_ARG_2) ||
+        is_not_small(BIF_ARG_3)) {
+        BIF_ERROR(BIF_P, BADARG);
     }
+
     arity = signed_val(BIF_ARG_3);
     if (arity < 0) {
-	goto error;
+        BIF_ERROR(BIF_P, BADARG);
     }
-    hp = HAlloc(BIF_P, 2);
-    hp[0] = HEADER_EXPORT;
-    hp[1] = (Eterm) erts_export_get_or_make_stub(BIF_ARG_1, BIF_ARG_2, (Uint) arity);
-    BIF_RET(make_export(hp));
+
+    hp = HAlloc(BIF_P, ERL_FUN_SIZE);
+
+    ep = erts_export_get_or_make_stub(BIF_ARG_1, BIF_ARG_2, (Uint) arity);
+    funp = erts_new_export_fun_thing(&hp, ep, arity);
+
+    BIF_RET(make_fun(funp));
 }
 
 BIF_RETTYPE fun_to_list_1(BIF_ALIST_1)
@@ -4401,8 +4423,10 @@ BIF_RETTYPE fun_to_list_1(BIF_ALIST_1)
     Process* p = BIF_P;
     Eterm fun = BIF_ARG_1;
 
-    if (is_not_any_fun(fun))
-	BIF_ERROR(p, BADARG);
+    if (is_not_any_fun(fun)) {
+        BIF_ERROR(p, BADARG);
+    }
+
     BIF_RET(term2list_dsprintf(p, fun));
 }
 
@@ -5405,7 +5429,7 @@ void erts_init_trap_export(Export *ep, Eterm m, Eterm f, Uint a,
     }
 
 #ifdef BEAMASM
-    ep->addresses[ERTS_SAVE_CALLS_CODE_IX] = beam_save_calls;
+    ep->dispatch.addresses[ERTS_SAVE_CALLS_CODE_IX] = beam_save_calls;
 #endif
 
     ep->bif_number = -1;

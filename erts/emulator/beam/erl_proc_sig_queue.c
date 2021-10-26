@@ -455,6 +455,7 @@ sig_enqueue_trace(Process *c_p, ErtsMessage **sigp, int op,
             ErtsExitSignalData *xsigd;
 
             ASSERT(type == ERTS_SIG_Q_TYPE_GEN_EXIT);
+            (void)type;
 
             xsigd = get_exit_signal_data(sig);
             reason = xsigd->reason;
@@ -5149,6 +5150,10 @@ erts_proc_sig_handle_incoming(Process *c_p, erts_aint32_t *statep,
                                                 xsigd->u.ref);
                 if (omon) {
                     ASSERT(erts_monitor_is_origin(omon));
+                    if (omon->type == ERTS_MON_TYPE_ALIAS) {
+                        omon = NULL;
+                        break;
+                    }
                     mdp = erts_monitor_to_data(omon);
                     if (omon->type == ERTS_MON_TYPE_DIST_PROC) {
                         if (erts_monitor_dist_delete(&mdp->u.target))

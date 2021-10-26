@@ -91,8 +91,10 @@ BeamGlobalAssembler::BeamGlobalAssembler(JitAllocator *allocator)
                           .name = code.labelEntry(labels[val.first])->name()});
     }
 
-    update_gdb_jit_info("global", ranges);
-    beamasm_update_perf_info("global", ranges);
+    beamasm_metadata_update("global",
+                            (ErtsCodePtr)getBaseAddress(),
+                            code.codeSize(),
+                            ranges);
 #endif
 
     /* `this->get_xxx` are populated last to ensure that we crash if we use them
@@ -148,7 +150,7 @@ void BeamGlobalAssembler::emit_bif_export_trap() {
     a.sub(RET, imm(offsetof(Export, info.mfa)));
 
     emit_leave_frame();
-    a.jmp(emit_setup_export_call(RET));
+    a.jmp(emit_setup_dispatchable_call(RET));
 }
 
 /* Handles export breakpoints, error handler, jump tracing, and so on.
@@ -218,7 +220,7 @@ void BeamGlobalAssembler::emit_export_trampoline() {
         a.je(labels[process_exit]);
 
         emit_leave_frame();
-        a.jmp(emit_setup_export_call(RET));
+        a.jmp(emit_setup_dispatchable_call(RET));
     }
 }
 

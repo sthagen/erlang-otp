@@ -778,6 +778,7 @@ with_ssl_rpath
 enable_dynamic_ssl_lib
 enable_evp_dh
 enable_evp_hmac
+enable_deprecated_warnings
 enable_fips
 '
       ac_precious_vars='build_alias
@@ -1449,6 +1450,10 @@ Optional Features:
                           the crypto NIF
   --disable-evp-dh        intentionally undocumented workaround
   --disable-evp-hmac      intentionally undocumented workaround
+  --disable-deprecated-warnings
+                          disable warnings for deprecated functions in
+                          cryptolib (default is to warn, except for OpenSSL
+                          3.x where the default is not to warn)
   --enable-fips           enable OpenSSL FIPS mode support
   --disable-fips          disable OpenSSL FIPS mode support (default)
 
@@ -5148,6 +5153,45 @@ printf "%s\n" "no" >&6; }
 fi
 
 
+
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking if we can add -fno-strict-aliasing to DED_CFLAGS (via CFLAGS)" >&5
+printf %s "checking if we can add -fno-strict-aliasing to DED_CFLAGS (via CFLAGS)... " >&6; }
+    saved_CFLAGS=$CFLAGS;
+    CFLAGS="-fno-strict-aliasing $DED_CFLAGS";
+    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main (void)
+{
+return 0;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  can_enable_flag=true
+else $as_nop
+  can_enable_flag=false
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+    CFLAGS=$saved_CFLAGS;
+    if test "X$can_enable_flag" = "Xtrue"
+then :
+
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+printf "%s\n" "yes" >&6; }
+        DED_CFLAGS="-fno-strict-aliasing $DED_CFLAGS"
+
+else $as_nop
+
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
+printf "%s\n" "no" >&6; }
+
+fi
+
+
     DED_STATIC_CFLAGS="$DED_CFLAGS"
     DED_CFLAGS="$DED_CFLAGS -fPIC"
     # Remove -fPIE and -fno-PIE
@@ -5643,6 +5687,18 @@ then :
   esac
 else $as_nop
   DISABLE_EVP_HMAC=0
+fi
+
+
+# Check whether --enable-deprecated_warnings was given.
+if test ${enable_deprecated_warnings+y}
+then :
+  enableval=$enable_deprecated_warnings;  case "$enableval" in
+    no)   deprecated_warnings=no;;
+    *)    deprecated_warnings=yes;;
+  esac
+else $as_nop
+  deprecated_warnings=default_yes
 fi
 
 
@@ -7392,7 +7448,13 @@ fi
 
 fi
 
-if test "x$v3_include" = "xyes" && test "$CRYPTO_APP" != ""
+if test "x$v3_include" = "xyes" && test "x$deprecated_warnings" = "xdefault_yes" && test "$CRYPTO_APP" != ""
+then :
+  deprecated_warnings=no
+
+fi
+
+if test "x$deprecated_warnings" = "xno"  &&  test "$CRYPTO_APP" != ""
 then :
   SSL_FLAGS="$SSL_FLAGS -Wno-deprecated-declarations"
 

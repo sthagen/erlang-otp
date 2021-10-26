@@ -1485,7 +1485,7 @@ line_numbers(Config) when is_list(Config) ->
     <<0,0>> = build_binary1(16),
     {'EXIT',{badarg,
              [{?MODULE,build_binary1,1,
-               [{file,"bit_syntax.erl"},{line,72503}]},
+               [{file,"bit_syntax.erl"},{line,72503},{error_info,_}]},
               {?MODULE,line_numbers,1,
                [{file,ModFile},{line,_}]}|_]}} =
     (catch build_binary1(bad_size)),
@@ -1493,21 +1493,20 @@ line_numbers(Config) when is_list(Config) ->
     <<7,1,2,3>> = build_binary2(8, <<1,2,3>>),
     {'EXIT',{badarg,
              [{?MODULE,build_binary2,2,
-               [{file,"bit_syntax.erl"},{line,72507}]},
+               [{file,"bit_syntax.erl"},{line,72507},{error_info,_}]},
               {?MODULE,line_numbers,1,
                [{file,ModFile},{line,_}]}|_]}} =
     (catch build_binary2(bad_size, <<>>)),
     {'EXIT',{badarg,
-             [{erlang,bit_size,[bad_binary],[{error_info,_}]},
-              {?MODULE,build_binary2,2,
-               [{file,"bit_syntax.erl"},{line,72507}]},
+             [{?MODULE,build_binary2,2,
+               [{file,"bit_syntax.erl"},{line,72507},{error_info,_}]},
               {?MODULE,line_numbers,1,
                [{file,ModFile},{line,_}]}|_]}} =
     (catch build_binary2(8, bad_binary)),
 
     <<"abc",357:16>> = build_binary3(<<"abc">>),
     {'EXIT',{badarg,[{?MODULE,build_binary3,1,
-                      [{file,"bit_syntax.erl"},{line,72511}]},
+                      [{file,"bit_syntax.erl"},{line,72511},{error_info,_}]},
                      {?MODULE,line_numbers,1,
                       [{file,ModFile},{line,_}]}|_]}} =
     (catch build_binary3(no_binary)),
@@ -1706,7 +1705,7 @@ test_hd(X) -> foo(), hd(X).                     %Line 101
 test_tl(X) -> foo(), tl(X).                     %Line 102
 foo() -> id(100).
 
--file("huge_lines.erl", 1600000000).            %Line 1600000000
+-file("huge_lines.erl", 100000000).             %Line 100000000
 
-crash_huge_line(_) ->                           %Line 1600000002
-    erlang:error(crash).                        %Line 1600000003
+crash_huge_line(_) ->                           %Line 100000002
+    erlang:error(crash).                        %Line 100000003

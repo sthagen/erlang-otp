@@ -66,6 +66,7 @@
 #define HAVE_USE_DTRACE 1
 #endif
 #include "jit/beam_asm.h"
+#include "erl_global_literals.h"
 
 #include <limits.h>
 #include <stddef.h> /* offsetof */
@@ -1167,7 +1168,7 @@ int enif_is_empty_list(ErlNifEnv* env, ERL_NIF_TERM term)
 
 int enif_is_fun(ErlNifEnv* env, ERL_NIF_TERM term)
 {
-    return is_fun(term);
+    return is_any_fun(term);
 }
 
 int enif_is_pid(ErlNifEnv* env, ERL_NIF_TERM term)
@@ -1215,7 +1216,6 @@ ErlNifTermType enif_term_type(ErlNifEnv* env, ERL_NIF_TERM term) {
         return ERL_NIF_TERM_TYPE_BITSTRING;
     case FLOAT_DEF:
         return ERL_NIF_TERM_TYPE_FLOAT;
-    case EXPORT_DEF:
     case FUN_DEF:
         return ERL_NIF_TERM_TYPE_FUN;
     case BIG_DEF:
@@ -1885,39 +1885,47 @@ int enif_make_existing_atom_len(ErlNifEnv* env, const char* name, size_t len,
 
 ERL_NIF_TERM enif_make_tuple(ErlNifEnv* env, unsigned cnt, ...)
 {
+    if (cnt == 0) {
+        return ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+    } else {
 #ifdef ERTS_NIF_ASSERT_IN_ENV
-    int nr = 0;
+        int nr = 0;
 #endif
-    Eterm* hp = alloc_heap(env,cnt+1);
-    Eterm ret = make_tuple(hp);
-    va_list ap;
+        Eterm* hp = alloc_heap(env,cnt+1);
+        Eterm ret = make_tuple(hp);
+        va_list ap;
 
-    *hp++ = make_arityval(cnt);
-    va_start(ap,cnt);
-    while (cnt--) {
-        Eterm elem = va_arg(ap,Eterm);
-        ASSERT_IN_ENV(env, elem, ++nr, "tuple");
-	*hp++ = elem;
+        *hp++ = make_arityval(cnt);
+        va_start(ap,cnt);
+        while (cnt--) {
+            Eterm elem = va_arg(ap,Eterm);
+            ASSERT_IN_ENV(env, elem, ++nr, "tuple");
+            *hp++ = elem;
+        }
+        va_end(ap);
+        return ret;
     }
-    va_end(ap);
-    return ret;
 }
 
 ERL_NIF_TERM enif_make_tuple_from_array(ErlNifEnv* env, const ERL_NIF_TERM arr[], unsigned cnt)
 {
+    if (cnt == 0) {
+        return ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+    } else {
 #ifdef ERTS_NIF_ASSERT_IN_ENV
-    int nr = 0;
+        int nr = 0;
 #endif
-    Eterm* hp = alloc_heap(env,cnt+1);
-    Eterm ret = make_tuple(hp);
-    const Eterm* src = arr;
+        Eterm* hp = alloc_heap(env,cnt+1);
+        Eterm ret = make_tuple(hp);
+        const Eterm* src = arr;
 
-    *hp++ = make_arityval(cnt);
-    while (cnt--) {
-        ASSERT_IN_ENV(env, *src, ++nr, "tuple");
-	*hp++ = *src++;	   
+        *hp++ = make_arityval(cnt);
+        while (cnt--) {
+            ASSERT_IN_ENV(env, *src, ++nr, "tuple");
+            *hp++ = *src++;	   
+        }
+        return ret;
     }
-    return ret;
 }
 
 ERL_NIF_TERM enif_make_list_cell(ErlNifEnv* env, Eterm car, Eterm cdr)
@@ -3280,12 +3288,11 @@ int enif_get_map_size(ErlNifEnv* env, ERL_NIF_TERM term, size_t *size)
 
 ERL_NIF_TERM enif_make_new_map(ErlNifEnv* env)
 {
-    Eterm* hp = alloc_heap(env,MAP_HEADER_FLATMAP_SZ+1);
+    Eterm* hp = alloc_heap(env,MAP_HEADER_FLATMAP_SZ);
     Eterm tup;
     flatmap_t *mp;
 
-    tup   = make_tuple(hp);
-    *hp++ = make_arityval(0);
+    tup   = ERTS_GLOBAL_LIT_EMPTY_TUPLE;
     mp    = (flatmap_t*)hp;
     mp->thing_word = MAP_HEADER_FLATMAP;
     mp->size = 0;

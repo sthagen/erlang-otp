@@ -500,22 +500,29 @@ protected:
         }
     }
 
-    /* Returns the current code address for the export entry in `Src`
+    /* Returns the current code address for the `Export` or `ErlFunEntry` in
+     * `Src`.
      *
-     * Export tracing, save_calls, etc is implemented by shared fragments that
-     * assume that the export entry is in RET, so we have to copy it over if it
-     * isn't already. */
-    x86::Mem emit_setup_export_call(const x86::Gp &Src) {
-        return emit_setup_export_call(Src, active_code_ix);
+     * Export tracing, save_calls, etc are implemented by shared fragments that
+     * assume that the respective entry is in RET, so we have to copy it over
+     * if it isn't already. */
+    x86::Mem emit_setup_dispatchable_call(const x86::Gp &Src) {
+        return emit_setup_dispatchable_call(Src, active_code_ix);
     }
 
-    x86::Mem emit_setup_export_call(const x86::Gp &Src,
-                                    const x86::Gp &CodeIndex) {
+    x86::Mem emit_setup_dispatchable_call(const x86::Gp &Src,
+                                          const x86::Gp &CodeIndex) {
         if (RET != Src) {
             a.mov(RET, Src);
         }
 
-        return x86::qword_ptr(RET, CodeIndex, 3, offsetof(Export, addresses));
+        ERTS_CT_ASSERT(offsetof(ErlFunEntry, dispatch) == 0);
+        ERTS_CT_ASSERT(offsetof(Export, dispatch) == 0);
+
+        return x86::qword_ptr(RET,
+                              CodeIndex,
+                              3,
+                              offsetof(ErtsDispatchable, addresses));
     }
 
     void emit_assert_runtime_stack() {
@@ -795,7 +802,20 @@ protected:
     void mov_imm(x86::Gp to, T value) {
         static_assert(std::is_integral<T>::value || std::is_pointer<T>::value);
         if (value) {
-            a.mov(to, imm(value));
+            /* Generate the shortest instruction to set the register to an
+             * immediate.
+             *
+             *   48 c7 c0 2a 00 00 00    mov    rax, 42
+             *   b8 2a 00 00 00          mov    eax, 42
+             *
+             *   49 c7 c0 2a 00 00 00    mov    r8, 42
+             *   41 b8 2a 00 00 00       mov    r8d, 42
+             */
+            if (Support::isUInt32((Uint)value)) {
+                a.mov(to.r32(), imm(value));
+            } else {
+                a.mov(to, imm(value));
+            }
         } else {
             /*
              * Generate the shortest instruction to set the register to zero.
@@ -837,15 +857,16 @@ public:
     struct AsmRange {
         ErtsCodePtr start;
         ErtsCodePtr stop;
-        std::string name;
+        const std::string name;
 
-        /* Not used yet */
-        std::string file;
-        unsigned line;
+        struct LineData {
+            ErtsCodePtr start;
+            const std::string file;
+            unsigned line;
+        };
+
+        const std::vector<LineData> lines;
     };
-
-    void update_gdb_jit_info(std::string modulename,
-                             std::vector<AsmRange> &functions);
 };
 
 class BeamGlobalAssembler : public BeamAssembler {
@@ -861,6 +882,7 @@ class BeamGlobalAssembler : public BeamAssembler {
     _(bif_element_shared)                                                      \
     _(bif_export_trap)                                                         \
     _(bs_add_shared)                                                           \
+    _(bs_create_bin_error_shared)                                              \
     _(bs_size_check_shared)                                                    \
     _(bs_fixed_integer_shared)                                                 \
     _(bs_get_tail_shared)                                                      \
@@ -1072,6 +1094,8 @@ public:
                  void **writable_ptr);
 
     void codegen(char *buff, size_t len);
+
+    void register_metadata(const BeamCodeHeader *header);
 
     ErtsCodePtr getCode(unsigned label);
     ErtsCodePtr getLambda(unsigned index);
@@ -1301,5 +1325,10 @@ protected:
     }
 };
 
-void beamasm_update_perf_info(std::string modulename,
-                              std::vector<BeamAssembler::AsmRange> &ranges);
+void beamasm_metadata_update(
+        std::string module_name,
+        ErtsCodePtr base_address,
+        size_t code_size,
+        const std::vector<BeamAssembler::AsmRange> &ranges);
+void beamasm_metadata_early_init();
+void beamasm_metadata_late_init();

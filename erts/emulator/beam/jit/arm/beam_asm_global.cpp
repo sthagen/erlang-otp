@@ -71,7 +71,6 @@ BeamGlobalAssembler::BeamGlobalAssembler(JitAllocator *allocator)
         _codegen(allocator, &_ignored_exec, &_ignored_rw);
     }
 
-#ifndef WIN32
     std::vector<AsmRange> ranges;
 
     ranges.reserve(emitPtrs.size());
@@ -91,13 +90,13 @@ BeamGlobalAssembler::BeamGlobalAssembler(JitAllocator *allocator)
                           .name = code.labelEntry(labels[val.first])->name()});
     }
 
-    update_gdb_jit_info("global", ranges);
-    beamasm_update_perf_info("global", ranges);
-#endif
+    beamasm_metadata_update("global",
+                            (ErtsCodePtr)getBaseAddress(),
+                            code.codeSize(),
+                            ranges);
 
-    /* `this->get_xxx` are populated last to ensure that we crash if we use them
-     * instead of labels in global code. */
-
+    /* `this->get_xxx` are populated last to ensure that we crash if we use
+     * them instead of labels in global code. */
     for (auto val : labelNames) {
         ptrs[val.first] = (fptr)getCode(labels[val.first]);
     }
@@ -151,7 +150,7 @@ void BeamGlobalAssembler::emit_bif_export_trap() {
 
     emit_leave_erlang_frame();
 
-    branch(emit_setup_export_call(ARG1));
+    branch(emit_setup_dispatchable_call(ARG1));
 }
 
 /* Handles export breakpoints, error handler, jump tracing, and so on.
@@ -232,7 +231,7 @@ void BeamGlobalAssembler::emit_export_trampoline() {
 
         a.cbz(ARG1, labels[process_exit]);
 
-        branch(emit_setup_export_call(ARG1));
+        branch(emit_setup_dispatchable_call(ARG1));
     }
 }
 

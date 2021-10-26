@@ -25,9 +25,14 @@
  * one byte shorter than instructions that use 64-bits registers
  * (e.g. rax). This does not apply to registers r8-r15 beacuse they'll
  * always need a rex prefix. The `and`, `or`, and `cmp` instructions
- * are even shorter than operating on the RETb (al) register. The
+ * are even shorter when operating on the RETb (al) register. The
  * `test` instruction with an immediate second operand is shorter
  * when operating on an 8-bit register.
+ *
+ * When loading an immediate value to a register, storing to the
+ * 32-bit register in one or two bytes shorter than storing to
+ * the corresponding 64-bit register. The mov_imm() helper
+ * will automatically choose the shortest instruction.
  *
  * On both Unix and Windows, instructions can be shortened by using
  * RETd, ARG1d, or ARG2d instead of RET, ARG1, or ARG2, respectively.
@@ -851,8 +856,6 @@ void BeamModuleAssembler::emit_is_float(const ArgVal &Fail, const ArgVal &Src) {
 
 void BeamModuleAssembler::emit_is_function(const ArgVal &Fail,
                                            const ArgVal &Src) {
-    Label next = a.newLabel();
-
     mov_arg(RET, Src);
 
     emit_is_boxed(labels[Fail.getValue()], RET);
@@ -860,12 +863,7 @@ void BeamModuleAssembler::emit_is_function(const ArgVal &Fail,
     x86::Gp boxed_ptr = emit_ptr_val(RET, RET);
     a.mov(RETd, emit_boxed_val(boxed_ptr, 0, sizeof(Uint32)));
     a.cmp(RET, imm(HEADER_FUN));
-    a.short_().je(next);
-    ERTS_CT_ASSERT(HEADER_EXPORT < 256);
-    a.cmp(RETb, imm(HEADER_EXPORT));
     a.jne(labels[Fail.getValue()]);
-
-    a.bind(next);
 }
 
 void BeamModuleAssembler::emit_is_function2(const ArgVal &Fail,
@@ -897,8 +895,6 @@ void BeamModuleAssembler::emit_is_function2(const ArgVal &Fail,
         return;
     }
 
-    Label next = a.newLabel(), fun = a.newLabel();
-
     mov_arg(ARG1, Src);
 
     emit_is_boxed(labels[Fail.getValue()], ARG1);
@@ -906,26 +902,10 @@ void BeamModuleAssembler::emit_is_function2(const ArgVal &Fail,
     x86::Gp boxed_ptr = emit_ptr_val(ARG1, ARG1);
     a.mov(RETd, emit_boxed_val(boxed_ptr, 0, sizeof(Uint32)));
     a.cmp(RETd, imm(HEADER_FUN));
-    a.short_().je(fun);
-    ERTS_CT_ASSERT(HEADER_EXPORT < 256);
-    a.cmp(RETb, imm(HEADER_EXPORT));
     a.jne(labels[Fail.getValue()]);
 
-    comment("Check arity of export fun");
-    a.mov(ARG2, emit_boxed_val(boxed_ptr, sizeof(Eterm)));
-    a.cmp(x86::qword_ptr(ARG2, offsetof(Export, info.mfa.arity)), imm(arity));
+    a.cmp(emit_boxed_val(boxed_ptr, offsetof(ErlFunThing, arity)), imm(arity));
     a.jne(labels[Fail.getValue()]);
-    a.short_().jmp(next);
-
-    comment("Check arity of fun");
-    a.bind(fun);
-    {
-        a.cmp(emit_boxed_val(boxed_ptr, offsetof(ErlFunThing, arity)),
-              imm(arity));
-        a.jne(labels[Fail.getValue()]);
-    }
-
-    a.bind(next);
 }
 
 void BeamModuleAssembler::emit_is_integer(const ArgVal &Fail,

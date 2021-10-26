@@ -420,7 +420,7 @@ void process_main(ErtsSchedulerData *esdp)
             if (ERTS_PROC_IS_EXITING(c_p)) {
                 sys_strcpy(fun_buf, "<exiting>");
             } else {
-                ErtsCodeMFA *cmfa = erts_find_function_from_pc(c_p->i);
+                const ErtsCodeMFA *cmfa = erts_find_function_from_pc(c_p->i);
                 if (cmfa) {
                     dtrace_fun_decode(c_p, cmfa,
                                       NULL, fun_buf);
@@ -453,16 +453,12 @@ void process_main(ErtsSchedulerData *esdp)
      * can get the module, function, and arity for the function being
      * called from I[-3], I[-2], and I[-1] respectively.
      */
- context_switch_fun:
-    /* Add one for the environment of the fun */
-    c_p->arity = erts_code_to_codemfa(I)->arity + 1;
-    goto context_switch2;
-
  context_switch:
-    c_p->arity = erts_code_to_codemfa(I)->arity;
-
- context_switch2: 		/* Entry for fun calls. */
-    c_p->current = erts_code_to_codemfa(I);
+    {
+        const ErtsCodeMFA *mfa = erts_code_to_codemfa(I);
+        c_p->arity = mfa->arity;
+        c_p->current = mfa;
+    }
 
  context_switch3:
 
@@ -541,7 +537,7 @@ void process_main(ErtsSchedulerData *esdp)
         HEAVY_SWAPIN;
 
         if (error_handler) {
-            I = error_handler->addresses[erts_active_code_ix()];
+            I = error_handler->dispatch.addresses[erts_active_code_ix()];
             Goto(*I);
         }
     }
@@ -712,4 +708,59 @@ erts_beam_jump_table(void)
 #else
     return 1;
 #endif
+}
+
+void
+erts_prepare_bs_construct_fail_info(Process* c_p, const BeamInstr* p, Eterm reason, Eterm Info, Eterm value)
+{
+    Eterm* hp;
+    Eterm cause_tuple;
+    Eterm op;
+    Eterm error_info;
+    Uint segment;
+
+    segment = p[2] >> 3;
+
+    switch (p[0]) {
+    case BSC_APPEND:
+    case BSC_PRIVATE_APPEND:
+    case BSC_BINARY:
+    case BSC_BINARY_FIXED_SIZE:
+    case BSC_BINARY_ALL:
+        op = am_binary;
+        break;
+    case BSC_FLOAT:
+    case BSC_FLOAT_FIXED_SIZE:
+        op = am_float;
+        break;
+    case BSC_INTEGER:
+    case BSC_INTEGER_FIXED_SIZE:
+        op = am_integer;
+        break;
+    case BSC_STRING:
+        op = am_string;
+        break;
+    case BSC_UTF8:
+        op = am_utf8;
+        break;
+    case BSC_UTF16:
+        op = am_utf16;
+        break;
+    case BSC_UTF32:
+        op = am_utf32;
+        break;
+    default:
+        op = am_none;
+        break;
+    }
+
+    hp = HeapFragOnlyAlloc(c_p, MAP3_SZ+4+1);
+    cause_tuple = TUPLE4(hp, make_small(segment), op, Info, value);
+    hp += 5;
+    error_info = MAP3(hp,
+                      am_cause, cause_tuple,
+                      am_function, am_format_bs_fail,
+                      am_module, am_erl_erts_errors);
+    c_p->fvalue = error_info;
+    c_p->freason = reason | EXF_HAS_EXT_INFO;
 }
