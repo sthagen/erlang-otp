@@ -274,9 +274,10 @@ expand_opt(r22, Os) ->
                      no_swap | expand_opt(no_bsm4, Os)]);
 expand_opt(r23, Os) ->
     expand_opt(no_make_fun3, [no_bs_create_bin, no_ssa_opt_float,
-                              no_recv_opt, no_init_yregs | Os]);
+                              no_recv_opt, no_init_yregs |
+                              expand_opt(r24, Os)]);
 expand_opt(r24, Os) ->
-    [no_bs_create_bin | Os];
+    expand_opt(no_type_opt, [no_bs_create_bin | Os]);
 expand_opt(no_make_fun3, Os) ->
     [no_make_fun3, no_fun_opt | Os];
 expand_opt({debug_info_key,_}=O, Os) ->
@@ -806,6 +807,7 @@ abstr_passes(AbstrStatus) ->
 
          ?pass(expand_records),
          {iff,'dexp',{listing,"expand"}},
+         {iff,'E',?pass(legalize_vars)},
          {iff,'E',{src_listing,"E"}},
          {iff,'to_exp',{done,"E"}},
 
@@ -1420,6 +1422,14 @@ makedep_output(Code, #compile{options=Opts,ofile=Ofile}=St) ->
 
 expand_records(Code0, #compile{options=Opts}=St) ->
     Code = erl_expand_records:module(Code0, Opts),
+    {ok,Code,St}.
+
+legalize_vars(Code0, St) ->
+    Code = map(fun(F={function,_,_,_,_}) ->
+                       erl_pp:legalize_vars(F);
+                  (F) ->
+                       F
+               end, Code0),
     {ok,Code,St}.
 
 compile_directives(Forms, #compile{options=Opts0}=St0) ->

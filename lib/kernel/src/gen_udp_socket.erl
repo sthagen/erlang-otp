@@ -38,6 +38,7 @@
          monitor/1, cancel_monitor/1,
          setopts/2, getopts/2,
          sockname/1, peername/1,
+         socknames/1,
          getstat/2
         ]).
 
@@ -115,14 +116,21 @@ close_server(Server) ->
 %% -- connect ----------------------------------------------------------------
 
 connect(?MODULE_socket(_Server, Socket), Address, Port) ->
+    Dest = dest2sockaddr({Address, Port}),
     case os:type() of
         {unix,linux} ->
-            _ = socket:connect(Socket, #{family => unspec}),
-            ok;
+            case socket:peername(Socket) of
+                {error, enotconn} ->
+                    socket:connect(Socket, Dest);
+                {error, closed} = Error ->
+                    Error;
+                _ -> % Matches {ok, _} and unknown errors
+                    _ = socket:connect(Socket, #{family => unspec}),
+                    socket:connect(Socket, Dest)
+            end;
         _ ->
-            ok
-    end,
-    socket:connect(Socket, dest2sockaddr({Address, Port})).
+            socket:connect(Socket, Dest)
+    end.
 
 
 %% -- open -----------------------------------------------------------------
@@ -517,6 +525,15 @@ getopts(?MODULE_socket(Server, _Socket), Opts) when is_list(Opts) ->
 sockname(?MODULE_socket(_Server, Socket)) ->
     case socket:sockname(Socket) of
         {ok, SockAddr} -> {ok, address(SockAddr)};
+        {error, _} = Error -> Error
+    end.
+
+
+%% -------------------------------------------------------------------------
+
+socknames(Socket) ->
+    case sockname(Socket) of
+        {ok, Addr} -> {ok, [Addr]};
         {error, _} = Error -> Error
     end.
 

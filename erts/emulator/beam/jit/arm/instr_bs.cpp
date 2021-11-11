@@ -514,7 +514,7 @@ void BeamModuleAssembler::emit_i_bs_start_match3(const ArgVal &Src,
     mov_arg(ARG2, Src);
 
     if (Fail.getValue() != 0) {
-        emit_is_boxed(resolve_beam_label(Fail, dispUnknown), ARG2);
+        emit_is_boxed(resolve_beam_label(Fail, dispUnknown), Src, ARG2);
     } else {
         /* bs_start_match3 may not throw, and the compiler will only emit {f,0}
          * when it knows that the source is a match state or binary, so we're
@@ -1444,7 +1444,7 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
     Uint num_bits = 0;
     std::size_t n = args.size();
     std::vector<BscSegment> segments;
-    Label error = a.newLabel();
+    Label error;
     ArgVal Live = Live0;
     arm::Gp sizeReg;
 
@@ -1529,6 +1529,7 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
 
         a.b(past_error);
 
+        error = a.newLabel();
         a.bind(error);
         {
             /*
@@ -1779,13 +1780,14 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
             Uint error_info;
 
             comment("construct a binary segment");
-            emit_enter_runtime<Update::eReductions>(Live.getValue());
             if (seg.effectiveSize >= 0) {
                 /* The segment has a literal size. */
                 mov_imm(ARG3, seg.effectiveSize);
                 mov_arg(ARG2, seg.src);
                 a.mov(ARG1, c_p);
+                emit_enter_runtime<Update::eReductions>(Live.getValue());
                 runtime_call<3>(erts_new_bs_put_binary);
+                emit_leave_runtime<Update::eReductions>(Live.getValue());
                 error_info = beam_jit_update_bsc_reason_info(seg.error_info,
                                                              BSC_REASON_BADARG,
                                                              BSC_INFO_DEPENDS,
@@ -1796,7 +1798,9 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
                 a.mov(ARG3, seg.unit);
                 mov_arg(ARG2, seg.src);
                 a.mov(ARG1, c_p);
+                emit_enter_runtime<Update::eReductions>(Live.getValue());
                 runtime_call<3>(erts_new_bs_put_binary_all);
+                emit_leave_runtime<Update::eReductions>(Live.getValue());
                 error_info = beam_jit_update_bsc_reason_info(seg.error_info,
                                                              BSC_REASON_BADARG,
                                                              BSC_INFO_UNIT,
@@ -1814,13 +1818,14 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
                 }
                 mov_arg(ARG2, seg.src);
                 a.mov(ARG1, c_p);
+                emit_enter_runtime<Update::eReductions>(Live.getValue());
                 runtime_call<3>(erts_new_bs_put_binary);
+                emit_leave_runtime<Update::eReductions>(Live.getValue());
                 error_info = beam_jit_update_bsc_reason_info(seg.error_info,
                                                              BSC_REASON_BADARG,
                                                              BSC_INFO_DEPENDS,
                                                              BSC_VALUE_FVALUE);
             }
-            emit_leave_runtime<Update::eReductions>(Live.getValue());
             if (Fail.getValue() == 0) {
                 mov_imm(ARG4, error_info);
             }

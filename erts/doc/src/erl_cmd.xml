@@ -400,7 +400,7 @@ $ <input>erl \
           the name supplied together with flag <c><![CDATA[-sname]]></c> or
           <c><![CDATA[-name]]></c>.</p>
       </item>
-      <tag><c><![CDATA[-init_debug]]></c></tag>
+      <tag><marker id="init_debug"/><c><![CDATA[-init_debug]]></c></tag>
       <item>
         <p>Makes <c><![CDATA[init]]></c> write some debug information while
           interpreting the boot script.</p>
@@ -1781,7 +1781,7 @@ $ <input>erl \
           </item>
           <tag><c><![CDATA[ERL_CRASH_DUMP_SECONDS=-1]]></c></tag>
           <item>A negative value causes the termination of the runtime system
-	    to wait indefinitely until the crash dump file has been completly
+	    to wait indefinitely until the crash dump file has been completely
 	    written. This is the default if option <c>-heart</c> is <em>not</em>
 	    passed to <c>erl</c> and <c>ERL_CRASH_DUMP_SECONDS</c> is not set.
           </item>
