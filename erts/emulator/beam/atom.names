@@ -159,6 +159,7 @@ atom call_count
 atom call_error_handler
 atom call_time
 atom caller
+atom caller_line
 atom capture
 atom case_clause
 atom caseless
@@ -739,3 +740,5 @@ atom x86
 atom yes
 atom yield
 atom nifs
+atom auto
+atom debug_hash_fixed_number_of_locks

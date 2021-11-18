@@ -58,6 +58,9 @@
 #define EXI_OWNER    am_owner	 /* The receiving process is already the owner. */
 #define EXI_NOT_OWNER am_not_owner /* The current process is not the owner. */
 
+#define DB_WRITE_CONCURRENCY_MIN_LOCKS 1
+#define DB_WRITE_CONCURRENCY_MAX_LOCKS 32768
+
 erts_atomic_t erts_ets_misc_mem_size;
 
 /*
@@ -815,6 +818,7 @@ DbTable* db_get_table_aux(Process *p,
     }
 
     if (tb) {
+        erl_db_hash_adapt_number_of_locks(tb);
 	db_lock(tb, kind);
 #ifdef ETS_DBG_FORCE_TRAP
         /*
@@ -2254,8 +2258,11 @@ BIF_RETTYPE ets_new_2(BIF_ALIST_2)
     Sint keypos;
     int is_named, is_compressed;
     int is_fine_locked, frequent_read;
+    int number_of_locks;
     int is_decentralized_counters;
     int is_decentralized_counters_option;
+    int is_explicit_lock_granularity;
+    int is_write_concurrency_auto;
     int cret;
     DbTableMethod* meth;
 
@@ -2276,6 +2283,9 @@ BIF_RETTYPE ets_new_2(BIF_ALIST_2)
     heir = am_none;
     heir_data = (UWord) am_undefined;
     is_compressed = erts_ets_always_compress;
+    number_of_locks = -1;
+    is_explicit_lock_granularity = 0;
+    is_write_concurrency_auto = 0;
 
     list = BIF_ARG_2;
     while(is_list(list)) {
@@ -2301,10 +2311,42 @@ BIF_RETTYPE ets_new_2(BIF_ALIST_2)
 		    keypos = signed_val(tp[2]);
 		}
 		else if (tp[1] == am_write_concurrency) {
-                    if (tp[2] == am_true) {
+                    if (tp[2] == am_auto) {
+                        is_decentralized_counters = 1;
+                        is_write_concurrency_auto = 1;
                         is_fine_locked = 1;
+                        is_explicit_lock_granularity = 0;
+                        number_of_locks = -1;
+                    } else if (tp[2] == am_true) {
+                        if (!(status & DB_ORDERED_SET)) {
+                            is_decentralized_counters = 0;
+                        }
+                        is_fine_locked = 1;
+                        is_explicit_lock_granularity = 0;
+                        is_write_concurrency_auto = 0;
+                        number_of_locks = -1;
                     } else if (tp[2] == am_false) {
                         is_fine_locked = 0;
+                        is_explicit_lock_granularity = 0;
+                        is_write_concurrency_auto = 0;
+                        number_of_locks = -1;
+                    } else if (is_tuple(tp[2])) {
+                        Eterm *stp = tuple_val(tp[2]);
+                        Sint number_of_locks_param;
+                        if (arityval(stp[0]) == 2 &&
+                            stp[1] == am_debug_hash_fixed_number_of_locks &&
+                            is_integer(stp[2]) &&
+                            term_to_Sint(stp[2], &number_of_locks_param) &&
+                            number_of_locks_param >= DB_WRITE_CONCURRENCY_MIN_LOCKS &&
+                            number_of_locks_param <= DB_WRITE_CONCURRENCY_MAX_LOCKS) {
+
+                            is_decentralized_counters = 1;
+                            is_fine_locked = 1;
+                            is_explicit_lock_granularity = 1;
+                            is_write_concurrency_auto = 0;
+                            number_of_locks = number_of_locks_param;
+
+                        } else break;
                     } else break;
                     if (DB_LOCK_FREE(NULL))
 			is_fine_locked = 0;
@@ -2368,15 +2410,43 @@ BIF_RETTYPE ets_new_2(BIF_ALIST_2)
         status |= DB_CA_ORDERED_SET;
         status &= ~(DB_SET | DB_BAG | DB_DUPLICATE_BAG | DB_ORDERED_SET);
         status |= DB_FINE_LOCKED;
+        if (is_explicit_lock_granularity) {
+            /*
+             * The hidden debug option to explicitly set the number of locks,
+             * currently doesn't make sense for ordered_set.
+             */
+            BIF_ERROR(BIF_P, BADARG);
+        } else if (is_write_concurrency_auto) {
+            /*
+             * ordered_set tables that are configured with
+             * {write_concurrency, true} or {write_concurrency, auto}
+             * currently get the same implementation but we record
+             * that the auto option was used anyway so that
+             * ets:info(T, write_concurrency) can return auto when the
+             * table has been configured with {write_concurrency,
+             * auto}.
+             */
+            status |=  DB_FINE_LOCKED_AUTO;
+        }
     }
     else if (IS_HASH_TABLE(status)) {
 	meth = &db_hash;
 	if (is_fine_locked && !(status & DB_PRIVATE)) {
 	    status |= DB_FINE_LOCKED;
-	}
+            if (is_explicit_lock_granularity) {
+                status |=  DB_EXPLICIT_LOCK_GRANULARITY;
+            } else if (is_write_concurrency_auto) {
+                status |=  DB_FINE_LOCKED_AUTO;
+            }
+	} else {
+            number_of_locks = -1;
+        }
     }
     else if (IS_TREE_TABLE(status)) {
 	meth = &db_tree;
+        if (is_explicit_lock_granularity) {
+            BIF_ERROR(BIF_P, BADARG);
+        }
     }
     else {
 	BIF_ERROR(BIF_P, BADARG);
@@ -2423,6 +2493,10 @@ BIF_RETTYPE ets_new_2(BIF_ALIST_2)
     tb->common.dbg_force_trap = erts_ets_dbg_force_trap;
 #endif
 
+    if (IS_HASH_TABLE(status)) {
+        DbTableHash* hash_db = (DbTableHash*) tb;
+        hash_db->nlocks = number_of_locks;
+    }
     cret = meth->db_create(BIF_P, tb);
     ASSERT(cret == DB_ERROR_NONE); (void)cret;
 
@@ -3197,12 +3271,21 @@ ets_all_reply(ErtsSchedulerData *esdp, ErtsEtsAllReq **reqpp,
 }
 
 int
-erts_handle_yielded_ets_all_request(ErtsSchedulerData *esdp,
-                                    ErtsEtsAllYieldData *eaydp)
+erts_handle_yielded_ets_all_request(ErtsAuxWorkData *awdp)
 {
-    int ix = (int) esdp->no - 1;
-    int yc = ERTS_ETS_ALL_TB_YCNT;
+    ErtsSchedulerData *esdp;
+    ErtsEtsAllYieldData *eaydp;
+    int ix, yc;
 
+    esdp = awdp->esdp;
+    /* only on normal scheduler threads... */
+    if (!esdp || esdp->type != ERTS_SCHED_NORMAL)
+        return 0;
+
+    eaydp = &awdp->yield.ets_all;
+    ix = (int) esdp->no - 1;
+    yc = ERTS_ETS_ALL_TB_YCNT;
+    
     while (1) {
         if (!eaydp->ongoing) {
             ErtsEtsAllReq *ongoing;
@@ -3249,7 +3332,7 @@ handle_ets_all_request(void *vreq)
             eayp->ongoing = req;
             eayp->hfrag = hf;
             eayp->tab = tb;
-            erts_notify_new_aux_yield_work(esdp);
+            erts_more_yield_aux_work(&esdp->aux_work_data);
         }
     }
     else {
@@ -3282,6 +3365,7 @@ BIF_RETTYPE ets_internal_request_all_0(BIF_ALIST_0)
 
     if (erts_no_schedulers > 1)
 	erts_schedule_multi_misc_aux_work(1,
+                                          1,
 					  erts_no_schedulers,
                                           handle_ets_all_request,
 					  (void *) req);
@@ -5024,7 +5108,20 @@ static Eterm table_info(Process* p, DbTable* tb, Eterm What)
 	else if (tb->common.status & DB_PUBLIC)
 	    ret = am_public;
     } else if (What == am_write_concurrency) {
-        ret = tb->common.status & DB_FINE_LOCKED ? am_true : am_false;
+        if ((tb->common.status & DB_FINE_LOCKED) &&
+            (tb->common.status & (DB_SET | DB_BAG | DB_DUPLICATE_BAG)) &&
+            (tb->common.status & DB_EXPLICIT_LOCK_GRANULARITY)) {
+            Eterm* hp    = HAlloc(p, 3);
+            ret   = make_tuple(hp);
+            *hp++ = make_arityval(2);
+            *hp++ = am_debug_hash_fixed_number_of_locks;
+            *hp++ = erts_make_integer(tb->hash.nlocks, p);
+        } else if ((tb->common.status & DB_FINE_LOCKED) &&
+                   (tb->common.status & DB_FINE_LOCKED_AUTO)) {
+            ret = am_auto;
+        } else {
+            ret = tb->common.status &  DB_FINE_LOCKED ? am_true : am_false;
+        }
     } else if (What == am_read_concurrency) {
         ret = tb->common.status & DB_FREQ_READ ? am_true : am_false;
     } else if (What == am_name) {
@@ -5353,7 +5450,7 @@ static void lcnt_update_db_locks_per_sched(void *enable) {
 }
 
 void erts_lcnt_update_db_locks(int enable) {
-    erts_schedule_multi_misc_aux_work(0, erts_no_schedulers,
+    erts_schedule_multi_misc_aux_work(0, 1, erts_no_schedulers,
         &lcnt_update_db_locks_per_sched, (void*)(UWord)enable);
 }
 #endif /* ERTS_ENABLE_LOCK_COUNT */
