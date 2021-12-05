@@ -182,6 +182,7 @@ groups() ->
      {all,                  [], all_cases()},
      {start_and_stop_tests, [], start_and_stop_tests_cases()},
      {misc_tests,           [], misc_tests_cases()},
+     {usm_priv_aes_tests,   [], usm_priv_aes_tests_cases()},
      {user_tests,           [], user_tests_cases()},
      {agent_tests,          [], agent_tests_cases()},
      {request_tests,        [], request_tests_cases()},
@@ -212,16 +213,17 @@ inet_backend_socket_cases() ->
 
 all_cases() -> 
     [
-     {group, start_and_stop_tests}, 
-     {group, misc_tests}, 
-     {group, user_tests}, 
-     {group, agent_tests}, 
-     {group, request_tests}, 
-     {group, request_tests_mt}, 
-     {group, event_tests}, 
-     {group, event_tests_mt}, 
-     discovery, 
-     {group, tickets}, 
+     {group, start_and_stop_tests},
+     {group, misc_tests},
+     {group, usm_priv_aes_tests},
+     {group, user_tests},
+     {group, agent_tests},
+     {group, request_tests},
+     {group, request_tests_mt},
+     {group, event_tests},
+     {group, event_tests_mt},
+     discovery,
+     {group, tickets},
      {group, ipv6},
      {group, ipv6_mt},
      {group, v3}
@@ -241,6 +243,11 @@ start_and_stop_tests_cases() ->
 misc_tests_cases() ->
     [
      info,
+     {group, usm_priv_aes_tests}
+    ].
+
+usm_priv_aes_tests_cases() ->
+    [
      usm_priv_aes,
      usm_sha224_priv_aes,
      usm_sha256_priv_aes,
@@ -480,6 +487,14 @@ init_per_group2(ipv6 = GroupName, Config) ->
     init_per_group_ipv6(GroupName, Config);
 %% init_per_group2(v3 = GroupName, Config) ->
 %%     ?LIB:init_group_top_dir(GroupName, Config);
+init_per_group2(usm_priv_aes_tests = GroupName, Config) ->
+    %% Check crypto support
+    case snmp_misc:is_crypto_supported(aes_128_cfb128) of
+        true ->
+            ?LIB:init_group_top_dir(GroupName, Config);
+        false ->
+            throw({skip, {not_supported, aes_128_cfb128}})
+    end;
 init_per_group2(GroupName, Config) ->
     ?LIB:init_group_top_dir(GroupName, Config).
 
@@ -797,12 +812,18 @@ end_per_testcase(Case, Config) when is_list(Config) ->
     Conf2  = end_per_testcase2(Case, Conf1),
 
     ?IPRINT("end_per_testcase -> done with"
-            "~n   Condif: ~p"
+            "~n   Config: ~p"
             "~n   Nodes:  ~p", [Conf2, erlang:nodes()]),
 
     Conf2.
 
-end_per_testcase2(simple_v3_exchange = _Case, Config) ->
+end_per_testcase2(Case, Config)
+  when ((Case =:= simple_v3_exchange_md5)    orelse
+        (Case =:= simple_v3_exchange_sha)    orelse
+        (Case =:= simple_v3_exchange_sha224) orelse
+        (Case =:= simple_v3_exchange_sha256) orelse
+        (Case =:= simple_v3_exchange_sha384) orelse
+        (Case =:= simple_v3_exchange_sha512)) ->
     Conf1 = fin_mgr_user_data2(Config),
     Conf2 = fin_mgr_user(Conf1),
     Conf3 = fin_v3_manager(Conf2),
@@ -1646,7 +1667,7 @@ usm_sha224_priv_aes(Config) when is_list(Config) ->
                    ?SLEEP(1000), % Give it time to settle
                    ok
            end,
-    ?TC_TRY(usm_priv_aes, Pre, Case, Post).
+    ?TC_TRY(usm_sha224_priv_aes, Pre, Case, Post).
 
 
 %%======================================================================
@@ -1679,7 +1700,7 @@ usm_sha256_priv_aes(Config) when is_list(Config) ->
                    ?SLEEP(1000), % Give it time to settle
                    ok
            end,
-    ?TC_TRY(usm_priv_aes, Pre, Case, Post).
+    ?TC_TRY(usm_sha256_priv_aes, Pre, Case, Post).
 
 
 %%======================================================================
@@ -1712,7 +1733,7 @@ usm_sha384_priv_aes(Config) when is_list(Config) ->
                    ?SLEEP(1000), % Give it time to settle
                    ok
            end,
-    ?TC_TRY(usm_priv_aes, Pre, Case, Post).
+    ?TC_TRY(usm_sha384_priv_aes, Pre, Case, Post).
 
 
 %%======================================================================
@@ -1745,7 +1766,7 @@ usm_sha512_priv_aes(Config) when is_list(Config) ->
                    ?SLEEP(1000), % Give it time to settle
                    ok
            end,
-    ?TC_TRY(usm_priv_aes, Pre, Case, Post).
+    ?TC_TRY(usm_sha512_priv_aes, Pre, Case, Post).
 
 
 select_auth_proto(md5)    -> usmHMACMD5AuthProtocol;
@@ -5869,8 +5890,8 @@ mgr_user_which_own_agents(Node) ->
 mgr_user_load_mib(Node, Mib) ->
     rcall(Node, snmp_manager_user, load_mib, [Mib]).
 
-mgr_user_sync_get2(Node, TargetName, Oids) when is_list(TargetName) ->
-    mgr_user_sync_get2(Node, TargetName, Oids, []).
+%% mgr_user_sync_get2(Node, TargetName, Oids) when is_list(TargetName) ->
+%%     mgr_user_sync_get2(Node, TargetName, Oids, []).
 
 mgr_user_sync_get2(Node, TargetName, Oids, SendOpts) when is_list(TargetName) ->
     rcall(Node, snmp_manager_user, sync_get2, [TargetName, Oids, SendOpts]).

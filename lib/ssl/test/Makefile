@@ -56,6 +56,7 @@ MODULES = \
 	openssl_sni_SUITE\
 	ssl_mfl_SUITE\
 	openssl_mfl_SUITE\
+	ssl_reject_SUITE\
         ssl_renegotiate_SUITE\
 	openssl_renegotiate_SUITE\
 	openssl_reject_SUITE\
@@ -101,6 +102,7 @@ MODULES = \
 ERL_FILES = $(MODULES:%=%.erl)
 
 HRL_FILES = \
+	ssl_test_lib.hrl\
 	ssl_dist_test_lib.hrl
 
 HRL_FILES_SRC = \

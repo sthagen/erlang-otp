@@ -1,8 +1,8 @@
 /*
  * %CopyrightBegin%
- * 
- * Copyright Ericsson AB 1997-2016. All Rights Reserved.
- * 
+ *
+ * Copyright Ericsson AB 2010-2021. All Rights Reserved.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -14,29 +14,16 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * %CopyrightEnd%
  */
-/*
- * System dependent driver declarations
- */
 
-#ifndef __DRIVER_INT_H__
-#define __DRIVER_INT_H__
+#ifndef E_PBKDF2_HMAC_H__
+#define E_PBKDF2_HMAC_H__ 1
 
-#ifdef HAVE_SYS_UIO_H
-#include <sys/types.h>
-#include <sys/uio.h>
+#include "common.h"
 
-typedef struct iovec SysIOVec;
+ERL_NIF_TERM pbkdf2_hmac_nif(ErlNifEnv* env, int argc,
+                             const ERL_NIF_TERM argv[]);
 
-#else
-
-typedef struct {
-    char* iov_base;
-    int   iov_len;
-} SysIOVec;
-
-#endif
-
-#endif
+#endif /* E_PBKDF2_HMAC_H__ */

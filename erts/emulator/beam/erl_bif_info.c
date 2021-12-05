@@ -431,7 +431,7 @@ static int make_one_lnk_element(ErtsLink *lnk, void * vpllc, Sint reds)
         break;
     }
     default:
-        ERTS_INTERNAL_ERROR("Unkown link type");
+        ERTS_INTERNAL_ERROR("Unknown link type");
         t = am_undefined;
         break;
     }
@@ -1300,7 +1300,7 @@ send_signal: {
         flags |= ERTS_PI_FLAG_REQUEST_FOR_OTHER;
         need_msgq_len = (flags & ERTS_PI_FLAG_NEED_MSGQ_LEN);
         /*
-         * Set save pointer to the end of the message queue so we wont
+         * Set save pointer to the end of the message queue so we won't
          * have to scan the whole* message queue for the result. Note
          * that caller unconditionally has to enter a receive only
          * matching messages containing 'ref', or restore save pointer.
@@ -3564,7 +3564,9 @@ fun_info_2(BIF_ALIST_2)
         hp = HAlloc(p, 3);
         break;
     case am_module:
-        val = mfa->module;
+        /* Unloaded funs must report their module even though we can't find
+         * their full MFA. */
+        val = (mfa != NULL) ? mfa->module : fe->module;
         hp = HAlloc(p, 3);
         break;
     case am_new_index:
@@ -3612,8 +3614,9 @@ fun_info_2(BIF_ALIST_2)
         hp = HAlloc(p, 3);
         break;
     case am_name:
+        /* Name must be `[]` for unloaded funs. */
+        val = (mfa != NULL) ? mfa->function : NIL;
         hp = HAlloc(p, 3);
-        val = mfa->function;
         break;
     default:
         BIF_ERROR(p, BADARG);
@@ -3627,22 +3630,32 @@ fun_info_mfa_1(BIF_ALIST_1)
 {
     Process* p = BIF_P;
     Eterm fun = BIF_ARG_1;
-    Eterm* hp;
 
     if (is_any_fun(fun)) {
         const ErtsCodeMFA *mfa;
         ErlFunThing* funp;
+        Eterm* hp;
 
         funp = (ErlFunThing *) fun_val(fun);
+        hp = HAlloc(p, 4);
 
         if (is_local_fun(funp)) {
             mfa = erts_get_fun_mfa(funp->entry.fun);
+
+            if (mfa == NULL) {
+                /* Unloaded funs must report their module even though we can't
+                 * find their full MFA, and their function name must be
+                 * `[]`. */
+                BIF_RET(TUPLE3(hp,
+                               funp->entry.fun->module,
+                               NIL,
+                               make_small(funp->arity)));
+            }
         } else {
             ASSERT(is_external_fun(funp) && funp->next == NULL);
             mfa = &(funp->entry.exp)->info.mfa;
         }
 
-        hp = HAlloc(p, 4);
         BIF_RET(TUPLE3(hp,
                        mfa->module,
                        mfa->function,
