@@ -3,7 +3,7 @@
      #
      # %CopyrightBegin%
      #
-     # Copyright Ericsson AB 2009-2018. All Rights Reserved.
+     # Copyright Ericsson AB 2009-2021. All Rights Reserved.
      #
      # Licensed under the Apache License, Version 2.0 (the "License");
      # you may not use this file except in compliance with the License.
@@ -752,7 +752,7 @@
   <xsl:template match="marker" mode="local_type">
     <xsl:param name="local_types"/>
     <xsl:param name="global_types"/>
-    <!-- Craete no anchor -->
+    <!-- Create no anchor -->
     <!-- It would be possible to create a link to the global type
          (if there is one), but that would mean even more code...
     -->

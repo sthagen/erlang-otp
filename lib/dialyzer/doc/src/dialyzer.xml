@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>2006</year><year>2019</year>
+      <year>2006</year><year>2021</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -371,13 +371,6 @@ dialyzer --plts plt_1 ... plt_n -- files_to_analyze</code>
       <tag><c>-Wno_unused</c></tag>
       <item>
         <p>Suppress warnings for unused functions.</p>
-      </item>
-      <tag><c>-Wrace_conditions</c> (***)</tag>
-      <item>
-        <p>Include warnings for possible race conditions. Notice that the
-          analysis that finds data races performs intra-procedural data flow
-          analysis and can sometimes explode in time. Enable it at your own
-          risk.</p>
       </item>
       <tag><c>-Wunderspecs</c> (***)</tag>
       <item>

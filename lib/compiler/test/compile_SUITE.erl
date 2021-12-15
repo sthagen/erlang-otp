@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -428,7 +428,7 @@ makedep_canonicalize_result(Mf, DataDir) ->
     %% Replace the Datadir by "$(srcdir)".
     Mf1 = re:replace(Mf0, DataDir, "$(srcdir)/",
       [global,multiline,{return,list}]),
-    %% Long lines are splitted, put back everything on one line.
+    %% Long lines are split, put back everything on one line.
     Mf2 = re:replace(Mf1, "\\\\\n  ", "", [global,multiline,{return,list}]),
     list_to_binary(Mf2).
 
@@ -666,7 +666,7 @@ encrypted_abstr(Config) when is_list(Config) ->
 		  %% Now run the tests that require crypto.
 		  encrypted_abstr_1(Simple, Target),
 		  ok = file:delete(Target),
-		  ok = file:del_dir(filename:dirname(Target))
+		  ok = file:del_dir_r(filename:dirname(Target))
 	  end,
     
     %% Cleanup.
@@ -710,22 +710,77 @@ encrypted_abstr_1(Simple, Target) ->
     error = compile:file(Simple,
 			       [debug_info,{debug_info_key,42},report]),
 
-    %% Place the crypto key in .erlang.crypt.
     beam_lib:clear_crypto_key_fun(),
-    {ok,OldCwd} = file:get_cwd(),
-    ok = file:set_cwd(TargetDir),
 
-    error = compile:file(Simple, [encrypt_debug_info,report]),
+    %% Test to place the crypto file on disk. The test is dependent on the
+    %% $HOME of the emulator, so we do this test in another node.
+    TestHome = filename:join(TargetDir, "home"),
+    filelib:ensure_dir(TestHome),
+    HomeEnv = case os:type() of
+                  {win32, _} ->
+                      [Drive | Path] = filename:split(TestHome),
+                      [{"APPDATA", filename:join(TestHome,"AppData")},
+                       {"HOMEDRIVE", Drive}, {"HOMEPATH", Path}];
+                  _ ->
+                      [{"HOME", TestHome}]
+              end,
 
-    NewKey = "better use another key here",
-    write_crypt_file(["[{debug_info,des3_cbc,simple,\"",NewKey,"\"}].\n"]),
-    {ok,simple} = compile:file(Simple, [encrypt_debug_info,report]),
-    verify_abstract("simple.beam", erl_abstract_code),
-    ok = file:delete(".erlang.crypt"),
-    beam_lib:clear_crypto_key_fun(),
-    {error,beam_lib,{key_missing_or_invalid,"simple.beam",abstract_code}} =
-	beam_lib:chunks("simple.beam", [abstract_code]),
-    ok = file:set_cwd(OldCwd),
+    {ok, Peer, Node} = ?CT_PEER(#{ env => HomeEnv }),
+
+    erpc:call(
+      Node,
+      fun() ->
+              {ok,OldCwd} = file:get_cwd(),
+              ok = file:set_cwd(TargetDir),
+
+              error = compile:file(Simple, [encrypt_debug_info,report]),
+
+              CWDKey = "better use another key here",
+              CWDFile = ".erlang.crypt",
+              XDGKey = "better use yet another key here",
+              XDGFile = filename:join(
+                          filename:basedir(user_config,"erlang"),
+                          ".erlang.crypt"),
+              HOMEKey = "better use the home key here",
+              HOMEFile = filename:join(TestHome,".erlang.crypt"),
+
+              write_crypt_file(CWDFile, CWDKey),
+              write_crypt_file(XDGFile, XDGKey),
+              write_crypt_file(HOMEFile, HOMEKey),
+
+              %% First we test that .erlang.crypt in cwd works
+              {ok,simple} = compile:file(Simple, [encrypt_debug_info,report]),
+              verify_abstract("simple.beam", erl_abstract_code),
+              ok = file:delete(CWDFile),
+              beam_lib:clear_crypto_key_fun(),
+
+              %% Then we test that .erlang.crypt in HOME does **not** work
+              {error,beam_lib,{key_missing_or_invalid,"simple.beam",abstract_code}} =
+                  beam_lib:chunks("simple.beam", [abstract_code]),
+
+              %% Then we test that .erlang.crypt in HOME does work
+              {ok,simple} = compile:file(Simple, [encrypt_debug_info,report]),
+              verify_abstract("simple.beam", erl_abstract_code),
+              ok = file:delete(HOMEFile),
+              beam_lib:clear_crypto_key_fun(),
+
+              %% Then we test that .erlang.crypt in XDG does **not** work
+              {error,beam_lib,{key_missing_or_invalid,"simple.beam",abstract_code}} =
+                  beam_lib:chunks("simple.beam", [abstract_code]),
+
+
+              %% Then we test that .erlang.crypt in XDG does work
+              {ok,simple} = compile:file(Simple, [encrypt_debug_info,report]),
+              verify_abstract("simple.beam", erl_abstract_code),
+              ok = file:delete(XDGFile),
+
+              beam_lib:clear_crypto_key_fun(),
+              {error,beam_lib,{key_missing_or_invalid,"simple.beam",abstract_code}} =
+                  beam_lib:chunks("simple.beam", [abstract_code])
+
+      end),
+
+    peer:stop(Peer),
 
     %% Test key compatibility by reading a BEAM file produced before
     %% the update to the new crypto functions.
@@ -738,11 +793,11 @@ encrypted_abstr_1(Simple, Target) ->
 
     ok.
 
-
-write_crypt_file(Contents0) ->
-    Contents = list_to_binary([Contents0]),
-    io:format("~s\n", [binary_to_list(Contents)]),
-    ok = file:write_file(".erlang.crypt", Contents).
+write_crypt_file(File, Key) ->
+    Contents = ["[{debug_info,des3_cbc,simple,\"",Key,"\"}].\n"],
+    io:format("~s: ~s\n", [File, Contents]),
+    ok = filelib:ensure_dir(File),
+    ok = file:write_file(File, Contents).
 
 encrypted_abstr_no_crypto(Simple, Target) ->
     io:format("simpe: ~p~n", [Simple]),
@@ -774,7 +829,7 @@ install_crypto_key(Key) ->
 	end,
     ok = beam_lib:crypto_key_fun(F).
 
-%% Miscellanous tests, mainly to get better coverage.
+%% Miscellaneous tests, mainly to get better coverage.
 debug_info(erlang_v1, Module, ok, _Opts) ->
     {ok, [Module]};
 debug_info(erlang_v1, _Module, error, _Opts) ->

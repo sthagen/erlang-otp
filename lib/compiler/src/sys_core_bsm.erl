@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2017-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2017-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ function([{#c_var{name={F,Arity}}=Name,B0}|Fs]) ->
 function([]) ->
     [].
 
-%%% Reorder bit syntax matching to faciliate optimization in further passes.
+%%% Reorder bit syntax matching to facilitate optimization in further passes.
 
 bsm_reorder(#c_case{arg=#c_var{}=V}=Case) ->
     bsm_reorder_1([V], Case);

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -311,7 +311,7 @@ abnormal_suicide_exit(Config) when is_list(Config) ->
 	      Other -> ct:fail({bad_message, Other})
 	  end.
 
-%% Tests that exit(self(), die) cannot be catched.
+%% Tests that exit(self(), die) cannot be caught.
 t_exit_2_catch(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     Pid = fun_spawn(fun() -> catch exit(self(), die) end),
@@ -1354,7 +1354,7 @@ yield(Config) when is_list(Config) ->
 	Level when is_integer(Level) ->
 	    {skipped,
 	     "Modified timing (level " ++ integer_to_list(Level)
-	     ++ ") is enabled. Testcase gets messed up by modfied "
+	     ++ ") is enabled. Testcase gets messed up by modified "
 	     "timing."};
 	_ ->
 	    MS = erlang:system_flag(multi_scheduling, block_normal),
@@ -3146,7 +3146,7 @@ spawn_against_ei_node(Config) when is_list(Config) ->
     end.
 
 spawn_against_old_node(Config) when is_list(Config) ->
-    %% Same spawn tests againts a two releases old node as against
+    %% Same spawn tests against a two releases old node as against
     %% ei node above
     OldRel = integer_to_list(list_to_integer(erlang:system_info(otp_release))-2),
     OldRelName = OldRel ++ "_latest",

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2005-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1106,7 +1106,7 @@ group_leader_prio_test(Dirty) ->
                    end,
                    100};
               true ->
-                  %% These processes wont handle incoming signals by
+                  %% These processes won't handle incoming signals by
                   %% them selves since they are stuck on dirty schedulers
                   %% when we try to change group leader. A dirty process
                   %% signal handler process (system process) will be notified

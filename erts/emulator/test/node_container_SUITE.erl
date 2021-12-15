@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1042,14 +1042,14 @@ nc_refc_check(Node) when is_atom(Node) ->
                               Self ! {Ref, ErrMsg, failed},
                               exit(normal)
                       end),
-                    Self ! {Ref, succeded}
+                    Self ! {Ref, succeeded}
             end),
     receive
         {Ref, ErrorMsg, failed} ->
             io:format("~s~n", [ErrorMsg]),
             ct:fail(reference_count_check_failed);
-        {Ref, succeded} ->
-            io:format("Reference count check of node ~w succeded!~n", [Node]),
+        {Ref, succeeded} ->
+            io:format("Reference count check of node ~w succeeded!~n", [Node]),
             unlink(Pid),
             ok
     end.

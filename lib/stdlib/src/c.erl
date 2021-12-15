@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -792,11 +792,12 @@ lm() ->
 -spec erlangrc() -> {ok, file:filename()} | {error, term()}.
 
 erlangrc() ->
+    UserConfig = filename:basedir(user_config,"erlang"),
     case init:get_argument(home) of
-	{ok,[[Home]]} ->
-	    erlangrc([Home]);
-	_ ->
-            {error, enoent}
+        {ok,[[Home]]} ->
+            erlangrc([Home, UserConfig]);
+        _ ->
+            erlangrc([UserConfig])
     end.
 
 -spec erlangrc(PathList) -> {ok, file:filename()} | {error, term()}

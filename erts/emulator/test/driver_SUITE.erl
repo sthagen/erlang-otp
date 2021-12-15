@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -537,7 +537,7 @@ timer_delay(Config) when is_list(Config) ->
     stop_driver(Port, Name),
     ok.
 
-%% Test that driver_set_timer with new timout really changes
+%% Test that driver_set_timer with new timeout really changes
 %% the timer (ticket OTP-5942), it didn't work before
 
 timer_change(Config) when is_list(Config) ->
@@ -2177,7 +2177,7 @@ consume_timeslice(Config) when is_list(Config) ->
     %% scheduling counts.
     %%
     %% When signal is delivered immediately we must take into account
-    %% that process and port are "virtualy" scheduled out and in
+    %% that process and port are "virtually" scheduled out and in
     %% in the trace generated.
     %%
     %% Port ! {_, {command, _}, and port_command() differs. The send

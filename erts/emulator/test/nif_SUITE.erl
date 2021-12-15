@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -3397,7 +3397,7 @@ nif_whereis(Config) when is_list(Config) ->
 nif_whereis_parallel(Config) when is_list(Config) ->
     ensure_lib_loaded(Config),
 
-    %% try to be at least a little asymetric
+    %% try to be at least a little asymmetric
     NProcs = trunc(3.7 * erlang:system_info(schedulers)),
     NSeq = lists:seq(1, NProcs),
     Names = [list_to_atom("nif_whereis_proc_" ++ integer_to_list(N))

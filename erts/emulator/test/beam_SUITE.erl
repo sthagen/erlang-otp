@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -239,7 +239,7 @@ heap_sizes(Config) when is_list(Config) ->
 
     %% Verify that the largest heap size consists of
     %%  - 31 bits of bytes on 32 bits arch
-    %%  - atleast 52 bits of bytes (48 is the maximum virtual address)
+    %%  - at least 52 bits of bytes (48 is the maximum virtual address)
     %%    and at the most 63 bits on 64 bit archs
     %% heap sizes are in words
     case erlang:system_info(wordsize) of

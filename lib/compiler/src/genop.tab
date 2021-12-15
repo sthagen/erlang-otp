@@ -1,7 +1,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1998-2018. All Rights Reserved.
+# Copyright Ericsson AB 1998-2021. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -170,7 +170,7 @@ BEAM_FORMAT_NUMBER=0
 ##       receive loop at Label.
 25: wait/1
 
-## @spec wait_timeout Lable Time
+## @spec wait_timeout Label Time
 ## @doc  Sets up a timeout of Time milliseconds and saves the address of the
 ##       following instruction as the entry point if the timeout triggers.
 26: wait_timeout/2
@@ -192,7 +192,7 @@ BEAM_FORMAT_NUMBER=0
 38: -int_bnot/3
 
 #
-# Comparision operators.
+# Comparison operators.
 #
 
 ## @spec is_lt Lbl Arg1 Arg2

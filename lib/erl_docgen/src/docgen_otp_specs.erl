@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -164,7 +164,7 @@ collect_localdef(E = #xmlElement{content = Es}, Opts) ->
     {Name,N0,format_type(N0, get_elem(type, Es), Opts)}.
 
 %% "A = t(), B = t()" is coalesced into "A = B = t()".
-%% Names as B above are kept, but the formated string is empty.
+%% Names as B above are kept, but the formatted string is empty.
 coalesce_local_defs([], _Last) ->
     [];
 coalesce_local_defs([{Name,N0,TypeS} | L], Last) when Name =:= N0 ->

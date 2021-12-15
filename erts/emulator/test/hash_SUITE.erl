@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2000-2016. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 %%
 %% Verifying erlang:phash/2. And now also phash2/2, to some extent.
 %% Test the hashing algorithm for integer numbers in 2 ways:
-%% 1 Test that numbers in diferent sequences get sufficiently spread
+%% 1 Test that numbers in different sequences get sufficiently spread
 %%   in a "bit pattern" way (modulo 256 etc).
 %% 2 Test that numbers are correctly hashed compared to a reference implementation,
 %%   regardless of their internal representation. The hashing algorithm should never 

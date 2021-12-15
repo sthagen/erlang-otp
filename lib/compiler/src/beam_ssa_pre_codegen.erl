@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2018-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2018-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -712,7 +712,7 @@ sanitize_instr(phi, PhiArgs, _I) ->
             %% turned off.)
             %%
             %% This phi node always produces the same literal value.
-            %% We must do constant progation of the value to ensure
+            %% We must do constant propagation of the value to ensure
             %% that we can sanitize any instructions that don't accept
             %% literals (such as `get_hd`). This is necessary for
             %% correctness, because beam_ssa_codegen:prefer_xregs/2
@@ -1096,7 +1096,7 @@ place_frames_1([], _, _, Tried, Frames) ->
 
 %% do_place_frame(Label, Blocks, Dominators, Tried0, Frames0) -> {Frames,Tried}.
 %%  Try to place a frame in this block. This function returns
-%%  successfully if it either succeds at placing a frame in this
+%%  successfully if it either succeeds at placing a frame in this
 %%  block, if an ancestor that dominates this block has already placed
 %%  a frame, or if we have already tried to put a frame in this block.
 %%

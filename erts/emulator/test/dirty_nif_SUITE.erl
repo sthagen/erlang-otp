@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -533,7 +533,7 @@ literal_area(Config) when is_list(Config) ->
                   0
           end,
     receive after TMO -> ok end,
-    literal_area_collector_test:check_idle(100),
+    literal_area_collector_test:check_idle(5000),
     {comment, "Waited "++integer_to_list(TMO)++" milliseconds after purge"}.
 
 %%
@@ -644,7 +644,7 @@ nif_whereis(Config) when is_list(Config) ->
 
 nif_whereis_parallel(Config) when is_list(Config) ->
 
-    %% try to be at least a little asymetric
+    %% try to be at least a little asymmetric
     NProcs = trunc(3.5 * erlang:system_info(schedulers)),
     NSeq = lists:seq(1, NProcs),
     Names = [list_to_atom("dirty_nif_whereis_proc_" ++ integer_to_list(N))

@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2014-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2014-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -120,7 +120,7 @@ open_success(Node,Dir) ->
     open_success(Node,Dir,[]).
 
 %% Open a netconf session which is not specified in a config file, and
-%% give som extra options in addition to the test defaults.
+%% give some extra options in addition to the test defaults.
 open_success(Node,Dir,ExtraOpts) when is_list(Dir), is_list(ExtraOpts) ->
     ns(Node,hello,[1]), % tell server to send hello with session id 1
     ns(Node,expect,[hello]), % tell server to expect a hello message from client

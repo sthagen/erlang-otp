@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -2745,7 +2745,7 @@ void() -> #c_literal{val=ok}.
 %%% While optimizing this code fragment, two warnings for useless
 %%% building will be generated: one for the list and one for the tuple
 %%% inside. Before the introduction of column numbers, those two warnings
-%%% would be coalesced to one becuase they had the same line number.
+%%% would be coalesced to one because they had the same line number.
 %%%
 %%% With column numbers, we will need a more sophisticated solution to
 %%% avoid emitting annoying duplicate warnings.

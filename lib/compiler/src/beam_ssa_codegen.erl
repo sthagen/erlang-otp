@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2018-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2018-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -878,7 +878,7 @@ opt_allocate_is([]) -> none.
 %% fix_wait_timeout([Block]) -> [Block].
 %%  In SSA code, the `wait_timeout` instruction is a three-way branch
 %%  (because there will be an exception for a bad timeout value). In
-%%  BEAM code, the potential rasing of an exception for a bad timeout
+%%  BEAM code, the potential raising of an exception for a bad timeout
 %%  duration is not explicitly represented. Thus we will need to
 %%  rewrite the following code:
 %%

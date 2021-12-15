@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -614,7 +614,7 @@ test_events(cfg_error) ->
      {?eh,test_stats,{9,1,{0,18}}},
      {?eh,tc_start,{cfg_error_9_SUITE,tc6}},
      %%! we get ok with tc_done since it's only afterwards
-     %%! end_tc failes the testcase
+     %%! end_tc fails the testcase
      {?eh,tc_done,{cfg_error_9_SUITE,tc6,ok}},
      {?eh,test_stats,{9,2,{0,18}}},
      {?eh,tc_start,{cfg_error_9_SUITE,tc7}},

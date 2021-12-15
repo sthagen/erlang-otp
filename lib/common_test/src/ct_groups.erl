@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -229,7 +229,7 @@ find(Mod, GrNames, TCs, [TC | Gs], Known, Defs, FindAll)
 	    [Case | find(Mod, GrNames, TCs, Gs, Known, Defs, FindAll)]
     end;
 
-%% Unexpeted term in group list
+%% Unexpected term in group list
 find(Mod, _GrNames, _TCs, [BadTerm | _Gs], Known, _Defs, _FindAll) ->
     Where = if length(Known) == 0 ->
 		    atom_to_list(Mod)++":groups/0";

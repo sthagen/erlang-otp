@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1400,7 +1400,7 @@ makedep_output(Code, #compile{options=Opts,ofile=Ofile}=St) ->
 
     if
         is_list(Output) ->
-            %% Write the depedencies to a file.
+            %% Write the dependencies to a file.
             case file:write_file(Output, Code) of
                 ok ->
                     {ok,Code,St};
@@ -1409,7 +1409,7 @@ makedep_output(Code, #compile{options=Opts,ofile=Ofile}=St) ->
                     {error,St#compile{errors=St#compile.errors++[Err]}}
             end;
         true ->
-            %% Write the depedencies to a device.
+            %% Write the dependencies to a device.
             try io:fwrite(Output, "~ts", [Code]) of
                 ok ->
                     {ok,Code,St}

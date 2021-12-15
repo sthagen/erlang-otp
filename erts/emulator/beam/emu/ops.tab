@@ -1,7 +1,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1997-2019. All Rights Reserved.
+# Copyright Ericsson AB 1997-2021. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -668,8 +668,10 @@ test_arity f? xy A
 
 test_arity_get_tuple_element f? x A P x
 
-is_tuple NotTupleFail Tuple=x | is_tagged_tuple WrongRecordFail Tuple Arity Atom => \
-   is_tagged_tuple_ff NotTupleFail WrongRecordFail Tuple Arity Atom
+is_tuple NotTupleFail Src=x | \
+  is_tagged_tuple WrongRecordFail Tuple Arity Atom | \
+  equal(Src, Tuple) => \
+   is_tagged_tuple_ff NotTupleFail WrongRecordFail Src Arity Atom
 
 is_tagged_tuple_ff f? f? rx A a
 

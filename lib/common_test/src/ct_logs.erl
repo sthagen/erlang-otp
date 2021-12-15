@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2003-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -2574,7 +2574,7 @@ sort_and_filter_logdirs2(_,[],Groups) ->
 %% new rundir for Test found, add to (not sorted) list of prev rundirs
 insert_test(Test,IxDir,[{Test,IxDirs}|Groups]) ->
     [{Test,[IxDir|IxDirs]}|Groups];
-%% first occurance of Test
+%% first occurrence of Test
 insert_test(Test,IxDir,[]) ->
     [{Test,[IxDir]}];
 insert_test(Test,IxDir,[TestDir|Groups]) ->

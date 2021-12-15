@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -279,12 +279,12 @@ micro(int_arith) ->
     #micro{function = int_arith,
 	   weight = 3,
 	   loops = 4157,
-	   str = "Small Integer arithmetics"};
+	   str = "Small Integer arithmetic"};
 micro(float_arith) ->
     #micro{function = float_arith,
 	   weight = 1,
 	   loops = 5526,
-	   str = "Float arithmetics"};
+	   str = "Float arithmetic"};
 micro(fcalls) ->
     #micro{function = fcalls,
 	   weight = 5,

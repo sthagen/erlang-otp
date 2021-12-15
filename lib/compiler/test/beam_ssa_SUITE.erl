@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2018-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2018-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -714,7 +714,7 @@ do_beam_ssa_dead_crash(A, B) ->
     %% paths happens to end up in the same place.
     %%
     %% During the simulated execution of this function, the boolean
-    %% varible for a `br` instruction would be replaced with the
+    %% variable for a `br` instruction would be replaced with the
     %% literal atom `nil`, which is not allowed, and would crash the
     %% compiler. In practice, during the actual execution, control
     %% would never be transferred to that `br` instruction when the
@@ -999,7 +999,7 @@ grab_bag_11() ->
         _ -> other
     catch
         _:_ ->
-            catched
+            caught
     end.
 
 grab_bag_12() ->

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2002-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -408,7 +408,7 @@ clear_erl_aflags() ->
 %% path and spaces that separate arguments. The program is quoted to
 %% allow spaces in the path.
 %%
-%% Arguments could exist either if the executable is excplicitly given
+%% Arguments could exist either if the executable is explicitly given
 %% ({prog,String}) or if the -program switch to beam is used and
 %% includes arguments (typically done by cerl in OTP test environment
 %% in order to ensure that slave/peer nodes are started with the same

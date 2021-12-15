@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -2999,14 +2999,18 @@ is_sane_oppenssl_client() ->
     end.
 
 is_sane_oppenssl_pss(rsa_pss_pss) ->
-    case portable_cmd("openssl",["version"]) of        
+    case portable_cmd("openssl",["version"]) of
+        "OpenSSL 3" ++ _ ->
+            true;
         "OpenSSL 1.1.1" ++ Rest ->
             hd(Rest) >= $c;
         _ ->
             false
     end;
 is_sane_oppenssl_pss(rsa_pss_rsae) ->
-    case portable_cmd("openssl",["version"]) of        
+    case portable_cmd("openssl",["version"]) of
+        "OpenSSL 3" ++ _ ->
+            true;
         "OpenSSL 1.1.1" ++ _ ->
             true;
         _ ->
@@ -3307,6 +3311,8 @@ do_supports_ssl_tls_version(Port, Acc) ->
                 "unknown option"  ++ _ ->
                     false;
                 "s_client: Option unknown" ++ _->
+                    false;
+                "s_client: Unknown option: " ++ _->
                     false;
                 Info when length(Info) >= 24 ->
                     ?LOG("~p", [Info]),

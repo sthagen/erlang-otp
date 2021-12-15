@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -671,7 +671,7 @@ t_string_to_integer(Config) when is_list(Config) ->
                   ]),
 
     %% log2 calculation overflow bug in do_integer_to_list (OTP-12624).
-    %% Would crash with segementation fault.
+    %% Would crash with segmentation fault.
     0 = list_to_integer(lists:duplicate(10000000,$0)),
 
     ok.
