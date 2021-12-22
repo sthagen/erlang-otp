@@ -391,6 +391,7 @@ classify_heap_need(is_tagged_tuple) -> neutral;
 classify_heap_need(kill_try_tag) -> gc;
 classify_heap_need(landingpad) -> gc;
 classify_heap_need(match_fail) -> gc;
+classify_heap_need(nif_start) -> neutral;
 classify_heap_need(nop) -> neutral;
 classify_heap_need(new_try_tag) -> gc;
 classify_heap_need(old_make_fun) -> gc;
@@ -1170,6 +1171,12 @@ cg_block([#cg_set{op=get_map_element,dst=Dst0,args=Args0},
     [Dst,Map,Key] = beam_args([Dst0|Args0], St),
     Fail = ensure_label(Fail0, St),
     {[{get_map_elements,Fail,Map,{list,[Key,Dst]}}],St};
+cg_block([#cg_set{op={float,convert},dst=Dst0,args=Args0,anno=Anno},
+          #cg_set{op=succeeded,dst=Bool}], {Bool,Fail}, St) ->
+    {f,0} = bif_fail(Fail),                     %Assertion.
+    [Src] = typed_args(Args0, Anno, St),
+    Dst = beam_arg(Dst0, St),
+    {[line(Anno),{fconv,Src,Dst}], St};
 cg_block([#cg_set{op=Op,dst=Dst0,args=Args0}=I,
           #cg_set{op=succeeded,dst=Bool}], {Bool,Fail}, St) ->
     [Dst|Args] = beam_args([Dst0|Args0], St),
@@ -1735,6 +1742,8 @@ cg_instr(get_tuple_element=Op, [Src,{integer,N}], Dst) ->
     [{Op,Src,N,Dst}];
 cg_instr(has_map_field, [Map,Key], Dst) ->
     [{bif,is_map_key,{f,0},[Key,Map],Dst}];
+cg_instr(nif_start, [], _Dst) ->
+    [nif_start];
 cg_instr(put_list=Op, [Hd,Tl], Dst) ->
     [{Op,Hd,Tl,Dst}];
 cg_instr(nop, [], _Dst) ->
@@ -1756,9 +1765,6 @@ cg_instr(resume, [A,B], _Dst) ->
 
 cg_test(bs_skip, Fail, Args, _Dst, I) ->
     cg_bs_skip(Fail, Args, I);
-cg_test({float,convert}, Fail, [Src], Dst, #cg_set{anno=Anno}) ->
-    {f,0} = Fail,                               %Assertion.
-    [line(Anno),{fconv,Src,Dst}];
 cg_test({float,Op0}, Fail, Args, Dst, #cg_set{anno=Anno}) ->
     Op = case Op0 of
              '+' -> fadd;
