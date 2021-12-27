@@ -58,6 +58,8 @@
          keylog_connection_info/1,
          versions/0,
          versions/1,
+         versions_option_based_on_sni/0,
+         versions_option_based_on_sni/1,
          active_n/0,
          active_n/1,
          dh_params/0,
@@ -177,7 +179,9 @@
 	 suppress_warn_verify_none/0,
          suppress_warn_verify_none/1,
          check_random_nonce/0,
-         check_random_nonce/1
+         check_random_nonce/1,
+         cipher_listing/0,
+         cipher_listing/1
         ]).
 
 %% Apply export
@@ -200,6 +204,7 @@
          ssl_getstat/1,
 	 log/2,
          get_connection_information/3,
+         protocol_version_check/2,
          %%TODO Keep?
          run_error_server/1,
          run_error_server_close/1,
@@ -249,7 +254,8 @@ groups() ->
 since_1_2() ->
     [
      conf_signature_algs,
-     no_common_signature_algs
+     no_common_signature_algs,
+     versions_option_based_on_sni
     ].
 
 pre_1_3() ->
@@ -303,7 +309,8 @@ gen_api_tests() ->
      getstat,
      warn_verify_none,
      suppress_warn_verify_none,
-     check_random_nonce
+     check_random_nonce,
+     cipher_listing
     ].
 
 handshake_paus_tests() ->
@@ -987,6 +994,44 @@ versions() ->
 versions(Config) when is_list(Config) -> 
     [_|_] = Versions = ssl:versions(),
     ct:log("~p~n", [Versions]).
+
+%%--------------------------------------------------------------------
+
+versions_option_based_on_sni() ->
+    [{doc,"Test that SNI versions option is selected over defalt versions"}].
+
+versions_option_based_on_sni(Config) when is_list(Config) ->
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_opts, Config),
+    ServerOpts = ssl_test_lib:ssl_options(server_rsa_opts, Config),
+    TestVersion = ssl_test_lib:protocol_version(Config),
+    {Version, Versions} = test_versions_for_option_based_on_sni(TestVersion),
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+
+    SNI = net_adm:localhost(),
+    Fun = fun(ServerName) ->
+              case ServerName of
+                  SNI ->
+                      [{versions, [Version]} | ServerOpts];
+                  _ ->
+                      ServerOpts
+              end
+          end,
+
+    Server = ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+					{from, self()},
+					{mfa, {?MODULE, protocol_version_check, [Version]}},
+					{options, [{sni_fun, Fun},
+                                                   {versions, Versions} | ServerOpts]}]),
+    Port = ssl_test_lib:inet_port(Server),
+    Client = ssl_test_lib:start_client([{node, ClientNode}, {port, Port},
+					{host, Hostname},
+					{from, self()},
+					{mfa, {ssl_test_lib, no_result, []}},
+					{options, [{server_name_indication, SNI}, {versions, Versions} | ClientOpts]}]),
+
+    ssl_test_lib:check_result(Server, ok),
+    ssl_test_lib:close(Server),
+    ssl_test_lib:close(Client).
 
 %%--------------------------------------------------------------------
 %% Test case adapted from gen_tcp_misc_SUITE.
@@ -2592,6 +2637,16 @@ check_random_nonce(Config) when is_list(Config) ->
          ssl_test_lib:close(Server),
          ssl_test_lib:close(Client)
      end || {Server, Client} <- ConnectionPairs].
+%%--------------------------------------------------------------------
+cipher_listing() ->
+    [{doc, "Check that exclusive cipher for possible supported version adds up to all cipher " 
+      "for the max version. Note that TLS-1.3 will contain two distinct sets of ciphers "
+      "one for TLS-1.3 and one pre TLS-1.3"}].
+cipher_listing(Config) when is_list(Config) ->
+    Version = ssl_test_lib:protocol_version(Config, tuple),
+    length_exclusive(Version) == length_all(Version).
+
+%%--------------------------------------------------------------------
 
 establish_connection(Id, ServerNode, ServerOpts, ClientNode, ClientOpts, Hostname) ->
     Server =
@@ -3046,7 +3101,70 @@ ssl_getstat(Socket) ->
             ok
     end.
 
+test_versions_for_option_based_on_sni('tlsv1.3') ->
+    {'tlsv1.2', ['tlsv1.3', 'tlsv1.2']};
+test_versions_for_option_based_on_sni('tlsv1.2') ->
+    {'tlsv1.1', ['tlsv1.2', 'tlsv1.1']}.
+
+protocol_version_check(Socket, Version) ->
+    case ssl:connection_information(Socket, [protocol]) of
+        {ok, [{protocol, Version}]} ->
+            ok;
+        Other ->
+            ct:fail({expected, Version, got, Other})
+    end.
+
 log(#{msg:={report,_Report}},#{config:=Pid}) ->
     Pid ! warning_generated;
 log(_,_) ->
     ok.
+
+length_exclusive({3,_} = Version) ->
+    length(exclusive_default_up_to_version(Version, [])) +
+        length(exclusive_non_default_up_to_version(Version, []));
+length_exclusive({254,_} = Version) ->
+    length(dtls_exclusive_default_up_to_version(Version, [])) +
+        length(dtls_exclusive_non_default_up_to_version(Version, [])).
+
+length_all(Version) ->
+    length(ssl:cipher_suites(all, Version)).
+
+exclusive_default_up_to_version({3, 1} = Version, Acc) ->
+    ssl:cipher_suites(exclusive, Version) ++ Acc;
+exclusive_default_up_to_version({3, Minor} = Version, Acc) when Minor =< 4 ->
+    Suites = ssl:cipher_suites(exclusive, Version),
+    exclusive_default_up_to_version({3, Minor-1}, Suites ++ Acc).
+
+dtls_exclusive_default_up_to_version({254, 255} = Version, Acc) ->
+    ssl:cipher_suites(exclusive, Version) ++ Acc;
+dtls_exclusive_default_up_to_version({254, 253} = Version, Acc) ->
+    Suites = ssl:cipher_suites(exclusive, Version),
+    dtls_exclusive_default_up_to_version({254, 255}, Suites ++ Acc).
+
+exclusive_non_default_up_to_version({3, 1} = Version, Acc) ->
+    exclusive_non_default_version(Version) ++ Acc;
+exclusive_non_default_up_to_version({3, 4}, Acc) ->
+    exclusive_non_default_up_to_version({3, 3}, Acc);
+exclusive_non_default_up_to_version({3, Minor} = Version, Acc) when Minor =< 3 ->
+    Suites = exclusive_non_default_version(Version),
+    exclusive_non_default_up_to_version({3, Minor-1}, Suites ++ Acc).
+
+dtls_exclusive_non_default_up_to_version({254, 255} = Version, Acc) ->
+    dtls_exclusive_non_default_version(Version) ++ Acc;
+dtls_exclusive_non_default_up_to_version({254, 253} = Version, Acc) ->
+    Suites = dtls_exclusive_non_default_version(Version),
+    dtls_exclusive_non_default_up_to_version({254, 255}, Suites ++ Acc).
+
+exclusive_non_default_version({_, Minor}) ->
+    tls_v1:psk_exclusive(Minor) ++
+        tls_v1:srp_exclusive(Minor) ++
+        tls_v1:rsa_exclusive(Minor) ++
+        tls_v1:des_exclusive(Minor) ++
+        tls_v1:rc4_exclusive(Minor).
+
+dtls_exclusive_non_default_version(DTLSVersion) ->        
+    {_,Minor} = ssl:tls_version(DTLSVersion),
+    tls_v1:psk_exclusive(Minor) ++
+        tls_v1:srp_exclusive(Minor) ++
+        tls_v1:rsa_exclusive(Minor) ++ 
+        tls_v1:des_exclusive(Minor).
