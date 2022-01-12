@@ -303,14 +303,14 @@ illegal(Name) ->
 
 test_node(Name) ->
     test_node(Name, false).
-test_node(Name, Illigal) ->
-    test_node(Name, Illigal, "").
-test_node(Name, Illigal, ExtraArgs) ->
+test_node(Name, Illegal) ->
+    test_node(Name, Illegal, "").
+test_node(Name, Illegal, ExtraArgs) ->
     ProgName = ct:get_progname(),
     Command = ProgName ++ " -noinput " ++
         long_or_short() ++ Name ++ ExtraArgs ++
         " -eval \"net_adm:ping('" ++ atom_to_list(node()) ++ "')\"" ++
-        case Illigal of
+        case Illegal of
             true ->
                 " -eval \"timer:sleep(10000),init:stop().\"";
             false ->
@@ -2318,7 +2318,7 @@ xdg_cookie(Config) when is_list(Config) ->
               {win32, _} ->
                   [Drive | Path] = filename:split(TestHome),
                   [{"APPDATA", filename:join(TestHome,"AppData")},
-                   {"HOMEDRIVE", Drive}, {"HOMEPATH", Path}];
+                   {"HOMEDRIVE", Drive}, {"HOMEPATH", filename:join(Path)}];
               _ ->
                   [{"HOME", TestHome}]
           end,

@@ -720,7 +720,7 @@ encrypted_abstr_1(Simple, Target) ->
                   {win32, _} ->
                       [Drive | Path] = filename:split(TestHome),
                       [{"APPDATA", filename:join(TestHome,"AppData")},
-                       {"HOMEDRIVE", Drive}, {"HOMEPATH", Path}];
+                       {"HOMEDRIVE", Drive}, {"HOMEPATH", filename:join(Path)}];
                   _ ->
                       [{"HOME", TestHome}]
               end,
@@ -1677,10 +1677,10 @@ bc_options(Config) ->
                       no_make_fun3,no_type_opt]},
 
          {168, small, [r22]},
-
          {168, small, [no_init_yregs,no_shared_fun_wrappers,
-                       no_ssa_opt_record,
+                       no_ssa_opt_record,no_make_fun3,
                        no_ssa_opt_float,no_line_info,no_type_opt]},
+         {169, small, [r23]},
 
          {169, big, [no_init_yregs,no_shared_fun_wrappers,
                      no_ssa_opt_record,

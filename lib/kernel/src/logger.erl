@@ -318,8 +318,8 @@ format_otp_report(Report) ->
       FormatArgs :: {io:format(),[term()]}.
 format_report(Report) when is_map(Report) ->
     format_report(maps:to_list(Report));
-format_report(Report)  when is_list(Report) ->
-    case lists:flatten(Report) of
+format_report(Report) ->
+    try lists:flatten(Report) of
         [] ->
             {"~tp",[[]]};
         FlatList ->
@@ -329,9 +329,9 @@ format_report(Report)  when is_list(Report) ->
                 false ->
                     format_term_list(Report,[],[])
             end
-    end;
-format_report(Report) ->
-    {"~tp",[Report]}.
+    catch _:_ ->
+            {"~tp",[Report]}
+    end.
 
 format_term_list([{Tag,Data}|T],Format,Args) ->
     PorS = case string_p(Data) of
@@ -344,10 +344,13 @@ format_term_list([Data|T],Format,Args) ->
 format_term_list([],Format,Args) ->
     {lists:flatten(lists:join($\n,lists:reverse(Format))),lists:reverse(Args)}.
 
-string_p(List) when is_list(List) ->
-    string_p1(lists:flatten(List));
-string_p(_) ->
-    false.
+string_p(List) ->
+    try lists:flatten(List) of
+        FlatList ->
+            string_p1(FlatList)
+    catch _:_ ->
+            false
+    end.
 
 string_p1([]) ->
     false;
@@ -994,7 +997,7 @@ get_primary_metadata() ->
         {ok, Meta} ->
             throw({logger_metadata, Meta});
         undefined ->
-            %% This case is here to keep bug compatability. Can be removed in OTP 25.
+            %% This case is here to keep bug compatibility. Can be removed in OTP 25.
             case application:get_env(kernel,logger_default_metadata,#{}) of
                 Meta when is_map(Meta) ->
                     Meta;
@@ -1210,7 +1213,7 @@ default(pid) -> self();
 default(gl) -> group_leader();
 default(time) -> timestamp().
 
-%% Remove everything upto and including this module from the stacktrace
+%% Remove everything up to and including this module from the stacktrace
 filter_stacktrace(Module,[{Module,_,_,_}|_]) ->
     [];
 filter_stacktrace(Module,[H|T]) ->
