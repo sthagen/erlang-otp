@@ -764,7 +764,7 @@ iter_max_ports_test(Config) ->
     L = rpc:call(Node,?MODULE,do_iter_max_ports,[Iters, Command]),
     peer:stop(Peer),
 
-    io:format("Result: ~p",[L]),
+    ct:log("Result: ~p",[L]),
     all_equal(L),
     all_equal(L),
     {comment, "Max ports: " ++ integer_to_list(hd(L))}.
@@ -1299,9 +1299,7 @@ otp_3906(Config)  when is_list(Config) ->
 
 otp_3906(Config, OSName) ->
     DataDir = filename:dirname(proplists:get_value(data_dir,Config)),
-    {ok, Variables} = file:consult(
-                        filename:join([DataDir,"..","..",
-                                       "test_server","variables"])),
+    {ok, Variables, _} = file:path_consult(code:get_path(),"variables"),
     case lists:keysearch('CC', 1, Variables) of
         {value,{'CC', CC}} ->
             PrivDir = proplists:get_value(priv_dir, Config),
@@ -2244,7 +2242,7 @@ port_expect(Config, Actions, HSize, CmdLine, Options0) ->
         _ -> {packet, HSize}
     end,
     Options = [PortType|Options0],
-    io:format("open_port({spawn, ~p}, ~p)", [Cmd, Options]),
+    ct:log("open_port({spawn, ~p}, ~p)", [Cmd, Options]),
     Port = open_port({spawn, Cmd}, Options),
     port_expect(Port, Actions, Options),
     Port.

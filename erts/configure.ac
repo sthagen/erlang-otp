@@ -352,7 +352,7 @@ else
 fi
 
 AC_ARG_ENABLE(static-nifs,
-AS_HELP_STRING([--enable-static-nifs], [link nifs statically. If yes then all nifs in all Erlang/OTP applications will be statically linked into the main binary. It is also possible to give a list of nifs that should be linked statically. The list should be a comma separated and contain the absolute path to a .a archive for each nif that is to be statically linked. The name of the .a archive has to be the same as the name of the nif. Note that you have to link any external dependencies that the nifs have to the main binary, so for the crypto nif you want to pass LIBS=-lcrypto to configure.]),
+AS_HELP_STRING([--enable-static-nifs], [link nifs statically. If yes then all nifs in all Erlang/OTP applications will be statically linked into the main binary. It is also possible to give a list of nifs that should be linked statically. The list should be a comma separated and contain the absolute path to a .a archive for each nif that is to be statically linked. Note that you have to link any external dependencies, that the nifs have, to the main binary. So for the crypto nifs you want to pass LIBS=-lcrypto to configure.]),
 	       STATIC_NIFS="$enableval",
 	       STATIC_NIFS=no)
 AC_SUBST(STATIC_NIFS)
@@ -1012,7 +1012,7 @@ if test "X$ETHR_LIB_NAME" = "X"; then
    AC_MSG_ERROR([cannot build emulator since no thread library was found])
 fi
 
-TYPES=opt
+DEFAULT_TYPES="opt"
 
 DIRTY_SCHEDULER_TEST=$enable_dirty_schedulers_test
 AC_SUBST(DIRTY_SCHEDULER_TEST)
@@ -1091,7 +1091,7 @@ EOF
 	;;
 
 esac
-AC_SUBST(TYPES)
+AC_SUBST(DEFAULT_TYPES)
 
 AC_CHECK_FUNCS([posix_fadvise closefrom])
 AC_CHECK_HEADERS([linux/falloc.h])
@@ -1178,7 +1178,7 @@ fi
 AC_MSG_CHECKING(whether lock counters should be enabled)
 AC_MSG_RESULT($enable_lock_count)
 if test "x$enable_lock_count" != "xno"; then
-    TYPES="$TYPES lcnt"
+    DEFAULT_TYPES="$DEFAULT_TYPES lcnt"
 fi
 
 case $host_os in

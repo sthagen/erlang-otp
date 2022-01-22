@@ -157,6 +157,7 @@
        ]).
 
 -export([make_rsa_cert/1,
+         make_rsa_cert_with_protected_keyfile/2,
          make_dsa_cert/1,
          make_ecdsa_cert/1,
          make_ecdh_rsa_cert/1,
@@ -718,6 +719,7 @@ start_openssl_server(Mode, Args0, Config) ->
 init_openssl_server(openssl, _, Options) ->
     DefaultVersions = default_tls_version(Options),
     [Version | _] = proplists:get_value(versions, Options, DefaultVersions),
+    DOpenssl = proplists:get_value(debug_openssl, Options, false),
     Port = inet_port(node()),
     Pid = proplists:get_value(from, Options),
      
@@ -729,7 +731,7 @@ init_openssl_server(openssl, _, Options) ->
     CertArgs = openssl_cert_options(Options, server), 
     AlpnArgs = openssl_alpn_options(proplists:get_value(alpn, Options, undefined)),
     NpnArgs =  openssl_npn_options(proplists:get_value(np, Options, undefined)),                
-    Debug = openssl_debug_options(PrivDir),
+    Debug = openssl_debug_options(PrivDir, DOpenssl),
 
     Args0 =  case Groups0 of
                 undefined ->
@@ -774,7 +776,7 @@ init_openssl_server(Mode, ResponderPort, Options) when Mode == openssl_ocsp orel
             "-status_verbose",
             "-status_url",
             "http://127.0.0.1:" ++ erlang:integer_to_list(ResponderPort),
-            version_flag(Version)] ++ CertArgs ++ ["-msg", "-debug"]
+            version_flag(Version)] ++ CertArgs 
             ++ openssl_dtls_opt(GroupName),
 
     SslPort = portable_open_port(Exe, Args),
@@ -1128,7 +1130,7 @@ get_result([], Acc) ->
 get_result([Pid | Tail], Acc) ->
     receive
 	{Pid, Msg} ->
-	    get_result(Tail, [Msg | Acc])
+	    get_result(Tail, [{Pid, Msg} | Acc])
     end.
 
 check_result(Server, ServerMsg, Client, ClientMsg) ->
@@ -1764,7 +1766,7 @@ make_rsa_cert(Config) ->
 	    [{server_rsa_opts, [{reuseaddr, true} | ServerConf]},
 	     {server_rsa_verify_opts, [{reuseaddr, true}, {verify, verify_peer} | ServerConf]},
 	     {client_rsa_opts, ClientConf},
-             {client_rsa_verify_opts,  [{verify, verify_peer} |ClientConf]},
+             {client_rsa_verify_opts, [{verify, verify_peer} |ClientConf]},
              {server_rsa_der_opts, [{reuseaddr, true} | ServerDerConf]},
 	     {server_rsa_der_verify_opts, [{reuseaddr, true}, {verify, verify_peer} | ServerDerConf]},
 	     {client_rsa_der_opts, ClientDerConf},
@@ -1773,6 +1775,34 @@ make_rsa_cert(Config) ->
 	false ->
 	    Config
     end.
+
+make_rsa_cert_with_protected_keyfile(Config0, Password) ->
+    Config1 = make_rsa_cert(Config0),
+
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_opts, Config1),
+    [PemEntry] = pem_to_der(proplists:get_value(keyfile, ClientOpts)),
+    ASN1OctetStrTag = 4,
+    IV = <<4,8,154,8,95,192,188,232,4,8,154,8,95,192,188,232>>,
+    Length = <<16:8/unsigned-big-integer>>,
+    Params = {"AES-256-CBC",
+              {'PBES2-params',
+               {'PBES2-params_keyDerivationFunc',
+                ?'id-PBKDF2',
+                {'PBKDF2-params',
+                 {specified, <<125,96,67,95,2,233,224,174>>},
+                 2048,asn1_NOVALUE,
+                 {'PBKDF2-params_prf', ?'id-hmacWithSHA1','NULL'}}},
+               {'PBES2-params_encryptionScheme',
+                ?'id-aes256-CBC',
+                {asn1_OPENTYPE, <<ASN1OctetStrTag, Length/binary, IV/binary>>}}}},
+    ProtectedPemEntry = public_key:pem_entry_encode(
+                          'PrivateKeyInfo',public_key:pem_entry_decode(PemEntry),
+                          {Params, Password}),
+    ProtectedClientKeyFile = filename:join(proplists:get_value(priv_dir,Config1),
+                                           "tls_password_client.pem"),
+    der_to_pem(ProtectedClientKeyFile, [ProtectedPemEntry]),
+    ProtectedClientOpts = [{keyfile,ProtectedClientKeyFile} | proplists:delete(keyfile, ClientOpts)],
+    [{client_protected_rsa_opts, ProtectedClientOpts} | Config1].
 
 make_rsa_1024_cert(Config) ->
     CryptoSupport = crypto:supports(),
@@ -1994,6 +2024,7 @@ run_server_error(Opts) ->
     Pid = proplists:get_value(from, Opts),
     Transport =  proplists:get_value(transport, Opts, ssl),
     ?LOG("~nssl:listen(~p, ~p)~n", [Port, Options]),
+    Timeout = proplists:get_value(timeout, Opts, infinity),
     case Transport:listen(Port, Options) of
 	{ok, #sslsocket{} = ListenSocket} ->
 	    %% To make sure error_client will
@@ -2001,7 +2032,7 @@ run_server_error(Opts) ->
 	    Pid ! {listen, up},
 	    send_selected_port(Pid, Port, ListenSocket),
 	    ?LOG("~nssl:transport_accept(~p)~n", [ListenSocket]),
-	    case Transport:transport_accept(ListenSocket) of
+	    case Transport:transport_accept(ListenSocket, Timeout) of
 		{error, _} = Error ->
 		    Pid ! {self(), Error};
 		{ok, AcceptSocket} ->
@@ -2130,6 +2161,7 @@ ecc_test_error(COpts, SOpts, CECCOpts, SECCOpts, Config) ->
 start_client(openssl, Port, ClientOpts, Config) ->
     Version = protocol_version(Config),
     Exe = "openssl",
+    DOpenssl = proplists:get_value(debug_openssl, ClientOpts, false),
     Ciphers = proplists:get_value(ciphers, ClientOpts, ssl:cipher_suites(default,Version)),
     Groups0 = proplists:get_value(groups, ClientOpts),
     CertArgs = openssl_cert_options(ClientOpts, client),
@@ -2141,7 +2173,7 @@ start_client(openssl, Port, ClientOpts, Config) ->
     SessionArgs =  proplists:get_value(session_args, ClientOpts, []),
     HostName = proplists:get_value(hostname, ClientOpts, net_adm:localhost()),
     SNI = openssl_sni(proplists:get_value(server_name_indication, ClientOpts, undefined)),
-    Debug = openssl_debug_options(),
+    Debug = openssl_debug_options(DOpenssl),
 
     Exe = "openssl",
     Args0 =  case Groups0 of
@@ -2235,7 +2267,8 @@ start_server(openssl, ClientOpts, ServerOpts, Config) ->
     Groups0 = proplists:get_value(groups, ServerOpts),
     SigAlgs = proplists:get_value(openssl_sigalgs, Config, undefined),
     SessionArgs = proplists:get_value(session_args, Config, []),
-    Debug = openssl_debug_options(),
+    DOpenssl = proplists:get_value(debug_openssl, ServerOpts, false),
+    Debug = openssl_debug_options(DOpenssl),
 
     Args =  case Groups0 of
                 undefined ->
@@ -2315,16 +2348,20 @@ openssl_sni(disable) ->
 openssl_sni(ServerName) ->
     ["-servername", ServerName].
 
-openssl_debug_options() ->
-    ["-msg", "-debug"].
+openssl_debug_options(true) ->
+    ["-msg", "-debug"];
+openssl_debug_options(false) ->
+    [].
 %%
-openssl_debug_options(PrivDir) ->
+openssl_debug_options(PrivDir, true) ->
     case is_keylogfile_supported() of
         true ->
             ["-msg", "-debug","-keylogfile", PrivDir ++ "keylog"];
         false ->
             ["-msg", "-debug"]
-    end.
+    end;
+openssl_debug_options(_, false) ->
+    [].
 
 is_keylogfile_supported() ->
     [{_,_, Bin}]  = crypto:info_lib(),
@@ -3315,10 +3352,23 @@ portable_open_port(Exe, Args) ->
 
 portable_cmd(Exe, Args) ->
     Port = portable_open_port(Exe, Args),
+    collect_port_data(Port).
+
+collect_port_data(Port) ->
+    collect_port_data(Port, []).
+
+collect_port_data(Port, Acc) ->
     receive
          {Port, {data, Data}} ->
-            catch erlang:port_close(Port),
-            Data
+            maybe_collect_more_port_data(Port, Acc ++ Data)
+    end.
+
+maybe_collect_more_port_data(Port, Acc) ->
+    receive
+        {Port, {data, Data}} ->
+            maybe_collect_more_port_data(Port, Acc ++ Data) 
+    after 500 ->
+            Acc
     end.
 
 supports_ssl_tls_version(Version) when Version == sslv2;

@@ -11302,7 +11302,8 @@ api_opt_simple_otp_options() ->
 
          %% *** We are done ***
          #{desc => "finish",
-           cmd  => fun(_) ->
+           cmd  => fun(#{ dummy := Dummy }) ->
+                           Dummy ! die,
                            {ok, normal}
                    end}
         ],
@@ -24226,17 +24227,39 @@ api_to_connect_tcp(InitState) ->
                            {ok, State1}
                    end},
          #{desc => "stop client node",
-           cmd  => fun(#{peer := Peer} = _State) ->
-                           peer:stop(Peer)
+           cmd  => fun(#{peer := Peer} = State) ->
+                           {ok,
+                            try peer:stop(Peer) of
+                                ok ->
+                                    State#{node_stop => ok};
+                                {error, Reason} ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   ~p", [Reason]),
+                                    State#{node_stop => error}
+                            catch
+                                C:E:S ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   Class: ~p"
+                                                "~n   Error: ~p"
+                                                "~n   Stack: ~p",[C, E, S]),
+                                    State#{node_stop => error}
+                            end}
                    end},
          #{desc => "await client node termination",
-           cmd  => fun(#{node := Node} = State) ->
+           cmd  => fun(#{node := Node, node_stop := ok} = State) ->
+                           ?SEV_IPRINT("Success node stop - await nodedown"),
                            receive
                                {nodedown, Node} ->
-                                   State1 = maps:remove(node_id, State),
-                                   State2 = maps:remove(node,    State1),
+                                   ?SEV_IPRINT("nodedown received - cleanup"),
+                                   State1 = maps:remove(peer, State),
+                                   State2 = maps:remove(node, State1),
                                    {ok, State2}
-                           end
+                           end;
+                      (#{node_stop := error} = State) ->
+                           ?SEV_IPRINT("Failed node stop - cleanup"),
+                           State1 = maps:remove(peer, State),
+                           State2 = maps:remove(node, State1),
+                           {ok, State2}
                    end},
 
          %% *** We are done ***
@@ -33506,8 +33529,13 @@ sc_rc_receive_response_tcp(InitState) ->
 
          %% *** Init part ***
          #{desc => "create node",
-           cmd  => fun(#{host := Host, node_id := NodeID} = State) ->
-                           case ?CT_PEER(#{name => ?CT_PEER_NAME(f("client_~w", [NodeID]))}) of
+           cmd  => fun(#{host := _Host, node_id := NodeID} = State) ->
+                           %% Because peer does not accept a host argument,
+                           %% we can no longer start "remote" nodes...
+                           %% Not that we actually did that. We always
+                           %% used local-host.
+                           Name = ?CT_PEER_NAME(f("client_~w", [NodeID])),
+                           case ?CT_PEER(#{name => Name}) of
                                {ok, Peer, Node} ->
                                    ?SEV_IPRINT("client node ~p started",
                                                [Node]),
@@ -33626,17 +33654,39 @@ sc_rc_receive_response_tcp(InitState) ->
                            {ok, State1}
                    end},
          #{desc => "stop client node",
-           cmd  => fun(#{peer := Peer} = _State) ->
-                           peer:stop(Peer)
+           cmd  => fun(#{peer := Peer} = State) ->
+                           {ok,
+                            try peer:stop(Peer) of
+                                ok ->
+                                    State#{node_stop => ok};
+                                {error, Reason} ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   ~p", [Reason]),
+                                    State#{node_stop => error}
+                            catch
+                                C:E:S ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   Class: ~p"
+                                                "~n   Error: ~p"
+                                                "~n   Stack: ~p",[C, E, S]),
+                                    State#{node_stop => error}
+                            end}
                    end},
          #{desc => "await client node termination",
-           cmd  => fun(#{node := Node} = State) ->
+           cmd  => fun(#{node := Node, node_stop := ok} = State) ->
+                           ?SEV_IPRINT("Success node stop - await nodedown"),
                            receive
                                {nodedown, Node} ->
-                                   State1 = maps:remove(node_id, State),
-                                   State2 = maps:remove(node,    State1),
+                                   ?SEV_IPRINT("nodedown received - cleanup"),
+                                   State1 = maps:remove(peer, State),
+                                   State2 = maps:remove(node, State1),
                                    {ok, State2}
-                           end
+                           end;
+                      (#{node_stop := error} = State) ->
+                           ?SEV_IPRINT("Failed node stop - cleanup"),
+                           State1 = maps:remove(peer, State),
+                           State2 = maps:remove(node, State1),
+                           {ok, State2}
                    end},
 
          %% *** We are done ***
@@ -34477,7 +34527,11 @@ sc_rs_send_shutdown_receive_tcp(InitState) ->
 
          %% *** Init part ***
          #{desc => "create node",
-           cmd  => fun(#{host := Host} = State) ->
+           cmd  => fun(#{host := _Host} = State) ->
+                           %% Because peer does not accept a host argument,
+                           %% we can no longer start "remote" nodes...
+                           %% Not that we actually did that. We always
+                           %% used local-host.
                            case ?CT_PEER() of
                                {ok, Peer, Node} ->
                                    ?SEV_IPRINT("client node ~p started",
@@ -34650,17 +34704,39 @@ sc_rs_send_shutdown_receive_tcp(InitState) ->
                            {ok, State1}
                    end},
          #{desc => "stop client node",
-           cmd  => fun(#{peer := Peer} = _State) ->
-                           peer:stop(Peer)
+           cmd  => fun(#{peer := Peer} = State) ->
+                           {ok,
+                            try peer:stop(Peer) of
+                                ok ->
+                                    State#{node_stop => ok};
+                                {error, Reason} ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   ~p", [Reason]),
+                                    State#{node_stop => error}
+                            catch
+                                C:E:S ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   Class: ~p"
+                                                "~n   Error: ~p"
+                                                "~n   Stack: ~p",[C, E, S]),
+                                    State#{node_stop => error}
+                            end}
                    end},
          #{desc => "await client node termination",
-           cmd  => fun(#{node := Node} = State) ->
+           cmd  => fun(#{node := Node, node_stop := ok} = State) ->
+                           ?SEV_IPRINT("Success node stop - await nodedown"),
                            receive
                                {nodedown, Node} ->
-                                   State1 = maps:remove(node_id, State),
-                                   State2 = maps:remove(node,    State1),
+                                   ?SEV_IPRINT("nodedown received - cleanup"),
+                                   State1 = maps:remove(peer, State),
+                                   State2 = maps:remove(node, State1),
                                    {ok, State2}
-                           end
+                           end;
+                      (#{node_stop := error} = State) ->
+                           ?SEV_IPRINT("Failed node stop - cleanup"),
+                           State1 = maps:remove(peer, State),
+                           State2 = maps:remove(node, State1),
+                           {ok, State2}
                    end},
 
          %% *** We are done ***
@@ -35553,8 +35629,9 @@ verify_gifdstaddr(Sock, Prefix, IfIdx, IfName) ->
 	    ignore;
 	{error, einval = Reason} when (OsFam =:= unix) andalso
                                       ((OsName =:= darwin) orelse 
-				       (OsName =:= freebsd) orelse 
-				       (OsName =:= netbsd)) ->
+                                       (OsName =:= freebsd) orelse 
+                                       (OsName =:= netbsd) orelse 
+                                       (OsName =:= openbsd)) ->
 	    i("[~s] got unexpected error for interface ~p (~w) => "
 	      "SKIP interface"
 	      "~n      Reason: ~p", [Prefix, IfName, IfIdx, Reason]),
@@ -35675,8 +35752,9 @@ verify_gifbrdaddr(Sock, Prefix, IfIdx, IfName) ->
 	    ignore;
 	{error, einval = Reason} when (OsFam =:= unix) andalso
                                       ((OsName =:= darwin) orelse
-				       (OsName =:= freebsd) orelse
-				       (OsName =:= netbsd)) ->
+                                       (OsName =:= freebsd) orelse
+                                       (OsName =:= netbsd) orelse
+                                       (OsName =:= openbsd)) ->
 	    i("[~s] got unexpected error for interface ~p (~w) => "
 	      "SKIP interface"
 	      "~n      Reason: ~p", [Prefix, IfName, IfIdx, Reason]),
@@ -38646,7 +38724,11 @@ traffic_send_and_recv_chunks_tcp(InitState) ->
 
          %% *** Init part ***
          #{desc => "create node",
-           cmd  => fun(#{host := Host} = State) ->
+           cmd  => fun(#{host := _Host} = State) ->
+                           %% Because peer does not accept a host argument,
+                           %% we can no longer start "remote" nodes...
+                           %% Not that we actually did that. We always
+                           %% used local-host.
                            case ?CT_PEER() of
                                {ok, Peer, Node} ->
                                    ?SEV_IPRINT("(remote) client node ~p started",
@@ -39018,15 +39100,37 @@ traffic_send_and_recv_chunks_tcp(InitState) ->
                            {ok, State1}
                    end},
          #{desc => "stop client node",
-           cmd  => fun(#{peer := Peer} = _State) ->
-                           peer:stop(Peer)
+           cmd  => fun(#{peer := Peer} = State) ->
+                           {ok,
+                            try peer:stop(Peer) of
+                                ok ->
+                                    State#{node_stop => ok};
+                                {error, Reason} ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   ~p", [Reason]),
+                                    State#{node_stop => error}
+                            catch
+                                C:E:S ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   Class: ~p"
+                                                "~n   Error: ~p"
+                                                "~n   Stack: ~p",[C, E, S]),
+                                    State#{node_stop => error}
+                            end}
                    end},
          #{desc => "await client node termination",
-           cmd  => fun(#{node := Node} = State) ->
+           cmd  => fun(#{node := Node, node_stop := ok} = State) ->
+                           ?SEV_IPRINT("Success node stop - await nodedown"),
                            receive
                                {nodedown, Node} ->
-                                   {ok, maps:remove(node, State)}
-                           end
+                                   ?SEV_IPRINT("nodedown received - cleanup"),
+                                   State1 = maps:remove(node, State),
+                                   {ok, State1}
+                           end;
+                      (#{node_stop := error} = State) ->
+                           ?SEV_IPRINT("Failed node stop - cleanup"),
+                           State1 = maps:remove(node, State),
+                           {ok, State1}
                    end},
 
          %% *** We are done ***
@@ -40573,7 +40677,11 @@ traffic_ping_pong_send_and_receive_tcp2(InitState) ->
 
          %% *** Init part ***
          #{desc => "create node",
-           cmd  => fun(#{host := Host} = State) ->
+           cmd  => fun(#{host := _Host} = State) ->
+                           %% Because peer does not accept a host argument,
+                           %% we can no longer start "remote" nodes...
+                           %% Not that we actually did that. We always
+                           %% used local-host.
                            case ?CT_PEER() of
                                {ok, Peer, Node} ->
                                    ?SEV_IPRINT("(remote) client node ~p started", 
@@ -40715,15 +40823,37 @@ traffic_ping_pong_send_and_receive_tcp2(InitState) ->
                            {ok, State1}
                    end},
          #{desc => "stop client node",
-           cmd  => fun(#{peer := Peer} = _State) ->
-                           peer:stop(Peer)
+           cmd  => fun(#{peer := Peer} = State) ->
+                           {ok,
+                            try peer:stop(Peer) of
+                                ok ->
+                                    State#{node_stop => ok};
+                                {error, Reason} ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   ~p", [Reason]),
+                                    State#{node_stop => error}
+                            catch
+                                C:E:S ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   Class: ~p"
+                                                "~n   Error: ~p"
+                                                "~n   Stack: ~p",[C, E, S]),
+                                    State#{node_stop => error}
+                            end}
                    end},
          #{desc => "await client node termination",
-           cmd  => fun(#{node := Node} = State) ->
+           cmd  => fun(#{node := Node, node_stop := ok} = State) ->
+                           ?SEV_IPRINT("Success node stop - await nodedown"),
                            receive
                                {nodedown, Node} ->
-                                   {ok, maps:remove(node, State)}
-                           end
+                                   ?SEV_IPRINT("nodedown received - cleanup"),
+                                   State1 = maps:remove(node, State),
+                                   {ok, State1}
+                           end;
+                      (#{node_stop := error} = State) ->
+                           ?SEV_IPRINT("Failed node stop - cleanup"),
+                           State1 = maps:remove(node, State),
+                           {ok, State1}
                    end},
 
          %% *** We are done ***
@@ -41533,7 +41663,11 @@ traffic_ping_pong_send_and_receive_udp2(InitState) ->
 
          %% *** Init part ***
          #{desc => "create node",
-           cmd  => fun(#{host := Host} = State) ->
+           cmd  => fun(#{host := _Host} = State) ->
+                           %% Because peer does not accept a host argument,
+                           %% we can no longer start "remote" nodes...
+                           %% Not that we actually did that. We always
+                           %% used local-host.
                            case ?CT_PEER() of
                                {ok, Peer, Node} ->
                                    ?SEV_IPRINT("(remote) client node ~p started", 
@@ -41642,15 +41776,37 @@ traffic_ping_pong_send_and_receive_udp2(InitState) ->
                            {ok, State1}
                    end},
          #{desc => "stop client node",
-           cmd  => fun(#{peer := Peer} = _State) ->
-                           peer:stop(Peer)
+           cmd  => fun(#{peer := Peer} = State) ->
+                           {ok,
+                            try peer:stop(Peer) of
+                                ok ->
+                                    State#{node_stop => ok};
+                                {error, Reason} ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   ~p", [Reason]),
+                                    State#{node_stop => error}
+                            catch
+                                C:E:S ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   Class: ~p"
+                                                "~n   Error: ~p"
+                                                "~n   Stack: ~p",[C, E, S]),
+                                    State#{node_stop => error}
+                            end}
                    end},
          #{desc => "await client node termination",
            cmd  => fun(#{node := Node} = State) ->
+                           ?SEV_IPRINT("Success node stop - await nodedown"),
                            receive
                                {nodedown, Node} ->
-                                   {ok, maps:remove(node, State)}
-                           end
+                                   ?SEV_IPRINT("nodedown received - cleanup"),
+                                   State1 = maps:remove(node, State),
+                                   {ok, State1}
+                           end;
+                      (#{node_stop := error} = State) ->
+                           ?SEV_IPRINT("Failed node stop - cleanup"),
+                           State1 = maps:remove(node, State),
+                           {ok, State1}
                    end},
 
          %% *** We are done ***
@@ -48077,7 +48233,11 @@ ttest_tcp(InitState) ->
 
          %% *** Init part ***
          #{desc => "create node",
-           cmd  => fun(#{host := Host} = State) ->
+           cmd  => fun(#{host := _Host} = State) ->
+                           %% Because peer does not accept a host argument,
+                           %% we can no longer start "remote" nodes...
+                           %% Not that we actually did that. We always
+                           %% used local-host.
                            case ?CT_PEER() of
                                {ok, Peer, Node} ->
                                    {ok, State#{peer => Peer, node => Node}};
@@ -48158,15 +48318,37 @@ ttest_tcp(InitState) ->
                            {ok, State1}
                    end},
          #{desc => "stop (server) node",
-           cmd  => fun(#{peer := Peer} = _State) ->
-                           peer:stop(Peer)
+           cmd  => fun(#{peer := Peer} = State) ->
+                           {ok,
+                            try peer:stop(Peer) of
+                                ok ->
+                                    State#{node_stop => ok};
+                                {error, Reason} ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   ~p", [Reason]),
+                                    State#{node_stop => error}
+                            catch
+                                C:E:S ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   Class: ~p"
+                                                "~n   Error: ~p"
+                                                "~n   Stack: ~p",[C, E, S]),
+                                    State#{node_stop => error}
+                            end}
                    end},
          #{desc => "await (server) node termination",
-           cmd  => fun(#{node := Node} = State) ->
+           cmd  => fun(#{node := Node, node_stop := ok} = State) ->
+                           ?SEV_IPRINT("Success node stop - await nodedown"),
                            receive
                                {nodedown, Node} ->
-                                   {ok, maps:remove(node, State)}
-                           end
+                                   ?SEV_IPRINT("nodedown received - cleanup"),
+                                   State1 = maps:remove(node, State),
+                                   {ok, State1}
+                           end;
+                      (#{node_stop := error} = State) ->
+                           ?SEV_IPRINT("Failed node stop - cleanup"),
+                           State1 = maps:remove(node, State),
+                           {ok, State1}
                    end},
 
 
@@ -48199,7 +48381,11 @@ ttest_tcp(InitState) ->
 
          %% *** Init part ***
          #{desc => "create node",
-           cmd  => fun(#{host := Host} = State) ->
+           cmd  => fun(#{host := _Host} = State) ->
+                           %% Because peer does not accept a host argument,
+                           %% we can no longer start "remote" nodes...
+                           %% Not that we actually did that. We always
+                           %% used local-host.
                            case ?CT_PEER() of
                                {ok, Peer, Node} ->
                                    {ok, State#{peer => Peer, node => Node}};
@@ -48312,15 +48498,37 @@ ttest_tcp(InitState) ->
                            end
                    end},
          #{desc => "stop (client) node",
-           cmd  => fun(#{peer := Peer} = _State) ->
-                           peer:stop(Peer)
+           cmd  => fun(#{peer := Peer} = State) ->
+                           {ok,
+                            try peer:stop(Peer) of
+                                ok ->
+                                    State#{node_stop3 => ok};
+                                {error, Reason} ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   ~p", [Reason]),
+                                    State#{node_stop => error}
+                            catch
+                                C:E:S ->
+                                    ?SEV_EPRINT("Unexpected node stop result: "
+                                                "~n   Class: ~p"
+                                                "~n   Error: ~p"
+                                                "~n   Stack: ~p",[C, E, S]),
+                                    State#{node_stop => error}
+                            end}
                    end},
          #{desc => "await (client) node termination",
-           cmd  => fun(#{node := Node} = State) ->
+           cmd  => fun(#{node := Node, node_stop := ok} = State) ->
+                           ?SEV_IPRINT("Success node stop - await nodedown"),
                            receive
                                {nodedown, Node} ->
-                                   {ok, maps:remove(node, State)}
-                           end
+                                   ?SEV_IPRINT("nodedown received - cleanup"),
+                                   State1 = maps:remove(node, State),
+                                   {ok, State1}
+                           end;
+                      (#{node_stop := error} = State) ->
+                           ?SEV_IPRINT("Failed node stop - cleanup"),
+                           State1 = maps:remove(node, State),
+                           {ok, State1}
                    end},
 
 
@@ -51233,8 +51441,8 @@ sock_port(S) ->
         {ok, #{}}             -> undefined
     end.
 
-l2a(S) when is_list(S) ->
-    list_to_atom(S).
+%% l2a(S) when is_list(S) ->
+%%     list_to_atom(S).
 
 l2b(L) when is_list(L) ->
     list_to_binary(L).
