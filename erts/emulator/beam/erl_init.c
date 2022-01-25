@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1997-2021. All Rights Reserved.
+ * Copyright Ericsson AB 1997-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,6 @@
 #include "erl_mseg.h"
 #include "erl_threads.h"
 #include "erl_hl_timer.h"
-#include "erl_mtrace.h"
 #include "erl_printf_term.h"
 #include "erl_misc_utils.h"
 #include "packet_parser.h"
@@ -75,7 +74,6 @@ const int etp_smp_compiled = 1;
 const int etp_thread_compiled = 1;
 const char etp_erts_version[] = ERLANG_VERSION;
 const char etp_otp_release[] = ERLANG_OTP_RELEASE;
-const char etp_compile_date[] = ERLANG_COMPILE_DATE;
 const char etp_arch[] = ERLANG_ARCHITECTURE;
 #if ERTS_ENABLE_KERNEL_POLL
 const int erts_use_kernel_poll = 1;
@@ -2590,9 +2588,6 @@ static __decl_noreturn void __noreturn
 erts_exit_vv(int n, int flush_async, const char *fmt, va_list args1, va_list args2)
 {
     system_cleanup(flush_async);
-
-    if (erts_mtrace_enabled)
-	erts_mtrace_exit((Uint32) n);
 
     if (fmt != NULL && *fmt != '\0')
 	erl_error(fmt, args2);	/* Print error message. */
