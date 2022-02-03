@@ -393,7 +393,7 @@ classify_heap_need(landingpad) -> gc;
 classify_heap_need(match_fail) -> gc;
 classify_heap_need(nif_start) -> neutral;
 classify_heap_need(nop) -> neutral;
-classify_heap_need(new_try_tag) -> gc;
+classify_heap_need(new_try_tag) -> neutral;
 classify_heap_need(old_make_fun) -> gc;
 classify_heap_need(peek_message) -> gc;
 classify_heap_need(put_map) -> gc;
@@ -1105,11 +1105,12 @@ cg_block([#cg_set{anno=Anno,op={bif,Name},dst=Dst0,args=Args0}=I|T],
     end;
 cg_block([#cg_set{op=bs_create_bin,dst=Dst0,args=Args0,anno=Anno}=I,
           #cg_set{op=succeeded,dst=Bool}], {Bool,Fail0}, St) ->
+    Args1 = typed_args(Args0, Anno, St),
     Fail = bif_fail(Fail0),
     Line = line(Anno),
     Alloc = map_get(alloc, Anno),
     Live = get_live(I),
-    [Dst|Args1] = beam_args([Dst0|Args0], St),
+    Dst = beam_arg(Dst0, St),
     Args = bs_args(Args1),
     Unit = case Args of
                [{atom,append},_Seg,U|_] -> U;
@@ -1784,7 +1785,11 @@ cg_test(peek_message, Fail, [], Dst, _I) ->
     [{loop_rec,Fail,{x,0}}|copy({x,0}, Dst)];
 cg_test(put_map, Fail, [{atom,exact},SrcMap|Ss], Dst, #cg_set{anno=Anno}=Set) ->
     Live = get_live(Set),
-    [line(Anno),{put_map_exact,Fail,SrcMap,Dst,Live,{list,Ss}}].
+    [line(Anno),{put_map_exact,Fail,SrcMap,Dst,Live,{list,Ss}}];
+cg_test(raw_raise, _Fail, Args, Dst, _I) ->
+    cg_instr(raw_raise, Args, Dst);
+cg_test(resume, _Fail, [_,_]=Args, Dst, _I) ->
+    cg_instr(resume, Args, Dst).
 
 cg_bs_get(Fail, #cg_set{dst=Dst0,args=[#b_literal{val=Type}|Ss0]}=Set, St) ->
     Op = case Type of

@@ -630,6 +630,8 @@ benefits_from_type_anno({bif,'=/='}, _Args) ->
     true;
 benefits_from_type_anno({bif,Op}, Args) ->
     not erl_internal:bool_op(Op, length(Args));
+benefits_from_type_anno(bs_create_bin, _Args) ->
+    true;
 benefits_from_type_anno(is_tagged_tuple, _Args) ->
     true;
 benefits_from_type_anno(call, [#b_var{} | _]) ->
@@ -1171,7 +1173,7 @@ will_succeed(#b_set{args=[Src]}, Ts, Ds, Sub) ->
             %% There can't be any substitution because the instruction
             %% is still there.
             false = is_map_key(Src, Sub),        %Assertion.
-            will_succeed_1(I, Src, Ts, Sub);
+            will_succeed_1(I, Src, Ts);
         {#{}, #{}} ->
             %% The checked instruction has been removed and substituted, so we
             %% can assume it always succeeds.
@@ -1179,9 +1181,9 @@ will_succeed(#b_set{args=[Src]}, Ts, Ds, Sub) ->
             yes
     end.
 
-will_succeed_1(#b_set{op=bs_get_tail}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=bs_get_tail}, _Src, _Ts) ->
     yes;
-will_succeed_1(#b_set{op=bs_start_match,args=[_, Arg]}, _Src, Ts, _Sub) ->
+will_succeed_1(#b_set{op=bs_start_match,args=[_, Arg]}, _Src, Ts) ->
     ArgType = concrete_type(Arg, Ts),
     case beam_types:is_bs_matchable_type(ArgType) of
         true ->
@@ -1197,28 +1199,28 @@ will_succeed_1(#b_set{op=bs_start_match,args=[_, Arg]}, _Src, Ts, _Sub) ->
             end
     end;
 
-will_succeed_1(#b_set{op={bif,Bif},args=BifArgs}, _Src, Ts, _Sub) ->
+will_succeed_1(#b_set{op={bif,Bif},args=BifArgs}, _Src, Ts) ->
     ArgTypes = normalized_types(BifArgs, Ts),
     beam_call_types:will_succeed(erlang, Bif, ArgTypes);
 will_succeed_1(#b_set{op=call,
                       args=[#b_remote{mod=#b_literal{val=Mod},
                                       name=#b_literal{val=Func}} |
                             CallArgs]},
-               _Src, Ts, _Sub) ->
+               _Src, Ts) ->
     ArgTypes = normalized_types(CallArgs, Ts),
     beam_call_types:will_succeed(Mod, Func, ArgTypes);
 
-will_succeed_1(#b_set{op=get_hd}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=get_hd}, _Src, _Ts) ->
     yes;
-will_succeed_1(#b_set{op=get_tl}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=get_tl}, _Src, _Ts) ->
     yes;
-will_succeed_1(#b_set{op=has_map_field}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=has_map_field}, _Src, _Ts) ->
     yes;
-will_succeed_1(#b_set{op=get_tuple_element}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=get_tuple_element}, _Src, _Ts) ->
     yes;
-will_succeed_1(#b_set{op=put_tuple}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=put_tuple}, _Src, _Ts) ->
     yes;
-will_succeed_1(#b_set{op=bs_create_bin}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=bs_create_bin}, _Src, _Ts) ->
     %% Intentionally don't try to determine whether construction will
     %% fail. Construction is unlikely to fail, and if it fails, the
     %% instruction in the runtime system will generate an exception with
@@ -1226,7 +1228,7 @@ will_succeed_1(#b_set{op=bs_create_bin}, _Src, _Ts, _Sub) ->
     maybe;
 will_succeed_1(#b_set{op=bs_match,
                       args=[#b_literal{val=Type},_,_,#b_literal{val=Size},_]},
-               _Src, _Ts, _Sub) ->
+               _Src, _Ts) ->
     if
         is_integer(Size), Size >= 0 ->
             maybe;
@@ -1240,18 +1242,18 @@ will_succeed_1(#b_set{op=bs_match,
     end;
 
 %% These operations may fail even though we know their return value on success.
-will_succeed_1(#b_set{op=call}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=call}, _Src, _Ts) ->
     maybe;
-will_succeed_1(#b_set{op=get_map_element}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=get_map_element}, _Src, _Ts) ->
     maybe;
-will_succeed_1(#b_set{op=wait_timeout}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{op=wait_timeout}, _Src, _Ts) ->
     %% It is essential to keep the {succeeded,body} instruction to
     %% ensure that the failure edge, which potentially leads to a
     %% landingpad, is preserved. If the failure edge is removed, a Y
     %% register holding a `try` tag could be reused prematurely.
     maybe;
 
-will_succeed_1(#b_set{}, _Src, _Ts, _Sub) ->
+will_succeed_1(#b_set{}, _Src, _Ts) ->
     maybe.
 
 simplify_is_record(I, #t_tuple{exact=Exact,
@@ -1822,8 +1824,18 @@ update_types(#b_set{op=Op,dst=Dst,anno=Anno,args=Args}, Ts, Ds) ->
 
 type({bif,Bif}, Args, _Anno, Ts, _Ds) ->
     ArgTypes = normalized_types(Args, Ts),
-    {RetType, _, _} = beam_call_types:types(erlang, Bif, ArgTypes),
-    RetType;
+    case beam_call_types:types(erlang, Bif, ArgTypes) of
+        {any, _, _} ->
+            case {Bif, Args} of
+                {element, [_,#b_literal{val=Tuple}]}
+                  when tuple_size(Tuple) > 0 ->
+                    join_tuple_elements(Tuple);
+                {_, _} ->
+                    any
+            end;
+        {RetType, _, _} ->
+            RetType
+    end;
 type(bs_create_bin, _Args, _Anno, _Ts, _Ds) ->
     #t_bitstring{};
 type(bs_extract, [Ctx], _Anno, _Ts, Ds) ->
@@ -1950,6 +1962,8 @@ type(MakeFun, Args, Anno, _Ts, _Ds) when MakeFun =:= make_fun;
     [#b_local{name=#b_literal{val=Name},arity=TotalArity} | Env] = Args,
     Arity = TotalArity - length(Env),
     #t_fun{arity=Arity,target={Name,TotalArity},type=RetType};
+type(match_fail, _, _Anno, _Ts, _Ds) ->
+    none;
 type(put_map, [_Kind, Map | Ss], _Anno, Ts, _Ds) ->
     put_map_type(Map, Ss, Ts);
 type(put_list, [Head, Tail], _Anno, Ts, _Ds) ->
@@ -1963,6 +1977,17 @@ type(put_tuple, Args, _Anno, Ts, _Ds) ->
                             {Es, Index + 1}
                     end, {#{}, 1}, Args),
     #t_tuple{exact=true,size=length(Args),elements=Es};
+type(raw_raise, [Class, _, _], _Anno, Ts, _Ds) ->
+    ClassType = concrete_type(Class, Ts),
+    case beam_types:meet(ClassType, #t_atom{elements=[error,exit,throw]}) of
+        ClassType ->
+            %% Unlike erlang:raise/3, the stack argument is always correct as
+            %% it's generated by the emulator, so we KNOW that it will raise an
+            %% exception when the class is correct.
+            none;
+        _ ->
+            beam_types:make_atom(badarg)
+    end;
 type(resume, [_, _], _Anno, _Ts, _Ds) ->
     none;
 type(wait_timeout, [#b_literal{val=infinity}], _Anno, _Ts, _Ds) ->
@@ -1970,6 +1995,16 @@ type(wait_timeout, [#b_literal{val=infinity}], _Anno, _Ts, _Ds) ->
     beam_types:make_atom(false);
 type(_, _, _, _, _) ->
     any.
+
+join_tuple_elements(Tuple) ->
+    join_tuple_elements(tuple_size(Tuple), Tuple, none).
+
+join_tuple_elements(0, _Tuple, Type) ->
+    Type;
+join_tuple_elements(I, Tuple, Type0) ->
+    Type1 = beam_types:make_type_from_value(element(I, Tuple)),
+    Type = beam_types:join(Type0, Type1),
+    join_tuple_elements(I - 1, Tuple, Type).
 
 put_map_type(Map, Ss, Ts) ->
     pmt_1(Ss, Ts, normalized_type(Map, Ts)).

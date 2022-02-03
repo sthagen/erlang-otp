@@ -48,7 +48,8 @@
          exceptions_after_match_failure/1,
          bad_phi_paths/1,many_clauses/1,
          combine_empty_segments/1,hangs_forever/1,
-         bs_saved_position_units/1,empty_matches/1]).
+         bs_saved_position_units/1,empty_matches/1,
+         trim_bs_start_match_resume/1]).
 
 -export([coverage_id/1,coverage_external_ignore/2]).
 
@@ -87,7 +88,8 @@ groups() ->
        matching_meets_apply,bs_start_match2_defs,
        exceptions_after_match_failure,bad_phi_paths,
        many_clauses,combine_empty_segments,hangs_forever,
-       bs_saved_position_units,empty_matches]}].
+       bs_saved_position_units,empty_matches,
+       trim_bs_start_match_resume]}].
 
 init_per_suite(Config) ->
     test_lib:recompile(?MODULE),
@@ -220,6 +222,16 @@ int_float(Config) when is_list(Config) ->
     %% OTP-5323
     <<103133.0:64/float>> = <<103133:64/float>>,
     <<103133:64/float>> = <<103133:64/float>>,
+
+    %% Must work with type and flags in either order.
+    NativeFortyTwo = id(<<42/native-float>>),
+    <<42/float-native>> = NativeFortyTwo,
+    <<42/native-float>> = NativeFortyTwo,
+
+    %% Must work with redundant flags.
+    SixtyFour = id(<<64/float>>),
+    <<64/unsigned-float>> = SixtyFour,
+    <<64/float-unsigned>> = SixtyFour,
 
     %% Coverage of error cases in sys_pre_expand:coerce_to_float/2.
     case id(default) of
@@ -2447,6 +2459,17 @@ em_3(<<V:0/binary,Rest/bits>>) ->
     Rest.
 
 em_3_1(I) -> I.
+
+%% beam_trim would sometimes crash when bs_start_match4 had {atom,resume} as
+%% its fail label.
+trim_bs_start_match_resume(Config) when is_list(Config) ->
+    <<Context/binary>> = id(<<>>),
+    <<>> = trim_bs_start_match_resume_1(Context),
+    ok.
+
+trim_bs_start_match_resume_1(<<Context/binary>>) ->
+    _ = id(Context),
+    Context.
 
 id(I) -> I.
 
