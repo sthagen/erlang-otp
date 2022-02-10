@@ -1780,7 +1780,7 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
             comment("size binary/integer/float/string");
 
             if (always_small(seg.size)) {
-                auto [min, _] = getIntRange(seg.size);
+                auto min = std::get<0>(getIntRange(seg.size));
                 if (min >= 0) {
                     can_fail = false;
                 }
@@ -2046,7 +2046,6 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
             a.mov(ARG1, c_p);
             runtime_call<4>(erts_new_bs_put_float);
             if (Fail.getValue() == 0) {
-                mov_arg(ARG1, seg.src);
                 mov_imm(ARG4,
                         beam_jit_update_bsc_reason_info(seg.error_info,
                                                         BSC_REASON_BADARG,
@@ -2078,7 +2077,6 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
                 comment("skipped test for success because construction can't "
                         "fail");
             } else {
-                a.test(RETd, RETd);
                 if (Fail.getValue() == 0) {
                     mov_arg(ARG1, seg.src);
                     mov_imm(ARG4,
@@ -2087,6 +2085,7 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
                                                             BSC_INFO_TYPE,
                                                             BSC_VALUE_ARG1));
                 }
+                a.test(RETd, RETd);
                 a.je(error);
             }
             break;
@@ -2110,7 +2109,7 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgVal &Fail,
                                                         BSC_INFO_TYPE,
                                                         BSC_VALUE_ARG1));
             }
-            a.test(RET, RET);
+            a.test(RETd, RETd);
             a.je(error);
             break;
         case am_utf16:
