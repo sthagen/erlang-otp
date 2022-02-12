@@ -965,11 +965,18 @@ vi({test,bs_get_integer2=Op,{f,Fail},Live,
     NumBits = Unit * Sz,
     Stride = NumBits,
 
-    Type = case member(unsigned, Flags) of
-               true when 0 =< NumBits, NumBits =< 64 ->
-                   beam_types:make_integer(0, (1 bsl NumBits)-1);
-               _ ->
-                   %% Signed integer, way too large, or negative size.
+    Type = if
+               0 =< NumBits, NumBits =< 64 ->
+                   Max = (1 bsl NumBits) - 1,
+                   case member(unsigned, Flags) of
+                       true ->
+                           beam_types:make_integer(0, Max);
+                       false ->
+                           Min = -(Max + 1),
+                           beam_types:make_integer(Min, Max)
+                   end;
+               true ->
+                   %% Way too large or negative size.
                    #t_integer{}
            end,
 
@@ -1056,6 +1063,9 @@ vi({case_end,Src}, Vst) ->
 vi(if_end, Vst) ->
     branch(?EXCEPTION_LABEL, Vst, fun kill_state/1);
 vi({try_case_end,Src}, Vst) ->
+    assert_durable_term(Src, Vst),
+    branch(?EXCEPTION_LABEL, Vst, fun kill_state/1);
+vi({badrecord,Src}, Vst) ->
     assert_durable_term(Src, Vst),
     branch(?EXCEPTION_LABEL, Vst, fun kill_state/1);
 vi(raw_raise=I, Vst0) ->

@@ -58,17 +58,15 @@ obsolete(ftp, start_service, 1) ->
 obsolete(ftp, stop_service, 1) ->
     {deprecated, "use ftp:close/1 instead", "OTP 26"};
 obsolete(http_uri, decode, 1) ->
-    {deprecated, "use uri_string functions instead", "OTP 25"};
+    {deprecated, "use uri_string:unquote function instead", "OTP 26"};
 obsolete(http_uri, encode, 1) ->
-    {deprecated, "use uri_string functions instead", "OTP 25"};
-obsolete(http_uri, parse, 1) ->
-    {deprecated, "use uri_string functions instead", "OTP 25"};
-obsolete(http_uri, parse, 2) ->
-    {deprecated, "use uri_string functions instead", "OTP 25"};
-obsolete(http_uri, scheme_defaults, 0) ->
-    {deprecated, "use uri_string functions instead", "OTP 25"};
+    {deprecated, "use uri_string:quote function instead", "OTP 26"};
 obsolete(httpd, parse_query, 1) ->
     {deprecated, "use uri_string:dissect_query/1 instead"};
+obsolete(httpd_util, decode_hex, 1) ->
+    {deprecated, "use uri_string:unquote function instead", "OTP 26"};
+obsolete(httpd_util, encode_hex, 1) ->
+    {deprecated, "use uri_string:quote function instead", "OTP 26"};
 obsolete(httpd_util, flatlength, 1) ->
     {deprecated, "use erlang:iolist_size/1 instead", "OTP 26"};
 obsolete(httpd_util, hexlist_to_integer, 1) ->
@@ -89,14 +87,6 @@ obsolete(net, ping, 1) ->
     {deprecated, "use net_adm:ping/1 instead"};
 obsolete(net, sleep, 1) ->
     {deprecated, "use 'receive after T -> ok end' instead"};
-obsolete(public_key, ssh_decode, 2) ->
-    {deprecated, "use ssh_file:decode/2 instead", "OTP 26"};
-obsolete(public_key, ssh_encode, 2) ->
-    {deprecated, "use ssh_file:encode/2 instead", "OTP 26"};
-obsolete(public_key, ssh_hostkey_fingerprint, 1) ->
-    {deprecated, "use ssh:hostkey_fingerprint/1 instead", "OTP 26"};
-obsolete(public_key, ssh_hostkey_fingerprint, 2) ->
-    {deprecated, "use ssh:hostkey_fingerprint/2 instead", "OTP 26"};
 obsolete(queue, lait, 1) ->
     {deprecated, "use queue:liat/1 instead"};
 obsolete(sys, get_debug, 3) ->
@@ -181,6 +171,12 @@ obsolete(erlang, get_stacktrace, 0) ->
     {removed, "use the new try/catch syntax for retrieving the stack backtrace"};
 obsolete(erlang, hash, 2) ->
     {removed, "use erlang:phash2/2 instead"};
+obsolete(http_uri, parse, 1) ->
+    {removed, "use uri_string functions instead"};
+obsolete(http_uri, parse, 2) ->
+    {removed, "use uri_string functions instead"};
+obsolete(http_uri, scheme_defaults, 0) ->
+    {removed, "use uri_string functions instead"};
 obsolete(httpd_conf, check_enum, 2) ->
     {removed, "use lists:member/2 instead"};
 obsolete(httpd_conf, clean, 1) ->
@@ -195,6 +191,14 @@ obsolete(httpd_conf, make_integer, 1) ->
     {removed, "use erlang:list_to_integer/1 instead"};
 obsolete(net, relay, 1) ->
     {removed, "use fun Relay(Pid) -> receive X -> Pid ! X end, Relay(Pid) instead"};
+obsolete(public_key, ssh_decode, 2) ->
+    {removed, "use ssh_file:decode/2 instead"};
+obsolete(public_key, ssh_encode, 2) ->
+    {removed, "use ssh_file:encode/2 instead"};
+obsolete(public_key, ssh_hostkey_fingerprint, 1) ->
+    {removed, "use ssh:hostkey_fingerprint/1 instead"};
+obsolete(public_key, ssh_hostkey_fingerprint, 2) ->
+    {removed, "use ssh:hostkey_fingerprint/2 instead"};
 obsolete(rpc, safe_multi_server_call, 2) ->
     {removed, "use rpc:multi_server_call/2 instead"};
 obsolete(rpc, safe_multi_server_call, 3) ->
@@ -258,5 +262,19 @@ obsolete_type(erl_scan, line, 0) ->
     {removed, "use erl_anno:line() instead"};
 obsolete_type(erl_scan, location, 0) ->
     {removed, "use erl_anno:location() instead"};
+obsolete_type(http_uri, default_scheme_port_number, 0) ->
+    {removed, "use uri_string instead"};
+obsolete_type(http_uri, fragment, 0) ->
+    {removed, "use uri_string instead"};
+obsolete_type(http_uri, host, 0) ->
+    {removed, "use uri_string instead"};
+obsolete_type(http_uri, path, 0) ->
+    {removed, "use uri_string instead"};
+obsolete_type(http_uri, query, 0) ->
+    {removed, "use uri_string instead"};
+obsolete_type(http_uri, scheme, 0) ->
+    {removed, "use uri_string instead"};
+obsolete_type(http_uri, user_info, 0) ->
+    {removed, "use uri_string instead"};
 obsolete_type(_,_,_) -> no.
 

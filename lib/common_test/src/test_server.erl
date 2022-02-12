@@ -43,7 +43,6 @@
 -export([peer_name/2, start_peer/3, start_peer/5]).
 -export([app_test/1, app_test/2, appup_test/1]).
 -export([comment/1, make_priv_dir/0]).
--export([os_type/0]).
 -export([run_on_shielded_node/2]).
 -export([is_cover/0,is_debug/0,is_commercial/0]).
 
@@ -2587,9 +2586,7 @@ call_crash(Time,Crash,M,F,A) ->
 %%
 %% Slave and Peer:
 %% {remote, true}         - Start the node on a remote host. If not specified,
-%%                          the node will be started on the local host (with
-%%                          some exceptions, for instance VxWorks,
-%%                          where all nodes are started on a remote host).
+%%                          the node will be started on the local host.
 %% {args, Arguments}      - Arguments passed directly to the node.
 %% {cleanup, false}       - Nodes started with this option will not be killed
 %%                          by the test server after completion of the test case
@@ -2815,10 +2812,9 @@ start_peer(Opts, Module, TestCase, Release, OutDir) ->
         not_available ->
             not_available;
         Erl ->
-            %% remove ERL_FLAGS/ERL_AFLAGS, because they may contain
-            %% "-emu_type debug" which does not exist for old releases. Keep "ERL_ZFLAGS",
-            %% for sometimes you might really need it...
-            Env = maps:get(env, Opts, []) ++ [{"ERL_AFLAGS", false}, {"ERL_FLAGS", false}],
+            %% remove ERL_AFLAGS, because they may contain "-emu_type debug" which does not exist
+            %% for old releases. Keep ERL_FLAGS, and ERL_ZFLAGS for sometimes you might need it...
+            Env = maps:get(env, Opts, []) ++ [{"ERL_AFLAGS", false}],
             NewArgs = ["-pa", peer_compile(Erl, code:which(peer), OutDir) | maps:get(args, Opts, [])],
             start_peer(Opts#{exec => Erl, args => NewArgs,
                 env => Env}, Module, TestCase)
@@ -2869,8 +2865,8 @@ peer_compile(Erl, ModPath, OutDir) ->
 
 %% This should really be implemented as os:cmd.
 cmd(Exec, Args) ->
-    %% remove all ERL_FLAGS/ERL_AFLAGS to drop "-emu_type debug"
-    Env = [{"ERL_AFLAGS", false}, {"ERL_FLAGS", false}],
+    %% remove all ERL_AFLAGS to drop "-emu_type debug" and similar
+    Env = [{"ERL_AFLAGS", false}],
     Port = open_port({spawn_executable, Exec}, [{args, Args}, {env, Env},
         stream, binary, exit_status, stderr_to_stdout]),
     read_std(Port, lists:join(" ", [Exec|Args]), <<>>).
@@ -3027,15 +3023,6 @@ read_comment() ->
 %% for the current test case.
 make_priv_dir() ->
     tc_supervisor_req(make_priv_dir).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% os_type() -> OsType
-%%
-%% Returns the OsType of the target node. OsType is
-%% the same as returned from os:type()
-os_type() ->
-    os:type().
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% is_cover() -> boolean()
