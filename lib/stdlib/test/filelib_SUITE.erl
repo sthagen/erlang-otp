@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2005-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -658,13 +658,15 @@ find_source_otp(Config) when is_list(Config) ->
     %% We do this in a peer as testcases before this may have
     %% edited the code path and thus more modules show up as
     %% available than should.
-    {ok, Peer, Node} = ?CT_PEER(),
+    {ok, Peer, Node} = ?CT_PEER(#{ env => [{"ERL_LIBS", false}] }),
     erpc:call(
       Node,
       fun() ->
               lists:map(
                 fun F({Module, preloaded, Loaded}) ->
                         F({Module, code:where_is_file(Module ++ ".beam"), Loaded});
+		    F({Module, cover_compiled, Loaded}) ->
+		        ok;
                     F({Module, Filename, _Loaded}) ->
                         case filelib:find_source(Filename) of
                             {ok, _} -> ok;

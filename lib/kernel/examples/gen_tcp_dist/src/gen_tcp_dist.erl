@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2017-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2017-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -183,7 +183,7 @@ flush_controller(Pid, Socket) ->
 accept_connection(AcceptPid, DistCtrl, MyNode, Allowed, SetupTime) ->
     spawn_opt(?MODULE, do_accept,
 	      [self(), AcceptPid, DistCtrl, MyNode, Allowed, SetupTime],
-	      [link, {priority, max}]).
+	      dist_util:net_ticker_spawn_options()).
 
 do_accept(Kernel, AcceptPid, DistCtrl, MyNode, Allowed, SetupTime) ->
     ?trace("~p~n",[{?MODULE, do_accept, self(), MyNode}]),
@@ -230,7 +230,7 @@ nodelay() ->
 setup(Node, Type, MyNode, LongOrShortNames,SetupTime) ->
     spawn_opt(?MODULE, do_setup, 
 	      [self(), Node, Type, MyNode, LongOrShortNames, SetupTime],
-	      [link, {priority, max}]).
+	      dist_util:net_ticker_spawn_options()).
 
 do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     ?trace("~p~n",[{?MODULE, do_setup, self(), Node}]),

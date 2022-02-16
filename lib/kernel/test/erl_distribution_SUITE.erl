@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2021. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -545,21 +545,33 @@ dyn_node_name(Config) when is_list(Config) ->
     dyn_node_name("", Config).
 
 dyn_node_name(DCfg, _Config) ->
+    DomainType = case net_kernel:get_state() of
+                     #{domain_type := short} -> "short";
+                     #{domain_type := long} -> "long"
+                 end,
     {_N1F,Port1} = start_node_unconnected(DCfg ++ " -dist_listen false",
                                           undefined, ?MODULE, run_remote_test,
-                                          ["dyn_node_name_do", atom_to_list(node())]),
+                                          ["dyn_node_name_do", atom_to_list(node()),
+                                           DomainType]),
     0 = wait_for_port_exit(Port1),
     ok.
 
-dyn_node_name_do(TestNode, _Args) ->
+dyn_node_name_do(TestNode, [DomainTypeStr]) ->
     nonode@nohost = node(),
     [] = nodes(),
     [] = nodes(hidden),
+    DomainType = list_to_atom(DomainTypeStr),
+    #{started := static, name_type := dynamic, name := undefined,
+     domain_type := DomainType} = net_kernel:get_state(),
     net_kernel:monitor_nodes(true, [{node_type,all}]),
     net_kernel:connect_node(TestNode),
     [] = nodes(),
     [TestNode] = nodes(hidden),
     MyName = node(),
+    false = (MyName =:= undefined),
+    false = (MyName =:= nonode@nohost),
+    #{started := static, name_type := dynamic, name := MyName}
+        = net_kernel:get_state(),
     check([MyName], rpc:call(TestNode, erlang, nodes, [hidden])),
 
     {nodeup, MyName, [{node_type, visible}]} = receive_any(0),
@@ -572,11 +584,16 @@ dyn_node_name_do(TestNode, _Args) ->
     {nodedown, MyName, [{node_type, visible}]} = receive_any(1000),
 
     nonode@nohost = node(),
+    #{started := static, name_type := dynamic, name := undefined}
+        = net_kernel:get_state(),
 
     net_kernel:connect_node(TestNode),
     [] = nodes(),
     [TestNode] = nodes(hidden),
     MyName = node(),
+    #{started := static, name_type := dynamic, name := MyName}
+        = net_kernel:get_state(),
+
     check([MyName], rpc:call(TestNode, erlang, nodes, [hidden])),
 
     {nodeup, MyName, [{node_type, visible}]} = receive_any(0),
@@ -588,7 +605,8 @@ dyn_node_name_do(TestNode, _Args) ->
     [] = nodes(hidden),
     {nodedown, MyName, [{node_type, visible}]} = receive_any(1000),
     nonode@nohost = node(),
-
+    #{started := static, name_type := dynamic, name := undefined}
+        = net_kernel:get_state(),
     ok.
 
 check(X, X) -> ok.
@@ -1094,6 +1112,9 @@ get_socket_priorities() ->
 
 %% check net_ticker_spawn_options
 net_ticker_spawn_options(Config) when is_list(Config) ->
+    run_dist_configs(fun net_ticker_spawn_options/2, Config).
+
+net_ticker_spawn_options(DCfg, Config) when is_list(Config) ->
     FullsweepString0 = "[{fullsweep_after,0}]",
     FullsweepString =
         case os:cmd("echo [{a,1}]") of
@@ -1107,16 +1128,16 @@ net_ticker_spawn_options(Config) when is_list(Config) ->
         "-hidden "
         "-kernel net_ticker_spawn_options "++FullsweepString,
     {ok,Node1} =
-        start_node("", net_ticker_spawn_options_1, InetDistOptions),
+        start_node(DCfg, net_ticker_spawn_options_1, InetDistOptions),
     {ok,Node2} =
-        start_node("", net_ticker_spawn_options_2, InetDistOptions),
+        start_node(DCfg, net_ticker_spawn_options_2, InetDistOptions),
     %%
     pong =
-        rpc:call(Node1, net_adm, ping, [Node2]),
+        erpc:call(Node1, net_adm, ping, [Node2]),
     FullsweepOptionNode1 =
-        rpc:call(Node1, ?MODULE, get_net_ticker_fullsweep_option, [Node2]),
+        erpc:call(Node1, ?MODULE, get_net_ticker_fullsweep_option, [Node2]),
     FullsweepOptionNode2 =
-        rpc:call(Node2, ?MODULE, get_net_ticker_fullsweep_option, [Node1]),
+        erpc:call(Node2, ?MODULE, get_net_ticker_fullsweep_option, [Node1]),
     io:format("FullsweepOptionNode1 = ~p", [FullsweepOptionNode1]),
     io:format("FullsweepOptionNode2 = ~p", [FullsweepOptionNode2]),
     0 = FullsweepOptionNode1,
@@ -1127,9 +1148,33 @@ net_ticker_spawn_options(Config) when is_list(Config) ->
     ok.
 
 get_net_ticker_fullsweep_option(Node) ->
-    Port = proplists:get_value(Node, erlang:system_info(dist_ctrl)),
-    {links, [DistUtilPid, _NetKernelPid]} = erlang:port_info(Port, links),
-    {garbage_collection, GCOpts} = erlang:process_info(DistUtilPid, garbage_collection),
+    Links = case proplists:get_value(Node, erlang:system_info(dist_ctrl)) of
+                DistCtrl when is_port(DistCtrl) ->
+                    {links, Ls} = erlang:port_info(DistCtrl, links),
+                    Ls;
+                DistCtrl when is_pid(DistCtrl) ->
+                    {links, Ls} = process_info(DistCtrl, links),
+                    Ls
+            end,
+    Ticker = try
+                 lists:foreach(
+                   fun (Pid) when is_pid(Pid) ->
+                           {current_stacktrace, Stk}
+                               = process_info(Pid, current_stacktrace),
+                           lists:foreach(
+                             fun ({dist_util, con_loop, _, _}) ->
+                                     throw(Pid);
+                                 (_) ->
+                                     ok
+                             end, Stk);
+                       (_) ->
+                           ok
+                   end, Links),
+                 error(no_ticker_found)
+             catch
+                 throw:Pid when is_pid(Pid) -> Pid
+             end,
+    {garbage_collection, GCOpts} = erlang:process_info(Ticker, garbage_collection),
     proplists:get_value(fullsweep_after, GCOpts).
 
 
