@@ -454,6 +454,19 @@ vi({test,is_function,{f,Lbl},[Src]}, Vst) ->
 vi({test,is_function2,{f,Lbl},[Src,{integer,Arity}]}, Vst)
   when Arity >= 0, Arity =< 255 ->
     type_test(Lbl, #t_fun{arity=Arity}, Src, Vst);
+vi({test,is_function2,{f,Lbl},[Src0,_Arity]}, Vst) ->
+    Src = unpack_typed_arg(Src0),
+    assert_term(Src, Vst),
+    branch(Lbl, Vst,
+           fun(FailVst) ->
+                   %% We cannot subtract the function type when the arity is
+                   %% unknown: `Src` may still be a function if the arity is
+                   %% outside the allowed range.
+                   FailVst
+           end,
+           fun(SuccVst) ->
+                   update_type(fun meet/2, #t_fun{}, Src, SuccVst)
+           end);
 vi({test,is_tuple,{f,Lbl},[Src]}, Vst) ->
     type_test(Lbl, #t_tuple{}, Src, Vst);
 vi({test,is_integer,{f,Lbl},[Src]}, Vst) ->
@@ -892,7 +905,8 @@ vi(build_stacktrace, Vst0) ->
 %% Map instructions.
 %%
 
-vi({get_map_elements,{f,Fail},Src,{list,List}}, Vst) ->
+vi({get_map_elements,{f,Fail},Src0,{list,List}}, Vst) ->
+    Src = unpack_typed_arg(Src0),
     verify_get_map(Fail, Src, List, Vst);
 vi({put_map_assoc=Op,{f,Fail},Src,Dst,Live,{list,List}}, Vst) ->
     verify_put_map(Op, Fail, Src, Dst, Live, List, Vst);
@@ -1236,7 +1250,7 @@ validate_tail_call(Deallocate, Func, Live, #vst{current=#st{numy=NumY}}=Vst0) ->
             %% The call cannot fail; we don't need to handle exceptions
             Vst = deallocate(Vst0),
             verify_return(Vst);
-        maybe when Deallocate =:= NumY ->
+        'maybe' when Deallocate =:= NumY ->
             %% The call may fail; make sure we update exception state
             Vst = deallocate(Vst0),
             branch(?EXCEPTION_LABEL, Vst, fun verify_return/1);
@@ -1269,7 +1283,7 @@ validate_body_call(Func, Live,
     case will_call_succeed(Func, Vst) of
         yes ->
             SuccFun(Vst);
-        maybe ->
+        'maybe' ->
             branch(?EXCEPTION_LABEL, Vst, SuccFun);
         no ->
             branch(?EXCEPTION_LABEL, Vst, fun kill_state/1)
@@ -1315,7 +1329,7 @@ verify_get_map(Fail, Src, List, Vst0) ->
            fun(SuccVst) ->
                    Keys = extract_map_keys(List),
                    assert_unique_map_keys(Keys),
-                   extract_map_vals(List, Src, SuccVst, SuccVst)
+                   extract_map_vals(List, Src, SuccVst)
            end).
 
 %% get_map_elements may leave its destinations in an inconsistent state when
@@ -1327,7 +1341,8 @@ verify_get_map(Fail, Src, List, Vst0) ->
 %%
 %% We must be careful to preserve the uninitialized status for Y registers
 %% that have been allocated but not yet defined.
-clobber_map_vals([Key,Dst|T], Map, Vst0) ->
+clobber_map_vals([Key0, Dst | T], Map, Vst0) ->
+    Key = unpack_typed_arg(Key0),
     case is_reg_initialized(Dst, Vst0) of
         true ->
             Vst = extract_term(any, {bif,map_get}, [Key, Map], Dst, Vst0),
@@ -1349,20 +1364,35 @@ is_reg_initialized({y,_}=Reg, #vst{current=#st{ys=Ys}}) ->
     end;
 is_reg_initialized(V, #vst{}) -> error({not_a_register, V}).
 
-extract_map_keys([Key,_Val|T]) ->
-    [Key|extract_map_keys(T)];
-extract_map_keys([]) -> [].
+extract_map_keys([Key,_Val | T]) ->
+    [unpack_typed_arg(Key) | extract_map_keys(T)];
+extract_map_keys([]) ->
+    [].
 
-extract_map_vals([Key, Dst | Vs], Map, Vst0, Vsti0) ->
-    assert_term(Key, Vst0),
-    case bif_types(map_get, [Key, Map], Vst0) of
-        {none, _, _} ->
-            kill_state(Vsti0);
-        {DstType, _, _} ->
-            Vsti = extract_term(DstType, {bif,map_get}, [Key, Map], Dst, Vsti0),
-            extract_map_vals(Vs, Map, Vst0, Vsti)
+
+extract_map_vals(List, Src, SuccVst) ->
+    Seen = sets:new([{version, 2}]),
+    extract_map_vals(List, Src, Seen, SuccVst, SuccVst).
+
+extract_map_vals([Key0, Dst | Vs], Map, Seen0, Vst0, Vsti0) ->
+    case sets:is_element(Dst, Seen0) of
+        true ->
+            %% The destinations must not overwrite each other.
+            error(conflicting_destinations);
+        false ->
+            Key = unpack_typed_arg(Key0),
+            assert_term(Key, Vst0),
+            case bif_types(map_get, [Key, Map], Vst0) of
+                {none, _, _} ->
+                    kill_state(Vsti0);
+                {DstType, _, _} ->
+                    Vsti = extract_term(DstType, {bif,map_get},
+                                        [Key, Map], Dst, Vsti0),
+                    Seen = sets:add_element(Dst, Seen0),
+                    extract_map_vals(Vs, Map, Seen, Vst0, Vsti)
+            end
     end;
-extract_map_vals([], _Map, _Vst0, Vst) ->
+extract_map_vals([], _Map, _Seen, _Vst0, Vst) ->
     Vst.
 
 verify_put_map(Op, Fail, Src, Dst, Live, List, Vst0) ->
@@ -1482,7 +1512,7 @@ validate_bif(Kind, Op, Fail, Ss, Dst, OrigVst, Vst) ->
             %% This BIF always fails; jump directly to the fail block or
             %% exception handler.
             branch(Fail, Vst, fun kill_state/1);
-        maybe ->
+        'maybe' ->
             validate_bif_1(Kind, Op, Fail, Ss, Dst, OrigVst, Vst)
     end.
 
@@ -1980,8 +2010,8 @@ assert_unique_map_keys([_,_|_]=Ls) ->
               L
           end || L <- Ls],
     case length(Vs) =:= sets:size(sets:from_list(Vs, [{version, 2}])) of
-	true -> ok;
-	false -> error(keys_not_unique)
+        true -> ok;
+        false -> error(keys_not_unique)
     end.
 
 bsm_stride({integer, Size}, Unit) ->
@@ -2090,6 +2120,16 @@ infer_types_1(#value{op={bif,is_function},args=[Src,{integer,Arity}]},
               Val, Op, Vst)
   when Arity >= 0, Arity =< 255 ->
     infer_type_test_bif(#t_fun{arity=Arity}, Src, Val, Op, Vst);
+infer_types_1(#value{op={bif,is_function},args=[Src,_Arity]}, Val, Op, Vst) ->
+    case Val of
+        {atom, Bool} when Op =:= eq_exact, Bool; Op =:= ne_exact, not Bool ->
+            update_type(fun meet/2, #t_fun{}, Src, Vst);
+        _ ->
+            %% We cannot subtract the function type when the arity is unknown:
+            %% `Src` may still be a function if the arity is outside the
+            %% allowed range.
+            Vst
+    end;
 infer_types_1(#value{op={bif,is_function},args=[Src]}, Val, Op, Vst) ->
     infer_type_test_bif(#t_fun{}, Src, Val, Op, Vst);
 infer_types_1(#value{op={bif,is_integer},args=[Src]}, Val, Op, Vst) ->
@@ -3102,7 +3142,7 @@ will_bif_succeed(raise, [_,_], _Vst) ->
 will_bif_succeed(Op, Ss, Vst) ->
     case is_float_arith_bif(Op, Ss) of
         true ->
-            maybe;
+            'maybe';
         false ->
             Args = [normalize(get_term_type(Arg, Vst)) || Arg <- Ss],
             beam_call_types:will_succeed(erlang, Op, Args)
@@ -3119,10 +3159,10 @@ will_call_succeed({f,Lbl}, #vst{ft=Ft}) ->
         #{Lbl := #{always_fails := true}} ->
             no;
         #{} ->
-            maybe
+            'maybe'
     end;
 will_call_succeed(_Call, _Vst) ->
-    maybe.
+    'maybe'.
 
 get_call_args(Arity, Vst) ->
     get_call_args_1(0, Arity, Vst).

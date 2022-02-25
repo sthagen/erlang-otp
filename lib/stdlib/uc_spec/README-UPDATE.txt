@@ -1,7 +1,7 @@
 Unicode 14.0.0 was updated from:
-- https://www.unicode.org/Public/13.0.0/ucd/
-- https://www.unicode.org/Public/13.0.0/ucd/auxiliary/
-- https://www.unicode.org/Public/13.0.0/ucd/emoji/
+- https://www.unicode.org/Public/14.0.0/ucd/
+- https://www.unicode.org/Public/14.0.0/ucd/auxiliary/
+- https://www.unicode.org/Public/14.0.0/ucd/emoji/
 
 When updating the Unicode version please follow these steps:
 
@@ -27,7 +27,7 @@ replacing existing ones. No subfolder should be created.
 3. Update the "spec_version()" function in the generator by replacing the Unicode
 version in lib/stdlib/uc_spec/gen_unicode_mod.escript
 
-4. Read the realease notes by visiting https://www.unicode.org/versions/latest/
+4. Read the release notes by visiting https://www.unicode.org/versions/latest/
 and assess if additional changes are necessary in the Erlang code.
 
 5. Replace all ocurrences of previous version of Unicode with the new one in

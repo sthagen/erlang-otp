@@ -595,6 +595,8 @@ static void init_fallback_type_table(BeamFile *beam) {
     types->fallback = 1;
 
     types->entries[0].type_union = BEAM_TYPE_ANY;
+    types->entries[0].min = 0;
+    types->entries[0].max = -1;
 }
 
 static int parse_type_chunk(BeamFile *beam, IFF_Chunk *chunk) {
@@ -634,6 +636,7 @@ static int parse_type_chunk(BeamFile *beam, IFF_Chunk *chunk) {
 
     /* The first entry MUST be the "any type." */
     LoadAssert(types->entries[0].type_union == BEAM_TYPE_ANY);
+    LoadAssert(types->entries[0].min > types->entries[0].max);
 
     return 1;
 }
@@ -1482,8 +1485,7 @@ static int beamcodereader_read_next(BeamCodeReader *code_reader, BeamOp **out) {
     reader = &code_reader->reader;
 
     LoadAssert(beamreader_read_u8(reader, &opcode));
-    LoadAssert(opcode <= MAX_GENERIC_OPCODE);
-    LoadAssert(gen_opc[opcode].name[0] != '\0');
+    LoadAssert(opcode > 0 && opcode <= MAX_GENERIC_OPCODE);
 
     arity = gen_opc[opcode].arity;
     ASSERT(arity <= ERTS_BEAM_MAX_OPARGS);
@@ -1522,12 +1524,6 @@ static int beamcodereader_read_next(BeamCodeReader *code_reader, BeamOp **out) {
             break;
         case TAG_i:
             LoadAssert(marshal_integer(code_reader, &raw_arg));
-            break;
-        case TAG_h:
-            /* Character, must be a valid unicode code point. */
-            LoadAssert(raw_arg.word_value <= 0x10FFFF &&
-                       (raw_arg.word_value < 0xD800 ||
-                        raw_arg.word_value > 0xDFFFUL));
             break;
         case TAG_x:
         case TAG_y:
@@ -1626,8 +1622,10 @@ static int beamcodereader_read_next(BeamCodeReader *code_reader, BeamOp **out) {
                     LoadAssert(index.tag == TAG_u);
 
                     types = &(code_reader->file)->types;
-                    /* If we use the fallback, then there was not type chunk
-                       and thus we should not load any type information */
+
+                    /* We may land here without a table if it was stripped
+                     * after compilation, in which case we want to treat these
+                     * as ordinary registers. */
                     if (!types->fallback) {
                         LoadAssert(index.word_value < types->count);
 
