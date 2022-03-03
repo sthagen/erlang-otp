@@ -156,18 +156,11 @@ diameter_filter(Undef) ->
            end, Undef).
 
 erts_filter(Undef) ->
-    %% Filter away prim_socket calls if that module is not available
-    %% prim_socket is not available if system is compiled with --disable-esock
-    case code:is_loaded(prim_socket) of
-        {file,preloaded} ->
-            Undef;
-        _ ->
-            filter(fun({_,{prim_socket,_,_}}) ->
-                           false;
-                      (_) ->
-                           true
-                   end, Undef)
-    end.
+    filter(fun({_,{prim_socket,_,_}}) -> lists:member(prim_socket, erlang:pre_loaded());
+              ({_,{prim_net,_,_}}) -> lists:member(prim_net, erlang:pre_loaded());
+              ({_,{socket_registry,_,_}}) -> lists:member(socket_registry, erlang:pre_loaded());
+              (_) -> true
+           end, Undef).
 
 deprecated_not_in_obsolete(Config) when is_list(Config) ->
     Server = proplists:get_value(xref_server, Config),
@@ -781,7 +774,9 @@ test_app_runtime_deps_versions(AppPath, App, IgnoredUndefinedFunctions) ->
     %% Filter out undefined functions that we should ignore
     UndefinedFunctions1 =
         [F || F <- UndefinedFunctions0,
-              not maps:get(F, IgnoredUndefinedFunctions, false)],
+              not maps:get(F, IgnoredUndefinedFunctions, false),
+              not maps:get({element(1,F),'_','_'}, IgnoredUndefinedFunctions, false),
+              not maps:get({element(1,F),element(2,F),'_'}, IgnoredUndefinedFunctions, false)],
     case UndefinedFunctions1 of
         [] ->
             ok;
@@ -820,6 +815,14 @@ is_development_build() ->
 test_runtime_dependencies_versions(_Config) ->
     ReleasesDir = "/usr/local/otp/releases",
     IgnoreApps = [],
+    SocketIgnore = case lists:member(prim_socket, erlang:pre_loaded()) of
+                        true -> #{};
+                        false ->
+                            Ignore = #{{prim_socket,'_','_'} => true,
+                                       {socket_registry,'_','_'} => true,
+                                       {prim_net,'_','_'} => true },
+                            #{ kernel => Ignore, erts => Ignore }
+                    end,
     AppsToIgnoredUndefinedFunctions =
         #{eunit =>
               %% Intentional call to nonexisting function
@@ -844,8 +847,9 @@ test_runtime_dependencies_versions(_Config) ->
           filelib:is_file(get_otp_versions_table_path()),
           first_available_otp_rel() =/= none} of
         {true, true, true, true, true} ->
-            test_runtime_dependencies_versions_rels(IgnoreApps,
-                                                    AppsToIgnoredUndefinedFunctions);
+            test_runtime_dependencies_versions_rels(
+                IgnoreApps,
+                maps:merge(AppsToIgnoredUndefinedFunctions, SocketIgnore));
         {_, _ ,_, false, _} -> {skip,
                              "Could not find the file \"otp_versions.table\". "
                              "Check that the test has been built correctly. "
