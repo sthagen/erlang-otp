@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2019-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2019-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -104,9 +104,13 @@ gen_encode_sequence(Gen, Typename, #type{}=D) ->
 	end,
     CompTypes = gen_enc_comptypes(Gen, Typename, CompList1, 1, EncObj, []),
     Prefix = asn1ct_gen:get_record_name_prefix(Gen),
-    {sequence,
+    {SequenceTag,NewCompTypes} = case Gen#gen.pack of
+        map -> {sequence_map,[{BinName,binary_to_atom(BinName),Type,OptOrDefault}||{BinName,Type,OptOrDefault} <- CompTypes]};
+        _ -> {sequence,CompTypes} 
+    end,
+    {SequenceTag,
      list_to_atom(lists:concat([Prefix,asn1ct_gen:list2name(Typename)])),
-     length(CompList1),CompTypes}.
+     length(CompList1),NewCompTypes}.
 
 gen_decode_sequence(_,_,_) -> ok.
 
