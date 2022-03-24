@@ -33,6 +33,10 @@
 #include <wx/dcbuffer.h>
 #undef private
 
+#ifdef HAVE_GLIB
+ #include <glib.h>
+#endif
+
 #include "wxe_impl.h"
 #include "wxe_events.h"
 #include "wxe_return.h"
@@ -135,6 +139,23 @@ void print_cmd(wxeCommand& event)
  *  Init WxeApp the application emulator
  * ************************************************************/
 
+#ifdef HAVE_GLIB
+static GLogWriterOutput wxe_log_glib(GLogLevelFlags log_level,
+                                     const GLogField *fields,
+                                     gsize n_fields,
+                                     gpointer user_data)
+{
+  for (gsize i = 0; i < n_fields; i++) {
+    if(strcmp(fields[i].key, "MESSAGE") == 0) {
+      wxString msg;
+      msg.Printf(wxT("GTK: %s"), (char *) fields[i].value);
+      send_msg("debug", &msg);
+    }
+  }
+  return G_LOG_WRITER_HANDLED;
+}
+#endif
+
 bool WxeApp::OnInit()
 {
 
@@ -165,6 +186,10 @@ bool WxeApp::OnInit()
   macMB->MacInstallMenuBar();
   macMB->Connect(wxID_ANY, wxEVT_COMMAND_MENU_SELECTED,
 		 (wxObjectEventFunction) (wxEventFunction) &WxeApp::dummy_close);
+#endif
+
+#ifdef HAVE_GLIB
+  g_log_set_writer_func(wxe_log_glib, NULL, NULL);
 #endif
 
   SetExitOnFrameDelete(false);
@@ -435,19 +460,21 @@ void WxeApp::dispatch_cb(wxeFifo * batch, wxeMemEnv * memenv, ErlNifPid process)
             }
             enif_mutex_lock(wxe_batch_locker_m);
             last = batch->m_q.size();
-            if(wxe_idle_processed) {
-              // We have processed cmds inside dispatch()
-              // so the iterator may be wrong, restart from
-              // beginning of the queue
-              i = 0;
-            }
             break;
           }
           batch->DeleteCmd(event);
         } else {
         // enif_fprintf(stderr, "Ignore:"); event ? print_cmd(*event) : fprintf(stderr, "NULL\r\n");
       }
-      i++;
+      if(wxe_idle_processed) {
+        // We have processed cmds inside dispatch()
+        // so the iterator may be wrong, restart from
+        // beginning of the queue
+        i = 0;
+        wxe_idle_processed = 0;
+      } else {
+        i++;
+      }
     }
     // sleep until something happens
     // enif_fprintf(stderr, "\r\n%s:%d: %d: sleep sz %d (%d) it pos: %d\r\n", __FILE__, __LINE__, recurse_level,

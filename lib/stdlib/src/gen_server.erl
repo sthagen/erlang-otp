@@ -97,8 +97,11 @@
          start_monitor/3, start_monitor/4,
 	 stop/1, stop/3,
 	 call/2, call/3,
-         send_request/2, wait_response/2,
-         receive_response/2, check_response/2,
+         send_request/2, send_request/4,
+         wait_response/2, receive_response/2, check_response/2,
+         wait_response/3, receive_response/3, check_response/3,
+         reqids_new/0, reqids_size/1,
+         reqids_add/3, reqids_to_list/1,
 	 cast/2, reply/2,
 	 abcast/2, abcast/3,
 	 multi_call/2, multi_call/3, multi_call/4,
@@ -123,7 +126,8 @@
 -export_type(
    [from/0,
     reply_tag/0,
-    request_id/0]).
+    request_id/0,
+    request_id_collection/0]).
 
 -export_type(
    [server_name/0,
@@ -136,6 +140,11 @@
 -define(
    STACKTRACE(),
    element(2, erlang:process_info(self(), current_stacktrace))).
+
+-define(
+	is_timeout(X),
+	( (X) =:= infinity orelse ( is_integer(X) andalso (X) >= 0 ) )
+).
 
 %%%=========================================================================
 %%%  API
@@ -194,6 +203,11 @@
 -opaque reply_tag() :: gen:reply_tag().
 
 -opaque request_id() :: gen:request_id().
+
+-opaque request_id_collection() :: gen:request_id_collection().
+
+-type response_timeout() ::
+        timeout() | {abs, integer()}.
 
 %%%  -----------------------------------------------------------------
 %%% Starts a generic server.
@@ -373,45 +387,172 @@ call(ServerRef, Request, Timeout) ->
 %% used with wait_response/2 or check_response/2 to fetch the
 %% result of the request.
 
--spec send_request(
-        ServerRef :: server_ref(),
-        Request   :: term()
-       ) ->
-                          RequestId :: request_id().
+-spec send_request(ServerRef::server_ref(), Request::term()) ->
+          ReqId::request_id().
+
 send_request(ServerRef, Request) ->
-    gen:send_request(ServerRef, '$gen_call', Request).
+    try
+        gen:send_request(ServerRef, '$gen_call', Request)
+    catch
+        error:badarg ->
+            error(badarg, [ServerRef, Request])
+    end.
 
--spec wait_response(
-        RequestId :: request_id(),
-        Timeout   :: timeout()) ->
-                           {reply, Reply :: term()} |
-                           'timeout' |
-                           {error,
-                            {Reason :: term(), ServerRef :: server_ref()}}.
-wait_response(RequestId, Timeout) ->
-    gen:wait_response(RequestId, Timeout).
+-spec send_request(ServerRef::server_ref(),
+                   Request::term(),
+                   Label::term(),
+                   ReqIdCollection::request_id_collection()) ->
+          NewReqIdCollection::request_id_collection().
 
--spec receive_response(
-        RequestId :: request_id(),
-        Timeout   :: timeout()
-       ) ->
-                              {reply, Reply :: term()} |
-                              'timeout' |
-                              {error,
-                               {Reason :: term(), ServerRef :: server_ref()}}.
-receive_response(RequestId, Timeout) ->
-    gen:receive_response(RequestId, Timeout).
+send_request(ServerRef, Request, Label, ReqIdCol) ->
+    try
+        gen:send_request(ServerRef, '$gen_call', Request, Label, ReqIdCol)
+    catch
+        error:badarg ->
+            error(badarg, [ServerRef, Request, Label, ReqIdCol])
+    end.
 
--spec check_response(
-        Msg       :: term(),
-        RequestId :: request_id()
-       ) ->
-                            {reply, Reply :: term()} |
-                            'no_reply' |
-                            {error,
-                             {Reason :: term(), ServerRef :: server_ref()}}.
-check_response(Msg, RequestId) ->
-    gen:check_response(Msg, RequestId).
+-spec wait_response(ReqId, WaitTime) -> Result when
+      ReqId :: request_id(),
+      WaitTime :: response_timeout(),
+      Response :: {reply, Reply::term()}
+                | {error, {Reason::term(), server_ref()}},
+      Result :: Response | 'timeout'.
+
+wait_response(ReqId, WaitTime) ->
+    try
+        gen:wait_response(ReqId, WaitTime)
+    catch
+        error:badarg ->
+            error(badarg, [ReqId, WaitTime])
+    end.
+
+-spec wait_response(ReqIdCollection, WaitTime, Delete) -> Result when
+      ReqIdCollection :: request_id_collection(),
+      WaitTime :: response_timeout(),
+      Delete :: boolean(),
+      Response :: {reply, Reply::term()} |
+                  {error, {Reason::term(), server_ref()}},
+      Result :: {Response,
+                 Label::term(),
+                 NewReqIdCollection::request_id_collection()} |
+                'no_request' |
+                'timeout'.
+
+wait_response(ReqIdCol, WaitTime, Delete) ->
+    try
+        gen:wait_response(ReqIdCol, WaitTime, Delete)
+    catch
+        error:badarg ->
+            error(badarg, [ReqIdCol, WaitTime, Delete])
+    end.
+
+-spec receive_response(ReqId, Timeout) -> Result when
+      ReqId :: request_id(),
+      Timeout :: response_timeout(),
+      Response :: {reply, Reply::term()} |
+                  {error, {Reason::term(), server_ref()}},
+      Result :: Response | 'timeout'.
+
+receive_response(ReqId, Timeout) ->
+    try
+        gen:receive_response(ReqId, Timeout)
+    catch
+        error:badarg ->
+            error(badarg, [ReqId, Timeout])
+    end.
+
+-spec receive_response(ReqIdCollection, Timeout, Delete) -> Result when
+      ReqIdCollection :: request_id_collection(),
+      Timeout :: response_timeout(),
+      Delete :: boolean(),
+      Response :: {reply, Reply::term()} |
+                  {error, {Reason::term(), server_ref()}},
+      Result :: {Response,
+                 Label::term(),
+                 NewReqIdCollection::request_id_collection()} |
+                'no_request' |
+                'timeout'.
+
+receive_response(ReqIdCol, Timeout, Delete) ->
+    try
+        gen:receive_response(ReqIdCol, Timeout, Delete)
+    catch
+        error:badarg ->
+            error(badarg, [ReqIdCol, Timeout, Delete])
+    end.
+
+-spec check_response(Msg, ReqId) -> Result when
+      Msg :: term(),
+      ReqId :: request_id(),
+      Response :: {reply, Reply::term()} |
+                  {error, {Reason::term(), server_ref()}},
+      Result :: Response | 'no_reply'.
+
+check_response(Msg, ReqId) ->
+    try
+        gen:check_response(Msg, ReqId)
+    catch
+        error:badarg ->
+            error(badarg, [Msg, ReqId])
+    end.
+
+-spec check_response(Msg, ReqIdCollection, Delete) -> Result when
+      Msg :: term(),
+      ReqIdCollection :: request_id_collection(),
+      Delete :: boolean(),
+      Response :: {reply, Reply::term()} |
+                  {error, {Reason::term(), server_ref()}},
+      Result :: {Response,
+                 Label::term(),
+                 NewReqIdCollection::request_id_collection()} |
+                'no_request' |
+                'no_reply'.
+
+check_response(Msg, ReqIdCol, Delete) ->
+    try
+        gen:check_response(Msg, ReqIdCol, Delete)
+    catch
+        error:badarg ->
+            error(badarg, [Msg, ReqIdCol, Delete])
+    end.
+
+-spec reqids_new() ->
+          NewReqIdCollection::request_id_collection().
+
+reqids_new() ->
+    gen:reqids_new().
+
+-spec reqids_size(ReqIdCollection::request_id_collection()) ->
+          non_neg_integer().
+
+reqids_size(ReqIdCollection) ->
+    try
+        gen:reqids_size(ReqIdCollection)
+    catch
+        error:badarg -> error(badarg, [ReqIdCollection])
+    end.
+
+-spec reqids_add(ReqId::request_id(), Label::term(),
+                 ReqIdCollection::request_id_collection()) ->
+          NewReqIdCollection::request_id_collection().
+
+reqids_add(ReqId, Label, ReqIdCollection) ->
+    try
+        gen:reqids_add(ReqId, Label, ReqIdCollection)
+    catch
+        error:badarg -> error(badarg, [ReqId, Label, ReqIdCollection])
+    end.
+
+-spec reqids_to_list(ReqIdCollection::request_id_collection()) ->
+          [{ReqId::request_id(), Label::term()}].
+
+reqids_to_list(ReqIdCollection) ->
+    try
+        gen:reqids_to_list(ReqIdCollection)
+    catch
+        error:badarg -> error(badarg, [ReqIdCollection])
+    end.
 
 %% -----------------------------------------------------------------
 %% Make a cast to a generic server.
@@ -533,8 +674,7 @@ multi_call(Nodes, Name, Request)
                         }.
 %%
 multi_call(Nodes, Name, Request, Timeout)
-  when is_list(Nodes), is_atom(Name), is_integer(Timeout), Timeout >= 0;
-       is_list(Nodes), is_atom(Name), Timeout =:= infinity ->
+  when is_list(Nodes), is_atom(Name), ?is_timeout(Timeout) ->
     do_multi_call(Nodes, Name, Request, Timeout).
 
 
@@ -557,7 +697,8 @@ multi_call(Nodes, Name, Request, Timeout)
        ) ->
                         no_return().
 %%
-enter_loop(Mod, Options, State) ->
+enter_loop(Mod, Options, State)
+  when is_atom(Mod), is_list(Options) ->
     enter_loop(Mod, Options, State, self(), infinity).
 
 -spec enter_loop(
@@ -573,17 +714,39 @@ enter_loop(Mod, Options, State) ->
          State   :: term(),
          Timeout :: timeout()
        ) ->
+                        no_return();
+       (
+           Module    :: module(),
+           Options   :: [enter_loop_opt()],
+           State     :: term(),
+           Hibernate :: 'hibernate'
+       ) ->
+                        no_return();
+       (
+           Module  :: module(),
+           Options :: [enter_loop_opt()],
+           State   :: term(),
+           Cont    :: {'continue', term()}
+       ) ->
                         no_return().
 %%
 enter_loop(Mod, Options, State, ServerName = {Scope, _})
-  when Scope == local; Scope == global ->
+  when is_atom(Mod), is_list(Options), Scope == local;
+       is_atom(Mod), is_list(Options), Scope == global ->
     enter_loop(Mod, Options, State, ServerName, infinity);
 %%
-enter_loop(Mod, Options, State, ServerName = {via, _, _}) ->
+enter_loop(Mod, Options, State, ServerName = {via, _, _})
+  when is_atom(Mod), is_list(Options) ->
     enter_loop(Mod, Options, State, ServerName, infinity);
 %%
-enter_loop(Mod, Options, State, Timeout) ->
-    enter_loop(Mod, Options, State, self(), Timeout).
+enter_loop(Mod, Options, State, TimeoutOrHibernate)
+  when is_atom(Mod), is_list(Options), ?is_timeout(TimeoutOrHibernate);
+       is_atom(Mod), is_list(Options), TimeoutOrHibernate =:= hibernate ->
+    enter_loop(Mod, Options, State, self(), TimeoutOrHibernate);
+%%
+enter_loop(Mod, Options, State, {continue, _}=Continue)
+  when is_atom(Mod), is_list(Options) ->
+    enter_loop(Mod, Options, State, self(), Continue).
 
 -spec enter_loop(
         Module     :: module(),
@@ -592,14 +755,40 @@ enter_loop(Mod, Options, State, Timeout) ->
         ServerName :: server_name() | pid(),
         Timeout    :: timeout()
        ) ->
+                        no_return();
+       (
+           Module     :: module(),
+           Options    :: [enter_loop_opt()],
+           State      :: term(),
+           ServerName :: server_name() | pid(),
+           Hibernate  :: 'hibernate'
+       ) ->
+                        no_return();
+       (
+           Module     :: module(),
+           Options    :: [enter_loop_opt()],
+           State      :: term(),
+           ServerName :: server_name() | pid(),
+           Cont       :: {'continue', term()}
+       ) ->
                         no_return().
 %%
-enter_loop(Mod, Options, State, ServerName, Timeout) ->
+enter_loop(Mod, Options, State, ServerName, TimeoutOrHibernate)
+  when is_atom(Mod), is_list(Options), ?is_timeout(TimeoutOrHibernate);
+       is_atom(Mod), is_list(Options), TimeoutOrHibernate =:= hibernate ->
     Name = gen:get_proc_name(ServerName),
     Parent = gen:get_parent(),
     Debug = gen:debug_options(Name, Options),
     HibernateAfterTimeout = gen:hibernate_after(Options),
-    loop(Parent, Name, State, Mod, Timeout, HibernateAfterTimeout, Debug).
+    loop(Parent, Name, State, Mod, TimeoutOrHibernate, HibernateAfterTimeout, Debug);
+%%
+enter_loop(Mod, Options, State, ServerName, {continue, _}=Continue)
+  when is_atom(Mod), is_list(Options) ->
+    Name = gen:get_proc_name(ServerName),
+    Parent = gen:get_parent(),
+    Debug = gen:debug_options(Name, Options),
+    HibernateAfterTimeout = gen:hibernate_after(Options),
+    loop(Parent, Name, State, Mod, Continue, HibernateAfterTimeout, Debug).
 
 %%%========================================================================
 %%% Gen-callback functions
@@ -623,10 +812,14 @@ init_it(Starter, Parent, Name0, Mod, Args, Options) ->
 	{ok, {ok, State}} ->
 	    proc_lib:init_ack(Starter, {ok, self()}), 	    
 	    loop(Parent, Name, State, Mod, infinity, HibernateAfterTimeout, Debug);
-	{ok, {ok, State, TimeoutHibernateOrContinue}} ->
+    {ok, {ok, State, TimeoutOrHibernate}}
+          when ?is_timeout(TimeoutOrHibernate);
+               TimeoutOrHibernate =:= hibernate ->
 	    proc_lib:init_ack(Starter, {ok, self()}), 	    
-	    loop(Parent, Name, State, Mod, TimeoutHibernateOrContinue,
-	         HibernateAfterTimeout, Debug);
+	    loop(Parent, Name, State, Mod, TimeoutOrHibernate, HibernateAfterTimeout, Debug);
+	{ok, {ok, State, {continue, _}=Continue}} ->
+	    proc_lib:init_ack(Starter, {ok, self()}), 	    
+	    loop(Parent, Name, State, Mod, Continue, HibernateAfterTimeout, Debug);
 	{ok, {stop, Reason}} ->
 	    %% For consistency, we must make sure that the
 	    %% registered name (if any) is unregistered before
@@ -984,13 +1177,14 @@ handle_msg({'$gen_call', From, Msg}, Parent, Name, State, Mod, HibernateAfterTim
 	{ok, {reply, Reply, NState}} ->
 	    reply(From, Reply),
 	    loop(Parent, Name, NState, Mod, infinity, HibernateAfterTimeout, []);
-	{ok, {reply, Reply, NState, Time1}} ->
+	{ok, {reply, Reply, NState, TimeoutOrHibernate}}
+          when ?is_timeout(TimeoutOrHibernate);
+               TimeoutOrHibernate =:= hibernate ->
 	    reply(From, Reply),
-	    loop(Parent, Name, NState, Mod, Time1, HibernateAfterTimeout, []);
-	{ok, {noreply, NState}} ->
-	    loop(Parent, Name, NState, Mod, infinity, HibernateAfterTimeout, []);
-	{ok, {noreply, NState, Time1}} ->
-	    loop(Parent, Name, NState, Mod, Time1, HibernateAfterTimeout, []);
+	    loop(Parent, Name, NState, Mod, TimeoutOrHibernate, HibernateAfterTimeout, []);
+	{ok, {reply, Reply, NState, {continue, _}=Continue}} ->
+	    reply(From, Reply),
+	    loop(Parent, Name, NState, Mod, Continue, HibernateAfterTimeout, []);
 	{ok, {stop, Reason, Reply, NState}} ->
 	    try
 		terminate(Reason, ?STACKTRACE(), Name, From, Msg, Mod, NState, [])
@@ -1009,17 +1203,14 @@ handle_msg({'$gen_call', From, Msg}, Parent, Name, State, Mod, HibernateAfterTim
 	{ok, {reply, Reply, NState}} ->
 	    Debug1 = reply(Name, From, Reply, NState, Debug),
 	    loop(Parent, Name, NState, Mod, infinity, HibernateAfterTimeout, Debug1);
-	{ok, {reply, Reply, NState, Time1}} ->
+	{ok, {reply, Reply, NState, TimeoutOrHibernate}}
+          when ?is_timeout(TimeoutOrHibernate);
+               TimeoutOrHibernate =:= hibernate ->
 	    Debug1 = reply(Name, From, Reply, NState, Debug),
-	    loop(Parent, Name, NState, Mod, Time1, HibernateAfterTimeout, Debug1);
-	{ok, {noreply, NState}} ->
-	    Debug1 = sys:handle_debug(Debug, fun print_event/3, Name,
-				      {noreply, NState}),
-	    loop(Parent, Name, NState, Mod, infinity, HibernateAfterTimeout, Debug1);
-	{ok, {noreply, NState, Time1}} ->
-	    Debug1 = sys:handle_debug(Debug, fun print_event/3, Name,
-				      {noreply, NState}),
-	    loop(Parent, Name, NState, Mod, Time1, HibernateAfterTimeout, Debug1);
+	    loop(Parent, Name, NState, Mod, TimeoutOrHibernate, HibernateAfterTimeout, Debug1);
+	{ok, {reply, Reply, NState, {continue, _}=Continue}} ->
+	    Debug1 = reply(Name, From, Reply, NState, Debug),
+	    loop(Parent, Name, NState, Mod, Continue, HibernateAfterTimeout, Debug1);
 	{ok, {stop, Reason, Reply, NState}} ->
 	    try
 		terminate(Reason, ?STACKTRACE(), Name, From, Msg, Mod, NState, Debug)
@@ -1037,8 +1228,12 @@ handle_common_reply(Reply, Parent, Name, From, Msg, Mod, HibernateAfterTimeout, 
     case Reply of
 	{ok, {noreply, NState}} ->
 	    loop(Parent, Name, NState, Mod, infinity, HibernateAfterTimeout, []);
-	{ok, {noreply, NState, Time1}} ->
-	    loop(Parent, Name, NState, Mod, Time1, HibernateAfterTimeout, []);
+	{ok, {noreply, NState, TimeoutOrHibernate}}
+          when ?is_timeout(TimeoutOrHibernate);
+               TimeoutOrHibernate =:= hibernate ->
+	    loop(Parent, Name, NState, Mod, TimeoutOrHibernate, HibernateAfterTimeout, []);
+	{ok, {noreply, NState, {continue, _}=Continue}} ->
+	    loop(Parent, Name, NState, Mod, Continue, HibernateAfterTimeout, []);
 	{ok, {stop, Reason, NState}} ->
 	    terminate(Reason, ?STACKTRACE(), Name, From, Msg, Mod, NState, []);
 	{'EXIT', Class, Reason, Stacktrace} ->
@@ -1053,10 +1248,14 @@ handle_common_reply(Reply, Parent, Name, From, Msg, Mod, HibernateAfterTimeout, 
 	    Debug1 = sys:handle_debug(Debug, fun print_event/3, Name,
 				      {noreply, NState}),
 	    loop(Parent, Name, NState, Mod, infinity, HibernateAfterTimeout, Debug1);
-	{ok, {noreply, NState, Time1}} ->
-	    Debug1 = sys:handle_debug(Debug, fun print_event/3, Name,
-				      {noreply, NState}),
-	    loop(Parent, Name, NState, Mod, Time1, HibernateAfterTimeout, Debug1);
+	{ok, {noreply, NState, TimeoutOrHibernate}}
+          when ?is_timeout(TimeoutOrHibernate);
+               TimeoutOrHibernate =:= hibernate ->
+	    Debug1 = sys:handle_debug(Debug, fun print_event/3, Name, {noreply, NState}),
+	    loop(Parent, Name, NState, Mod, TimeoutOrHibernate, HibernateAfterTimeout, Debug1);
+	{ok, {noreply, NState, {continue, _}=Continue}} ->
+	    Debug1 = sys:handle_debug(Debug, fun print_event/3, Name, {noreply, NState}),
+	    loop(Parent, Name, NState, Mod, Continue, HibernateAfterTimeout, Debug1);
 	{ok, {stop, Reason, NState}} ->
 	    terminate(Reason, ?STACKTRACE(), Name, From, Msg, Mod, NState, Debug);
 	{'EXIT', Class, Reason, Stacktrace} ->
