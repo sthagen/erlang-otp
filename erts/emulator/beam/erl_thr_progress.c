@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2011-2021. All Rights Reserved.
+ * Copyright Ericsson AB 2011-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1369,7 +1369,7 @@ erts_thr_progress_fatal_error_block(ErtsThrPrgrData *tmp_tpd_bufp)
 	init_tmp_thr_prgr_data(tpd);
     }
 
-    /* Returns number of threads that have not yes been blocked */
+    /* Returns number of threads that have not yet been blocked */
     return thr_progress_block(tpd, 0);
 }
 
