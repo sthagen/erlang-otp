@@ -2524,8 +2524,9 @@ check_io_debug() ->
 has_gethost() ->
     has_gethost(erlang:ports()).
 has_gethost([P|T]) ->
-    case erlang:port_info(P, name) of
-        {name,"inet_gethost"++_} ->
+    {name, Name} = erlang:port_info(P, name),
+    case filename:basename(Name) of
+        "inet_gethost"++_ ->
             true;
         _ ->
             has_gethost(T)
@@ -2613,7 +2614,7 @@ make_refc_binaries(Term) ->
     transform_bins(F, Term).
 
 build_binary(Elements) ->
-    list_to_binary(build_list(Elements)).
+    rand:bytes(Elements).
 
 build_list(Elements) -> build_list(Elements, []).
 
