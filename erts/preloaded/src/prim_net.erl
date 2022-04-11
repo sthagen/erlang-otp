@@ -91,15 +91,15 @@
 -type ifaddrs_flags() :: [ifaddrs_flag()].
 
 %% Note that not all of these fields are mandatory.
-%% Actually there are (error) cases when only the name will be included.
-%% And broadaddr and dstaddr are mutually exclusive!
+%% *Also*, broadaddr and dstaddr are mutually exclusive!
 
 -type ifaddrs() :: #{name      := string(),
                      flags     := ifaddrs_flags(),
-                     addr      := socket:sockaddr(),
-                     netmask   := socket:sockaddr(),
-                     broadaddr := socket:sockaddr(),
-                     dstaddr   := socket:sockaddr()}.
+                     addr      => socket:sockaddr(),
+                     netmask   => socket:sockaddr(),
+                     %% 'broadaddr' and 'dstaddr' are mutually exclusive
+                     broadaddr => socket:sockaddr(),
+                     dstaddr   => socket:sockaddr()}.
 
 -type interface_info_args() :: #{debug => boolean()}.
 -type if_entry_args() :: #{index := non_neg_integer(),
@@ -142,7 +142,7 @@
                            out_discards         := non_neg_integer(),
                            out_errors           := non_neg_integer(),
                            out_qlen             := non_neg_integer(),
-                           description           := binary()}.
+                           description          := binary()}.
 
 -type ip_adapter_index_map() :: #{index := integer(),
                                   name  := string()}.
@@ -362,7 +362,10 @@ on_load() ->
       Extra :: map().
 
 on_load(Extra) ->
-    ok = erlang:load_nif(atom_to_list(net), Extra).
+    %% This will fail if the user has disabled esock support, making all NIFs
+    %% fall back to their Erlang implementation which throws `notsup`.
+    _ = erlang:load_nif(atom_to_list(net), Extra),
+    ok.
 
 
 -spec info() -> map().
@@ -651,41 +654,41 @@ if_names() ->
 %% ===========================================================================
 
 nif_info() ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_command(_Cmd) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_gethostname() ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_getnameinfo(_Addr, _Flags) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_getaddrinfo(_Host, _Service, _Hints) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_getifaddrs(_Extra) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_get_adapters_addresses(_Args) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_get_if_entry(_Args) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_get_interface_info(_Args) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_get_ip_address_table(_Args) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_if_name2index(_Name) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_if_index2name(_Id) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
 nif_if_names() ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
