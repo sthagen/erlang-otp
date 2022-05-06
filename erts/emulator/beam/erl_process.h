@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2021. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1564,7 +1564,8 @@ extern int erts_system_profile_ts_type;
 #define F_DIRTY_MINOR_GC     (1 << 20) /* Dirty minor GC scheduled */
 #define F_HIBERNATED         (1 << 21) /* Hibernated */
 #define F_TRAP_EXIT          (1 << 22) /* Trapping exit */
-#define F_DBG_FORCED_TRAP    (1 << 23) /* DEBUG: Last BIF call was a forced trap */
+#define F_FRAGMENTED_SEND    (1 << 23) /* Process is doing a distributed fragmented send */
+#define F_DBG_FORCED_TRAP    (1 << 24) /* DEBUG: Last BIF call was a forced trap */
 
 /* Signal queue flags */
 #define FS_OFF_HEAP_MSGQ       (1 << 0) /* Off heap msg queue */
@@ -1745,9 +1746,9 @@ Uint64 erts_get_proc_interval(void);
 Uint64 erts_ensure_later_proc_interval(Uint64);
 Uint64 erts_step_proc_interval(void);
 
-ErtsProcList *erts_proclist_create(Process *);
-ErtsProcList *erts_proclist_copy(ErtsProcList *);
 void erts_proclist_destroy(ErtsProcList *);
+ErtsProcList *erts_proclist_create(Process *) ERTS_ATTR_MALLOC_D(erts_proclist_destroy,1);
+ErtsProcList *erts_proclist_copy(ErtsProcList *);
 void erts_proclist_dump(fmtfn_t to, void *to_arg, ErtsProcList*);
 
 ERTS_GLB_INLINE int erts_proclist_same(ErtsProcList *, Process *);
