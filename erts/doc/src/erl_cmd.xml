@@ -283,10 +283,11 @@ $ <input>erl \
       </item>
       <tag><marker id="connect_all"/><c><![CDATA[-connect_all false]]></c></tag>
       <item>
-        <p>If this flag is present, <c><![CDATA[global]]></c> does not maintain
-          a fully connected network of distributed Erlang nodes, and then
-          global name registration cannot be used; see
-          <seeerl marker="kernel:global"><c>global(3)</c></seeerl>.</p>
+        <p>
+          This flag is deprecated and has been replaced by the <c>kernel</c>
+          application parameter
+          <seeapp marker="kernel:kernel_app#connect_all"><c>connect_all</c></seeapp>.
+        </p>
       </item>
       <tag><c><![CDATA[-cookie Cookie]]></c></tag>
       <item>
@@ -312,6 +313,13 @@ $ <input>erl \
         used to disable all non permanent features.
       </p>
       </item>
+      <tag><marker id="dist_listen"/><c>-dist_listen true|false</c></tag>
+      <item><p>
+        Specifies whether this node should be listening for incoming
+        distribution connections or not. By default a node will listen for
+        incoming connections. Setting this option to <c>false</c>
+        implies <seecom marker="#hidden"><c>-hidden</c></seecom>.
+      </p></item>
       <tag><c><![CDATA[-emu_args]]></c></tag>
       <item>
         <p>Useful for debugging. Prints the arguments sent to the emulator.</p>

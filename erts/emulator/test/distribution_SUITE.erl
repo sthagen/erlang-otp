@@ -38,7 +38,7 @@
          init_per_suite/1, end_per_suite/1,
          init_per_group/2, end_per_group/2,
          ping/1, bulk_send_small/1,
-         group_leader/1,
+         group_leader/1, nodes2/1,
          optimistic_dflags/1,
          bulk_send_big/1, bulk_send_bigbig/1,
          local_send_small/1, local_send_big/1,
@@ -74,7 +74,10 @@
          system_limit/1,
          hopefull_data_encoding/1,
          hopefull_export_fun_bug/1,
-         huge_iovec/1]).
+         huge_iovec/1,
+         is_alive/1,
+         dyn_node_name_monitor_node/1,
+         dyn_node_name_monitor/1]).
 
 %% Internal exports.
 -export([sender/3, receiver2/2, dummy_waiter/0, dead_process/0,
@@ -94,7 +97,7 @@ suite() ->
 
 all() ->
     [ping, {group, bulk_send}, {group, local_send},
-     group_leader,
+     group_leader, nodes2,
      optimistic_dflags,
      link_to_busy, exit_to_busy, lost_exit, link_to_dead,
      link_to_dead_new_node,
@@ -107,7 +110,7 @@ all() ->
      dist_entry_refc_race,
      start_epmd_false, no_epmd, epmd_module, system_limit,
      hopefull_data_encoding, hopefull_export_fun_bug,
-     huge_iovec].
+     huge_iovec, is_alive, dyn_node_name_monitor_node, dyn_node_name_monitor].
 
 groups() ->
     [{bulk_send, [], [bulk_send_small, bulk_send_big, bulk_send_bigbig]},
@@ -210,6 +213,294 @@ group_leader_1(Node2) ->
     ExtPid ! {self(), group_leader},
     {ExtPid, group_leader, GL2} = receive_one(),
     ok.
+
+nodes2(Config) when is_list(Config) ->
+
+    This = node(),
+
+    ok = net_kernel:monitor_nodes(true, #{node_type => all,
+                                          connection_id => true}),
+
+    AlreadyConnected = maps:from_list(lists:map(fun (N) ->
+                                                        {N, true}
+                                                end, nodes(connected))),
+    AlreadyVisible = maps:from_list(lists:map(fun (N) ->
+                                                      {N, true}
+                                              end, nodes(visible))),
+    AlreadyHidden = maps:from_list(lists:map(fun (N) ->
+                                                     {N, true}
+                                             end, nodes(visible))),
+    AlreadyKnown = maps:from_list(lists:map(fun (N) ->
+                                                    {N, true}
+                                            end, nodes(known))),
+
+    {ok, PV1, V1} = ?CT_PEER(),
+    {ok, PH1, H1} = ?CT_PEER(["-hidden"]),
+    {ok, PV2, V2} = ?CT_PEER(),
+    {ok, PH2, H2} = ?CT_PEER(["-hidden"]),
+
+    TestNodes = maps:from_list(lists:map(fun (N) ->
+                                                 {N, true}
+                                         end, [This, V1, H1, V2, H2])),
+
+    V1CId = receive {nodeup, V1, #{connection_id := C1, node_type := visible}} -> C1 end,
+    V2CId = receive {nodeup, V2, #{connection_id := C2, node_type := visible}} -> C2 end,
+    H1CId = receive {nodeup, H1, #{connection_id := C3, node_type := hidden}} -> C3 end,
+    H2CId = receive {nodeup, H2, #{connection_id := C4, node_type := hidden}} -> C4 end,
+
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          2 = maps:size(I),
+                          #{connection_id := V1CId, node_type := visible} = I;
+                      ({N, I}) when N == V2 ->
+                          2 = maps:size(I),
+                          #{connection_id := V2CId, node_type := visible} = I;
+                      ({N, I}) when N == H1 ->
+                          2 = maps:size(I),
+                          #{connection_id := H1CId, node_type := hidden} = I;
+                      ({N, I}) when N == H2 ->
+                          2 = maps:size(I),
+                          #{connection_id := H2CId, node_type := hidden} = I;
+                      ({N, I}) ->
+                          2 = maps:size(I),
+                          #{connection_id := _, node_type := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyConnected)
+                  end, erlang:nodes(connected, #{connection_id => true,
+                                                 node_type => true})),
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          2 = maps:size(I),
+                          #{connection_id := V1CId, node_type := visible} = I;
+                      ({N, I}) when N == V2 ->
+                          2 = maps:size(I),
+                          #{connection_id := V2CId, node_type := visible} = I;
+                      ({N, I}) when N == H1 ->
+                          2 = maps:size(I),
+                          #{connection_id := H1CId, node_type := hidden} = I;
+                      ({N, I}) when N == H2 ->
+                          2 = maps:size(I),
+                          #{connection_id := H2CId, node_type := hidden} = I;
+                      ({N, I}) when N == This ->
+                          2 = maps:size(I),
+                          #{connection_id := undefined, node_type := this} = I;
+                      ({N, I}) ->
+                          2 = maps:size(I),
+                          #{connection_id := _, node_type := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyConnected)
+                  end, erlang:nodes([this, connected], #{connection_id => true,
+                                                         node_type => true})),
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          1 = maps:size(I),
+                          #{connection_id := V1CId} = I;
+                      ({N, I}) when N == V2 ->
+                          1 = maps:size(I),
+                          #{connection_id := V2CId} = I;
+                      ({N, I}) when N == H1 ->
+                          1 = maps:size(I),
+                          #{connection_id := H1CId} = I;
+                      ({N, I}) when N == H2 ->
+                          1 = maps:size(I),
+                          #{connection_id := H2CId} = I;
+                      ({N, I}) ->
+                          1 = maps:size(I),
+                          #{connection_id := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyConnected)
+                  end, erlang:nodes(connected, #{connection_id => true})),
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          1 = maps:size(I),
+                          #{node_type := visible} = I;
+                      ({N, I}) when N == V2 ->
+                          1 = maps:size(I),
+                          #{node_type := visible} = I;
+                      ({N, I}) when N == H1 ->
+                          1 = maps:size(I),
+                          #{node_type := hidden} = I;
+                      ({N, I}) when N == H2 ->
+                          1 = maps:size(I),
+                          #{node_type := hidden} = I;
+                      ({N, I}) ->
+                          1 = maps:size(I),
+                          #{node_type := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyConnected)
+                  end, erlang:nodes(connected, #{node_type => true})),
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          2 = maps:size(I),
+                          #{connection_id := V1CId, node_type := visible} = I;
+                      ({N, I}) when N == V2 ->
+                          2 = maps:size(I),
+                          #{connection_id := V2CId, node_type := visible} = I;
+                      ({N, I}) ->
+                          2 = maps:size(I),
+                          #{connection_id := _, node_type := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyVisible)
+                  end, erlang:nodes(visible, #{connection_id => true,
+                                               node_type => true})),
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          2 = maps:size(I),
+                          #{connection_id := V1CId, node_type := visible} = I;
+                      ({N, I}) when N == V2 ->
+                          2 = maps:size(I),
+                          #{connection_id := V2CId, node_type := visible} = I;
+                      ({N, I}) when N == This ->
+                          2 = maps:size(I),
+                          #{connection_id := undefined, node_type := this} = I;
+                      ({N, I}) ->
+                          2 = maps:size(I),
+                          #{connection_id := _, node_type := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyVisible)
+                  end, erlang:nodes([this, visible], #{connection_id => true,
+                                                       node_type => true})),
+    lists:foreach(fun ({N, I}) when N == H1 ->
+                          2 = maps:size(I),
+                          #{connection_id := H1CId, node_type := hidden} = I;
+                      ({N, I}) when N == H2 ->
+                          2 = maps:size(I),
+                          #{connection_id := H2CId, node_type := hidden} = I;
+                      ({N, I}) ->
+                          2 = maps:size(I),
+                          #{connection_id := _, node_type := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyHidden)
+                  end, erlang:nodes(hidden, #{connection_id => true,
+                                              node_type => true})),
+    [{This, #{connection_id := undefined,
+              node_type := this}}] = erlang:nodes(this, #{connection_id => true,
+                                                          node_type => true}),
+    [{This, #{connection_id := undefined}}] = erlang:nodes(this, #{connection_id => true}),
+    [{This, #{node_type := this}}] = erlang:nodes(this, #{node_type => true}),
+
+    %% Ensure dist these dist entries are not GC:d yet...
+    NKV2 = rpc:call(V2, erlang, whereis, [net_kernel]),
+    true = is_pid(NKV2),
+    NKH2 = rpc:call(H2, erlang, whereis, [net_kernel]),
+    true = is_pid(NKH2),
+
+    peer:stop(PV2),
+    peer:stop(PH2),
+
+    receive {nodedown, V2, #{connection_id := V2CId, node_type := visible}} -> ok end,
+    receive {nodedown, H2, #{connection_id := H2CId, node_type := hidden}} -> ok end,
+
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          2 = maps:size(I),
+                          #{connection_id := V1CId, node_type := visible} = I;
+                      ({N, I}) when N == V2 ->
+                          2 = maps:size(I),
+                          #{connection_id := undefined, node_type := known} = I;
+                      ({N, I}) when N == H1 ->
+                          2 = maps:size(I),
+                          #{connection_id := H1CId, node_type := hidden} = I;
+                      ({N, I}) when N == H2 ->
+                          2 = maps:size(I),
+                          #{connection_id := undefined, node_type := known} = I;
+                      ({N, I}) when N == This ->
+                          2 = maps:size(I),
+                          #{connection_id := undefined, node_type := this} = I;
+                      ({N, I}) ->
+                          2 = maps:size(I),
+                          #{connection_id := _, node_type := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyKnown)
+                  end, erlang:nodes(known, #{connection_id => true,
+                                             node_type => true})),
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          1 = maps:size(I),
+                          #{node_type := visible} = I;
+                      ({N, I}) when N == V2 ->
+                          1 = maps:size(I),
+                          #{node_type := known} = I;
+                      ({N, I}) when N == H1 ->
+                          1 = maps:size(I),
+                          #{node_type := hidden} = I;
+                      ({N, I}) when N == H2 ->
+                          1 = maps:size(I),
+                          #{node_type := known} = I;
+                      ({N, I}) when N == This ->
+                          1 = maps:size(I),
+                          #{node_type := this} = I;
+                      ({N, I}) ->
+                          1 = maps:size(I),
+                          #{node_type := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyKnown)
+                  end, erlang:nodes(known, #{node_type => true})),
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          1 = maps:size(I),
+                          #{connection_id := V1CId} = I;
+                      ({N, I}) when N == V2 ->
+                          1 = maps:size(I),
+                          #{connection_id := undefined} = I;
+                      ({N, I}) when N == H1 ->
+                          1 = maps:size(I),
+                          #{connection_id := H1CId} = I;
+                      ({N, I}) when N == H2 ->
+                          1 = maps:size(I),
+                          #{connection_id := undefined} = I;
+                      ({N, I}) when N == This ->
+                          1 = maps:size(I),
+                          #{connection_id := undefined} = I;
+                      ({N, I}) ->
+                          1 = maps:size(I),
+                          #{connection_id := _} = I,
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyKnown)
+                  end, erlang:nodes(known, #{connection_id => true})),    
+    lists:foreach(fun ({N, I}) when N == V1 ->
+                          0 = maps:size(I),
+                          #{} = I;
+                      ({N, I}) when N == V2 ->
+                          0 = maps:size(I),
+                          #{} = I;
+                      ({N, I}) when N == H1 ->
+                          0 = maps:size(I),
+                          #{} = I;
+                      ({N, I}) when N == H2 ->
+                          0 = maps:size(I),
+                          #{} = I;
+                      ({N, I}) when N == This ->
+                          0 = maps:size(I),
+                          #{} = I;
+                      ({N, I}) ->
+                          0 = maps:size(I),
+                          false = maps:is_key(N, TestNodes),
+                          true = maps:is_key(N, AlreadyKnown)
+                  end, erlang:nodes(known, #{})),
+
+    peer:stop(PV1),
+    peer:stop(PH1),
+
+    id(NKV2),
+    id(NKH2),
+
+    try erlang:nodes("visible", #{connection_id => true})
+    catch error:badarg -> ok
+    end,
+    try erlang:nodes([another], #{connection_id => true})
+    catch error:badarg -> ok
+    end,
+    try erlang:nodes(visible, #{cid => true})
+    catch error:badarg -> ok
+    end,
+    try erlang:nodes(visible, #{connection_id => yes})
+    catch error:badarg -> ok
+    end,
+    try erlang:nodes(visible, #{node_type => yes})
+    catch error:badarg -> ok
+    end,
+    try erlang:nodes(visible, [{connection_id, true}])
+    catch error:badarg -> ok
+    end,
+    try erlang:nodes(visible, [{node_type, true}])
+    catch error:badarg -> ok
+    end,
+    ok.
+
+id(X) ->
+    X.
 
 %% Test optimistic distribution flags toward pending connections (DFLAG_DIST_HOPEFULLY)
 optimistic_dflags(Config) when is_list(Config) ->
@@ -2941,8 +3232,146 @@ derr_sender(Main, Nodes) ->
     Main ! count,
     derr_sender(Main, Nodes).
 
+is_alive(Config) when is_list(Config) ->
+    %% Test that distribution is up when erlang:is_alive() return true...
+    Args = ["-setcookie", atom_to_list(erlang:get_cookie()),
+            "-pa", filename:dirname(code:which(?MODULE))],
+    {ok, Peer, _} = peer:start(#{connection => 0, args => Args}),
+    NodeName = peer:random_name(),
+    LongNames = net_kernel:longnames(),
+    StartOpts = #{name_domain => if LongNames -> longnames;
+                                    true -> shortnames
+                                 end},
+    ThisNode = node(),
+    TestFun = fun () -> is_alive_test(list_to_atom(NodeName), StartOpts, ThisNode) end,
+    ok = peer:call(Peer, erlang, apply, [TestFun, []]),
+    Node = list_to_atom(NodeName++"@"++hostname()),
+    true = lists:member(Node, nodes()),
+    peer:stop(Peer),
+    ok.
+
+is_alive_test(NodeName, StartOpts, TestNode) ->
+    try
+        monitor_node(TestNode, true),
+        error(unexpected_success)
+    catch
+        error:notalive ->
+            ok
+    end,
+    Me = self(),
+    {Pid, Mon} = spawn_monitor(fun () ->
+                                       Me ! {self(), go},
+                                       is_alive_tester(TestNode),
+                                       Me ! {self(), ok}
+                               end),
+    receive {Pid, go} -> ok end,
+    receive after 500 -> ok end,
+    _ = net_kernel:start(NodeName, StartOpts),
+    receive
+        {Pid, ok} -> erlang:demonitor(Mon, [flush]), ok;
+        {'DOWN', Mon, process, Pid, Reason} -> error(Reason)
+    end.
+
+is_alive_tester(Node) ->
+    case erlang:is_alive() of
+        false ->
+            is_alive_tester(Node);
+        true ->
+            monitor_node(Node, true),
+            wait_until(fun () -> lists:member(Node, nodes()) end),
+            ok
+    end.
+
+dyn_node_name_monitor_node(Config) ->
+    %% Test that monitor_node() does not fail when erlang:is_alive() return true
+    %% but we have not yet gotten a name...
+    Args = ["-setcookie", atom_to_list(erlang:get_cookie()),
+            "-pa", filename:dirname(code:which(?MODULE))],
+    {ok, Peer, _} = peer:start(#{connection => 0, args => Args}),
+    LongNames = net_kernel:longnames(),
+    StartOpts = #{name_domain => if LongNames -> longnames;
+                                    true -> shortnames
+                                 end},
+    ThisNode = node(),
+    TestFun = fun () -> dyn_node_name_monitor_node_test(StartOpts, ThisNode) end,
+    ok = peer:call(Peer, erlang, apply, [TestFun, []]),
+    peer:stop(Peer),
+    ok.
+    
+dyn_node_name_monitor_node_test(StartOpts, TestNode) ->
+    try
+        monitor_node(TestNode, true),
+        error(unexpected_success)
+    catch
+        error:notalive ->
+            ok
+    end,
+    _ = net_kernel:start(undefined, StartOpts),
+    true = erlang:is_alive(),
+    true = monitor_node(TestNode, true),
+    receive {nodedown, TestNode} -> ok end,
+    true = net_kernel:connect_node(TestNode),
+    true = monitor_node(TestNode, true),
+    true = lists:member(TestNode, nodes(hidden)),
+    receive {nodedown, TestNode} -> error(unexpected_nodedown)
+    after 1000 -> ok
+    end,
+    ok.
+
+
+dyn_node_name_monitor(Config) ->
+    %% Test that monitor() does not fail when erlang:is_alive() return true
+    %% but we have not yet gotten a name...
+    Args = ["-setcookie", atom_to_list(erlang:get_cookie()),
+            "-pa", filename:dirname(code:which(?MODULE))],
+    {ok, Peer, _} = peer:start(#{connection => 0, args => Args}),
+    LongNames = net_kernel:longnames(),
+    StartOpts = #{name_domain => if LongNames -> longnames;
+                                    true -> shortnames
+                                 end},
+    ThisNode = node(),
+    TestFun = fun () -> dyn_node_name_monitor_test(StartOpts, ThisNode) end,
+    ok = peer:call(Peer, erlang, apply, [TestFun, []]),
+    peer:stop(Peer),
+    ok.
+    
+dyn_node_name_monitor_test(StartOpts, TestNode) ->
+    try
+        monitor(process, {net_kernel, TestNode}),
+        error(unexpected_success)
+    catch
+        error:badarg ->
+            ok
+    end,
+    _ = net_kernel:start(undefined, StartOpts),
+    true = erlang:is_alive(),
+    Mon = monitor(process, {net_kernel, TestNode}),
+    receive
+        {'DOWN', Mon, process, {net_kernel, TestNode}, noconnection} ->
+            ok
+    end,
+    true = net_kernel:connect_node(TestNode),
+    Mon2 = monitor(process, {net_kernel, TestNode}),
+    true = lists:member(TestNode, nodes(hidden)),
+    receive
+        {'DOWN', Mon2, process, {net_kernel, TestNode}, noconnection} ->
+            error(unexpected_down)
+    after
+        1000 ->
+            ok
+    end,
+    ok.
 
 %%% Utilities
+
+wait_until(Fun) ->
+    case catch Fun() of
+        true ->
+            ok;
+        _ ->
+            receive after 50 -> ok end,
+            wait_until(Fun)
+    end.
 
 timestamp() ->
     erlang:monotonic_time(millisecond).
