@@ -31,6 +31,24 @@
   </header>
   <p>This document describes the changes made to the ERTS application.</p>
 
+<section><title>Erts 13.0.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>On computers with the ARM64 (AArch64) architecture
+	    (such as Apple Silicon Macs) a <c>rem</c> expression
+	    followed by a <c>div</c> expression with the same
+	    operands could evaluate to the wrong result if the result
+	    of the <c>rem</c> expression was unused.</p>
+          <p>
+	    Own Id: OTP-18143</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Erts 13.0.1</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -606,6 +624,23 @@
 	    <c>F_BARRIERFSYNC</c> flag when available on Mac OS.</p>
           <p>
 	    Own Id: OTP-18038</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 12.3.2.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fixed emulator crash that could happen during crashdump
+	    generation of ETS tables with options <c>ordered_set</c>
+	    and <c>{write_concurrency,true}</c>.</p>
+          <p>
+	    Own Id: OTP-18144 Aux Id: GH-5981 </p>
         </item>
       </list>
     </section>
@@ -2226,6 +2261,42 @@
 	    increments of 256kb to 16kb.</p>
           <p>
 	    Own Id: OTP-17368</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erts 11.2.2.14</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Accept funs (NEW_FUN_EXT) with incorrectly encoded size
+	    field. This is a workaround for a bug (OTP-18104)
+	    existing in OTP 23 and 24 that could cause incorrect size
+	    fields in certain cases. The emulator does not use the
+	    decoded size field, but <c>erl_interface</c> still does
+	    and is not helped by this workaround.</p>
+          <p>
+	    Own Id: OTP-18093 Aux Id: OTP-18104, PR-5987 </p>
+        </item>
+        <item>
+          <p>
+	    The zlib built in to the runtime system has been updated
+	    to version 1.2.12. (Note that on most platforms, the
+	    platform's own zlib is used.)</p>
+          <p>
+	    Own Id: OTP-18123 Aux Id: GH-5994 </p>
+        </item>
+        <item>
+          <p>
+	    Fixed emulator crash that could happen during crashdump
+	    generation of ETS tables with options <c>ordered_set</c>
+	    and <c>{write_concurrency,true}</c>.</p>
+          <p>
+	    Own Id: OTP-18144 Aux Id: GH-5981 </p>
         </item>
       </list>
     </section>
