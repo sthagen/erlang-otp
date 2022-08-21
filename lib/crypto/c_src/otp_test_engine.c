@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2017-2021. All Rights Reserved.
+ * Copyright Ericsson AB 2017-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -101,9 +101,11 @@ static int test_init(ENGINE *e) {
         goto err;
 #endif /* if defined(FAKE_RSA_IMPL) */
 
+#if OPENSSL_VERSION_NUMBER < PACKED_OPENSSL_VERSION_PLAIN(1,1,0)
     /* Load all digest and cipher algorithms. Needed for password protected private keys */
     OpenSSL_add_all_ciphers();
     OpenSSL_add_all_digests();
+#endif
 
     return 111;
 

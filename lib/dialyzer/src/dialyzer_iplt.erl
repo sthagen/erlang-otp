@@ -24,7 +24,6 @@
 -module(dialyzer_iplt).
 
 -export([check_incremental_plt/3,
-         compute_md5_from_files/1,
          included_modules/1,
          from_file/1,
          get_default_iplt_filename/0,
@@ -66,7 +65,7 @@
          callbacks = term_to_binary(#{})      :: binary(), %% encoded map()
          types = term_to_binary(#{})          :: binary(), %% encoded map()
          exported_types = term_to_binary(#{}) :: binary(), %% encoded sets:set()
-         incremental_data                     :: #incremental_data{},
+         incremental_data = term_to_binary(#incremental_data{}) :: #incremental_data{} | binary(), %% encoded #incremental_data{}
          implementation_md5 = []              :: [module_md5()]}).
 
 %%----------------------------------------------------------------------
@@ -141,7 +140,7 @@ from_file1(Plt, FileName, ReturnInfo) ->
           case ReturnInfo of
             false -> {ok, Plt};
             true ->
-              IncrementalData = Rec#ifile_plt.incremental_data,
+              IncrementalData = get_incremental_data(Rec),
               PltInfo =
                 #iplt_info{files = Rec#ifile_plt.module_md5_list,
                            mod_deps = IncrementalData#incremental_data.mod_deps,
@@ -154,6 +153,15 @@ from_file1(Plt, FileName, ReturnInfo) ->
       Msg = io_lib:format("Could not read IPLT file ~ts: ~p\n",
                           [FileName, Reason]),
       {error, Msg}
+  end.
+
+-spec get_incremental_data(#ifile_plt{}) -> #incremental_data{}.
+get_incremental_data(#ifile_plt{incremental_data = Data}) ->
+  case Data of
+    CompressedData when is_binary(CompressedData) ->
+      binary_to_term(CompressedData);
+    UncompressedData = #incremental_data{} -> % To support older PLTs that didn't have this field compressed
+      UncompressedData
   end.
 
 -type err_rsn() :: 'not_valid' | 'no_such_file' | 'read_error'.
@@ -257,12 +265,12 @@ to_file_custom_vsn(
   ExpTypes = sets:from_list([E || {E} <- dialyzer_utils:ets_tab2list(ETSExpTypes)], [{version, 2}]),
   Record = #ifile_plt{version = Vsn,
                       module_md5_list = MD5,
-                      info = term_to_binary(Info, [compressed]),
-                      contracts = term_to_binary(Contracts, [compressed]),
-                      callbacks = term_to_binary(Callbacks, [compressed]),
-                      types = term_to_binary(Types, [compressed]),
-                      exported_types = term_to_binary(ExpTypes, [compressed]),
-                      incremental_data = IncrementalData,
+                      info = term_to_binary(Info, [{compressed,9}]),
+                      contracts = term_to_binary(Contracts, [{compressed,9}]),
+                      callbacks = term_to_binary(Callbacks, [{compressed,9}]),
+                      types = term_to_binary(Types, [{compressed,9}]),
+                      exported_types = term_to_binary(ExpTypes, [{compressed,9}]),
+                      incremental_data = term_to_binary(IncrementalData, [{compressed,9}]),
                       implementation_md5 = ImplMd5},
   Bin = term_to_binary(Record),
   case file:write_file(FileName, Bin) of
@@ -315,8 +323,9 @@ check_incremental_plt(FileName, Opts, PltFiles) ->
 check_incremental_plt1(FileName, Opts, PltFiles) ->
   PltModulePathLookup = maps:from_list([ {beam_file_to_module(PltFile), PltFile} || PltFile <- PltFiles ]),
   case get_record_from_file(FileName) of
-    {ok, #ifile_plt{module_md5_list = Md5, incremental_data = IncrementalData} = Rec} ->
+    {ok, #ifile_plt{module_md5_list = Md5} = Rec} ->
       {RemoveModules, AddModules} = find_files_to_remove_and_add(Md5, maps:keys(PltModulePathLookup)),
+      IncrementalData = get_incremental_data(Rec),
       PltLegalWarnings = IncrementalData#incremental_data.legal_warnings,
       LegalWarnings = Opts#options.legal_warnings,
       LegalWarningsMatch = PltLegalWarnings /= none andalso lists:usort(PltLegalWarnings) =:= lists:usort(LegalWarnings),
@@ -358,7 +367,7 @@ check_version_and_compute_md5(Rec, RemoveFiles, AddFiles, ModuleToPathLookup) ->
       case compute_new_md5(Md5, RemoveFiles, AddFiles, ModuleToPathLookup) of
         ok -> ok;
         {differ, NewMd5, DiffMd5} ->
-          IncrementalData = Rec#ifile_plt.incremental_data,
+          IncrementalData = get_incremental_data(Rec),
           {differ,
            NewMd5,
            DiffMd5,
@@ -375,7 +384,7 @@ check_version_and_compute_md5(Rec, RemoveFiles, AddFiles, ModuleToPathLookup) ->
   end.
 
 compute_new_md5(Md5, [], [], ModuleToPathLookup) ->
-  compute_new_md5_1(Md5, [], [], ModuleToPathLookup);
+  compute_new_md5_1(Md5, [], ModuleToPathLookup);
 compute_new_md5(Md5, RemoveFiles0, AddFiles0, ModuleToPathLookup) ->
   %% Assume that files are first removed and then added. Files that
   %% are both removed and added will be checked for consistency in the
@@ -384,22 +393,36 @@ compute_new_md5(Md5, RemoveFiles0, AddFiles0, ModuleToPathLookup) ->
   AddFiles = AddFiles0 -- RemoveFiles0,
   InitDiffList = init_diff_list(RemoveFiles, AddFiles),
   case init_md5_list(Md5, RemoveFiles, AddFiles) of
-    {ok, NewMd5} -> compute_new_md5_1(NewMd5, [], InitDiffList, ModuleToPathLookup);
+    {ok, NewMd5} -> compute_new_md5_1(NewMd5, InitDiffList, ModuleToPathLookup);
     {error, _What} = Error -> Error
   end.
 
-compute_new_md5_1([{Module, Md5} = Entry|Entries], NewList, Diff, ModuleToPathLookup) ->
-  ModuleFile = maps:get(Module, ModuleToPathLookup),
-  case compute_md5_from_file(ModuleFile) of
-    Md5 ->
-      compute_new_md5_1(Entries, [Entry|NewList], Diff, ModuleToPathLookup);
-    NewMd5 ->
-      compute_new_md5_1(Entries, [{Module, NewMd5}|NewList], [{differ, Module}|Diff], ModuleToPathLookup)
-  end;
-compute_new_md5_1([], _NewList, [], _ModuleToPathLookup) ->
-  ok;
-compute_new_md5_1([], NewList, Diff, _ModuleToPathLookup) ->
-  {differ, lists:keysort(1, NewList), Diff}.
+compute_new_md5_1(Entries, InitDiffs, ModuleToPathLookup) ->
+  Modules = [Module || {Module, _Md5} <- Entries],
+  ExistingHashes = [Md5 || {_Module, Md5} <- Entries],
+  Files = [maps:get(Module, ModuleToPathLookup) || Module <- Modules],
+  NewHashes = dialyzer_utils:p_map(fun compute_md5_from_file/1, Files),
+  Diffs =
+    lists:zipwith3(
+      fun (Module, BeforeHash, AfterHash) ->
+          case BeforeHash of
+            AfterHash ->
+              none;
+            _ ->
+              {differ, Module}
+          end
+      end,
+      Modules,
+      ExistingHashes,
+      NewHashes),
+  Diffs1 = InitDiffs ++ lists:filter(fun ({differ,_}) -> true; (none) -> false end, Diffs),
+  case Diffs1 of
+    [] ->
+      ok;
+    _ ->
+      ModuleHashes = lists:zip(Modules, NewHashes),
+      {differ, lists:keysort(1, ModuleHashes), Diffs1}
+  end.
 
 -spec implementation_module_paths() -> module_file_path_lookup().
 implementation_module_paths() ->
@@ -417,7 +440,9 @@ compute_implementation_md5() ->
 -spec compute_md5_from_files(module_file_path_lookup()) -> [module_md5()].
 
 compute_md5_from_files(ModuleToPathLookup) ->
-  lists:keysort(1, [{ModuleName, compute_md5_from_file(FileName)} || {ModuleName, FileName} <- maps:to_list(ModuleToPathLookup)]).
+  {Modules,Files} = lists:unzip(maps:to_list(ModuleToPathLookup)),
+  Hashes = dialyzer_utils:p_map(fun compute_md5_from_file/1, Files),
+  lists:keysort(1, lists:zip(Modules, Hashes)).
 
 compute_md5_from_file(File) ->
   case beam_lib:chunks(File, [debug_info]) of
