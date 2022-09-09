@@ -115,7 +115,7 @@ EOM
 
 release_erlang () {
     local RELEASE_ROOT="${1}"
-    if ! (cd $ERL_TOP && make release TYPE= RELEASE_ROOT="${RELEASE_ROOT}"); then
+    if ! (cd $ERL_TOP && make release TYPE= release_docs DOC_TARGETS=chunks RELEASE_ROOT="${RELEASE_ROOT}"); then
         return 1
     fi
     if ! (cd "$RELEASE_ROOT" && ./Install -minimal "`pwd`"); then
@@ -316,7 +316,7 @@ then
         -pz "$ERL_TOP/lib/common_test/test_server" \
         -pz "." \
         -ct_test_vars "{net_dir,\"\"}" \
-        -noshell \
+        -noinput \
         -sname test_server \
         -rsh ssh \
         ${ERL_ARGS}
@@ -337,7 +337,7 @@ else
         -pz "$WIN_ERL_TOP/lib/common_test/test_server"\
         -pz "."\
         -ct_test_vars "{net_dir,\"\"}"\
-        -noshell\
+        -noinput\
         -sname test_server\
         -rsh ssh\
         ${ERL_ARGS}

@@ -104,6 +104,9 @@ l(I_13, I_big1) ->
      ?T(<<4,3,<<1,2>>:1/binary>>,
 	[4,3,1]),
 
+     ?T(<< <<153,27:5>>:I_13/bits, 1:3 >>,
+        [153,217]),
+
      ?T(<<(256*45+47)>>,
 	[47]),
 
@@ -829,7 +832,8 @@ dynamic_little(Bef, N, Int, Lpad, Rpad) ->
 
 %% Test that the bs_add/5 instruction handles big numbers correctly.
 bs_add(Config) when is_list(Config) ->
-    Mod = bs_construct_bs_add,
+    Mod = list_to_atom(atom_to_list(?MODULE) ++ "_" ++
+                           atom_to_list(?FUNCTION_NAME)),
     N = 2000,
     Code = [{module, Mod},
 	    {exports, [{bs_add,2}]},
@@ -880,9 +884,12 @@ bs_add(Config) when is_list(Config) ->
     %% Clean up.
     ok = file:delete(AsmFile),
     ok = file:delete(code:which(Mod)),
+    _ = code:delete(Mod),
+    _ = code:purge(Mod),
+
     ok.
 
-     
+
 smallest_big() ->
     smallest_big_1(1 bsl 24).
 

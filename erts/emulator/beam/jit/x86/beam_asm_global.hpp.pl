@@ -31,7 +31,6 @@ my @beam_global_funcs = qw(
     bs_add_shared
     bs_create_bin_error_shared
     bs_size_check_shared
-    bs_fixed_integer_shared
     bs_get_tail_shared
     call_bif_shared
     call_light_bif_shared
@@ -75,7 +74,6 @@ my @beam_global_funcs = qw(
     i_length_guard_shared
     i_length_body_shared
     i_loop_rec_shared
-    i_new_small_map_lit_shared
     i_test_yield_shared
     increment_body_shared
     int_div_rem_body_shared

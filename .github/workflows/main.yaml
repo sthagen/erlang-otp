@@ -99,7 +99,7 @@ jobs:
 
   build-macos:
     name: Build Erlang/OTP (macOS)
-    runs-on: macos-10.15
+    runs-on: macos-12
     needs: pack
     env:
       WXWIDGETS_VERSION: 3.1.5
@@ -116,7 +116,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: wxWidgets
-          key: wxWidgets-${{ env.WXWIDGETS_VERSION }}-${{ runner.os }}
+          key: wxWidgets-${{ env.WXWIDGETS_VERSION }}-${{ runner.os }}-12
 
       - name: Compile wxWidgets
         if: steps.wxwidgets-cache.outputs.cache-hit != 'true'
@@ -127,7 +127,7 @@ jobs:
           tar -xzf ./otp_src.tar.gz
           export PATH=$PWD/wxWidgets/release/bin:$PATH
           cd otp
-          $GITHUB_WORKSPACE/.github/scripts/build-macos.sh
+          $GITHUB_WORKSPACE/.github/scripts/build-macos.sh build_docs --disable-dynamic-ssl-lib
           tar -czf otp_macos_$(cat OTP_VERSION)_x86-64.tar.gz -C release .
 
       - name: Test Erlang
@@ -149,9 +149,10 @@ jobs:
       RELEASE_LIBBEAM: yes
       TARGET_ARCH: aarch64-apple-ios
     name: Build Erlang/OTP (iOS)
-    runs-on: macos-10.15
+    runs-on: macos-12
     needs: pack
     steps:
+      - uses: actions/checkout@v2
       - name: Download source archive
         uses: actions/download-artifact@v2
         with:
@@ -161,12 +162,7 @@ jobs:
         run: |
           tar -xzf ./otp_src.tar.gz
           cd otp
-          export ERL_TOP=`pwd`
-          export MAKEFLAGS="-j$(($(nproc) + 2)) -O"
-          export ERLC_USE_SERVER=true
-          ./otp_build configure --xcomp-conf=./xcomp/erl-xcomp-arm64-ios.conf --without-ssl
-          ./otp_build boot -a
-          ./otp_build release -a
+          $GITHUB_WORKSPACE/.github/scripts/build-macos.sh --xcomp-conf=./xcomp/erl-xcomp-arm64-ios.conf --without-ssl
 
       - name: Package .xcframework
         run: |

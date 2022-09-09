@@ -516,9 +516,16 @@ message_to_string({contract_range, [Contract, M, F, ArgStrings,
 		" return for ~tw~ts on position ~s is ~ts\n",
 		[con(M, F, Contract, I), F, a(ArgStrings, I),
                  pos(Location, E), t(CRet, I)]);
-message_to_string({invalid_contract, [M, F, A, Sig]}, I, _E) ->
-  io_lib:format("Invalid type specification for function ~w:~tw/~w."
-		" The success typing is ~ts\n", [M, F, A, sig(Sig, I)]);
+message_to_string({invalid_contract, [M, F, A, none, Contract, Sig]}, I, _E) ->
+  io_lib:format("Invalid type specification for function ~w:~tw/~w.\n"
+		" The success typing is ~ts\n"
+		" But the spec is ~ts\n", [M, F, A, con(M, F, Sig, I), con(M, F, Contract, I)]);
+message_to_string({invalid_contract, [M, F, A, InvalidContractDetails, Contract, Sig]}, I, _E) ->
+  io_lib:format("Invalid type specification for function ~w:~tw/~w.\n"
+		" The success typing is ~ts\n"
+		" But the spec is ~ts\n"
+		"~ts",
+    [M, F, A, con(M, F, Sig, I), con(M, F, Contract, I), format_invalid_contract_details(InvalidContractDetails)]);
 message_to_string({contract_with_opaque, [M, F, A, OpaqueType, SigType]},
                  I, _E) ->
   io_lib:format("The specification for ~w:~tw/~w"
@@ -586,19 +593,19 @@ message_to_string({callback_type_mismatch, [B, F, A, ST, CT]}, I, _E) ->
                 " the callback of the ~w behaviour\n",
                 [F, A, t("("++ST++")", I), t(CT, I), B]);
 message_to_string({callback_arg_type_mismatch, [B, F, A, N, ST, CT]}, I, _E) ->
-  io_lib:format("The inferred type for the ~s argument of ~tw/~w (~ts) is"
-		" not a supertype of ~ts, which is expected type for this"
+  io_lib:format("The inferred type for the ~s argument of ~tw/~w (~ts)"
+		" has nothing in common with ~ts, which is expected type for this"
 		" argument in the callback of the ~w behaviour\n",
 		[ordinal(N), F, A, t(ST, I), t(CT, I), B]);
 message_to_string({callback_spec_type_mismatch, [B, F, A, ST, CT]}, I, _E) ->
-  io_lib:format("The return type ~ts in the specification of ~tw/~w is not a"
-		" subtype of ~ts, which is the expected return type for the"
+  io_lib:format("The return type ~ts in the specification of ~tw/~w has nothing"
+		" in common with ~ts, which is the expected return type for the"
 		" callback of the ~w behaviour\n",
                 [t(ST, I), F, A, t(CT, I), B]);
 message_to_string({callback_spec_arg_type_mismatch, [B, F, A, N, ST, CT]},
                   I, _E) ->
-  io_lib:format("The specified type for the ~ts argument of ~tw/~w (~ts) is"
-		" not a supertype of ~ts, which is expected type for this"
+  io_lib:format("The specified type for the ~ts argument of ~tw/~w (~ts) has"
+		" nothing in common with ~ts, which is expected type for this"
 		" argument in the callback of the ~w behaviour\n",
 		[ordinal(N), F, A, t(ST, I), t(CT, I), B]);
 message_to_string({callback_missing, [B, F, A]}, _I, _E) ->
@@ -620,6 +627,27 @@ message_to_string({unknown_behaviour, B}, _I, _E) ->
 %%-----------------------------------------------------------------------------
 %% Auxiliary functions below
 %%-----------------------------------------------------------------------------
+
+format_invalid_contract_details({InvalidArgIdxs, IsRangeInvalid}) ->
+  ArgOrd = form_position_string(InvalidArgIdxs),
+  ArgDesc =
+    case InvalidArgIdxs of
+      [] -> "";
+      [_] -> io_lib:format("They do not overlap in the ~ts argument", [ArgOrd]);
+      [_|_] -> io_lib:format("They do not overlap in the ~ts arguments", [ArgOrd])
+    end,
+  RangeDesc =
+    case IsRangeInvalid of
+      true -> "return types do not overlap";
+      false -> ""
+    end,
+  case {ArgDesc, RangeDesc} of
+    {"", ""} -> "";
+    {"", [_|_]} -> io_lib:format(" The ~ts\n", [RangeDesc]);
+    {[_|_], ""} -> io_lib:format(" ~ts\n", [ArgDesc]);
+    {[_|_], [_|_]} -> io_lib:format(" ~ts, and the ~ts\n", [ArgDesc, RangeDesc])
+  end.
+
 
 call_or_apply_to_string(ArgNs, FailReason, SigArgs, SigRet,
 			{IsOverloaded, Contract}, I) ->
