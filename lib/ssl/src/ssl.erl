@@ -418,7 +418,7 @@
                                 {customize_hostname_check, customize_hostname_check()} |
                                 {fallback, fallback()} |
                                 {middlebox_comp_mode, middlebox_comp_mode()} |
-                                {certificate_authorities, certificate_authorities()} |
+                                {certificate_authorities, client_certificate_authorities()} |
                                 {session_tickets, client_session_tickets()} |
                                 {use_ticket, use_ticket()} |
                                 {early_data, client_early_data()}.
@@ -429,7 +429,7 @@
 -type client_verify_type()       :: verify_type().
 -type client_reuse_session()     :: session_id() | {session_id(), SessionData::binary()}.
 -type client_reuse_sessions()    :: boolean() | save.
--type certificate_authorities()  :: boolean().
+-type client_certificate_authorities()  :: boolean().
 -type client_cacerts()           :: [public_key:der_encoded()] | [public_key:combined_cert()].
 -type client_cafile()            :: file:filename().
 -type app_level_protocol()       :: binary().
@@ -458,6 +458,7 @@
                                 {dhfile, dh_file()} |
                                 {verify, server_verify_type()} |
                                 {fail_if_no_peer_cert, fail_if_no_peer_cert()} |
+                                {certificate_authorities, server_certificate_authorities()} |
                                 {reuse_sessions, server_reuse_sessions()} |
                                 {reuse_session, server_reuse_session()} |
                                 {alpn_preferred_protocols, server_alpn()} |
@@ -469,6 +470,7 @@
                                 {honor_ecc_order, honor_ecc_order()} |
                                 {client_renegotiation, client_renegotiation()}|
                                 {session_tickets, server_session_tickets()} |
+                                {stateless_tickets_seed, stateless_tickets_seed()} |
                                 {anti_replay, anti_replay()} |
                                 {cookie, cookie()} |
                                 {early_data, server_early_data()}.
@@ -489,7 +491,9 @@
 -type honor_cipher_order()       :: boolean().
 -type honor_ecc_order()          :: boolean().
 -type client_renegotiation()     :: boolean().
+-type stateless_tickets_seed()   :: binary().
 -type cookie()                   :: boolean().
+-type server_certificate_authorities() :: boolean().
 %% -------------------------------------------------------------------------------------------------------
 -type prf_random() :: client_random | server_random. % exported
 -type protocol_extensions()  :: #{renegotiation_info => binary(),
@@ -1684,11 +1688,11 @@ handle_option(fallback = Option, Value0, OptionsMap, #{role := Role}) ->
     assert_role(client_only, Role, Option, Value0),
     Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
-handle_option(certificate_authorities = Option, unbound, OptionsMap, #{role := Role}) ->
-    Value = default_option_role(client, false, Role),
-    OptionsMap#{Option => Value};
-handle_option(certificate_authorities = Option, Value0, #{versions := Versions} = OptionsMap, #{role := Role}) ->
-    assert_role(client_only, Role, Option, Value0),
+handle_option(certificate_authorities = Option, unbound, OptionsMap, #{role := server}) ->
+    OptionsMap#{Option => true};
+handle_option(certificate_authorities = Option, unbound, OptionsMap, #{role := client}) ->
+    OptionsMap#{Option => false};
+handle_option(certificate_authorities = Option, Value0, #{versions := Versions} = OptionsMap, _Env) ->
     assert_option_dependency(Option, versions, Versions, ['tlsv1.3']),
     Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
@@ -1818,6 +1822,16 @@ handle_option(session_tickets = Option, unbound, OptionsMap, #{role := Role,
 handle_option(session_tickets = Option, Value0, #{versions := Versions} = OptionsMap, #{role := Role}) ->
     assert_option_dependency(Option, versions, Versions, ['tlsv1.3']),
     Value = validate_option(Option, Value0, Role),
+    OptionsMap#{Option => Value};
+handle_option(stateless_tickets_seed = Option, unbound, OptionsMap, #{rules := Rules}) ->
+    Value = validate_option(Option, default_value(Option, Rules)),
+    OptionsMap#{Option => Value};
+handle_option(stateless_tickets_seed = Option, Value0,
+              #{session_tickets := SessionTickets, versions := Versions} = OptionsMap, #{role := Role}) ->
+    assert_role(server_only, Role, Option, Value0),
+    assert_option_dependency(Option, versions, Versions, ['tlsv1.3']),
+    assert_option_dependency(Option, session_tickets, [SessionTickets], [stateless]),
+    Value = validate_option(Option, Value0),
     OptionsMap#{Option => Value};
 handle_option(signature_algs = Option, unbound, #{versions := [HighestVersion | _] = Versions} = OptionsMap, #{role := Role}) ->
     Value =
@@ -2391,6 +2405,13 @@ validate_option(session_tickets, Value, client) ->
            {options, role,
             {session_tickets,
              {Value, {client, [disabled, manual, auto]}}}}});
+validate_option(stateless_tickets_seed, undefined, _) ->
+    undefined;
+validate_option(stateless_tickets_seed, Seed, _)
+  when is_binary(Seed) ->
+    Seed;
+validate_option(stateless_tickets_seed = Option, Value, _) ->
+    throw({error, {options, type, {Option, {Value, not_binary}}}});
 validate_option(sni_fun, undefined, _) ->
     undefined;
 validate_option(sni_fun, Fun, _)
@@ -2873,8 +2894,9 @@ add_filter(Filter, Filters) ->
 maybe_client_warn_no_verify(#{verify := verify_none,
                              warn_verify_none := true,
                              log_level := LogLevel}, client) ->
-            ssl_logger:log(warning, LogLevel, #{description => "Authenticity is not established by certificate path validation",
-                                                reason => "Option {verify, verify_peer} and cacertfile/cacerts is missing"}, ?LOCATION);
+    ssl_logger:log(warning, LogLevel, #{description => "Server authenticity is not verified since certificate path validation is not enabled",
+                                        reason => "The option {verify, verify_peer} and one of the options 'cacertfile' or "
+                                        "'cacerts' are required to enable this."}, ?LOCATION);
 maybe_client_warn_no_verify(_,_) ->
     %% Warning not needed. Note client certificate validation is optional in TLS
     ok.
@@ -2883,7 +2905,13 @@ unambiguous_path(Value) ->
     AbsName = filename:absname(Value),
     case file:read_link(AbsName) of
         {ok, PathWithNoLink} ->
-            PathWithNoLink;
+            case filename:pathtype(PathWithNoLink) of
+                relative ->
+                    Dirname = filename:dirname(AbsName),
+                    filename:join([Dirname, PathWithNoLink]);
+                _ ->
+                    PathWithNoLink
+            end;
         _ ->
             AbsName
     end.

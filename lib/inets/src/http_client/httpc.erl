@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -135,7 +135,7 @@ request(Url, Profile) ->
 %%      Header = {Field, Value}
 %%	Field = [byte()]
 %%	Value = binary() | iolist()
-%%	Body = string() | binary() | {fun(SendAcc) -> SendFunResult, SendAcc} |
+%%	Body = iolist() | binary() | {fun(SendAcc) -> SendFunResult, SendAcc} |
 %%              {chunkify, fun(SendAcc) -> SendFunResult, SendAcc} - HTML-code
 %%      SendFunResult = eof | {ok, iolist(), NewSendAcc}
 %%      SendAcc = NewSendAcc = term()

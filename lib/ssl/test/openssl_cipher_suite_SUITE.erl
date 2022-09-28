@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2019-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2019-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -89,7 +89,7 @@
          ecdhe_ecdsa_with_aes_256_ccm_8/1
         ]).
 
--define(DEFAULT_TIMEOUT, {seconds, 10}).
+-define(DEFAULT_TIMEOUT, {seconds, 15}).
 
 %%--------------------------------------------------------------------
 %% Common Test interface functions -----------------------------------

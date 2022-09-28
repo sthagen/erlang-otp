@@ -20,14 +20,20 @@
 -module(typer_SUITE).
 
 -export([all/0,suite/0,
-         smoke/1, smoke_incremental_plt/1]).
+         smoke/1,
+         smoke_incremental_plt/1,
+         gh_6296_no_spec_flag_does_not_break_records/1,
+         contract_violation/1]).
 
 -include_lib("common_test/include/ct.hrl").
 
 suite() -> [{ct_hooks,[ts_install_cth]}].
 
 all() ->
-    [smoke,smoke_incremental_plt].
+    [smoke,
+     smoke_incremental_plt,
+     gh_6296_no_spec_flag_does_not_break_records,
+     contract_violation].
 
 smoke(Config) ->
     OutDir = proplists:get_value(priv_dir, Config),
@@ -50,6 +56,39 @@ smoke(Config) ->
           run(Config, Args, Src, Res),
           ok
     end.
+
+gh_6296_no_spec_flag_does_not_break_records(Config) ->
+    Code = <<"-module(gh_6296).
+              -export([record_pattern/1]).
+
+              -record(my_rec, {is_foo :: boolean(),
+                               bar :: non_neg_integer()}).
+
+              -spec record_pattern(#my_rec{}) -> atom().
+              record_pattern(#my_rec{is_foo = IsFoo}) ->
+                IsFoo.
+
+              some_other_function_to_trigger_the_issue(undefined) -> ok.">>,
+    PrivDir = proplists:get_value(priv_dir, Config),
+    Src = filename:join(PrivDir, "gh_6296.erl"),
+    ok = file:write_file(Src, Code),
+    {ok, Beam} = compile(Config, Code, gh_6296, []),
+    Plt = PrivDir ++ "dialyzer_iplt",
+    _ = dialyzer:run([{analysis_type, incremental},
+                      {files, [Beam]},
+                      {apps, [stdlib, kernel, erts]},
+                      {from, byte_code},
+                      {init_plt, Plt},
+                      {output_plt, Plt}]),
+    Args = io_lib:format("--no_spec --show --plt ~ts", [Plt]),
+    Res = ["^$",
+           "^%% File:",
+           "^%% ----",
+           "^-spec record_pattern",
+           "^-spec some_other_function_to_trigger_the_issue",
+           "^_OK_"],
+    run(Config, Args, Src, Res),
+    ok.
 
 smoke_incremental_plt(Config) ->
     Code = <<"-module(typer_test_module).
@@ -75,6 +114,29 @@ smoke_incremental_plt(Config) ->
            "^_OK_"],
     run(Config, Args, Src, Res),
     ok.
+
+contract_violation(Config) ->
+    OutDir = proplists:get_value(priv_dir, Config),
+    case dialyzer_common:check_plt(OutDir) of
+        fail ->
+            {skip, "Plt creation/check failed."};
+        ok ->
+            Code = <<"-module(typer_test_module).
+                   -export([foo/1]).
+                   -spec foo(boolean()) -> string().
+                   foo(N) ->
+                       integer_to_list(N).">>,
+            PrivDir = proplists:get_value(priv_dir, Config),
+            Src = filename:join(PrivDir, "typer_test_module.erl"),
+            ok = file:write_file(Src, Code),
+            Args = "--plt " ++ PrivDir ++ "dialyzer_plt",
+            Res = ["^typer: Error in contract of function typer_test_module:foo/1",
+                   "^\t The contract is: \\(boolean\\(\\)\\) -> string\\(\\)",
+                   "^\t but the inferred signature is: \\(integer\\(\\)\\) -> string\\(\\)",
+                   "_ERROR_"],
+            run(Config, Args, Src, Res),
+            ok
+    end.
 
 compile(Config, Prog, Module, CompileOpts) ->
     Source = lists:concat([Module, ".erl"]),
