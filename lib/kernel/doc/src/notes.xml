@@ -31,6 +31,34 @@
   </header>
   <p>This document describes the changes made to the Kernel application.</p>
 
+<section><title>Kernel 8.5.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Listen sockets created with the socket module, leaked
+	    (erlang-) monitors.</p>
+          <p>
+	    Own Id: OTP-18240 Aux Id: #6285 </p>
+        </item>
+        <item>
+          <p>
+	    <seeerl marker="stdlib:peer"><c>peer</c></seeerl> nodes
+	    failed to halt when the process supervising the control
+	    connection crashed. When an alternative control
+	    connection was used, this supervision process also quite
+	    frequently crashed when the <c>peer</c> node was stopped
+	    by the node that started it which caused the <c>peer</c>
+	    node to linger without ever halting.</p>
+          <p>
+	    Own Id: OTP-18249 Aux Id: PR-6301 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Kernel 8.5</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -541,6 +569,25 @@
 	    the reference manual.</p>
           <p>
 	    Own Id: OTP-17988</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 8.3.2.2</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    A new function <seemfa
+	    marker="kernel:global#disconnect/0"><c>global:disconnect/0</c></seemfa>
+	    has been introduced with which one can cleanly disconnect
+	    a node from all other nodes in a cluster of <c>global</c>
+	    nodes.</p>
+          <p>
+	    Own Id: OTP-18232 Aux Id: OTP-17843, PR-6264 </p>
         </item>
       </list>
     </section>
@@ -1623,6 +1670,25 @@
 	    variables.</p>
           <p>
 	    Own Id: OTP-17385 Aux Id: OTP-17123 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Kernel 7.3.1.7</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    A new function <seemfa
+	    marker="kernel:global#disconnect/0"><c>global:disconnect/0</c></seemfa>
+	    has been introduced with which one can cleanly disconnect
+	    a node from all other nodes in a cluster of <c>global</c>
+	    nodes.</p>
+          <p>
+	    Own Id: OTP-18232 Aux Id: OTP-17843, PR-6264 </p>
         </item>
       </list>
     </section>

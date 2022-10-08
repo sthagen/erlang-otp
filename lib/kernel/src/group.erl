@@ -21,8 +21,7 @@
 
 %% A group leader process for user io.
 
--export([start/2, start/3, server/4]).
--export([interfaces/1]).
+-export([start/2, start/3, whereis_shell/0, server/4]).
 
 start(Drv, Shell) ->
     start(Drv, Shell, []).
@@ -48,31 +47,22 @@ server(Ancestors, Drv, Shell, Options) ->
         end,
     put(expand_fun,ExpandFun),
     put(echo, proplists:get_value(echo, Options, true)),
+    put(expand_below, proplists:get_value(expand_below, Options, true)),
 
-    start_shell(Shell),
-    server_loop(Drv, get(shell), []).
+    server_loop(Drv, start_shell(Shell), []).
 
-%% Return the pid of user_drv and the shell process.
-%% Note: We can't ask the group process for this info since it
-%% may be busy waiting for data from the driver.
-interfaces(Group) ->
-    case process_info(Group, dictionary) of
-	{dictionary,Dict} ->
-	    get_pids(Dict, [], false);
-	_ ->
-	    []
+whereis_shell() ->
+    case node(group_leader()) of
+        Node when Node =:= node() ->
+            case user_drv:whereis_group() of
+                undefined -> undefined;
+                GroupPid ->
+                    {dictionary, Dict} = erlang:process_info(GroupPid, dictionary),
+                    proplists:get_value(shell, Dict)
+            end;
+        OtherNode ->
+            erpc:call(OtherNode, group, whereis_shell, [])
     end.
-
-get_pids([Drv = {user_drv,_} | Rest], Found, _) ->
-    get_pids(Rest, [Drv | Found], true);
-get_pids([Sh = {shell,_} | Rest], Found, Active) ->
-    get_pids(Rest, [Sh | Found], Active);
-get_pids([_ | Rest], Found, Active) ->
-    get_pids(Rest, Found, Active);
-get_pids([], Found, true) ->
-    Found;
-get_pids([], _Found, false) ->
-    [].
 
 %% start_shell(Shell)
 %%  Spawn a shell with its group_leader from the beginning set to ourselves.
@@ -89,7 +79,8 @@ start_shell(Shell) when is_function(Shell) ->
 start_shell(Shell) when is_pid(Shell) ->
     group_leader(self(), Shell),		% we are the shells group leader
     link(Shell),				% we're linked to it.
-    put(shell, Shell);
+    put(shell, Shell),
+    Shell;
 start_shell(_Shell) ->
     ok.
 
@@ -100,7 +91,8 @@ start_shell1(M, F, Args) ->
 	Shell when is_pid(Shell) ->
 	    group_leader(G, self()),
 	    link(Shell),			% we're linked to it.
-	    put(shell, Shell);
+	    put(shell, Shell),
+            Shell;
 	Error ->				% start failure
 	    exit(Error)				% let the group process crash
 
@@ -113,7 +105,8 @@ start_shell1(Fun) ->
 	Shell when is_pid(Shell) ->
 	    group_leader(G, self()),
 	    link(Shell),			% we're linked to it.
-	    put(shell, Shell);
+	    put(shell, Shell),
+            Shell;
 	Error ->				% start failure
 	    exit(Error)				% let the group process crash
     end.
@@ -629,7 +622,8 @@ get_line1({undefined,{_A,Mode,Char},Cs,Cont,Rs}, Drv, Shell, Ls, Encoding)
     {more_chars,Ncont,Nrs} = edlin:start(Pbs, search),
     send_drv_reqs(Drv, Nrs),
     get_line1(edlin:edit_line1(Cs, Ncont), Drv, Shell, Ls, Encoding);
-get_line1({expand, Before, Cs0, Cont,Rs}, Drv, Shell, Ls0, Encoding) ->
+get_line1({Expand, Before, Cs0, Cont,Rs}, Drv, Shell, Ls0, Encoding)
+  when Expand =:= expand; Expand =:= expand_full ->
     send_drv_reqs(Drv, Rs),
     ExpandFun = get(expand_fun),
     {Found, CompleteChars, Matches} = ExpandFun(Before, []),
@@ -641,19 +635,47 @@ get_line1({expand, Before, Cs0, Cont,Rs}, Drv, Shell, Ls0, Encoding) ->
     Cs1 = append(CompleteChars, Cs0, Encoding),
 
     MatchStr = case Matches of
-        [] -> [];
-        _ -> edlin_expand:format_matches(Matches, Width)
-    end,
+                   [] -> [];
+                   _ -> edlin_expand:format_matches(Matches, Width)
+               end,
     Cs = case {Cs1, MatchStr} of
-        {_,[]} -> Cs1;
-        {[],_} ->
-            send_drv(Drv, {put_chars, unicode, unicode:characters_to_binary("\n"++MatchStr,unicode)}),
-            [$\^L | Cs1];
-        {_,[_SingleMatch]} -> Cs1;
-        _ ->
-            send_drv(Drv, {put_chars, unicode, unicode:characters_to_binary("\n"++MatchStr,unicode)}),
-            [$\^L | Cs1]
-    end,
+             {_, []} -> Cs1;
+             {Cs1, [_SingleMatch]} when Cs1 =/= [] -> Cs1;
+             _ ->
+                 NlMatchStr = unicode:characters_to_binary("\n"++MatchStr),
+                 case get(expand_below) of
+                     true ->
+                         Lines = string:split(string:trim(MatchStr), "\n", all),
+                         NoLines = length(Lines),
+                         if NoLines > 5, Expand =:= expand ->
+                                 %% Only show 5 lines to start with
+                                 [L1,L2,L3,L4,L5|_] = Lines,
+                                 String = lists:join(
+                                            $\n,
+                                            [L1,L2,L3,L4,L5,
+                                             io_lib:format("Press tab to see all ~p expansions",
+                                                           [edlin_expand:number_matches(Matches)])]),
+                                 send_drv(Drv, {put_expand, unicode,
+                                                unicode:characters_to_binary(String)}),
+                                 Cs1;
+                            true ->
+                                 case get_tty_geometry(Drv) of
+                                     {_, Rows} when Rows > NoLines ->
+                                         %% If all lines fit on screen, we expand below
+                                         send_drv(Drv, {put_expand, unicode, NlMatchStr}),
+                                         Cs1;
+                                     _ ->
+                                         %% If there are more results than fit on
+                                         %% screen we expand above
+                                         send_drv(Drv, {put_chars, unicode, NlMatchStr}),
+                                         [$\^L | Cs1]
+                                 end
+                         end;
+                     false ->
+                         send_drv(Drv, {put_chars, unicode, NlMatchStr}),
+                         [$\^L | Cs1]
+                 end
+         end,
     get_line1(edlin:edit_line(Cs, Cont), Drv, Shell, Ls0, Encoding);
 get_line1({undefined,_Char,Cs,Cont,Rs}, Drv, Shell, Ls, Encoding) ->
     send_drv_reqs(Drv, Rs),

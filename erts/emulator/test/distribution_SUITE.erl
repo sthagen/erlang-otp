@@ -164,9 +164,7 @@ end_per_testcase(_TestCase, Config) ->
     case wait_until(fun() -> nodes(connected) == [] end, 10_000) of
         ok -> ok;
         timeout ->
-            Nodes = nodes(connected),
-            [net_kernel:disconnect(N) || N <- Nodes],
-            {fail, {"Leaked connections", Nodes}}
+            erts_test_utils:ept_check_leaked_nodes(Config)
     end.
 
 %% Tests pinging a node in different ways.
@@ -2767,6 +2765,7 @@ exit_dist_fragments(_Config) ->
                                    end)([])
                           end),
         {Tracer, Mref} = spawn_monitor(fun gather_exited/0),
+        link(Tracer), %% Make sure Tracer dies if we die
         erlang:trace(self(), true, [{tracer, Tracer}, set_on_spawn, procs, exiting]),
         exit_suspend(Node),
         receive
@@ -2805,15 +2804,17 @@ gather_exited() ->
 gather_exited(Pids) ->
     receive
         {trace,Pid,spawned,_,_} ->
-            gather_exited(Pids#{ Pid => true });
-        {trace,Pid,exited_out,_,_} ->
+            gather_exited(maps:update_with(spawned, fun(V) -> V + 1 end, 0, Pids#{ Pid => true }));
+        {trace,Pid,out_exited,_} ->
             {true, NewPids} = maps:take(Pid, Pids),
-            gather_exited(NewPids);
-        _M ->
-            gather_exited(Pids)
+            gather_exited(maps:update_with(out_exited, fun(V) -> V + 1 end, 0, NewPids));
+        Trace ->
+            gather_exited(maps:update_with(element(3, Trace), fun(V) -> V + 1 end, 0, Pids))
     after 1000 ->
-            if Pids == #{} -> ok;
-               true -> exit(Pids)
+            MissingPids = maps:size(maps:filter(fun(Key,_) -> not erlang:is_atom(Key) end, Pids)),
+            if MissingPids =:= 0 -> ok;
+               true -> exit({[{Pid,erlang:process_info(Pid)} || Pid <- MissingPids],
+                             maps:filter(fun(Key,_) -> erlang:is_atom(Key) end, Pids)})
             end
     end.
 

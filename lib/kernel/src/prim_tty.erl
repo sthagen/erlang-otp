@@ -104,9 +104,11 @@
 %%      * Same problem as insert mode, it only deleted current line, and does not move
 %%        to previous line automatically.
 
--export([init/1, reinit/2, isatty/1, handles/1, unicode/1, unicode/2, handle_signal/2,
-         window_size/1, handle_request/2, write/2, write/3, npwcwidth/1, npwcwidthstring/1]).
--export([disable_reader/1, enable_reader/1]).
+-export([init/1, reinit/2, isatty/1, handles/1, unicode/1, unicode/2,
+         handle_signal/2, window_size/1, handle_request/2, write/2, write/3, npwcwidth/1,
+         npwcwidthstring/1]).
+-export([reader_stop/1, disable_reader/1, enable_reader/1]).
+
 -nifs([isatty/1, tty_create/0, tty_init/3, tty_set/1, setlocale/1,
        tty_select/3, tty_window_size/1, write_nif/2, read_nif/2, isprint/1,
        wcwidth/1, wcswidth/1,
@@ -136,6 +138,7 @@
                 unicode,
                 buffer_before = [],  %% Current line before cursor in reverse
                 buffer_after = [],   %% Current line after  cursor not in reverse
+                buffer_expand,       %% Characters in expand buffer
                 cols = 80,
                 rows = 24,
                 xn = false,
@@ -145,6 +148,7 @@
                 right = <<"\e[C">>,
                 %% Tab to next 8 column windows is "\e[1I", for unix "ta" termcap
                 tab = <<"\e[1I">>,
+                delete_after_cursor = <<"\e[J">>,
                 insert = false,
                 delete = false,
                 position = <<"\e[6n">>, %% "u7" on my Linux
@@ -162,6 +166,7 @@
                     }.
 -type request() ::
         {putc, unicode:unicode_binary()} |
+        {expand, unicode:unicode_binary()} |
         {insert, unicode:unicode_binary()} |
         {delete, integer()} |
         {move, integer()} |
@@ -182,6 +187,7 @@ on_load(Extra) ->
             ok
     end.
 
+-spec window_size(state()) -> {ok, {non_neg_integer(), non_neg_integer()}} | {error, term()}.
 window_size(State = #state{ tty = TTY }) ->
     case tty_window_size(TTY) of
         {error, enotsup} when map_get(tty, State#state.options) ->
@@ -216,8 +222,9 @@ init_term(State = #state{ tty = TTY, options = Options }) ->
         case maps:get(tty, Options) of
             true ->
                 ok = tty_init(TTY, stdout, Options),
+                NewState = init(State, os:type()),
                 ok = tty_set(TTY),
-                init(State, os:type());
+                NewState;
             false ->
                 State
         end,
@@ -254,7 +261,16 @@ options(UserOptions) ->
          echo => false }, UserOptions).
 
 init(State, {unix,_}) ->
-    ok = tgetent(os:getenv("TERM")),
+
+    case os:getenv("TERM") of
+        false ->
+            error(enotsup);
+        Term ->
+            case tgetent(Term) of
+                ok -> ok;
+                {error,_} -> error(enotsup)
+            end
+    end,
 
     %% See https://www.gnu.org/software/termutils/manual/termcap-1.3/html_mono/termcap.html#SEC23
     %% for a list of all possible termcap capabilities
@@ -306,6 +322,16 @@ init(State, {unix,_}) ->
                    false -> (#state{})#state.position
                end,
 
+    %% According to the manual this should only be issued when the cursor
+    %% is at position 0, but until we encounter such a console we keep things
+    %% simple and issue this with the cursor anywhere
+    DeleteAfter = case tgetstr("cd") of
+                      {ok, DA} ->
+                          DA;
+                      false ->
+                          (#state{})#state.delete_after_cursor
+                  end,
+
     State#state{
       cols = Cols,
       xn = tgetflag("xn"),
@@ -316,8 +342,9 @@ init(State, {unix,_}) ->
       insert = Insert,
       delete = Delete,
       tab = Tab,
-      position = Position
-    };
+      position = Position,
+      delete_after_cursor = DeleteAfter
+     };
 init(State, {win32, _}) ->
     State#state{
       %% position = false,
@@ -346,6 +373,11 @@ unicode(#state{ reader = Reader } = State, Bool) ->
     end,
     State#state{ unicode = Bool }.
 
+-spec reader_stop(state()) -> state().
+reader_stop(#state{ reader = {ReaderPid, _} } = State) ->
+    {error, _} = call(ReaderPid, stop),
+    State#state{ reader = undefined }.
+
 -spec handle_signal(state(), winch | cont) -> state().
 handle_signal(State, winch) ->
     update_geometry(State);
@@ -354,20 +386,12 @@ handle_signal(State, cont) ->
     State.
 
 -spec disable_reader(state()) -> ok.
-disable_reader(State) ->
-    case State#state.reader of
-        {ReaderPid, _} ->
-            ok = call(ReaderPid, disable);
-        undefined -> ok
-    end.
+disable_reader(#state{ reader = {ReaderPid, _} }) ->
+    ok = call(ReaderPid, disable).
 
 -spec enable_reader(state()) -> ok.
-enable_reader(State) ->
-    case State#state.reader of
-        {ReaderPid, _} ->
-            ok = call(ReaderPid, enable);
-        undefined -> ok
-    end.
+enable_reader(#state{ reader = {ReaderPid, _} }) ->
+    ok = call(ReaderPid, enable).
 
 call(Pid, Msg) ->
     Alias = erlang:monitor(process, Pid, [{alias, reply_demonitor}]),
@@ -420,6 +444,8 @@ reader_loop(TTY, Parent, SignalRef, ReaderRef, FromEnc, Acc) ->
             Alias ! {Alias, FromEnc =/= latin1},
             NewFromEnc = if Bool -> utf8; not Bool -> latin1 end,
             reader_loop(TTY, Parent, SignalRef, ReaderRef, NewFromEnc, Acc);
+        {_Alias, stop} ->
+            ok;
         {select, TTY, ReaderRef, ready_input} ->
             case read_nif(TTY, ReaderRef) of
                 {error, closed} ->
@@ -501,6 +527,26 @@ handle_request(State = #state{ options = #{ tty := false } }, Request) ->
         _Ignore ->
             {<<>>, State}
     end;
+%% Clear the expand buffer after the cursor when we handle any request.
+handle_request(State = #state{ buffer_expand = Expand, unicode = U }, Request)
+  when Expand =/= undefined ->
+    BBCols = cols(State#state.buffer_before, U),
+    BACols = cols(State#state.buffer_after, U),
+    ClearExpand = [move_cursor(State, BBCols, BBCols + BACols),
+                   State#state.delete_after_cursor,
+                   move_cursor(State, BBCols + BACols, BBCols)],
+    {Output, NewState} = handle_request(State#state{ buffer_expand = undefined }, Request),
+    {[ClearExpand, encode(Output, U)], NewState};
+%% Print characters in the expandbuffer after the cursor
+handle_request(State = #state{ unicode = U }, {expand, Binary}) ->
+    BBCols = cols(State#state.buffer_before, U),
+    BACols = cols(State#state.buffer_after, U),
+    Expand = iolist_to_binary(["\r\n",string:trim(Binary, both)]),
+    MoveToEnd = move_cursor(State, BBCols, BBCols + BACols),
+    {ExpandBuffer, NewState} = insert_buf(State#state{ buffer_expand = [] }, Expand),
+    BECols = cols(NewState#state.cols, BBCols + BACols, NewState#state.buffer_expand, U),
+    MoveToOrig = move_cursor(State, BECols, BBCols),
+    {[MoveToEnd, encode(ExpandBuffer, U), MoveToOrig], NewState};
 %% putc prints Binary and overwrites any existing characters
 handle_request(State = #state{ unicode = U }, {putc, Binary}) ->
     %% Todo should handle invalid unicode?
@@ -638,6 +684,13 @@ cols([SkipSeq | T], Unicode) when is_binary(SkipSeq) ->
     %% so we skip that
     cols(T, Unicode).
 
+cols(_ColsPerLine, CurrCols, [], _Unicode) ->
+    CurrCols;
+cols(ColsPerLine, CurrCols, ["\r\n" | T], Unicode) ->
+    CurrCols + (ColsPerLine - CurrCols) + cols(ColsPerLine, 0, T, Unicode);
+cols(ColsPerLine, CurrCols, [H | T], Unicode) ->
+    cols(ColsPerLine, CurrCols + cols([H], Unicode), T, Unicode).
+
 update_geometry(State) ->
     case tty_window_size(State#state.tty) of
         {ok, {Cols, Rows}} when Cols > 0 ->
@@ -726,6 +779,10 @@ insert_buf(State, Binary) when is_binary(Binary) ->
     insert_buf(State, Binary, [], []).
 insert_buf(State, Bin, LineAcc, Acc) ->
     case string:next_grapheme(Bin) of
+        [] when State#state.buffer_expand =/= undefined ->
+            Expand = lists:reverse(LineAcc),
+            {[Acc, characters_to_output(Expand)],
+             State#state{ buffer_expand = characters_to_buffer(Expand) }};
         [] ->
             NewBB = characters_to_buffer(LineAcc) ++ State#state.buffer_before,
             NewState = State#state{ buffer_before = NewBB },
@@ -757,12 +814,17 @@ insert_buf(State, Bin, LineAcc, Acc) ->
                    true ->
                         <<$\r>>
                 end,
-            insert_buf(State#state{ buffer_before = [], buffer_after = [] }, Rest, [],
-                       [Acc, [characters_to_output(lists:reverse(LineAcc)), Tail]]);
+            if State#state.buffer_expand =:= undefined ->
+                    insert_buf(State#state{ buffer_before = [], buffer_after = [] }, Rest, [],
+                               [Acc, [characters_to_output(lists:reverse(LineAcc)), Tail]]);
+               true ->
+                    insert_buf(State, Rest, [binary_to_list(Tail) | LineAcc], Acc)
+            end;
         [Cluster | Rest] when is_list(Cluster) ->
             insert_buf(State, Rest, [Cluster | LineAcc], Acc);
         %% We have gotten a code point that may be part of the previous grapheme cluster. 
-        [Char | Rest] when Char >= 128, LineAcc =:= [], State#state.buffer_before =/= [] ->
+        [Char | Rest] when Char >= 128, LineAcc =:= [], State#state.buffer_before =/= [],
+                           State#state.buffer_expand =:= undefined ->
             [PrevChar | BB] = State#state.buffer_before,
             case string:next_grapheme([PrevChar | Bin]) of
                 [PrevChar | _] ->
@@ -851,7 +913,7 @@ encode(UnicodeChars, false) ->
 -ifdef(debug).
 dbg(_) ->
     ok.
--endif
+-endif.
 
 %% Nif functions
 -spec isatty(stdin | stdout | stderr) -> boolean() | ebadf.
