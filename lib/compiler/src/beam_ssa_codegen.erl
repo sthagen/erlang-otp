@@ -78,7 +78,8 @@ module(#b_module{name=Mod,exports=Es,attributes=Attrs,body=Fs}, Opts) ->
 -record(cg_ret, {arg :: cg_value(),
                  dealloc=none :: 'none' | pos_integer()
                 }).
--record(cg_switch, {arg :: cg_value(),
+-record(cg_switch, {anno=#{} :: anno(),
+                    arg :: cg_value(),
                     fail :: ssa_label(),
                     list :: [sw_list_item()]
                    }).
@@ -999,8 +1000,8 @@ cg_block(Is0, Last, Next, St0) ->
     end.
 
 cg_switch(Is0, Last, St0) ->
-    #cg_switch{arg=Src0,fail=Fail0,list=List0} = Last,
-    Src = beam_arg(Src0, St0),
+    #cg_switch{anno=Anno,arg=Src0,fail=Fail0,list=List0} = Last,
+    Src1 = beam_arg(Src0, St0),
     {Fail1,St1} = use_block_label(Fail0, St0),
     Fail = ensure_label(Fail1, St1),
     {List1,St2} =
@@ -1010,13 +1011,14 @@ cg_switch(Is0, Last, St0) ->
                      end, St1, List0),
     {Is1,St} = cg_block(Is0, none, St2),
     case reverse(Is1) of
-        [{bif,tuple_size,_,[Tuple],{z,_}=Src}|More] ->
+        [{bif,tuple_size,_,[Tuple],{z,_}=Src1}|More] ->
             List = map(fun({integer,Arity}) -> Arity;
                           ({f,_}=F) -> F
                        end, List1),
             Is = reverse(More, [{select_tuple_arity,Tuple,Fail,{list,List}}]),
             {Is,St};
         _ ->
+            [Src] = typed_args([Src0], Anno, St),
             SelectVal = {select_val,Src,Fail,{list,List1}},
             {Is1 ++ [SelectVal],St}
     end.
@@ -1203,6 +1205,10 @@ cg_block([#cg_set{op={float,convert},dst=Dst0,args=Args0,anno=Anno},
     [Src] = typed_args(Args0, Anno, St),
     Dst = beam_arg(Dst0, St),
     {[line(Anno),{fconv,Src,Dst}], St};
+cg_block([#cg_set{op=bs_skip,args=Args0,anno=Anno}=I,
+          #cg_set{op=succeeded,dst=Bool}], {Bool,Fail}, St) ->
+    Args = typed_args(Args0, Anno, St),
+    {cg_bs_skip(bif_fail(Fail), Args, I),St};
 cg_block([#cg_set{op=Op,dst=Dst0,args=Args0}=I,
           #cg_set{op=succeeded,dst=Bool}], {Bool,Fail}, St) ->
     [Dst|Args] = beam_args([Dst0|Args0], St),
@@ -1317,6 +1323,13 @@ cg_block([#cg_set{op=wait_timeout,dst=Bool,args=Args0}], {Bool,Fail}, St) ->
                  true = Timeout =/= {atom,infinity},
                  [{wait_timeout,Fail,Timeout},timeout]
          end,
+    {Is,St};
+cg_block([#cg_set{op=has_map_field,dst=Dst0,args=Args0,anno=Anno}|T], Context, St0) ->
+    [Map,Key] = typed_args(Args0, Anno, St0),
+    Dst = beam_arg(Dst0, St0),
+    I = {bif,is_map_key,{f,0},[Key,Map],Dst},
+    {Is0,St} = cg_block(T, Context, St0),
+    Is = [I|Is0],
     {Is,St};
 cg_block([#cg_set{op=Op,dst=Dst0,args=Args0}=Set], none, St) ->
     [Dst|Args] = beam_args([Dst0|Args0], St),
@@ -1790,8 +1803,6 @@ cg_instr(get_tl=Op, [Src], Dst) ->
     [{Op,Src,Dst}];
 cg_instr(get_tuple_element=Op, [Src,{integer,N}], Dst) ->
     [{Op,Src,N,Dst}];
-cg_instr(has_map_field, [Map,Key], Dst) ->
-    [{bif,is_map_key,{f,0},[Key,Map],Dst}];
 cg_instr(nif_start, [], _Dst) ->
     [nif_start];
 cg_instr(put_list=Op, [Hd,Tl], Dst) ->
@@ -1816,8 +1827,6 @@ cg_instr(update_record, [Hint, {integer,Size}, Src | Ss0], Dst) ->
     Ss = cg_update_record_list(Ss0, []),
     [{update_record,Hint,Size,Src,Dst,{list,Ss}}].
 
-cg_test(bs_skip, Fail, Args, _Dst, I) ->
-    cg_bs_skip(Fail, Args, I);
 cg_test({float,Op0}, Fail, Args, Dst, #cg_set{anno=Anno}) ->
     Op = case Op0 of
              '+' -> fadd;
@@ -1847,7 +1856,9 @@ cg_update_record_list([{integer, Index}, Value | Updates], Acc) ->
 cg_update_record_list([], Acc) ->
     append([[Index, Value] || {Index, Value} <- sort(Acc)]).
 
-cg_bs_get(Fail, #cg_set{dst=Dst0,args=[#b_literal{val=Type}|Ss0]}=Set, St) ->
+cg_bs_get(Fail, #cg_set{dst=Dst0,args=Args,anno=Anno}=Set, St) ->
+    [{atom,Type}|Ss0] = typed_args(Args, Anno, St),
+    Dst = beam_arg(Dst0, St),
     Op = case Type of
              integer -> bs_get_integer2;
              float   -> bs_get_float2;
@@ -1856,8 +1867,7 @@ cg_bs_get(Fail, #cg_set{dst=Dst0,args=[#b_literal{val=Type}|Ss0]}=Set, St) ->
              utf16   -> bs_get_utf16;
              utf32   -> bs_get_utf32
          end,
-    [Dst|Ss1] = beam_args([Dst0|Ss0], St),
-    Ss = case Ss1 of
+    Ss = case Ss0 of
              [Ctx,{literal,Flags},Size,{integer,Unit}] ->
                  %% Plain integer/float/binary.
                  [Ctx,Size,Unit,field_flags(Flags, Set)];
@@ -2021,8 +2031,8 @@ translate_terminator(#b_br{bool=#b_literal{val=true},succ=Succ}) ->
     #cg_br{bool=#b_literal{val=true},succ=Succ,fail=Succ};
 translate_terminator(#b_br{bool=Bool,succ=Succ,fail=Fail}) ->
     #cg_br{bool=Bool,succ=Succ,fail=Fail};
-translate_terminator(#b_switch{arg=Bool,fail=Fail,list=List}) ->
-    #cg_switch{arg=Bool,fail=Fail,list=List}.
+translate_terminator(#b_switch{anno=Anno,arg=Bool,fail=Fail,list=List}) ->
+    #cg_switch{anno=Anno,arg=Bool,fail=Fail,list=List}.
 
 translate_phis(L, #cg_br{succ=Target,fail=Target}, Blocks) ->
     #b_blk{is=Is} = maps:get(Target, Blocks),
@@ -2181,7 +2191,8 @@ bs_translate([I|Is0]) ->
         none ->
             [I|bs_translate(Is0)];
         {Ctx,Fail0,First} ->
-            {Instrs,Fail,Is} = bs_translate_collect(Is0, Ctx, Fail0, [First]),
+            {Instrs0,Fail,Is} = bs_translate_collect(Is0, Ctx, Fail0, [First]),
+            Instrs = bs_eq_fixup(Instrs0),
             [{bs_match,Fail,Ctx,{commands,Instrs}}|bs_translate(Is)]
     end;
 bs_translate([]) -> [].
@@ -2206,6 +2217,24 @@ bs_translate_fixup([{test_tail,Bits}|Is0]) ->
     bs_translate_fixup_tail(Is, Bits);
 bs_translate_fixup(Is) ->
     reverse(Is).
+
+bs_eq_fixup([{'=:=',nil,Bits,Value}|Is]) ->
+    EqInstrs = bs_eq_fixup_split(Bits, <<Value:Bits>>),
+    EqInstrs ++ bs_eq_fixup(Is);
+bs_eq_fixup([I|Is]) ->
+    [I|bs_eq_fixup(Is)];
+bs_eq_fixup([]) -> [].
+
+%% In the 32-bit runtime system, each integer to be matched must
+%% fit in a SIGNED 32-bit word. Therefore, we will split the
+%% instruction into multiple instructions each matching at most
+%% 31 bits.
+bs_eq_fixup_split(Bits, Value) when Bits =< 31 ->
+    <<I:Bits>> = Value,
+    [{'=:=',nil,Bits,I}];
+bs_eq_fixup_split(Bits, Value0) ->
+    <<I:31,Value/bits>> = Value0,
+    [{'=:=',nil,31,I} | bs_eq_fixup_split(Bits - 31, Value)].
 
 bs_translate_fixup_tail([{ensure_at_least,Bits0,_}|Is], Bits) ->
     [{ensure_exactly,Bits0+Bits}|Is];
@@ -2238,6 +2267,11 @@ bs_translate_instr({bs_get_tail,Ctx,Dst,Live}) ->
     {Ctx,{f,0},{get_tail,Live,1,Dst}};
 bs_translate_instr({test,bs_test_tail2,Fail,[Ctx,Bits]}) ->
     {Ctx,Fail,{test_tail,Bits}};
+bs_translate_instr({test,bs_match_string,Fail,[Ctx,Bits,{string,String}]})
+  when bit_size(String) =< 64 ->
+    <<Value:Bits,_/bitstring>> = String,
+    Live = nil,
+    {Ctx,Fail,{'=:=',Live,Bits,Value}};
 bs_translate_instr(_) -> none.
 
 
