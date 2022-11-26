@@ -3170,8 +3170,8 @@ BIF_RETTYPE list_to_atom_1(BIF_ALIST_1)
     Eterm res;
     byte *buf = (byte *) erts_alloc(ERTS_ALC_T_TMP, MAX_ATOM_SZ_LIMIT);
     Sint written;
-    int i = erts_unicode_list_to_buf(BIF_ARG_1, buf, MAX_ATOM_CHARACTERS,
-                                     &written);
+    int i = erts_unicode_list_to_buf(BIF_ARG_1, buf, MAX_ATOM_SZ_LIMIT,
+                                     MAX_ATOM_CHARACTERS, &written);
     if (i < 0) {
 	erts_free(ERTS_ALC_T_TMP, (void *) buf);
 	if (i == -2) {
@@ -3191,8 +3191,8 @@ BIF_RETTYPE list_to_existing_atom_1(BIF_ALIST_1)
 {
     byte *buf = (byte *) erts_alloc(ERTS_ALC_T_TMP, MAX_ATOM_SZ_LIMIT);
     Sint written;
-    int i = erts_unicode_list_to_buf(BIF_ARG_1, buf, MAX_ATOM_CHARACTERS,
-                                     &written);
+    int i = erts_unicode_list_to_buf(BIF_ARG_1, buf, MAX_ATOM_SZ_LIMIT,
+                                     MAX_ATOM_CHARACTERS, &written);
     if (i < 0) {
     error:
 	erts_free(ERTS_ALC_T_TMP, (void *) buf);
@@ -4210,7 +4210,13 @@ BIF_RETTYPE display_string_2(BIF_ALIST_2)
     }
 #if defined(HAVE_SYS_IOCTL_H) && defined(TIOCSTI)
     else if (ERTS_IS_ATOM_STR("stdin", BIF_ARG_1)) {
-        fd = open("/proc/self/fd/0",0);
+        const char stdin_fname[] = "/dev/tty";
+        fd = open(stdin_fname,0);
+        if (fd < 0) {
+            fprintf(stderr,"failed to open %s (%s)\r\n", stdin_fname,
+                    strerror(errno));
+            goto error;
+        }
     }
 #endif
 #endif
@@ -4221,7 +4227,7 @@ BIF_RETTYPE display_string_2(BIF_ALIST_2)
         len = erts_unicode_list_to_buf_len(string);
         if (len < 0) BIF_ERROR(p, BADARG);
         str = temp_alloc = (byte *) erts_alloc(ERTS_ALC_T_TMP, sizeof(char)*len);
-        res = erts_unicode_list_to_buf(string, str, len, &written);
+        res = erts_unicode_list_to_buf(string, str, len, len, &written);
         if (res != 0 || written != len)
             erts_exit(ERTS_ERROR_EXIT, "%s:%d: Internal error (%d)\n", __FILE__, __LINE__, res);
     } else if (is_binary(string)) {
@@ -4275,7 +4281,8 @@ error: {
         char *errnostr = erl_errno_id(errno);
 #endif
         BIF_P->fvalue = am_atom_put(errnostr, strlen(errnostr));
-        erts_free(ERTS_ALC_T_TMP, (void *) str);
+        if (temp_alloc)
+            erts_free(ERTS_ALC_T_TMP, (void *) temp_alloc);
         BIF_ERROR(p, BADARG | EXF_HAS_EXT_INFO);
     }
 }
@@ -4345,8 +4352,8 @@ BIF_RETTYPE halt_2(BIF_ALIST_2)
         static byte halt_msg[4*HALT_MSG_SIZE+1];
         Sint written;
 
-        if (erts_unicode_list_to_buf(BIF_ARG_1, halt_msg, HALT_MSG_SIZE,
-                                     &written) == -1 ) {
+        if (erts_unicode_list_to_buf(BIF_ARG_1, halt_msg, 4 * HALT_MSG_SIZE,
+                                     HALT_MSG_SIZE, &written) == -1 ) {
             goto error;
         }
         ASSERT(written >= 0 && written < sizeof(halt_msg));

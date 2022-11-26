@@ -591,13 +591,12 @@ certificate_entry(DER) ->
 %%    0101010101010101010101010101010101010101010101010101010101010101
 sign(THash, Context, HashAlgo, PrivateKey, SignAlgo) ->
     Content = build_content(Context, THash),
-    try ssl_handshake:digitally_signed({3,4}, Content, HashAlgo, PrivateKey, SignAlgo) of
-        Signature ->
-            {ok, Signature}
-    catch
-        error:badarg ->
-            {error, ?ALERT_REC(?FATAL, ?INTERNAL_ERROR, badarg)}
+    try
+        {ok, ssl_handshake:digitally_signed({3,4}, Content, HashAlgo, PrivateKey, SignAlgo)}
+    catch throw:Alert ->
+            {error, Alert}
     end.
+
 
 verify(THash, Context, HashAlgo, SignAlgo, Signature, PublicKeyInfo) ->
     Content = build_content(Context, THash),
@@ -605,7 +604,8 @@ verify(THash, Context, HashAlgo, SignAlgo, Signature, PublicKeyInfo) ->
         Result ->
             {ok, Result}
     catch
-        error:badarg ->
+        error:Reason:ST ->
+            ?SSL_LOG(debug, handshake_error, [{reason, Reason}, {stacktrace, ST}]),
             {error, ?ALERT_REC(?FATAL, ?INTERNAL_ERROR, badarg)}
     end.
 
@@ -907,7 +907,8 @@ do_negotiated({start_handshake, PSK0},
     catch
         {Ref, #alert{} = Alert} ->
             Alert;
-        error:badarg ->
+        error:badarg=Reason:ST ->
+            ?SSL_LOG(debug, crypto_error, [{reason, Reason}, {stacktrace, ST}]),
             ?ALERT_REC(?ILLEGAL_PARAMETER, illegal_parameter_to_compute_key)
     end.
 
@@ -1316,9 +1317,12 @@ session_resumption({#state{ssl_options = #{session_tickets := Tickets}} = State,
     {ok, {State, negotiated}};
 session_resumption({#state{ssl_options = #{session_tickets := Tickets},
                            handshake_env = #handshake_env{
-                                              early_data_accepted = false}} = State0, negotiated}, PSK)
+                                              early_data_accepted = false}} = State0, negotiated}, PSK0)
   when Tickets =/= disabled ->
-    State = handle_resumption(State0, ok),
+    State1 = handle_resumption(State0, ok),
+    {Index, PSK1, PeerCert} = PSK0,
+    PSK = {Index, PSK1},
+    State = maybe_store_peer_cert(State1, PeerCert),
     {ok, {State, negotiated, PSK}};
 session_resumption({#state{ssl_options = #{session_tickets := Tickets},
                            handshake_env = #handshake_env{
@@ -1326,12 +1330,14 @@ session_resumption({#state{ssl_options = #{session_tickets := Tickets},
   when Tickets =/= disabled ->
     State1 = handle_resumption(State0, ok),
     %% TODO Refactor PSK-tuple {Index, PSK}, index might not be needed.
-    {_ , PSK} = PSK0,
-    State2 = calculate_client_early_traffic_secret(State1, PSK),
+    {Index, PSK1, PeerCert} = PSK0,
+    State2 = calculate_client_early_traffic_secret(State1, PSK1),
+    PSK = {Index, PSK1},
     %% Set 0-RTT traffic keys for reading early_data
     State3 = ssl_record:step_encryption_state_read(State2),
-    State = update_current_read(State3, true, true),
-    {ok, {State, negotiated, PSK0}}.
+    State4 = maybe_store_peer_cert(State3, PeerCert),
+    State = update_current_read(State4, true, true),
+    {ok, {State, negotiated, PSK}}.
 
 %% Session resumption with early_data
 maybe_send_certificate_request(#state{
@@ -1410,9 +1416,18 @@ maybe_send_session_ticket(#state{connection_states = ConnectionStates,
         ssl_record:current_connection_state(ConnectionStates, read),
     #security_parameters{prf_algorithm = HKDF,
                          resumption_master_secret = RMS} = SecParamsR, 
-    Ticket = tls_server_session_ticket:new(Tracker, HKDF, RMS),
+    Ticket = new_session_ticket(Tracker, HKDF, RMS, State0),
     {State, _} = Connection:send_handshake(Ticket, State0),
     maybe_send_session_ticket(State, N - 1).
+
+new_session_ticket(Tracker, HKDF, RMS, #state{ssl_options = #{session_tickets := stateful_with_cert},
+                                              session = #session{peer_certificate = PeerCert}}) ->
+    tls_server_session_ticket:new(Tracker, HKDF, RMS, PeerCert);
+new_session_ticket(Tracker, HKDF, RMS, #state{ssl_options = #{session_tickets := stateless_with_cert},
+                                              session = #session{peer_certificate = PeerCert}}) ->
+    tls_server_session_ticket:new(Tracker, HKDF, RMS, PeerCert);
+new_session_ticket(Tracker, HKDF, RMS, _) ->
+    tls_server_session_ticket:new(Tracker, HKDF, RMS, undefined).
 
 create_change_cipher_spec(#state{ssl_options = #{log_level := LogLevel}}) ->
     %% Dummy connection_states with NULL cipher
@@ -1449,7 +1464,7 @@ process_certificate_request(#certificate_request_1_3{
 
     CertKeyPairs = ssl_certificate:available_cert_key_pairs(CertKeyAlts, Version),
     Session = select_client_cert_key_pair(Session0, CertKeyPairs,
-                                          ServerSignAlgs, ServerSignAlgsCert, ClientSignAlgs,
+                                          ServerSignAlgs, ServerSignAlgsCert, filter_tls13_algs(ClientSignAlgs),
                                           CertDbHandle, CertDbRef, CertAuths, undefined),
     {ok, {State#state{client_certificate_status = requested, session = Session}, wait_cert}}.
 
@@ -1514,6 +1529,11 @@ validate_certificate_chain(CertEntries, CertDbHandle, CertDbRef,
                             ocsp_state => OcspState,
                             ocsp_responder_certs => OcspResponderCerts}).
 
+
+maybe_store_peer_cert(State, undefined) ->
+    State;
+maybe_store_peer_cert(#state{session = Session} = State, PeerCert) ->
+    State#state{session = Session#session{peer_certificate = PeerCert}}.
 
 store_peer_cert(#state{session = Session,
                        handshake_env = HsEnv} = State, PeerCert, PublicKeyInfo) ->
@@ -2068,7 +2088,7 @@ verify_signature_algorithm(#state{
                               static_env = #static_env{role = Role},
                               ssl_options = #{signature_algs := LocalSignAlgs}} = State0,
                            #certificate_verify_1_3{algorithm = PeerSignAlg}) ->
-    case lists:member(PeerSignAlg, LocalSignAlgs) of
+    case lists:member(PeerSignAlg, filter_tls13_algs(LocalSignAlgs)) of
         true ->
             {ok, maybe_update_selected_sign_alg(State0, PeerSignAlg, Role)};
         false ->
@@ -2423,22 +2443,14 @@ get_certificate_params(Cert) ->
     SubjectPublicKeyAlgo = public_key_algo(SubjectPublicKeyAlgo0),
     {SubjectPublicKeyAlgo, SignAlgo, SignHash, RSAKeySize, Curve}.
 
-oids_to_atoms(?'id-RSASSA-PSS', #'RSASSA-PSS-params'{maskGenAlgorithm = 
+oids_to_atoms(?'id-RSASSA-PSS', #'RSASSA-PSS-params'{maskGenAlgorithm =
                                                         #'MaskGenAlgorithm'{algorithm = ?'id-mgf1',
                                                                             parameters = #'HashAlgorithm'{algorithm = HashOid}}}) ->
-    case public_key:pkix_hash_type(HashOid) of
-        sha ->
-            {sha1, rsa_pss_pss};
-         Hash ->
-            {Hash, rsa_pss_pss}
-    end;    
+    Hash = public_key:pkix_hash_type(HashOid),
+    {Hash, rsa_pss_pss};
 oids_to_atoms(SignAlgo, _) ->
-    case public_key:pkix_sign_types(SignAlgo) of
-        {sha, Sign} ->
-            {sha1, Sign};
-        {_,_} = Algs ->
-            Algs
-    end.
+    public_key:pkix_sign_types(SignAlgo).
+
 %% Note: copied from ssl_handshake
 public_key_algo(?'id-RSASSA-PSS') ->
     rsa_pss_pss;
@@ -3009,8 +3021,8 @@ select_server_cert_key_pair(Session, [#{private_key := Key, certs := [Cert| _] =
             %% via the indicated supported algorithms, then it SHOULD continue the
             %% handshake by sending the client a certificate chain of its choice
             case SignHash of
-                sha1 ->
-                    %%  According to "Server Certificate Selection - RFC 8446" 
+                sha ->
+                    %%  According to "Server Certificate Selection - RFC 8446"
                     %%  Never send cert using sha1 unless client allows it
                     select_server_cert_key_pair(Session, Rest, ClientSignAlgs, ClientSignAlgsCert,
                                                 CertAuths, State, Default0);

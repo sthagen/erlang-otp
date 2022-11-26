@@ -100,6 +100,8 @@
          suite_to_str/1,
          suite_to_openssl_str/1,
          str_to_suite/1]).
+%% Tracing
+-export([handle_trace/3]).
 
 -removed({ssl_accept, '_', 
           "use ssl_handshake/1,2,3 instead"}).
@@ -386,7 +388,7 @@
 -type log_alert()                :: boolean().
 -type logging_level()            :: logger:level() | none | all.
 -type client_session_tickets()   :: disabled | manual | auto.
--type server_session_tickets()   :: disabled | stateful | stateless.
+-type server_session_tickets()   :: disabled | stateful | stateless | stateful_with_cert | stateless_with_cert.
 -type session_tickets()          :: client_session_tickets() | server_session_tickets().
 -type key_update_at()            :: pos_integer().
 -type bloom_filter_window_size()    :: integer().
@@ -1642,7 +1644,13 @@ opt_protocol_versions(UserOpts, Opts, Env) ->
 
     LogLevels = [none, all, emergency, alert, critical, error,
                  warning, notice, info, debug],
-    {_, LL} = get_opt_of(log_level, LogLevels, notice, UserOpts, Opts),
+
+    DefaultLevel = case logger:get_module_level(?MODULE) of
+                       [] -> notice;
+                       [{ssl,Level}] -> Level
+                   end,
+
+    {_, LL} = get_opt_of(log_level, LogLevels, DefaultLevel, UserOpts, Opts),
 
     {_, KS} = get_opt_bool(keep_secrets, false, UserOpts, Opts),
 
@@ -1899,17 +1907,24 @@ opt_tickets(UserOpts, #{versions := Versions} = Opts, #{role := client}) ->
     assert_server_only(stateless_tickets_seed, UserOpts),
     Opts#{session_tickets => SessionTickets, use_ticket => UseTicket, early_data => EarlyData};
 opt_tickets(UserOpts, #{versions := Versions} = Opts, #{role := server}) ->
-    {_, SessionTickets} = get_opt_of(session_tickets, [disabled, stateful, stateless], disabled, UserOpts, Opts),
+    {_, SessionTickets} =
+        get_opt_of(session_tickets,
+                   [disabled, stateful, stateless, stateful_with_cert, stateless_with_cert],
+                   disabled,
+                   UserOpts,
+                   Opts),
     assert_version_dep(SessionTickets =/= disabled, session_tickets, Versions, ['tlsv1.3']),
 
     {_, EarlyData} = get_opt_of(early_data, [enabled, disabled], disabled, UserOpts, Opts),
     option_incompatible(SessionTickets =:= disabled andalso EarlyData =:= enabled,
                         [early_data, {session_tickets, disabled}]),
 
+    Stateless = lists:member(SessionTickets, [stateless, stateless_with_cert]),
+
     AntiReplay =
         case get_opt(anti_replay, undefined, UserOpts, Opts) of
             {_, undefined} -> undefined;
-            {_,AR} when SessionTickets =/= stateless ->
+            {_,AR} when not Stateless ->
                 option_incompatible([{anti_replay, AR}, {session_tickets, SessionTickets}]);
             {_,'10k'}  -> {10, 5, 72985};  %% n = 10000 p = 0.030003564 (1 in 33) m = 72985 (8.91KiB) k = 5
             {_,'100k'} -> {10, 5, 729845}; %% n = 10000 p = 0.03000428 (1 in 33) m = 729845 (89.09KiB) k = 5
@@ -1918,7 +1933,7 @@ opt_tickets(UserOpts, #{versions := Versions} = Opts, #{role := server}) ->
         end,
 
     {_, STS} = get_opt_bin(stateless_tickets_seed, undefined, UserOpts, Opts),
-    option_incompatible(STS =/= undefined andalso SessionTickets =/= stateless,
+    option_incompatible(STS =/= undefined andalso not Stateless,
                         [stateless_tickets_seed, {session_tickets, SessionTickets}]),
 
     assert_client_only(use_ticket, UserOpts),
@@ -2703,9 +2718,10 @@ add_filter(Filter, Filters) ->
 maybe_client_warn_no_verify(#{verify := verify_none,
                              warn_verify_none := true,
                              log_level := LogLevel} = Opts, client) ->
-    ssl_logger:log(warning, LogLevel, #{description => "Server authenticity is not verified since certificate path validation is not enabled",
-                                        reason => "The option {verify, verify_peer} and one of the options 'cacertfile' or "
-                                        "'cacerts' are required to enable this."}, ?LOCATION),
+    ssl_logger:log(warning, LogLevel,
+                   #{description => "Server authenticity is not verified since certificate path validation is not enabled",
+                     reason => "The option {verify, verify_peer} and one of the options 'cacertfile' or "
+                     "'cacerts' are required to enable this."}, ?LOCATION),
     maps:without([warn_verify_none], Opts);
 maybe_client_warn_no_verify(Opts,_) ->
     %% Warning not needed. Note client certificate validation is optional in TLS
@@ -2726,3 +2742,15 @@ unambiguous_path(Value) ->
                  AbsName
          end,
     validate_filename(UP, cacertfile).
+
+%%%################################################################
+%%%#
+%%%# Tracing
+%%%#
+handle_trace(rle, {call, {?MODULE, listen, Args}}, Stack0) ->
+    Role = server,
+    {io_lib:format("(*~w) Args = ~W", [Role, Args, 10]), [{role, Role} | Stack0]};
+handle_trace(rle, {call, {?MODULE, connect, Args}}, Stack0) ->
+    Role = client,
+    {io_lib:format("(*~w) Args = ~W", [Role, Args, 10]), [{role, Role} | Stack0]}.
+

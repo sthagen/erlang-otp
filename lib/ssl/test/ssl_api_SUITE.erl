@@ -566,15 +566,28 @@ select_sha1_cert() ->
 
 select_sha1_cert(Config) when is_list(Config) ->
     Version = ssl_test_lib:protocol_version(Config),
-    TestConf = public_key:pkix_test_data(#{server_chain => #{root => [{digest, sha},{key, ssl_test_lib:hardcode_rsa_key(1)}],
+    TestConfRSA = public_key:pkix_test_data(#{server_chain => #{root => [{digest, sha},{key, ssl_test_lib:hardcode_rsa_key(1)}],
                                                              intermediates => [[{digest, sha}, {key, ssl_test_lib:hardcode_rsa_key(2)}]],
                                                              peer =>  [{digest, sha}, {key, ssl_test_lib:hardcode_rsa_key(3)}]
                                                             },
                                            client_chain => #{root => [{digest, sha},{key, ssl_test_lib:hardcode_rsa_key(3)}],
                                                              intermediates => [[{digest, sha},{key, ssl_test_lib:hardcode_rsa_key(2)}]],
                                                              peer => [{digest, sha}, {key, ssl_test_lib:hardcode_rsa_key(1)}]}}),
-    test_sha1_cert_conf(Version, TestConf, Config).
-    
+
+    TestConfECDSA = public_key:pkix_test_data(#{server_chain => #{root => [{digest, sha},{key, {namedCurve, secp256r1}}],
+                                                             intermediates => [[{digest, sha}, {key,{namedCurve, secp256r1} }]],
+                                                             peer =>  [{digest, sha}, {key,{namedCurve, secp256r1}}]
+                                                            },
+                                           client_chain => #{root => [{digest, sha},{key, {namedCurve, secp256r1}}],
+                                                             intermediates => [[{digest, sha},{key, {namedCurve, secp256r1}}]],
+                                                             peer => [{digest, sha}, {key, {namedCurve, secp256r1}}]}}),
+    case (Version == 'tlsv1.3') orelse (Version == 'tlsv1.2') of
+        true ->
+            test_sha1_cert_conf(Version, TestConfRSA, TestConfECDSA, Config);
+        false  ->
+            test_sha1_cert_conf(Version, TestConfRSA, undefined, Config)
+    end.
+
 %%--------------------------------------------------------------------
 connection_information() ->
     [{doc,"Test the API function ssl:connection_information/1"}].
@@ -2382,6 +2395,12 @@ options_anti_replay(_Config) ->
     ?OK(#{anti_replay := {_,_,_}},
         [{anti_replay, {42,4711,21}}, {session_tickets, stateless}],
         server),
+    ?OK(#{anti_replay := {_,_,_}},
+        [{anti_replay, '10k'}, {session_tickets, stateless_with_cert}],
+        server),
+    ?OK(#{anti_replay := {_,_,_}},
+        [{anti_replay, {42,4711,21}}, {session_tickets, stateless_with_cert}],
+        server),
 
 
     %% Errors
@@ -2399,6 +2418,15 @@ options_anti_replay(_Config) ->
          server),
     ?ERR({anti_replay, _},
          [{anti_replay, {1,1,1,1}}, {session_tickets, stateless}],
+         server),
+    ?ERR({options,incompatible, [session_tickets,{versions,['tlsv1']}]},
+         [{anti_replay, '10k'}, {session_tickets, stateless_with_cert}, {versions, ['tlsv1']}],
+         server),
+    ?ERR({anti_replay, '1k'},
+         [{anti_replay, '1k'}, {session_tickets, stateless_with_cert}],
+         server),
+    ?ERR({anti_replay, _},
+         [{anti_replay, {1,1,1,1}}, {session_tickets, stateless_with_cert}],
          server),
     ok.
 
@@ -2594,6 +2622,8 @@ options_early_data(_Config) -> %% early_data, session_tickets and use_ticket
 
     ?OK(#{early_data := enabled, stateless_tickets_seed := <<"foo">>},
         [{early_data, enabled}, {session_tickets, stateless}, {stateless_tickets_seed, <<"foo">>}], server),
+    ?OK(#{early_data := enabled, stateless_tickets_seed := <<"foo">>},
+        [{early_data, enabled}, {session_tickets, stateless_with_cert}, {stateless_tickets_seed, <<"foo">>}], server),
 
     ?OK(#{early_data := disabled}, [{early_data, disabled}], server),
 
@@ -2606,6 +2636,8 @@ options_early_data(_Config) -> %% early_data, session_tickets and use_ticket
     ?ERR({options, {session_tickets, stateful}}, [{session_tickets, stateful}], client),
     ?ERR({options, incompatible, [session_tickets, {versions, _}]},
          [{session_tickets, stateful}, {versions, ['tlsv1.2']}], server),
+    ?ERR({options, incompatible, [session_tickets, {versions, _}]},
+         [{session_tickets, stateful_with_cert}, {versions, ['tlsv1.2']}], server),
 
     ?ERR({use_ticket, foo},
          [{use_ticket, foo}, {session_tickets, manual}], client),
@@ -2622,12 +2654,20 @@ options_early_data(_Config) -> %% early_data, session_tickets and use_ticket
          [{early_data, enabled}], server),
     ?ERR({options, {early_data, <<>>}},
          [{early_data, <<>>}, {session_tickets, stateless}], server),
+    ?ERR({options, {early_data, <<>>}},
+         [{early_data, <<>>}, {session_tickets, stateless_with_cert}], server),
 
     ?ERR({options, incompatible, [stateless_tickets_seed, {session_tickets, stateful}]},
          [{stateless_tickets_seed, <<"foo">>}, {session_tickets, stateful}],
          server),
+    ?ERR({options, incompatible, [stateless_tickets_seed, {session_tickets, stateful_with_cert}]},
+         [{stateless_tickets_seed, <<"foo">>}, {session_tickets, stateful_with_cert}],
+         server),
     ?ERR({stateless_tickets_seed, foo},
          [{stateless_tickets_seed, foo}, {session_tickets, stateless}],
+         server),
+    ?ERR({stateless_tickets_seed, foo},
+         [{stateless_tickets_seed, foo}, {session_tickets, stateless_with_cert}],
          server),
     ?ERR({option, server_only, stateless_tickets_seed},
          [{stateless_tickets_seed, <<"foo">>}], client),
@@ -4225,8 +4265,16 @@ pem_to_der_cert(Pem) ->
     [{'Certificate', Der, _}] = ssl_test_lib:pem_to_der(Pem),
     Der.
 
-test_sha1_cert_conf('tlsv1.3', #{client_config := ClientOpts, server_config := ServerOpts}, Config) ->
-    ssl_test_lib:basic_test([{verify, verify_peer} | ClientOpts], ServerOpts, Config),
+test_sha1_cert_conf('tlsv1.3'= Version, RSA, ECDSA, Config) ->
+    run_sha1_cert_conf(Version, ECDSA, Config, ecdsa_sha1),
+    run_sha1_cert_conf(Version, RSA, Config, rsa_pkcs1_sha1);
+test_sha1_cert_conf('tlsv1.2'= Version, RSA, ECDSA, Config) ->
+    run_sha1_cert_conf(Version, RSA, Config, {sha, rsa}),
+    run_sha1_cert_conf(Version, ECDSA, Config, {sha, ecdsa});
+test_sha1_cert_conf(Version,RSA,_,Config) ->
+    run_sha1_cert_conf(Version, RSA, Config, undefined).
+
+run_sha1_cert_conf('tlsv1.3', #{client_config := ClientOpts, server_config := ServerOpts}, Config, LegacyAlg) ->
     SigAlgs = [%% ECDSA
                ecdsa_secp521r1_sha512,
                ecdsa_secp384r1_sha384,
@@ -4242,10 +4290,13 @@ test_sha1_cert_conf('tlsv1.3', #{client_config := ClientOpts, server_config := S
                eddsa_ed25519,
                eddsa_ed448
               ],
+    IncludeLegacyAlg =  SigAlgs ++ [LegacyAlg],
     ssl_test_lib:basic_alert([{verify, verify_peer}, {signature_algs,  SigAlgs} | ClientOpts],
-                             [{signature_algs,  SigAlgs ++ [rsa_pkcs1_sha1]} | ServerOpts], Config, handshake_failure);
+                             [{signature_algs,  IncludeLegacyAlg} | ServerOpts], Config, handshake_failure),
+    ssl_test_lib:basic_test([{verify, verify_peer}, {signature_algs,  IncludeLegacyAlg} | ClientOpts],
+                                    [{signature_algs,  IncludeLegacyAlg} | ServerOpts], Config);
 
-test_sha1_cert_conf('tlsv1.2', #{client_config := ClientOpts, server_config := ServerOpts}, Config) ->
+run_sha1_cert_conf('tlsv1.2', #{client_config := ClientOpts, server_config := ServerOpts}, Config, LegacyAlg) ->
     SigAlgs =  [%% SHA2
                 {sha512, ecdsa},
                 {sha512, rsa},
@@ -4254,13 +4305,9 @@ test_sha1_cert_conf('tlsv1.2', #{client_config := ClientOpts, server_config := S
                 {sha256, ecdsa},
                 {sha256, rsa},
                 {sha224, ecdsa},
-                {sha224, rsa},
-                %% SHA
-                {sha, ecdsa},
-                {sha, rsa},
-                {sha, dsa}],
-    ssl_test_lib:basic_test( [{verify, verify_peer}, {signature_algs,  SigAlgs} | ClientOpts],
-                             [{signature_algs,  SigAlgs} | ServerOpts], Config);
-
-test_sha1_cert_conf(_, #{client_config := ClientOpts, server_config := ServerOpts}, Config) ->
+                {sha224, rsa}],
+    IncludeLegacyAlg = SigAlgs ++ [LegacyAlg],
+    ssl_test_lib:basic_test( [{verify, verify_peer}, {signature_algs,  IncludeLegacyAlg} | ClientOpts],
+                             [{signature_algs,  IncludeLegacyAlg} | ServerOpts], Config);
+run_sha1_cert_conf(_, #{client_config := ClientOpts, server_config := ServerOpts}, Config, _) ->
     ssl_test_lib:basic_test([{verify, verify_peer} | ClientOpts], ServerOpts, Config).

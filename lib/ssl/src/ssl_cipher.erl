@@ -260,12 +260,13 @@ decipher(?RC4, HashSz, CipherState = #cipher_state{state = State}, Fragment, _, 
 	    #generic_stream_cipher{content = Content, mac = Mac} = GSC,
 	    {Content, Mac, CipherState}
     catch
-	_:_ ->
+	_:Reason:ST ->
 	    %% This is a DECRYPTION_FAILED but
 	    %% "differentiating between bad_record_mac and decryption_failed
 	    %% alerts may permit certain attacks against CBC mode as used in
 	    %% TLS [CBCATT].  It is preferable to uniformly use the
 	    %% bad_record_mac alert to hide the specific type of the error."
+            ?SSL_LOG(debug, decrypt_error, [{reason,Reason}, {stacktrace, ST}]),
             ?ALERT_REC(?FATAL, ?BAD_RECORD_MAC, decryption_failed)
     end;
 
@@ -305,12 +306,13 @@ block_decipher(Fun, #cipher_state{key=Key, iv=IV} = CipherState0,
 		{<<16#F0, Content/binary>>, Mac, CipherState1}
 	end
     catch
-	_:_ ->
+	_:Reason:ST ->
 	    %% This is a DECRYPTION_FAILED but
 	    %% "differentiating between bad_record_mac and decryption_failed
 	    %% alerts may permit certain attacks against CBC mode as used in
 	    %% TLS [CBCATT].  It is preferable to uniformly use the
 	    %% bad_record_mac alert to hide the specific type of the error."
+            ?SSL_LOG(debug, decrypt_error, [{reason,Reason}, {stacktrace, ST}]),
             ?ALERT_REC(?FATAL, ?BAD_RECORD_MAC, decryption_failed)
     end.
 
@@ -674,8 +676,8 @@ scheme_to_components(eddsa_ed448) -> {none, eddsa, ed448};
 scheme_to_components(rsa_pss_pss_sha256) -> {sha256, rsa_pss_pss, undefined};
 scheme_to_components(rsa_pss_pss_sha384) -> {sha384, rsa_pss_pss, undefined};
 scheme_to_components(rsa_pss_pss_sha512) -> {sha512, rsa_pss_pss, undefined};
-scheme_to_components(rsa_pkcs1_sha1) -> {sha1, rsa_pkcs1, undefined};
-scheme_to_components(ecdsa_sha1) -> {sha1, ecdsa, undefined};
+scheme_to_components(rsa_pkcs1_sha1) -> {sha, rsa_pkcs1, undefined};
+scheme_to_components(ecdsa_sha1) -> {sha, ecdsa, undefined};
 %% Handling legacy signature algorithms
 scheme_to_components({Hash,Sign}) -> {Hash, Sign, undefined}.
 
@@ -1306,10 +1308,22 @@ encrypt_ticket(#stateless_ticket{
                   pre_shared_key = PSK,
                   ticket_age_add = TicketAgeAdd,
                   lifetime = Lifetime,
-                  timestamp = Timestamp
+                  timestamp = Timestamp,
+                  certificate = Certificate
                  }, Shard, IV) ->
-    Plaintext = <<(ssl_cipher:hash_algorithm(Hash)):8,PSK/binary,
+    Plaintext1 = <<(ssl_cipher:hash_algorithm(Hash)):8,PSK/binary,
                    ?UINT64(TicketAgeAdd),?UINT32(Lifetime),?UINT32(Timestamp)>>,
+    CertificateLength = case Certificate of
+                            undefined -> 0;
+                            _ -> byte_size(Certificate)
+    end,
+    Plaintext = case CertificateLength of
+                    0 ->
+                        <<Plaintext1/binary,?UINT16(0)>>;
+                    _ ->
+                        <<Plaintext1/binary,?UINT16(CertificateLength),
+                          Certificate/binary>>
+                end,
     encrypt_ticket_data(Plaintext, Shard, IV).
 
 
@@ -1321,13 +1335,19 @@ decrypt_ticket(CipherFragment, Shard, IV) ->
             <<?BYTE(HKDF),T/binary>> = Plaintext,
             Hash = hash_algorithm(HKDF),
             HashSize = hash_size(Hash),
-            <<PSK:HashSize/binary,?UINT64(TicketAgeAdd),?UINT32(Lifetime),?UINT32(Timestamp),_/binary>> = T,
+            <<PSK:HashSize/binary,?UINT64(TicketAgeAdd),?UINT32(Lifetime),?UINT32(Timestamp),
+                ?UINT16(CertificateLength),Certificate1:CertificateLength/binary,_/binary>> = T,
+            Certificate = case CertificateLength of
+                              0 -> undefined;
+                              _ -> Certificate1
+                          end,
             #stateless_ticket{
                hash = Hash,
                pre_shared_key = PSK,
                ticket_age_add = TicketAgeAdd,
                lifetime = Lifetime,
-               timestamp = Timestamp
+               timestamp = Timestamp,
+               certificate = Certificate
               }
     end.
 

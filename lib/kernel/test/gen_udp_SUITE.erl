@@ -58,9 +58,14 @@
          t_simple_local_sockaddr_in_send_recv/1,
          t_simple_link_local_sockaddr_in_send_recv/1,
          t_simple_local_sockaddr_in6_send_recv/1,
-         t_simple_link_local_sockaddr_in6_send_recv/1
+         t_simple_link_local_sockaddr_in6_send_recv/1,
+
+         otp_18323_opts_processing/1,
+         otp_18323_open/1
+
 	]).
 
+-include_lib("kernel/src/inet_int.hrl").
 
 -define(TRY_TC(F), try_tc(F)).
                
@@ -93,10 +98,12 @@ groups() ->
      {inet_backend_inet,      [], inet_backend_inet_cases()},
      {inet_backend_socket,    [], inet_backend_socket_cases()},
 
+     {recv_and_send_opts,     [], recv_and_send_opts_cases()},
      {local,                  [], local_cases()},
      {socket_monitor,         [], socket_monitor_cases()},
 
-     {sockaddr,               [], sockaddr_cases()}
+     {sockaddr,               [], sockaddr_cases()},
+     {otp18323,               [], otp18323_cases()}
     ].
 
 inet_backend_default_cases() ->
@@ -122,13 +129,19 @@ all_cases() ->
      reconnect,
      implicit_inet6,
      active_n,
-     recvtos, recvtosttl, recvttl, recvtclass,
-     sendtos, sendtosttl, sendttl, sendtclass,
+     {group, recv_and_send_opts},
      {group, local},
      recv_close,
      {group, socket_monitor},
      otp_17492,
-     {group, sockaddr}
+     {group, sockaddr},
+     {group, otp18323}
+    ].
+
+recv_and_send_opts_cases() ->
+    [
+     recvtos, recvtosttl, recvttl, recvtclass,
+     sendtos, sendtosttl, sendttl, sendtclass
     ].
 
 local_cases() ->
@@ -157,6 +170,12 @@ sockaddr_cases() ->
      t_simple_link_local_sockaddr_in_send_recv,
      t_simple_local_sockaddr_in6_send_recv,
      t_simple_link_local_sockaddr_in6_send_recv
+    ].
+
+otp18323_cases() ->
+    [
+     otp_18323_opts_processing,
+     otp_18323_open
     ].
 
 
@@ -241,6 +260,14 @@ init_per_group(sockaddr = _GroupName, Config) ->
         error : undef ->
             ?P("init_per_group(sockaddr) -> 'socket' not configured"),
             {skip, "esock not configured"}
+    end;
+init_per_group(otp18323 = _GroupName, Config) ->
+    ?P("init_per_group(otp18323) -> inet-drv specific bug(s)"),
+    case ?IS_SOCKET_BACKEND(Config) of
+        true ->
+            {skip, "Inet Drv specific bugs"};
+        false ->
+            ok
     end;
 init_per_group(_GroupName, Config) ->
     Config.
@@ -1133,7 +1160,7 @@ recvtclass(Config) ->
 
 
 sendtos(Config) ->
-    ?TC_TRY(sendtos, fun() -> do_sendtos(Config) end).
+    ?TC_TRY(?FUNCTION_NAME, fun() -> do_sendtos(Config) end).
 
 do_sendtos(Config) ->
     test_recv_opts(
@@ -1142,7 +1169,7 @@ do_sendtos(Config) ->
       fun sendtos_ok/2).
 
 sendtosttl(Config) ->
-    ?TC_TRY(sendtosttl, fun() -> do_sendtosttl(Config) end).
+    ?TC_TRY(?FUNCTION_NAME, fun() -> do_sendtosttl(Config) end).
 
 do_sendtosttl(Config) ->
     test_recv_opts(
@@ -1162,7 +1189,7 @@ do_sendttl(Config) ->
       fun sendttl_ok/2).
 
 sendtclass(Config) ->
-    ?TC_TRY(sendtclass, fun() -> do_sendtclass(Config) end).
+    ?TC_TRY(?FUNCTION_NAME, fun() -> do_sendtclass(Config) end).
 
 do_sendtclass(Config) ->
     {ok,IFs} = inet:getifaddrs(),
@@ -1336,6 +1363,8 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
     %%
     ?P("send/3: S2 -> S1"),
     ok = gen_udp:send(S2, {Addr,P1}, <<"abcde">>),
+    ?SLEEP(100),
+
     ?P("send/4: S1 -> S2"),
     ok = gen_udp:send(S1, Addr, P2, <<"fghij">>),
     TestSend andalso
@@ -1344,6 +1373,7 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
                "~n   ~p", [OptsVals]),
             case gen_udp:send(S2, Addr, P1, OptsVals, <<"ABCDE">>) of
                 ok ->
+                    ?SLEEP(100),
                     ok;
                 {error, enoprotoopt = Reason1} ->
                     ?SKIPT(?F("send (1) failed: ~p", [Reason1]))
@@ -1352,6 +1382,7 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
                "~n   ~p", [OptsVals]),
             case gen_udp:send(S2, {Addr,P1}, OptsVals, <<"12345">>) of
                 ok ->
+                    ?SLEEP(100),
                     ok;
                 {error, enoprotoopt = Reason2} ->
                     ?SKIPT(?F("send (2) failed: ~p", [Reason2]))
@@ -1361,6 +1392,8 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
     {ok,{_,P2,OptsVals3, <<"abcde">>}} = gen_udp:recv(S1, 0, Timeout),
     ?P("S1 recv: "
        "~n   OptsVals3: ~p", [OptsVals3]),
+    ?SLEEP(100),
+
     verify_sets_eq(OptsVals3, OptsVals2),
     TestSend andalso
         begin
@@ -1368,10 +1401,13 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
             {ok,{_,P2,OptsVals0,<<"ABCDE">>}} = gen_udp:recv(S1, 0, Timeout),
             ?P("S1 recv: "
                "~n   OptsVals0: ~p", [OptsVals0]),
+            ?SLEEP(100),
+
             ?P("try S1 recv"),
             {ok,{_,P2,OptsVals1,<<"12345">>}} = gen_udp:recv(S1, 0, Timeout),
             ?P("S1 recv: "
                "~n   OptsVals1: ~p", [OptsVals1]),
+            ?SLEEP(100),
             verify_sets_eq(OptsVals0, OptsVals),
             verify_sets_eq(OptsVals1, OptsVals)
         end,
@@ -1401,14 +1437,21 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
     %%
     ?P("send/4: S2 -> S1"),
     ok = gen_udp:send(S2, {Addr,P1}, [], <<"klmno">>),
+    ?SLEEP(100),
+
     ?P("send/3: S1 -> S2"),
     ok = gen_udp:send(S1, {Family,{loopback,P2}}, <<"pqrst">>),
+    ?SLEEP(100),
+
     TestSend andalso
         begin
             ?P("send/4: S1 -> S2"
                "~n   ~p", [OptsVals]),
-            ok = gen_udp:send(S1, {Family,{loopback,P2}}, OptsVals2, <<"PQRST">>)
+            ok = gen_udp:send(S1,
+                              {Family,{loopback,P2}}, OptsVals2, <<"PQRST">>),
+            ?SLEEP(100)
         end,
+
     ?P("try recv data on S1"),
     {ok,{_,P2,<<"klmno">>}} = gen_udp:recv(S1, 0, Timeout),
     ?P("await message on S2"),
@@ -1792,7 +1835,7 @@ do_implicit_inet6(Config) ->
     end.
 
 implicit_inet6(Config, Host, Addr) ->
-    Active = {active,false},
+    Active   = {active,false},
     Loopback = {0,0,0,0,0,0,0,1},
     ?P("try 1 with explicit inet6 on loopback"),
     S1 = case ?OPEN(Config, 0, [inet6, Active, {ip, Loopback}]) of
@@ -1805,6 +1848,7 @@ implicit_inet6(Config, Host, Addr) ->
          end,
     implicit_inet6(Config, S1, Active, Loopback),
     ok = gen_udp:close(S1),
+
     %%
     Localaddr = ok(get_localaddr()),
     ?P("try 2 on local addr (~p)", [Localaddr]),
@@ -1816,6 +1860,7 @@ implicit_inet6(Config, Host, Addr) ->
          end,
     implicit_inet6(Config, S2, Active, Localaddr),
     ok = gen_udp:close(S2),
+
     %%
     ?P("try 3 on addr ~p (~p)", [Addr, Host]),
     S3 = case ?OPEN(Config, 0, [{ifaddr, Addr}, Active]) of
@@ -1853,16 +1898,43 @@ implicit_inet6(Config, S1, Active, Addr) ->
     ?P("sockname of \"remote\" socket"),
     {Addr,P2} = ok(inet:sockname(S2)),
     ?P("send ping on \"local\" socket (to ~p:~p)", [Addr, P2]),
-    ok = gen_udp:send(S1, Addr, P2, "ping"),
-    ?P("recv ping on \"remote\" socket (from ~p:~p)", [Addr, P1]),
-    {Addr,P1,"ping"} = ok(gen_udp:recv(S2, 1024, 1000)),
-    ?P("send pong on \"remote\" socket (to ~p:~p)", [Addr, P1]),
-    ok = gen_udp:send(S2, Addr, P1, "pong"),
-    ?P("recv ping on \"local\" socket (from ~p:~p)", [Addr, P2]),
-    {Addr,P2,"pong"} = ok(gen_udp:recv(S1, 1024)),
-    ?P("close \"remote\" socket"),
-    ok = gen_udp:close(S2),
-    ok.
+    %% On some platforms its allowed to specify address and port
+    %% (that is; when useing sendto) *even* if the socket is connected
+    %% (assuming the send destination is the same as connected destination).
+    %% But on other platforms, e.g. FreeBSD, this is *not* allowed!
+    %% Linux:
+    %%   EISCONN
+    %%      The connection-mode socket was connected already but a recipient
+    %%      was specified. (Now either this error is returned, or the re-
+    %%      cipient specification is ignored.)
+    %% FreeBSD:
+    %%   [EISCONN]    A destination address was specified and the socket is
+    %%                already connected.
+    case gen_udp:send(S1, Addr, P2, "ping") of
+        ok ->
+            ?P("recv ping on \"remote\" socket (from ~p:~p)", [Addr, P1]),
+            {Addr,P1,"ping"} = ok(gen_udp:recv(S2, 1024, 1000)),
+            ?P("send pong on \"remote\" socket (to ~p:~p)", [Addr, P1]),
+            ok = gen_udp:send(S2, Addr, P1, "pong"),
+            ?P("recv ping on \"local\" socket (from ~p:~p)", [Addr, P2]),
+            {Addr,P2,"pong"} = ok(gen_udp:recv(S1, 1024)),
+            ?P("close \"remote\" socket"),
+            ok = gen_udp:close(S2),
+            ok;
+        {error, eisconn} ->
+            ?P("socket is connect => *not* allowed to use sendto"),
+            ok = gen_udp:send(S1, "ping"),
+            %% Not allowed to specify address *at all* for a connected socket
+            ?P("recv ping on \"remote\" socket (from ~p:~p)", [Addr, P1]),
+            {Addr,P1,"ping"} = ok(gen_udp:recv(S2, 1024, 1000)),
+            ?P("send pong on \"remote\" socket (to ~p:~p)", [Addr, P1]),
+            ok = gen_udp:send(S2, "pong"),
+            ?P("recv ping on \"local\" socket (from ~p:~p)", [Addr, P2]),
+            {Addr,P2,"pong"} = ok(gen_udp:recv(S1, 1024)),
+            ?P("close \"remote\" socket"),
+            ok = gen_udp:close(S2),
+            ok
+    end.
 
 
 
@@ -2781,6 +2853,97 @@ do_simple_sockaddr_send_recv(#{family := _Fam} = SockAddr, _) ->
     ok.
 
     
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Verify that the options [add|drop]_membership do not mess up
+%% the options (including 'ip' which could not be added *after*).
+%% This just attempts to very that the option processing is ok.
+otp_18323_opts_processing(Config) when is_list(Config) ->
+    ct:timetrap(?MINS(1)),
+    ?TC_TRY(?FUNCTION_NAME, fun() -> do_otp_18323_opts_processing(Config) end).
+
+do_otp_18323_opts_processing(_Config) ->
+    ?P("begin"),
+
+    do_otp_18323_opts_processing_verify(
+      {add_membership,  {{239,1,2,3},{0,0,0,0}}}),
+
+    do_otp_18323_opts_processing_verify(
+      {drop_membership, {{239,1,2,3},{0,0,0,0}}}),
+
+    ?P("done"),
+    ok.
+
+do_otp_18323_opts_processing_verify(MembershipOpt) ->
+    Port   = 4321,
+    RecBuf = 123456,
+    Active = 10,
+    IP     = {1,2,3,4},
+    Opts   = [binary, MembershipOpt, {ip, IP}, {active, Active}],
+
+    case inet:udp_options([{port, Port}, {recbuf, RecBuf} | Opts], inet_udp) of
+        {ok, #udp_opts{ifaddr = IP,
+                       port   = Port,
+                       opts   = SockOpts}} ->
+            ?P("Processed Socket Options: "
+               "~n   IfAddr:    ~p"
+               "~n   Port:      ~p"
+               "~n   Sock Opts: ~p", [IP, Port, SockOpts]),
+            %% Check that the recbuf and mode options are as expected
+            %% The option 'binary' is shorthand for {mode, binary}
+            {value, {recbuf, RecBuf}} = lists:keysearch(recbuf, 1, SockOpts),
+            {value, {mode,   binary}} = lists:keysearch(mode,   1, SockOpts),
+            {value, {active, Active}} = lists:keysearch(active, 1, SockOpts),
+            ok;
+        {error, Reason} ->
+            exit(?F("Failed processing options: ~p", [Reason]))
+    end.
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Verify that the options [add|drop]_membership do not mess up
+%% the options (including 'ip' which could not be added *after*).
+otp_18323_open(Config) when is_list(Config) ->
+    ct:timetrap(?MINS(1)),
+    Pre  = fun() ->
+                   {ok, Addr} = ?LIB:which_local_addr(inet),
+                   #{local_addr => Addr}
+           end,
+    Case = fun(State) -> do_otp_18323_open(State) end,
+    Post = fun(_) -> ok end,
+    ?TC_TRY(?FUNCTION_NAME, Pre, Case, Post).
+
+do_otp_18323_open(#{local_addr := Addr}) ->
+    ?P("begin"),
+
+    ROpts = [binary,
+             {add_membership, {Addr,{0,0,0,0}}},
+             {ip, Addr},
+             {active,false},
+             {debug, true}],
+    SOpts = [{reuseaddr, true}, binary],
+
+    ?P("create received socket"),
+    {ok, R}     = gen_udp:open(0, ROpts),
+    ?P("extract received socket port"),
+    {ok, RPort} = inet:port(R),
+
+    ?P("create sender socket"),
+    {ok, S} = gen_udp:open(0, SOpts),
+
+    ?P("send to receiver (at port ~w)", [RPort]),
+    ok = gen_udp:send(S, Addr, RPort, <<"aaaaa">>),
+
+    ?P("attempt to receive data on specified format binary)"),
+    {ok, {_,_,<<"aaaaa">>}} = gen_udp:recv(R, 0, 200),
+
+    ?P("done"),
+    ok.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
