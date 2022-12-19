@@ -119,6 +119,7 @@ copy_anno(Kdst, Ksrc) ->
 	       free=#{},			%Free variables
 	       ws=[]   :: [warning()],		%Warnings.
                no_shared_fun_wrappers=false :: boolean(),
+               no_min_max_bifs=false :: boolean(),
                labels=sets:new([{version, 2}])
               }).
 
@@ -130,7 +131,9 @@ module(#c_module{anno=A,name=M,exports=Es,attrs=As,defs=Fs}, Options) ->
     Kes = map(fun (#c_var{name={_,_}=Fname}) -> Fname end, Es),
     NoSharedFunWrappers = proplists:get_bool(no_shared_fun_wrappers,
                                              Options),
-    St0 = #kern{no_shared_fun_wrappers=NoSharedFunWrappers},
+    NoMinMaxBifs = proplists:get_bool(no_min_max_bifs, Options),
+    St0 = #kern{no_shared_fun_wrappers=NoSharedFunWrappers,
+                no_min_max_bifs=NoMinMaxBifs},
     {Kfs,St} = mapfoldl(fun function/2, St0, Fs),
     {ok,#k_mdef{anno=A,name=M#c_literal.val,exports=Kes,attributes=Kas,
                 body=Kfs ++ St#kern.funs},sort(St#kern.ws)}.
@@ -323,7 +326,7 @@ expr(#c_call{anno=A,module=M0,name=F0,args=Cargs}, Sub, St0) ->
     Ar = length(Cargs),
     {[M,F|Kargs],Ap,St1} = atomic_list([M0,F0|Cargs], Sub, St0),
     Remote = #k_remote{mod=M,name=F,arity=Ar},
-    case call_type(M0, F0, Cargs) of
+    case call_type(M0, F0, Cargs, St1) of
         bif ->
             {#k_bif{anno=A,op=Remote,args=Kargs},Ap,St1};
         call ->
@@ -543,15 +546,24 @@ map_key_clean(#k_literal{val=V}) -> {lit,V}.
 
 %% call_type(Module, Function, Arity) -> call | bif | error.
 %%  Classify the call.
-call_type(#c_literal{val=M}, #c_literal{val=F}, As) when is_atom(M), is_atom(F) ->
+call_type(#c_literal{val=M}, #c_literal{val=F}, As, St) when is_atom(M), is_atom(F) ->
     case is_remote_bif(M, F, As) of
-	false -> call;
-	true -> bif
+	false ->
+            call;
+	true ->
+            %% The guard BIFs min/2 and max/2 were introduced in
+            %% Erlang/OTP 26. If we are compiling for an earlier
+            %% version, we must translate them as call instructions.
+            case {M,F,St#kern.no_min_max_bifs} of
+                {erlang,min,true} -> call;
+                {erlang,max,true} -> call;
+                {_,_,_} -> bif
+            end
     end;
-call_type(#c_var{}, #c_literal{val=A}, _) when is_atom(A) -> call;
-call_type(#c_literal{val=A}, #c_var{}, _) when is_atom(A) -> call;
-call_type(#c_var{}, #c_var{}, _) -> call;
-call_type(_, _, _) -> error.
+call_type(#c_var{}, #c_literal{val=A}, _, _) when is_atom(A) -> call;
+call_type(#c_literal{val=A}, #c_var{}, _, _) when is_atom(A) -> call;
+call_type(#c_var{}, #c_var{}, _, _) -> call;
+call_type(_, _, _, _) -> error.
 
 %% match_vars(Kexpr, State) -> {[Kvar],[PreKexpr],State}.
 %%  Force return from body into a list of variables.
@@ -1375,8 +1387,9 @@ select_bin_int([#iclause{pats=[#k_bin_seg{anno=A,type=integer,
 	true -> throw(not_possible);
 	false -> ok
     end,
-    Cs = select_bin_int_1(Cs0, Bits, Fl, Val),
-    [{k_bin_int,[C#iclause{pats=[P|Ps]}|Cs]}];
+    Cs1 = [C#iclause{pats=[P|Ps]}|select_bin_int_1(Cs0, Bits, Fl, Val)],
+    Cs = reorder_bin_ints(Cs1),
+    [{k_bin_int,Cs}];
 select_bin_int(_) -> throw(not_possible).
 
 select_bin_int_1([#iclause{pats=[#k_bin_seg{anno=A,type=integer,
@@ -1417,6 +1430,24 @@ select_assert_match_possible(_, _, _) ->
 match_fun(Val) ->
     fun(match, {{integer,_,_},NewV,Bs}) when NewV =:= Val ->
 	    {match,Bs}
+    end.
+
+reorder_bin_ints([_]=Cs) ->
+    Cs;
+reorder_bin_ints(Cs0) ->
+    %% It is safe to reorder clauses that matches binaries if the
+    %% first segments for all of them match the same number of bits.
+    Cs = sort([{reorder_bin_int_sort_key(C),C} || C <- Cs0]),
+    [C || {_,C} <- Cs].
+
+reorder_bin_int_sort_key(#iclause{pats=[Pats|_]}) ->
+    case Pats of
+        #k_bin_int{val=Val,next=#k_bin_end{}} ->
+            %% Sort before clauses with additional segments. This usually results in
+            %% better code.
+            [Val];
+        #k_bin_int{val=Val} ->
+            [Val,more]
     end.
 
 %% match_value([Var], Con, [Clause], Default, State) -> {SelectExpr,State}.

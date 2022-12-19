@@ -857,7 +857,33 @@ opt_allocate_defs([#cg_set{op=copy,dst=Dst}|Is], Regs) ->
         true -> [Dst|opt_allocate_defs(Is, Regs)];
         false -> []
     end;
+opt_allocate_defs([#cg_set{anno=Anno,op={bif,Bif},args=Args,dst=Dst}|Is], Regs) ->
+    case is_gc_bif(Bif, Args) of
+        false ->
+            ArgTypes = maps:get(arg_types, Anno, #{}),
+            case is_yreg(Dst, Regs) andalso will_bif_succeed(Bif, Args, ArgTypes) of
+                true -> [Dst|opt_allocate_defs(Is, Regs)];
+                false -> []
+            end;
+        true ->
+            []
+    end;
 opt_allocate_defs(_, _Regs) -> [].
+
+will_bif_succeed(Bif, Args, ArgTypes) ->
+    Types = will_bif_succeed_types(Args, ArgTypes, 0),
+    case beam_call_types:will_succeed(erlang, Bif, Types) of
+        yes -> true;
+        _ -> false
+    end.
+
+will_bif_succeed_types([#b_literal{val=Val}|Args], ArgTypes, N) ->
+    Type = beam_types:make_type_from_value(Val),
+    [Type|will_bif_succeed_types(Args, ArgTypes, N + 1)];
+will_bif_succeed_types([#b_var{}|Args], ArgTypes, N) ->
+    Type = maps:get(N, ArgTypes, any),
+    [Type|will_bif_succeed_types(Args, ArgTypes, N + 1)];
+will_bif_succeed_types([], _, _) -> [].
 
 opt_alloc_def([{L,#cg_blk{is=Is,last=Last}}|Bs], Ws0, Def0) ->
     case gb_sets:is_member(L, Ws0) of
@@ -2198,7 +2224,8 @@ bs_translate([I|Is0]) ->
             [I|bs_translate(Is0)];
         {Ctx,Fail0,First} ->
             {Instrs0,Fail,Is} = bs_translate_collect(Is0, Ctx, Fail0, [First]),
-            Instrs = bs_eq_fixup(Instrs0),
+            Instrs1 = bs_seq_match_fixup(Instrs0),
+            Instrs = bs_eq_fixup(Instrs1),
             [{bs_match,Fail,Ctx,{commands,Instrs}}|bs_translate(Is)]
     end;
 bs_translate([]) -> [].
@@ -2223,6 +2250,20 @@ bs_translate_fixup([{test_tail,Bits}|Is0]) ->
     bs_translate_fixup_tail(Is, Bits);
 bs_translate_fixup(Is) ->
     reverse(Is).
+
+%% Fix up matching of multiple binaries in parallel. Example:
+%%    f(<<_:8>> = <<X:8>>) -> ...
+bs_seq_match_fixup([{test_tail,Bits},{ensure_exactly,Bits}|Is]) ->
+    [{ensure_exactly,Bits}|bs_seq_match_fixup(Is)];
+bs_seq_match_fixup([{test_tail,Bits0},{ensure_at_least,Bits1,Unit}|Is])
+  when Bits0 >= Bits1, Bits0 rem Unit =:= 0 ->
+    %% The tail test is at least as strict as the ensure_at_least test.
+    [{ensure_exactly,Bits0}|bs_seq_match_fixup(Is)];
+bs_seq_match_fixup([{test_tail,Bits}|Is]) ->
+    [{ensure_exactly,Bits}|bs_seq_match_fixup(Is)];
+bs_seq_match_fixup([I|Is]) ->
+    [I|bs_seq_match_fixup(Is)];
+bs_seq_match_fixup([]) -> [].
 
 bs_eq_fixup([{'=:=',nil,Bits,Value}|Is]) ->
     EqInstrs = bs_eq_fixup_split(Bits, <<Value:Bits>>),
@@ -2382,6 +2423,8 @@ local_func_label(Key, #cg{functable=Map}=St0) ->
 is_gc_bif(hd, [_]) -> false;
 is_gc_bif(tl, [_]) -> false;
 is_gc_bif(self, []) -> false;
+is_gc_bif(max, [_,_]) -> false;
+is_gc_bif(min, [_,_]) -> false;
 is_gc_bif(node, []) -> false;
 is_gc_bif(node, [_]) -> false;
 is_gc_bif(element, [_,_]) -> false;

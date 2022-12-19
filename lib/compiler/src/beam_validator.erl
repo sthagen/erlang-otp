@@ -1352,10 +1352,16 @@ validate_body_call(Func, Live,
     verify_call_args(Func, Live, Vst),
 
     SuccFun = fun(SuccVst0) ->
-                      {RetType, _, _} = call_types(Func, Live, SuccVst0),
+                      {RetType, ArgTypes, _} = call_types(Func, Live, SuccVst0),
                       true = RetType =/= none,  %Assertion.
 
-                      SuccVst = schedule_out(0, SuccVst0),
+                      Args = [{x,X} || X <- lists:seq(0, Live-1)],
+                      ZippedArgs = zip(Args, ArgTypes),
+                      SuccVst1 = foldl(fun({A, T}, V) ->
+                                               update_type(fun meet/2, T, A, V)
+                                       end, SuccVst0, ZippedArgs),
+
+                      SuccVst = schedule_out(0, SuccVst1),
 
                       create_term(RetType, call, [], {x,0}, SuccVst)
               end,
@@ -1705,13 +1711,6 @@ validate_bs_start_match({f,Fail}, Live, Src, Dst, Vst) ->
 %% Validate the bs_match instruction.
 %%
 
-validate_bs_match([{get_tail,Live,_,Dst}], Ctx, _, Vst0) ->
-    validate_ctx_live(Ctx, Live),
-    verify_live(Live, Vst0),
-    Vst = prune_x_regs(Live, Vst0),
-    #t_bs_context{tail_unit=Unit} = get_concrete_type(Ctx, Vst0),
-    Type = #t_bitstring{size_unit=Unit},
-    extract_term(Type, get_tail, [Ctx], Dst, Vst, Vst0);
 validate_bs_match([I|Is], Ctx, Unit0, Vst0) ->
     case I of
         {ensure_at_least,_Size,Unit} ->
@@ -1739,7 +1738,16 @@ validate_bs_match([I|Is], Ctx, Unit0, Vst0) ->
             Vst = extract_term(Type, bs_match, [Ctx], Dst, Vst1, Vst0),
             validate_bs_match(Is, Ctx, Unit0, Vst);
         {skip,_Stride} ->
-            validate_bs_match(Is, Ctx, Unit0, Vst0)
+            validate_bs_match(Is, Ctx, Unit0, Vst0);
+        {get_tail,Live,_,Dst} ->
+            validate_ctx_live(Ctx, Live),
+            verify_live(Live, Vst0),
+            Vst1 = prune_x_regs(Live, Vst0),
+            #t_bs_context{tail_unit=Unit} = get_concrete_type(Ctx, Vst0),
+            Type = #t_bitstring{size_unit=Unit},
+            Vst = extract_term(Type, get_tail, [Ctx], Dst, Vst1, Vst0),
+            %% In rare circumstance, there can be multiple `get_tail` sub commands.
+            validate_bs_match(Is, Ctx, Unit, Vst)
     end;
 validate_bs_match([], _Ctx, _Unit, Vst) ->
     Vst.
@@ -2283,9 +2291,9 @@ infer_types_1(#value{op={bif,'=:='},args=[LHS,RHS]}, Val, Op, Vst) ->
     end;
 infer_types_1(#value{op={bif,'=/='},args=[LHS,RHS]}, Val, Op, Vst) ->
     case Val of
-        {atom, Bool} when Op =:= ne_exact, Bool; Op =:= eq_exact, not Bool ->
-            update_ne_types(LHS, RHS, Vst);
         {atom, Bool} when Op =:= eq_exact, Bool; Op =:= ne_exact, not Bool ->
+            update_ne_types(LHS, RHS, Vst);
+        {atom, Bool} when Op =:= ne_exact, Bool; Op =:= eq_exact, not Bool ->
             update_eq_types(LHS, RHS, Vst);
         _ ->
             Vst
@@ -2520,12 +2528,29 @@ update_container_type(Type, Ref, #vst{current=#st{vs=Vs}}=Vst) ->
     case Vs of
         #{ Ref := #value{op={bif,element},
                          args=[{integer,Index},Tuple]} } when Index >= 1 ->
-            Es = beam_types:set_tuple_element(Index, Type, #{}),
-            TupleType = #t_tuple{size=Index,elements=Es},
-            update_type(fun meet/2, TupleType, Tuple, Vst);
+            case {Index,Type} of
+                {1,#t_atom{elements=[_,_|_]}} ->
+                    %% The first element is one atom out of a set of
+                    %% at least two atoms. We must take care to
+                    %% construct an atom set.
+                    update_type(fun meet_tuple_set/2, Type, Tuple, Vst);
+                {_,_} ->
+                    Es = beam_types:set_tuple_element(Index, Type, #{}),
+                    TupleType = #t_tuple{size=Index,elements=Es},
+                    update_type(fun meet/2, TupleType, Tuple, Vst)
+            end;
         #{} ->
             Vst
     end.
+
+meet_tuple_set(Type, #t_atom{elements=Atoms}) ->
+    %% Try to create a tuple set out of the known atoms for the first element.
+    #t_tuple{size=Size,exact=Exact} = normalize(meet(Type, #t_tuple{})),
+    Tuples = [#t_tuple{size=Size,exact=Exact,
+                       elements=#{1 => #t_atom{elements=[A]}}} ||
+                 A <- Atoms],
+    TupleSet = foldl(fun join/2, hd(Tuples), tl(Tuples)),
+    meet(Type, TupleSet).
 
 update_eq_types(LHS, RHS, Vst0) ->
     LType = get_term_type(LHS, Vst0),
