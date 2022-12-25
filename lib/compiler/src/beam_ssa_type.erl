@@ -2279,8 +2279,14 @@ bs_size_unit([#b_literal{val=Type},#b_literal{val=[U1|_]},Value,SizeTerm|Args],
         {_,_,#b_literal{val=all}} ->
             case concrete_type(Value, Ts) of
                 #t_bitstring{size_unit=U2} ->
+                    Size = case Value of
+                               #b_literal{val=Bin} ->
+                                   safe_add(Size0, bit_size(Bin));
+                               #b_var{} ->
+                                   none
+                           end,
                     U = safe_gcd(U0, max(U1, U2)),
-                    bs_size_unit(Args, Ts, none, U);
+                    bs_size_unit(Args, Ts, Size, U);
                 _ ->
                     U = safe_gcd(U0, U1),
                     bs_size_unit(Args, Ts, none, U)
@@ -2456,7 +2462,7 @@ infer_types_br_1(V, Ts, Ds) ->
             %% Not a relational operator.
             {PosTypes, NegTypes} = infer_type(Op0, Args, Ts, Ds),
             SuccTs = meet_types(PosTypes, Ts),
-            FailTs = infer_subtract_types(NegTypes, Ts),
+            FailTs = subtract_types(NegTypes, Ts),
             {SuccTs, FailTs};
         InvOp ->
             %% This is an relational operator.
@@ -2482,8 +2488,7 @@ infer_relop('=:=', [LHS,RHS], [LType,RType], Ds) ->
     %% can be inferred that L1 is 'cons' (the meet of 'cons' and
     %% 'list').
     Type = beam_types:meet(LType, RType),
-    Types = [{LHS,Type},{RHS,Type}],
-    [{V,T} || {#b_var{}=V,T} <- Types, T =/= any] ++ EqTypes;
+    [{LHS,Type},{RHS,Type}] ++ EqTypes;
 infer_relop(Op, Args, Types, _Ds) ->
     infer_relop(Op, Args, Types).
 
@@ -2500,8 +2505,7 @@ infer_relop('=/=', [LHS,RHS], [LType,RType]) ->
     %% as it may be too specific. See beam_type_SUITE:type_subtraction/1
     %% for details.
     [{V,beam_types:subtract(ThisType, OtherType)} ||
-        {#b_var{}=V, ThisType, OtherType} <-
-            [{RHS, RType, LType}, {LHS, LType, RType}],
+        {V, ThisType, OtherType} <- [{RHS, RType, LType}, {LHS, LType, RType}],
         beam_types:is_singleton_type(OtherType)];
 infer_relop(Op, [Arg1,Arg2], Types0) ->
     case infer_relop(Op, Types0) of
@@ -2509,9 +2513,7 @@ infer_relop(Op, [Arg1,Arg2], Types0) ->
             %% Both operands lacked ranges.
             [];
         {NewType1,NewType2} ->
-            Types = [{Arg1,NewType1},{Arg2,NewType2}],
-            [{V,T} || {#b_var{}=V,T} <- Types,
-                      T =/= any]
+            [{Arg1,NewType1},{Arg2,NewType2}]
     end.
 
 infer_relop(Op, [#t_integer{elements=R1},
@@ -2587,16 +2589,6 @@ inv_relop_1(_) -> none.
 infer_get_range(#t_integer{elements=R}) -> R;
 infer_get_range(#t_number{elements=R}) -> R;
 infer_get_range(_) -> unknown.
-
-infer_subtract_types([{V,T0}|Vs], Ts) ->
-    T1 = concrete_type(V, Ts),
-    case beam_types:subtract(T1, T0) of
-        none -> none;
-        T1 -> infer_subtract_types(Vs, Ts);
-        T -> infer_subtract_types(Vs, Ts#{V := T})
-    end;
-infer_subtract_types([], Ts) ->
-    Ts.
 
 infer_br_value(_V, _Bool, none) ->
     none;
@@ -2692,6 +2684,21 @@ infer_type({bif,is_reference}, [#b_var{}=Arg], _Ts, _Ds) ->
 infer_type({bif,is_tuple}, [#b_var{}=Arg], _Ts, _Ds) ->
     T = {Arg, #t_tuple{}},
     {[T], [T]};
+infer_type({bif,'and'}, [#b_var{}=LHS,#b_var{}=RHS], Ts, Ds) ->
+    %% When this BIF yields true, we know that both `LHS` and `RHS` are 'true'
+    %% and should infer accordingly, lest we break later optimizations that
+    %% rewrite this BIF to plain control flow.
+    %%
+    %% Note that we can't do anything for the 'false' case as either (or both)
+    %% of the arguments could be false.
+    #{ LHS := #b_set{op=LHSOp,args=LHSArgs},
+       RHS := #b_set{op=RHSOp,args=RHSArgs} } = Ds,
+
+    LHSTypes = infer_and_type(LHSOp, LHSArgs, Ts, Ds),
+    RHSTypes = infer_and_type(RHSOp, RHSArgs, Ts, Ds),
+
+    True = beam_types:make_atom(true),
+    {[{LHS, True}, {RHS, True}] ++ LHSTypes ++ RHSTypes, []};
 infer_type(_Op, _Args, _Ts, _Ds) ->
     {[], []}.
 
@@ -2699,7 +2706,7 @@ infer_success_type({bif,Op}, Args, Ts, _Ds) ->
     ArgTypes = concrete_types(Args, Ts),
 
     {_, PosTypes0, CanSubtract} = beam_call_types:types(erlang, Op, ArgTypes),
-    PosTypes = [T || {#b_var{},_}=T <- zip(Args, PosTypes0)],
+    PosTypes = zip(Args, PosTypes0),
 
     case CanSubtract of
         true -> {PosTypes, PosTypes};
@@ -2714,7 +2721,7 @@ infer_success_type(call, [#b_remote{mod=#b_literal{val=Mod},
     ArgTypes = concrete_types(Args, Ts),
 
     {_, PosTypes0, _CanSubtract} = beam_call_types:types(Mod, Name, ArgTypes),
-    PosTypes = [T || {#b_var{},_}=T <- zip(Args, PosTypes0)],
+    PosTypes = zip(Args, PosTypes0),
 
     {PosTypes, []};
 infer_success_type(bs_start_match, [_, #b_var{}=Src], _Ts, _Ds) ->
@@ -2749,6 +2756,16 @@ infer_eq_type(#b_set{op=get_tuple_element,
 infer_eq_type(_, _) ->
     [].
 
+infer_and_type(Op, Args, Ts, Ds) ->
+    case inv_relop(Op) of
+        none ->
+            {LHSTypes0, _} = infer_type(Op, Args, Ts, Ds),
+            LHSTypes0;
+        _InvOp ->
+            {bif,RelOp} = Op,
+            infer_relop(RelOp, Args, concrete_types(Args, Ts), Ds)
+    end.
+
 join_types(Ts, Ts) ->
     Ts;
 join_types(LHS, RHS) ->
@@ -2782,7 +2799,13 @@ join_types_1([V | Vs], Bigger, Smaller) ->
 join_types_1([], _Bigger, Smaller) ->
     Smaller.
 
-meet_types([{V,T0}|Vs], Ts) ->
+meet_types([{#b_literal{}=Lit, T0} | Vs], Ts) ->
+    T1 = concrete_type(Lit, Ts),
+    case beam_types:meet(T0, T1) of
+        none -> none;
+        _ -> meet_types(Vs, Ts)
+    end;
+meet_types([{#b_var{}=V, T0} | Vs], Ts) ->
     T1 = concrete_type(V, Ts),
     case beam_types:meet(T0, T1) of
         none -> none;
@@ -2790,6 +2813,22 @@ meet_types([{V,T0}|Vs], Ts) ->
         T -> meet_types(Vs, Ts#{ V := T })
     end;
 meet_types([], Ts) ->
+    Ts.
+
+subtract_types([{#b_literal{}=Lit, T0} | Vs], Ts) ->
+    T1 = concrete_type(Lit, Ts),
+    case beam_types:subtract(T0, T1) of
+        none -> none;
+        _ -> subtract_types(Vs, Ts)
+    end;
+subtract_types([{#b_var{}=V, T0}|Vs], Ts) ->
+    T1 = concrete_type(V, Ts),
+    case beam_types:subtract(T1, T0) of
+        none -> none;
+        T1 -> subtract_types(Vs, Ts);
+        T -> subtract_types(Vs, Ts#{V := T})
+    end;
+subtract_types([], Ts) ->
     Ts.
 
 parallel_join([A | As], [B | Bs]) ->

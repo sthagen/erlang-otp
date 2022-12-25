@@ -29,7 +29,7 @@
          container_subtraction/1,is_list_opt/1,connected_tuple_elements/1,
          switch_fail_inference/1,failures/1,
          cover_maps_functions/1,min_max_mixed_types/1,
-         not_equal/1]).
+         not_equal/1,infer_relops/1,binary_unit/1]).
 
 %% Force id/1 to return 'any'.
 -export([id/1]).
@@ -68,7 +68,9 @@ groups() ->
        failures,
        cover_maps_functions,
        min_max_mixed_types,
-       not_equal
+       not_equal,
+       infer_relops,
+       binary_unit
       ]}].
 
 init_per_suite(Config) ->
@@ -414,6 +416,9 @@ booleans(_Config) ->
     {'EXIT',{{case_clause,true},_}} = catch do_booleans_4(false),
     {'EXIT',{{badmatch,true},_}} = catch do_booleans_4(true),
 
+    true = do_booleans_5(id(0), id(<<0>>), id(0)),
+    {'EXIT',{function_clause,_}} = catch do_booleans_6(id(0), id(0), id(0)),
+
     ok.
 
 do_booleans_1(B) ->
@@ -448,6 +453,12 @@ do_booleans_4(X) ->
             false = Y,
             0
     end.
+
+do_booleans_5(X, <<X>>, X) when true; (0 rem 0) ->
+    (-2147483648 < X) orelse [0 || _ <- X].
+
+do_booleans_6(X, X, (X = [_ | X])) when true; self() ->
+    [0 || _ <- {X}].
 
 -record(update_tuple_a, {a,b}).
 -record(update_tuple_b, {a,b,c}).
@@ -1220,6 +1231,47 @@ not_equal(_Config) ->
 
 do_not_equal(V) when (V / V < (V orelse true)); V; V ->
     (V = (a /= V)) orelse 0.
+
+
+infer_relops(_Config) ->
+    {'EXIT',{badarith,_}} = catch infer_relops_1(),
+    {'EXIT',{badarith,_}} = catch infer_relops_2(),
+    {'EXIT',{badarith,_}} = catch infer_relops_3(id(0)),
+    ok.
+
+%% GH-6568: Type inference for relational operations returned erroneous results
+%% for singletons.
+infer_relops_1() ->
+    <<0 || ((0 rem 0) > [0 || _ <- catch (node())]), _ <- []>>.
+
+infer_relops_2() ->
+    X = self() + 0,
+    [0 || [0 || _ <- date()] =< X, _ <- []].
+
+infer_relops_3(X) ->
+    <<0 || ((+(is_alive())) <
+            [
+                infer_relops_3(infer_relops_3(0))
+             || X
+            ]) andalso ok
+    >>.
+
+%% GH-6593: the type pass would correctly determine that the tail unit of
+%% <<0:integer/8,I:integer/8>> was 16, but would fail to see that after
+%% optimizing it to <<"\0",I:integer/8>>
+binary_unit(_Config) ->
+    F = id(binary_unit_1()),
+
+    <<0,1>> = F([1]),
+    <<0,0>> = F([0,1]),
+
+    ok.
+
+binary_unit_1() ->
+    fun Foo(X) ->
+        I = hd([Y || Y <- X, _ <- X, (Foo >= ok)]),
+        <<0, I>>
+    end.
 
 id(I) ->
     I.
