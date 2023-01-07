@@ -139,8 +139,16 @@ will_succeed(erlang, length, [Arg]) ->
     succeeds_if_type(Arg, proper_list());
 will_succeed(erlang, map_size, [Arg]) ->
     succeeds_if_type(Arg, #t_map{});
+will_succeed(erlang, node, [Arg]) ->
+    succeeds_if_type(Arg, identifier);
+will_succeed(erlang, 'and', [_, _]=Args) ->
+    succeeds_if_types(Args, beam_types:make_boolean());
 will_succeed(erlang, 'not', [Arg]) ->
     succeeds_if_type(Arg, beam_types:make_boolean());
+will_succeed(erlang, 'or', [_, _]=Args) ->
+    succeeds_if_types(Args, beam_types:make_boolean());
+will_succeed(erlang, 'xor', [_, _]=Args) ->
+    succeeds_if_types(Args, beam_types:make_boolean());
 will_succeed(erlang, setelement, [Pos, Tuple0, _Value]) ->
     PosRange = #t_integer{elements={1,?MAX_TUPLE_SIZE}},
     case {meet(Pos, PosRange), meet(Tuple0, #t_tuple{size=1})} of
@@ -537,9 +545,11 @@ types(erlang, 'map_get', [Key, Map]) ->
     RetType = erlang_map_get_type(Key, Map),
     sub_unsafe(RetType, [any, #t_map{}]);
 types(erlang, 'node', [_]) ->
-    sub_unsafe(#t_atom{}, [any]);
+    sub_unsafe(#t_atom{}, [identifier]);
 types(erlang, 'node', []) ->
     sub_unsafe(#t_atom{}, []);
+types(erlang, self, []) ->
+    sub_unsafe(pid, []);
 types(erlang, 'size', [_]) ->
     ArgType = join(#t_tuple{}, #t_bitstring{}),
     sub_unsafe(#t_integer{}, [ArgType]);

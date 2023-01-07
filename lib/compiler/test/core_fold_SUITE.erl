@@ -701,42 +701,125 @@ do_receive_effect() ->
     {} = receive _ -> {} = {} end.
 
 nested_lets(_Config) ->
-    {'EXIT',{{case_clause,ok},_}} = catch nested_lets_gh_6572(<<42>>),
+    {'EXIT',{{case_clause,ok},_}} = catch nested_lets_1(<<42>>),
+    {'EXIT',{badarith,_}} = catch nested_lets_2(id(0), id(0)),
+    {'EXIT',{badarith,_}} = catch nested_lets_3(),
+    {'EXIT',{undef,_}} = catch nested_lets_4(),
+
     ok.
 
-nested_lets_gh_6572(<<X>>) ->
+%% GH-6572: Deeply nested `let` expressions caused `sys_core_fold` to generate
+%% unsafe code that it would attempt to fix up later. Unfortunately it did so
+%% through a limited fixpoint iteration, and would leak said code once the
+%% limit was hit.
+nested_lets_1(<<X>>) ->
     Y =
         case ok of
             X ->
-                true = (ok > ((Y = _) = -1)),
+                true = (ok > (Y = -1)),
                 <<>> =
                     {id(
-                        <<
-                            (ok - ok),
-                            (bnot ok),
-                            (nested_lets_gh_6572_f() band ok),
-                            (nested_lets_gh_6572_f()),
-                            (not ok),
-                            (ok or nested_lets_gh_6572_f()),
-                            (id(
-                                id(
-                                    <<
-                                        (id(
-                                            <<
-                                                (id(
-                                                    <<0 || _ <- []>>
-                                                ))
-                                            >>
-                                        ) * ok)
-                                    >>
-                                )
-                            ))
-                        >>
-                    )}
+                       <<
+                         (ok - ok),
+                         (bnot ok),
+                         (nested_lets_1_f() band ok),
+                         (nested_lets_1_f()),
+                         (not ok),
+                         (ok or nested_lets_1_f()),
+                         (id(
+                            id(
+                              <<
+                                (id(
+                                   <<
+                                     (id(
+                                        <<0 || _ <- []>>
+                                       ))
+                                   >>
+                                  ) * ok)
+                              >>
+                             )
+                           ))
+                       >>
+                      )}
         end.
 
-nested_lets_gh_6572_f() ->
+nested_lets_1_f() ->
     ok.
+
+%% GH-6612: A variant of GH-6572 that slipped through the initial fix.
+nested_lets_2(X, 0) ->
+    try
+        0 = {
+             _ = 0 + 0,
+             Z = bnot ok,
+             {(_ = ok), (_ = X)}#{ok => ok},
+             ok +
+                 (nested_lets_2_f(
+                    ok +
+                        nested_lets_2_f(
+                          ok +
+                              (nested_lets_2_f(
+                                                (Y =
+                                                     -nested_lets_2_f(
+                                                        #{
+                                                            (ok +
+                                                                 (ok +
+                                                                      nested_lets_2_f(
+                                                                        case
+                                                                            try ok of
+                                                                                _ ->
+                                                                                    fun(_) ->
+                                                                                            ok
+                                                                                    end
+                                                                            after
+                                                                                ok
+                                                                            end
+                                                                        of
+                                                                            #{} ->
+                                                                                ok
+                                                                        end
+                                                                       ))) => ok
+                                                         } > ok
+                                                       ))
+                                ) + ok)
+                         ) >
+                        ok
+                   ))
+            }
+    of
+        _ ->
+            Z;
+        _ ->
+            Y
+    after
+        ok
+    end.
+
+nested_lets_2_f(_) ->
+    ok.
+
+nested_lets_3() ->
+    try ((true = [X | _]) = (ok * (_ = ok))) of
+        _ ->
+            X
+    after
+        ok
+    end.
+
+nested_lets_4() ->
+    try
+        not (case {(_ = ok), (Y = ?MODULE:undef())} of
+            a ->
+                ok;
+            0 ->
+                ok
+        end)
+    of
+        _ ->
+            Y
+    after
+        ok
+    end.
 
 %%% Common utility functions.
 id(I) -> I.
