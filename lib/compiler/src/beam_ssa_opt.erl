@@ -291,6 +291,7 @@ epilogue_passes(Opts) ->
           ?PASS(ssa_opt_redundant_br),
           ?PASS(ssa_opt_bs_ensure),
           ?PASS(ssa_opt_merge_blocks),
+          ?PASS(ssa_opt_try),
           ?PASS(ssa_opt_get_tuple_element),
           ?PASS(ssa_opt_tail_literals),
           ?PASS(ssa_opt_trim_unreachable),
@@ -1566,7 +1567,14 @@ live_opt_is([], Live, Acc) ->
 %%% never throw.
 %%%
 
-ssa_opt_try({#opt_st{ssa=Linear,cnt=Count0}=St, FuncDb}) ->
+ssa_opt_try({#opt_st{ssa=SSA0,cnt=Count0}=St, FuncDb}) ->
+    {Count, SSA} = opt_try(SSA0, Count0),
+    {St#opt_st{ssa=SSA,cnt=Count}, FuncDb}.
+
+opt_try(Blocks, Count0) when is_map(Blocks) ->
+    {Count, Linear} = opt_try(beam_ssa:linearize(Blocks), Count0),
+    {Count, maps:from_list(Linear)};
+opt_try(Linear, Count0) when is_list(Linear) ->
     {Count, Shrunk} = shrink_try(Linear, Count0, []),
 
     Reduced = reduce_try(Shrunk, []),
@@ -1574,7 +1582,7 @@ ssa_opt_try({#opt_st{ssa=Linear,cnt=Count0}=St, FuncDb}) ->
     EmptySet = sets:new([{version, 2}]),
     Trimmed = trim_try(Reduced, EmptySet, EmptySet, []),
 
-    {St#opt_st{ssa=Trimmed,cnt=Count}, FuncDb}.
+    {Count, Trimmed}.
 
 %% Moves all leading/trailing instructions that cannot fail out of try/catch
 %% expressions. For example, we can move the tuple constructions `{defg,Arg}`
@@ -2100,18 +2108,20 @@ opt_create_bin_arg(Type, Unit, Flags, #b_literal{val=Val}, #b_literal{val=Size})
   when is_integer(Size), is_integer(Unit) ->
     EffectiveSize = Size * Unit,
     if
-        EffectiveSize > 0 ->
+        EffectiveSize > (1 bsl 24) ->
+            %% Don't bother converting really huge segments as they might fail
+            %% with a `system_limit` exception in runtime. Keeping them as-is
+            %% ensures that the extended error information will be accurate.
+            %%
+            %% We'll also reduce the risk of crashing with an unhelpful "out of
+            %% memory" error message during compilation.
+            not_possible;
+        EffectiveSize > 0, EffectiveSize =< (1 bsl 24) ->
             case {Type,opt_create_bin_endian(Flags)} of
                 {integer,big} when is_integer(Val) ->
                     if
                         EffectiveSize < 64 ->
                             [<<Val:EffectiveSize>>];
-                        EffectiveSize > 1 bsl 24 ->
-                            %% The binary construction could fail with a
-                            %% system_limit. Don't optimize to ensure that
-                            %% the extended error information will be
-                            %% accurate.
-                            not_possible;
                         true ->
                             opt_bs_put_split_int(Val, EffectiveSize)
                     end;
