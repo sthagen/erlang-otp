@@ -234,7 +234,7 @@ hello(internal, #client_hello{client_version = ClientVersion} = Hello,
         case choose_tls_fsm(SslOpts, Hello) of
             tls_1_3_fsm ->
                 {next_state, start, State1,
-                 [{change_callback_module, tls_connection_1_3}, {next_event, internal, Hello}]};
+                 [{change_callback_module, tls_server_connection_1_3}, {next_event, internal, Hello}]};
             tls_1_0_to_1_2_fsm ->
                 {ServerHelloExt, Type, State} = handle_client_hello(Hello, State1),
                 {next_state, hello, State, [{next_event, internal, {common_client_hello, Type, ServerHelloExt}}]}
@@ -267,7 +267,7 @@ hello(internal, #server_hello{} = Hello,
                 {next_state, wait_sh,
                  State#state{handshake_env = HsEnv#handshake_env{ocsp_stapling_state =  maps:merge(OcspState0,OcspState)}, 
                              connection_env = CEnv#connection_env{negotiated_version = SelectedVersion}},
-                 [{change_callback_module, tls_connection_1_3}, {next_event, internal, Hello}]}
+                 [{change_callback_module, tls_client_connection_1_3}, {next_event, internal, Hello}]}
         end
     catch throw:#alert{} = Alert ->
             ssl_gen_statem:handle_own_alert(Alert, hello, State)
@@ -479,7 +479,7 @@ initial_state(Role, Sender, Host, Port, Socket, {SSLOptions, SocketOptions, Trac
 	      {CbModule, DataTag, CloseTag, ErrorTag, PassiveTag}) ->
     put(log_level, maps:get(log_level, SSLOptions)),
     %% Use highest supported version for client/server random nonce generation
-    #{erl_dist := IsErlDist,  versions := [Version|_]} = SSLOptions,
+    #{versions := [Version|_]} = SSLOptions,
     BeastMitigation = maps:get(beast_mitigation, SSLOptions, disabled),
     ConnectionStates = tls_record:init_connection_states(Role,
                                                          Version,
@@ -517,7 +517,8 @@ initial_state(Role, Sender, Host, Port, Socket, {SSLOptions, SocketOptions, Trac
        start_or_recv_from = undefined,
        flight_buffer = [],
        protocol_specific = #{sender => Sender,
-                             active_n => ssl_config:get_internal_active_n(IsErlDist),
+                             active_n => ssl_config:get_internal_active_n(
+                                           maps:get(erl_dist, SSLOptions, false)),
                              active_n_toggle => true
                             }
       }.

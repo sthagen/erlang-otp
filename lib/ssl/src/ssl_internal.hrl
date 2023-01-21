@@ -26,6 +26,9 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("public_key/include/public_key.hrl").
 
+-define(CLIENT_ROLE, client).
+-define(SERVER_ROLE, server).
+
 -define(SECRET_PRINTOUT, "***").
 
 -type reason()            :: any().
@@ -196,6 +199,8 @@
          cipher_suite,         %% cipher suite - hash, bulk cipher algorithm
          max_size              %% max early data size allowed by this ticket
         }).
+
+-define(DEFAULT_DEPTH, 10).
 
 
 -endif. % -ifdef(ssl_internal).

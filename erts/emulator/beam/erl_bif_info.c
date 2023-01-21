@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1999-2022. All Rights Reserved.
+ * Copyright Ericsson AB 1999-2023. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -777,6 +777,7 @@ collect_one_suspend_monitor(ErtsMonitor *mon, void *vsmicp, Sint reds)
 #define ERTS_PI_IX_MAGIC_REF                            34
 #define ERTS_PI_IX_FULLSWEEP_AFTER                      35
 #define ERTS_PI_IX_PARENT                               36
+#define ERTS_PI_IX_ASYNC_DIST                           37
 
 #define ERTS_PI_FLAG_SINGELTON                          (1 << 0)
 #define ERTS_PI_FLAG_ALWAYS_WRAP                        (1 << 1)
@@ -833,7 +834,8 @@ static ErtsProcessInfoArgs pi_args[] = {
     {am_garbage_collection_info, ERTS_PROCESS_GC_INFO_MAX_SIZE, 0, ERTS_PROC_LOCK_MAIN},
     {am_magic_ref, 0, ERTS_PI_FLAG_FORCE_SIG_SEND, ERTS_PROC_LOCK_MAIN},
     {am_fullsweep_after, 0, 0, ERTS_PROC_LOCK_MAIN},
-    {am_parent, 0, 0, ERTS_PROC_LOCK_MAIN}
+    {am_parent, 0, 0, ERTS_PROC_LOCK_MAIN},
+    {am_async_dist, 0, 0, ERTS_PROC_LOCK_MAIN}
 };
 
 #define ERTS_PI_ARGS ((int) (sizeof(pi_args)/sizeof(pi_args[0])))
@@ -954,6 +956,8 @@ pi_arg2ix(Eterm arg)
         return ERTS_PI_IX_FULLSWEEP_AFTER;
     case am_parent:
         return ERTS_PI_IX_PARENT;
+    case am_async_dist:
+        return ERTS_PI_IX_ASYNC_DIST;
     default:
         return -1;
     }
@@ -2129,6 +2133,10 @@ process_info_aux(Process *c_p,
         }
         break;
 
+    case ERTS_PI_IX_ASYNC_DIST:
+        res = (rp->flags & F_ASYNC_DIST) ? am_true : am_false;
+        break;
+
     case ERTS_PI_IX_MAGIC_REF: {
 	Uint sz = 0;
 	(void) bld_magic_ref_bin_list(NULL, &sz, &MSO(rp));
@@ -2785,6 +2793,10 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
 	res = new_binary(BIF_P, (byte *) dsbufp->str, dsbufp->str_len);
 	erts_destroy_info_dsbuf(dsbufp);
 	BIF_RET(res);
+    } else if (am_async_dist == BIF_ARG_1) {
+        BIF_RET((erts_default_spo_flags & SPO_ASYNC_DIST)
+                ? am_true
+                : am_false);
     } else if (ERTS_IS_ATOM_STR("dist_ctrl", BIF_ARG_1)) {
 	DistEntry *dep;
 	i = 0;
@@ -4667,6 +4679,44 @@ test_multizero_timeout_in_timeout(void *vproc)
     erts_start_timer_callback(0, test_multizero_timeout_in_timeout2, vproc);
 }
 
+static Eterm
+proc_sig_block(Process *c_p, void *arg, int *redsp, ErlHeapFragment **bpp)
+{
+    ErtsMonotonicTime time, timeout_time, ms = (ErtsMonotonicTime) (Sint) arg;
+
+    if (redsp)
+        *redsp = 1;
+
+    time = erts_get_monotonic_time(NULL);
+
+    if (ms < 0)
+	timeout_time = time;
+    else
+	timeout_time = time + ERTS_MSEC_TO_MONOTONIC(ms);
+
+    while (time < timeout_time) {
+        ErtsMonotonicTime timeout = timeout_time - time;
+
+#ifdef __WIN32__
+        Sleep((DWORD) ERTS_MONOTONIC_TO_MSEC(timeout));
+#else
+        {
+            ErtsMonotonicTime to = ERTS_MONOTONIC_TO_USEC(timeout);
+            struct timeval tv;
+
+            tv.tv_sec = (long) to / (1000*1000);
+            tv.tv_usec = (long) to % (1000*1000);
+
+            select(0, NULL, NULL, NULL, &tv);
+        }
+#endif
+
+	time = erts_get_monotonic_time(NULL);
+    }
+
+    return am_ok;
+}
+
 BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
 {
     /*
@@ -5069,6 +5119,25 @@ BIF_RETTYPE erts_debug_set_internal_state_2(BIF_ALIST_2)
             if (term_to_Sint64(BIF_ARG_2, &counter)) {
                 BIF_P->uniq = counter;
                 BIF_RET(am_ok);
+            }
+        }
+        else if (ERTS_IS_ATOM_STR("proc_sig_block", BIF_ARG_1)) {
+            if (is_tuple_arity(BIF_ARG_2, 2)) {
+                Eterm *tp = tuple_val(BIF_ARG_2);
+                Sint64 time;
+                if (is_internal_pid(tp[1]) && term_to_Sint64(tp[2], &time)) {
+                    ErtsMonotonicTime wait_time = time;
+                    Eterm res;
+
+                    res = erts_proc_sig_send_rpc_request(BIF_P,
+                                                         tp[1],
+                                                         0,
+                                                         proc_sig_block,
+                                                         (void *) (Sint) wait_time);
+                    if (is_non_value(res))
+                        BIF_RET(am_false);
+                    BIF_RET(am_true);
+                }
             }
         }
     }

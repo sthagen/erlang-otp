@@ -110,7 +110,8 @@
 %% Description: Creates a process which calls Module:init/1 to
 %% choose appropriat gen_statem and initialize.
 %%--------------------------------------------------------------------
-start_link(Role, Sender, Host, Port, Socket, {#{receiver_spawn_opts := ReceiverOpts}, _, _} = Options, User, CbInfo) ->
+start_link(Role, Sender, Host, Port, Socket, {SslOpts, _, _} = Options, User, CbInfo) ->
+    ReceiverOpts = maps:get(receiver_spawn_opts, SslOpts, []),
     Opts = [link | proplists:delete(link, ReceiverOpts)],
     Pid = proc_lib:spawn_opt(?MODULE, init, [[Role, Sender, Host, Port, Socket, Options, User, CbInfo]], Opts),
     {ok, Pid}.
@@ -122,7 +123,8 @@ start_link(Role, Sender, Host, Port, Socket, {#{receiver_spawn_opts := ReceiverO
 %% Description: Creates a gen_statem process which calls Module:init/1 to
 %% initialize.
 %%--------------------------------------------------------------------
-start_link(Role, Host, Port, Socket, {#{receiver_spawn_opts := ReceiverOpts}, _, _} = Options, User, CbInfo) ->
+start_link(Role, Host, Port, Socket, {SslOpts, _, _} = Options, User, CbInfo) ->
+    ReceiverOpts = maps:get(receiver_spawn_opts, SslOpts, []),
     Opts = [link | proplists:delete(link, ReceiverOpts)],
     Pid = proc_lib:spawn_opt(?MODULE, init, [[Role, Host, Port, Socket, Options, User, CbInfo]], Opts),
     {ok, Pid}.
@@ -132,20 +134,25 @@ start_link(Role, Host, Port, Socket, {#{receiver_spawn_opts := ReceiverOpts}, _,
 -spec init(list()) -> no_return().
 %% Description: Initialization
 %%--------------------------------------------------------------------
-init([_Role, _Sender, _Host, _Port, _Socket, {#{erl_dist := ErlDist} = TLSOpts, _, _},  _User, _CbInfo] = InitArgs) ->
+init([Role, _Sender, _Host, _Port, _Socket, {TLSOpts, _, _},  _User, _CbInfo] = InitArgs) ->
     process_flag(trap_exit, true),
-    case ErlDist of
+    case maps:get(erl_dist, TLSOpts, false) of
         true ->
             process_flag(priority, max);
         _ ->
             ok
     end,
-    ConnectionFsm = tls_connection_fsm(TLSOpts),
-    ConnectionFsm:init(InitArgs);
-init([_Role, _Host, _Port, _Socket, {TLSOpts, _, _},  _User, _CbInfo] = InitArgs) ->
+    case {Role, TLSOpts} of
+        {?CLIENT_ROLE, #{versions := [{3,4}]}} ->
+            tls_client_connection_1_3:init(InitArgs);
+        {?SERVER_ROLE, #{versions := [{3,4}]}} ->
+            tls_server_connection_1_3:init(InitArgs);
+        {_,_} ->
+            tls_connection:init(InitArgs)
+    end;
+init([_Role, _Host, _Port, _Socket, _TLSOpts, _User, _CbInfo] = InitArgs) ->
     process_flag(trap_exit, true),
-    ConnectionFsm = dtls_connection_fsm(TLSOpts),
-    ConnectionFsm:init(InitArgs).
+    dtls_connection:init(InitArgs).
 
 %%====================================================================
 %% TLS connection setup
@@ -296,21 +303,23 @@ socket_control(Connection, Socket, Pid, Transport) ->
 -spec socket_control(tls_gen_connection | dtls_gen_connection, port(), [pid()], atom(), [pid()] | atom()) ->
     {ok, #sslsocket{}} | {error, reason()}.
 %%--------------------------------------------------------------------
-socket_control(dtls_gen_connection = Connection, Socket, Pids, Transport, udp_listener) ->
+socket_control(dtls_gen_connection, Socket, Pids, Transport, udp_listener) ->
     %% dtls listener process must have the socket control
-    {ok, Connection:socket(Pids, Transport, Socket, undefined)};
+    {ok, dtls_gen_connection:socket(Pids, Transport, Socket, undefined)};
 
-socket_control(tls_gen_connection = Connection, Socket, [Pid|_] = Pids, Transport, Trackers) ->
+socket_control(tls_gen_connection, Socket, [Pid|_] = Pids, Transport, Trackers) ->
     case Transport:controlling_process(Socket, Pid) of
 	ok ->
-	    {ok, Connection:socket(Pids, Transport, Socket, Trackers)};
+	    {ok, tls_gen_connection:socket(Pids, Transport, Socket, Trackers)};
 	{error, Reason}	->
 	    {error, Reason}
     end;
-socket_control(dtls_gen_connection = Connection, {PeerAddrPort, Socket}, [Pid|_] = Pids, Transport, Trackers) ->
+socket_control(dtls_gen_connection, {PeerAddrPort, Socket},
+               [Pid|_] = Pids, Transport, Trackers) ->
     case Transport:controlling_process(Socket, Pid) of
 	ok ->
-	    {ok, Connection:socket(Pids, Transport, {PeerAddrPort, Socket}, Trackers)};
+	    {ok, dtls_gen_connection:socket(Pids, Transport, {PeerAddrPort, Socket},
+                                            Trackers)};
 	{error, Reason}	->
 	    {error, Reason}
     end.
@@ -483,7 +492,7 @@ initial_hello({call, From}, {start, Timeout},
     %% Update UseTicket in case of automatic session resumption. The automatic ticket handling
     %% also takes it into account if the ticket is suitable for sending early data not exceeding
     %% the max_early_data_size or if it can only be used for session resumption.
-    {UseTicket, State1} = tls_handshake_1_3:maybe_automatic_session_resumption(State0),
+    {UseTicket, State1} = tls_client_connection_1_3:maybe_automatic_session_resumption(State0),
     TicketData = tls_handshake_1_3:get_ticket_data(self(), SessionTickets, UseTicket),
     OcspNonce = tls_handshake:ocsp_nonce(OcspNonceOpt, OcspStaplingOpt),
     Hello0 = tls_handshake:client_hello(Host, Port, ConnectionStates0, SslOpts,
@@ -519,10 +528,10 @@ initial_hello({call, From}, {start, Timeout},
     %% ServerHello is processed.
     RequestedVersion = tls_record:hello_version(Versions),
 
-    {Ref,Maybe} = tls_handshake_1_3:maybe_do(),
+    {Ref,Maybe} = tls_gen_connection_1_3:do_maybe(),
     try
         %% Send Early Data
-        State4 = Maybe(tls_handshake_1_3:maybe_send_early_data(State3)),
+        State4 = Maybe(tls_client_connection_1_3:maybe_send_early_data(State3)),
 
         {#state{handshake_env = HsEnv1} = State5, _} =
             Connection:send_handshake_flight(State4),
@@ -546,11 +555,11 @@ initial_hello({call, From}, {start, Timeout},
 initial_hello({call, From}, {start, Timeout}, #state{static_env = #static_env{role = Role,
                                                                               protocol_cb = Connection},
                                                      ssl_options = #{versions := Versions}} = State0) ->
-    
-    NextState = next_statem_state(Versions, Role),    
+
+    NextState = next_statem_state(Versions, Role),
     Connection:next_event(NextState, no_record, State0#state{start_or_recv_from = From},
                           [{{timeout, handshake}, Timeout, close}]);
-                
+
 initial_hello({call, From}, {start, {Opts, EmOpts}, Timeout},
      #state{static_env = #static_env{role = Role},
             ssl_options = OrigSSLOptions,
@@ -1004,8 +1013,9 @@ passive_receive(#state{user_data_buffer = {Front,BufferSize,Rear},
 %%====================================================================
 
 hibernate_after(connection = StateName,
-		#state{ssl_options= #{hibernate_after := HibernateAfter}} = State,
+		#state{ssl_options= SslOpts} = State,
 		Actions) ->
+    HibernateAfter = maps:get(hibernate_after, SslOpts, infinity),
     {next_state, StateName, State, [{timeout, HibernateAfter, hibernate} | Actions]};
 hibernate_after(StateName, State, Actions) ->
     {next_state, StateName, State, Actions}.
@@ -1157,13 +1167,14 @@ handle_alert(Alert0, StateName, State) ->
     %% In TLS-1.3 all error alerts are fatal not matter of legacy level
     handle_alert(Alert0#alert{level = ?FATAL}, StateName, State).
 
-handle_trusted_certs_db(#state{ssl_options =
-				   #{cacertfile := <<>>, cacerts := []}}) ->
+handle_trusted_certs_db(#state{ssl_options =#{cacerts := []} = Opts})
+  when not is_map_key(cacertfile, Opts) ->
     %% No trusted certs specified
     ok;
 handle_trusted_certs_db(#state{static_env = #static_env{cert_db_ref = Ref,
                                                         cert_db = CertDb},
-                               ssl_options = #{cacertfile := <<>>}}) when CertDb =/= undefined ->
+                               ssl_options = Opts})
+  when CertDb =/= undefined, not is_map_key(cacertfile, Opts) ->
     %% Certs provided as DER directly can not be shared
     %% with other connections and it is safe to delete them when the connection ends.
     ssl_pkix_db:remove_trusted_certs(Ref, CertDb);
@@ -1245,10 +1256,9 @@ format_status(normal, [_, StateName, State]) ->
     [{data, [{"State", {StateName, State}}]}];
 format_status(terminate, [_, StateName, State]) ->
     SslOptions = (State#state.ssl_options),
-    NewOptions = SslOptions#{password => ?SECRET_PRINTOUT,
-                             cert => ?SECRET_PRINTOUT,
+    NewOptions = SslOptions#{
+                             certs_keys => ?SECRET_PRINTOUT,
                              cacerts => ?SECRET_PRINTOUT,
-                             key => ?SECRET_PRINTOUT,
                              dh => ?SECRET_PRINTOUT,
                              psk_identity => ?SECRET_PRINTOUT,
                              srp_identity => ?SECRET_PRINTOUT},
@@ -1264,14 +1274,6 @@ format_status(terminate, [_, StateName, State]) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
-tls_connection_fsm(#{versions := [{3,4}]}) ->
-    tls_connection_1_3;
-tls_connection_fsm(_) ->
-    tls_connection.
-
-dtls_connection_fsm(_) ->
-    dtls_connection.
-
 next_statem_state([Version], client) ->
     case ssl:tls_version(Version) of
         {3,4} ->
@@ -1330,11 +1332,8 @@ is_sni_value(Hostname) ->
             true
     end.
 
-is_hostname_recognized(#{sni_fun := undefined,
-                         sni_hosts := SNIHosts}, Hostname) ->
-    proplists:is_defined(Hostname, SNIHosts);
-is_hostname_recognized(_, _) ->
-    true.
+is_hostname_recognized(#{sni_fun := Fun}, Hostname) ->
+    Fun(Hostname) =:= undefined.
 
 handle_sni_hostname(Hostname,
                     #state{static_env = #static_env{role = Role} = InitStatEnv0,
@@ -1344,7 +1343,7 @@ handle_sni_hostname(Hostname,
     NewOptions = update_ssl_options_from_sni(Opts, Hostname),
     case NewOptions of
 	undefined ->
-            case maps:get(server_name_indication, Opts) of
+            case maps:get(server_name_indication, Opts, undefined) of
                 disable when Role == client->
                     State0;
                 _ ->
@@ -1374,20 +1373,11 @@ handle_sni_hostname(Hostname,
               }
     end.
 
-update_ssl_options_from_sni(#{sni_fun := SNIFun,
-                              sni_hosts := SNIHosts} = OrigSSLOptions, SNIHostname) ->
-    SSLOptions =
-	case SNIFun of
-	    undefined ->
-		proplists:get_value(SNIHostname,
-				    SNIHosts);
-	    SNIFun ->
-		SNIFun(SNIHostname)
-	end,
-    case SSLOptions of
+update_ssl_options_from_sni(#{sni_fun := SNIFun} = OrigSSLOptions, SNIHostname) ->
+    case SNIFun(SNIHostname) of
         undefined ->
             undefined;
-        _ ->
+        SSLOptions ->
             VersionsOpt = proplists:get_value(versions, SSLOptions, []),
             FallBackOptions = filter_for_versions(VersionsOpt, OrigSSLOptions),
             ssl:update_options(SSLOptions, server, FallBackOptions)
@@ -1951,7 +1941,8 @@ connection_info(#state{handshake_env = #handshake_env{sni_hostname = SNIHostname
 
 security_info(#state{connection_states = ConnectionStates,
                      static_env = #static_env{role = Role},
-                     ssl_options = #{keep_secrets := KeepSecrets}}) ->
+                     ssl_options = Opts}) ->
+
     ReadState = ssl_record:current_connection_state(ConnectionStates, read),
     #{security_parameters :=
 	  #security_parameters{client_random = ClientRand,
@@ -1961,6 +1952,8 @@ security_info(#state{connection_states = ConnectionStates,
                                client_early_data_secret = ServerEarlyData
                               }} = ReadState,
     BaseSecurityInfo = [{client_random, ClientRand}, {server_random, ServerRand}, {master_secret, MasterSecret}],
+
+    KeepSecrets = maps:get(keep_secrets, Opts, false),
     if KeepSecrets =/= true ->
             BaseSecurityInfo;
        true ->

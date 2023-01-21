@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2022. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2023. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -10088,6 +10088,13 @@ Process *erts_schedule(ErtsSchedulerData *esdp, Process *p, int calls)
         }
         else {
             /* On normal scheduler */
+
+            /*
+             * Check if a dirty signal handler is handling signals for
+             * us and if so, wait for it to complete before continuing...
+             */
+            state = erts_proc_sig_check_wait_dirty_handle_signals(p, state);
+
             if (state & ERTS_PSFLG_RUNNING_SYS) {
                 if (state & (ERTS_PSFLG_SIG_Q|ERTS_PSFLG_SIG_IN_Q)) {
 		    int sig_reds;
@@ -12035,6 +12042,22 @@ erts_parse_spawn_opts(ErlSpawnOpts *sop, Eterm opts_list, Eterm *tag,
 		    sop->priority = PRIORITY_LOW;
 		else
                     result = -1;
+            } else if (arg == am_async_dist) {
+                if (val == am_true) {
+                    if (sop->flags & SPO_ASYNC_DIST)
+                        sop->multi_set = !0;
+                    else
+                        sop->flags |= SPO_ASYNC_DIST;
+                }
+                else if (val == am_false) {
+                    if (!(sop->flags & SPO_ASYNC_DIST))
+                        sop->multi_set = !0;
+                    else
+                        sop->flags &= ~SPO_ASYNC_DIST;
+                }
+                else {
+                    result = -1;
+                }
 	    } else if (arg == am_message_queue_data) {
                 if (sop->flags & (SPO_OFF_HEAP_MSGQ|SPO_ON_HEAP_MSGQ))
                     sop->multi_set = !0;
@@ -12271,6 +12294,9 @@ erl_create_process(Process* parent, /* Parent of process (default group leader).
 
     /* Reserve place for continuation pointer, redzone, etc */
     heap_need = arg_size + S_RESERVED;
+
+    if (so->flags & SPO_ASYNC_DIST)
+        flags |= F_ASYNC_DIST;
 
     p->flags = flags;
     p->sig_qs.flags = qs_flags;

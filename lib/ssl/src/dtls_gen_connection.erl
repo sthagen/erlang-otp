@@ -82,10 +82,10 @@
 %%====================================================================
 %% Setup
 %%====================================================================
-start_fsm(Role, Host, Port, Socket, {#{erl_dist := false},_, Tracker} = Opts,
+start_fsm(Role, Host, Port, Socket, {_,_, Tracker} = Opts,
 	  User, {CbModule, _, _, _, _} = CbInfo,
-	  Timeout) -> 
-    try 
+	  Timeout) ->
+    try
 	{ok, Pid} = dtls_connection_sup:start_child([Role, Host, Port, Socket, 
 						     Opts, User, CbInfo]), 
 	{ok, SslSocket} = ssl_gen_statem:socket_control(?MODULE, Socket, [Pid], CbModule, Tracker),
@@ -572,6 +572,12 @@ handle_info(new_cookie_secret, StateName,
     {next_state, StateName, State#state{protocol_specific = 
                                             CookieInfo#{current_cookie_secret => dtls_v1:cookie_secret(),
                                                         previous_cookie_secret => Secret}}};
+handle_info({socket_reused, Client}, StateName,
+            #state{static_env = #static_env{socket = {_, {Client, _}}}} = State) ->
+    Alert = ?ALERT_REC(?FATAL, ?CLOSE_NOTIFY, transport_closed),
+    ssl_gen_statem:handle_normal_shutdown(Alert#alert{role = server}, StateName, State),
+    {stop, {shutdown, transport_closed}, State};
+
 handle_info(Msg, StateName, State) ->
     ssl_gen_statem:handle_info(Msg, StateName, State).
 
