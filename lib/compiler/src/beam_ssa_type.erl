@@ -2064,8 +2064,9 @@ type(bs_create_bin, Args, _Anno, Ts, _Ds) ->
     SizeUnit = bs_size_unit(Args, Ts),
     #t_bitstring{size_unit=SizeUnit};
 type(bs_extract, [Ctx], _Anno, Ts, Ds) ->
-    #b_set{op=bs_match,args=Args} = map_get(Ctx, Ds),
-    bs_match_type(Args, Ts);
+    #b_set{op=bs_match,
+           args=[#b_literal{val=Type}, _OrigCtx | Args]} = map_get(Ctx, Ds),
+    bs_match_type(Type, Args, Ts);
 type(bs_start_match, [_, Src], _Anno, Ts, _Ds) ->
     case beam_types:meet(#t_bs_matchable{}, concrete_type(Src, Ts)) of
         none ->
@@ -2084,16 +2085,21 @@ type(bs_match, [#b_literal{val=binary}, Ctx, _Flags,
     OpType = #t_bs_context{tail_unit=OpUnit},
 
     beam_types:meet(CtxType, OpType);
-type(bs_match, Args, _Anno, Ts, _Ds) ->
-    [_, Ctx | _] = Args,
+type(bs_match, Args0, _Anno, Ts, _Ds) ->
+    [#b_literal{val=Type}, Ctx | Args] = Args0, %Assertion.
+    case bs_match_type(Type, Args, Ts) of
+        none ->
+            none;
+        _ ->
+            %% Matches advance the current position without testing the tail
+            %% unit. We try to retain unit information by taking the GCD of our
+            %% current unit and the increments we know the match will advance
+            %% by.
+            #t_bs_context{tail_unit=CtxUnit} = concrete_type(Ctx, Ts),
+            OpUnit = bs_match_stride(Args, Ts),
 
-    %% Matches advance the current position without testing the tail unit. We
-    %% try to retain unit information by taking the GCD of our current unit and
-    %% the increments we know the match will advance by.
-    #t_bs_context{tail_unit=CtxUnit} = concrete_type(Ctx, Ts),
-    OpUnit = bs_match_stride(Args, Ts),
-
-    #t_bs_context{tail_unit=gcd(OpUnit, CtxUnit)};
+            #t_bs_context{tail_unit=gcd(OpUnit, CtxUnit)}
+    end;
 type(bs_get_tail, [Ctx], _Anno, Ts, _Ds) ->
     #t_bs_context{tail_unit=Unit} = concrete_type(Ctx, Ts),
     #t_bitstring{size_unit=Unit};
@@ -2269,63 +2275,52 @@ pmt_1([], _Ts, Acc) ->
     Acc.
 
 bs_size_unit(Args, Ts) ->
-    #t_bitstring{size_unit=Unit0} = beam_types:make_type_from_value(<<>>),
-    Unit = bs_size_unit(Args, Ts, 0, Unit0),
-    safe_gcd(Unit0, Unit).
+    bs_size_unit(Args, Ts, 0, 256).
 
 bs_size_unit([#b_literal{val=Type},#b_literal{val=[U1|_]},Value,SizeTerm|Args],
-             Ts, Size0, U0) ->
+             Ts, FixedSize, Unit) ->
     case {Type,Value,SizeTerm} of
+        {_,#b_literal{val=Bs},#b_literal{val=all}} when is_bitstring(Bs) ->
+            %% Add element of known size.
+            Size = bit_size(Bs) + FixedSize,
+            bs_size_unit(Args, Ts, Size, Unit);
         {_,_,#b_literal{val=all}} ->
             case concrete_type(Value, Ts) of
                 #t_bitstring{size_unit=U2} ->
-                    Size = case Value of
-                               #b_literal{val=Bin} ->
-                                   safe_add(Size0, bit_size(Bin));
-                               #b_var{} ->
-                                   none
-                           end,
-                    U = safe_gcd(U0, max(U1, U2)),
-                    bs_size_unit(Args, Ts, Size, U);
+                    %% Adding a bitstring.
+                    %% TODO: Can U1 be anything but 1?
+                    U = max(U1, U2),
+                    bs_size_unit(Args, Ts, FixedSize, gcd(U, Unit));
                 _ ->
-                    U = safe_gcd(U0, U1),
-                    bs_size_unit(Args, Ts, none, U)
+                    %% Adding something which isn't a bitstring
+                    bs_size_unit(Args, Ts, FixedSize, gcd(U1, Unit))
             end;
         {utf8,_,_} ->
-            U = gcd(U0, 8),
-            bs_size_unit(Args, Ts, none, U);
+            %% Add at least 8 bits, maybe more.
+            bs_size_unit(Args, Ts, 8 + FixedSize, gcd(8, Unit));
         {utf16,_,_} ->
-            U = gcd(U0, 16),
-            bs_size_unit(Args, Ts, none, U);
+            %% Add at least 16 bits, maybe more.
+            bs_size_unit(Args, Ts, 16 + FixedSize, gcd(16, Unit));
         {utf32,_,_} ->
-            U = gcd(U0, 32),
-            bs_size_unit(Args, Ts, none, U);
+            %% Compared to utf8 and utf16 this is a fixed size.
+            bs_size_unit(Args, Ts, 32 + FixedSize, Unit);
         {_,_,_} ->
             case concrete_type(SizeTerm, Ts) of
                 #t_integer{elements={Size1, Size1}}
                   when is_integer(Size1), is_integer(U1), Size1 >= 0 ->
                     EffectiveSize = Size1 * U1,
-                    U = safe_gcd(U0, EffectiveSize),
-                    Size = safe_add(Size0, EffectiveSize),
-                    bs_size_unit(Args, Ts, Size, U);
+                    %% Adding a fixed size element
+                    bs_size_unit(Args, Ts, EffectiveSize + FixedSize, Unit);
                 _ when is_integer(U1) ->
-                    U = safe_gcd(U0, U1),
-                    bs_size_unit(Args, Ts, none, U);
+                    %% Add element with known unit.
+                    bs_size_unit(Args, Ts, FixedSize, gcd(U1, Unit));
                 _ ->
-                    bs_size_unit(Args, Ts, none, 1)
+                    %% Add element without known size or unit.
+                    bs_size_unit(Args, Ts, FixedSize, gcd(1, Unit))
             end
     end;
-bs_size_unit([], _Ts, none, Unit) ->
-    Unit;
-bs_size_unit([], _Ts, Size, _Unit) when is_integer(Size) ->
-    Size.
-
-safe_gcd(0, Other) -> Other;
-safe_gcd(Other, 0) -> Other;
-safe_gcd(A, B) -> gcd(A, B).
-
-safe_add(none, _) -> none;
-safe_add(A, B) -> A + B.
+bs_size_unit([], _Ts, FixedSize, Unit) ->
+    gcd(FixedSize, Unit).
 
 %% We seldom know how far a match operation may advance, but we can often tell
 %% which increment it will advance by.
@@ -2352,38 +2347,50 @@ bs_match_stride(_, _, _) ->
 
 -define(UNICODE_MAX, (16#10FFFF)).
 
-bs_match_type([#b_literal{val=Type}|Args], Ts) ->
-    bs_match_type(Type, Args, Ts).
-
 bs_match_type(binary, Args, _Ts) ->
-    [_,_,_,#b_literal{val=U}] = Args,
+    [_,_,#b_literal{val=U}] = Args,
     #t_bitstring{size_unit=U};
-bs_match_type(float, _, _Ts) ->
+bs_match_type(float, _Args, _Ts) ->
     #t_float{};
 bs_match_type(integer, Args, Ts) ->
-    [_,#b_literal{val=Flags},Size,#b_literal{val=Unit}] = Args,
-    SizeType = beam_types:meet(concrete_type(Size, Ts), #t_integer{}),
-    case SizeType of
-        #t_integer{elements={_,SizeMax}}
-          when is_integer(SizeMax), SizeMax >= 0, SizeMax * Unit < 64 ->
-            NumBits = SizeMax * Unit,
-            Max = (1 bsl NumBits) - 1,
-            case member(unsigned, Flags) of
-                true ->
-                    beam_types:make_integer(0, Max);
-                false ->
-                    Min = -(Max + 1),
-                    beam_types:make_integer(Min, Max)
+    [#b_literal{val=Flags},Size,#b_literal{val=Unit}] = Args,
+    case beam_types:meet(concrete_type(Size, Ts), #t_integer{}) of
+        #t_integer{elements=Bounds} ->
+            case beam_bounds:bounds('*', Bounds, {Unit, Unit}) of
+                {_, MaxBits} when is_integer(MaxBits),
+                                  MaxBits >= 1,
+                                  MaxBits =< 64 ->
+                    case member(unsigned, Flags) of
+                        true ->
+                            Max = (1 bsl MaxBits) - 1,
+                            beam_types:make_integer(0, Max);
+                        false ->
+                            Max = (1 bsl (MaxBits - 1)) - 1,
+                            Min = -(Max + 1),
+                            beam_types:make_integer(Min, Max)
+                    end;
+                {_, 0} ->
+                    beam_types:make_integer(0);
+                _ ->
+                    case member(unsigned, Flags) of
+                        true -> #t_integer{elements={0,'+inf'}};
+                        false -> #t_integer{}
+                    end
             end;
-        _ ->
-            #t_integer{}
+        none ->
+            none
     end;
-bs_match_type(utf8, _, _) ->
+
+bs_match_type(utf8, _Args, _Ts) ->
     beam_types:make_integer(0, ?UNICODE_MAX);
-bs_match_type(utf16, _, _) ->
+bs_match_type(utf16, _Args, _Ts) ->
     beam_types:make_integer(0, ?UNICODE_MAX);
-bs_match_type(utf32, _, _) ->
-    beam_types:make_integer(0, ?UNICODE_MAX).
+bs_match_type(utf32, _Args, _Ts) ->
+    beam_types:make_integer(0, ?UNICODE_MAX);
+bs_match_type(string, _Args, _Ts) ->
+    %% Cannot actually be extracted, but we'll return 'any' to signal that the
+    %% associated `bs_match` may succeed.
+    any.
 
 normalized_types(Values, Ts) ->
     [normalized_type(Val, Ts) || Val <- Values].
@@ -2519,11 +2526,13 @@ infer_relop(Op, [Arg1,Arg2], Types0) ->
 infer_relop(Op, [#t_integer{elements=R1},
                  #t_integer{elements=R2}]) ->
     case beam_bounds:infer_relop_types(Op, R1, R2) of
-        any ->
-            any;
         {NewR1,NewR2} ->
             {#t_integer{elements=NewR1},
-             #t_integer{elements=NewR2}}
+             #t_integer{elements=NewR2}};
+        none ->
+            {none, none};
+        any ->
+            any
     end;
 infer_relop(Op0, [Type1,Type2]) ->
     Op = case Op0 of
@@ -2541,11 +2550,13 @@ infer_relop(Op0, [Type1,Type2]) ->
         {R1,R2} ->
             %% Both operands are numeric types.
             case beam_bounds:infer_relop_types(Op, R1, R2) of
-                any ->
-                    any;
                 {NewR1,NewR2} ->
                     {#t_number{elements=NewR1},
-                     #t_number{elements=NewR2}}
+                     #t_number{elements=NewR2}};
+                none ->
+                    {none, none};
+                any ->
+                    any
             end
     end.
 
