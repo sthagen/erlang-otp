@@ -24,7 +24,8 @@
          map/2, size/1, new/0,
          update_with/3, update_with/4,
          without/2, with/2,
-         iterator/1, next/1,
+         iterator/1, iterator/2,
+         next/1,
          intersect/2, intersect_with/3,
          merge_with/3,
          groups_from_list/2, groups_from_list/3]).
@@ -36,13 +37,18 @@
          to_list/1, update/3, values/1]).
 
 -opaque iterator(Key, Value) :: {Key, Value, iterator(Key, Value)} | none
-                              | nonempty_improper_list(integer(), #{Key => Value}).
+                              | nonempty_improper_list(integer(), #{Key => Value})
+                              | nonempty_improper_list(list(Key), #{Key => Value}).
 
 -type iterator() :: iterator(term(), term()).
 
--export_type([iterator/2, iterator/0]).
+-type iterator_order(Key) :: undefined | ordered | reversed
+                           | fun((A :: Key, B :: Key) -> boolean()).
+-type iterator_order() :: iterator_order(term()).
 
--dialyzer({no_improper_lists, iterator/1}).
+-export_type([iterator/2, iterator/0, iterator_order/1, iterator_order/0]).
+
+-dialyzer({no_improper_lists, [iterator/1, iterator/2]}).
 
 %% We must inline these functions so that the stacktrace points to
 %% the correct function.
@@ -220,13 +226,22 @@ remove(_,_) -> erlang:nif_error(undef).
 
 take(_,_) -> erlang:nif_error(undef).
 
--spec to_list(Map) -> [{Key,Value}] when
-    Map :: #{Key => Value}.
+-spec to_list(MapOrIterator) -> [{Key, Value}] when
+    MapOrIterator :: #{Key => Value} | iterator(Key, Value).
 
 to_list(Map) when is_map(Map) ->
     to_list_internal(erts_internal:map_next(0, Map, []));
-to_list(Map) ->
-    error_with_info({badmap,Map}, [Map]).
+to_list(Iter) ->
+    try to_list_from_iterator(next(Iter))
+    catch
+        error:_ ->
+            error_with_info({badmap, Iter}, [Iter])
+    end.
+
+to_list_from_iterator({Key, Value, NextIter}) ->
+    [{Key, Value} | to_list_from_iterator(next(NextIter))];
+to_list_from_iterator(none) ->
+    [].
 
 to_list_internal([Iter, Map | Acc]) when is_integer(Iter) ->
     to_list_internal(erts_internal:map_next(Iter, Map, Acc));
@@ -455,16 +470,43 @@ size(Map) ->
       Map :: #{Key => Value},
       Iterator :: iterator(Key, Value).
 
-iterator(M) when is_map(M) -> [0 | M];
+iterator(M) when is_map(M) -> iterator(M, undefined);
 iterator(M) -> error_with_info({badmap, M}, [M]).
+
+-spec iterator(Map, Order) -> Iterator when
+      Map :: #{Key => Value},
+      Order :: iterator_order(Key),
+      Iterator :: iterator(Key, Value).
+
+iterator(M, undefined) when is_map(M) ->
+    [0 | M];
+iterator(M, ordered) when is_map(M) ->
+    CmpFun = fun(A, B) -> erts_internal:cmp_term(A, B) =< 0 end,
+    Keys = lists:sort(CmpFun, maps:keys(M)),
+    [Keys | M];
+iterator(M, reversed) when is_map(M) ->
+    CmpFun = fun(A, B) -> erts_internal:cmp_term(B, A) =< 0 end,
+    Keys = lists:sort(CmpFun, maps:keys(M)),
+    [Keys | M];
+iterator(M, CmpFun) when is_map(M), is_function(CmpFun, 2) ->
+    Keys = lists:sort(CmpFun, maps:keys(M)),
+    [Keys | M];
+iterator(M, Order) ->
+    badarg_with_info([M, Order]).
 
 -spec next(Iterator) -> {Key, Value, NextIterator} | 'none' when
       Iterator :: iterator(Key, Value),
       NextIterator :: iterator(Key, Value).
 next({K, V, I}) ->
     {K, V, I};
-next([Path | Map]) when is_integer(Path), is_map(Map) ->
-    erts_internal:map_next(Path, Map, iterator);
+next([Path | Map] = Iterator)
+  when (is_integer(Path) orelse is_list(Path)), is_map(Map) ->
+    try erts_internal:map_next(Path, Map, iterator) of
+        Result -> Result
+    catch
+        error:badarg ->
+            badarg_with_info([Iterator])
+    end;
 next(none) ->
     none;
 next(Iter) ->

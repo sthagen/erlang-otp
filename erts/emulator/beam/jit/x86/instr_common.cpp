@@ -278,7 +278,7 @@ void BeamModuleAssembler::emit_normal_exit() {
     emit_proc_lc_require();
     emit_leave_runtime<Update::eReductions | Update::eHeapAlloc>();
 
-    abs_jmp(ga->get_do_schedule());
+    a.jmp(resolve_fragment(ga->get_do_schedule()));
 }
 
 void BeamModuleAssembler::emit_continue_exit() {
@@ -294,7 +294,7 @@ void BeamModuleAssembler::emit_continue_exit() {
     emit_proc_lc_require();
     emit_leave_runtime<Update::eReductions | Update::eHeapAlloc>();
 
-    abs_jmp(ga->get_do_schedule());
+    a.jmp(resolve_fragment(ga->get_do_schedule()));
 }
 
 void BeamModuleAssembler::emit_get_list(const x86::Gp src,
@@ -470,6 +470,21 @@ void BeamModuleAssembler::emit_i_get_tuple_element(const ArgSource &Src,
 
     a.mov(ARG1, emit_boxed_val(ARG2, Element.get()));
     mov_arg(Dst, ARG1);
+}
+
+void BeamModuleAssembler::emit_get_tuple_element_swap(
+        const ArgSource &Src,
+        const ArgWord &Element,
+        const ArgRegister &Dst,
+        const ArgRegister &OtherDst) {
+#ifdef DEBUG
+    emit_tuple_assertion(Src, ARG2);
+#endif
+
+    mov_arg(ARG1, OtherDst);
+    a.mov(ARG3, emit_boxed_val(ARG2, Element.get()));
+    mov_arg(Dst, ARG1);
+    mov_arg(OtherDst, ARG3);
 }
 
 /* Fetch two consecutive tuple elements from the tuple pointed to by
@@ -1637,9 +1652,12 @@ void BeamGlobalAssembler::emit_arith_compare_shared() {
     a.comisd(x86::xmm0, x86::xmm1);
 
     /* `comisd` doesn't set the flags the same way `test` and friends do, so
-     * they need to be converted for jl/jge to work. */
-    a.setae(x86::al);
-    a.dec(x86::al);
+     * they need to be converted for jl/jge/jg to work.
+     * NOTE: jg is needed for min/2 to work.
+     */
+    a.seta(x86::al);
+    a.setb(x86::ah);
+    a.sub(x86::al, x86::ah);
 
     emit_leave_frame();
     a.ret();
@@ -1727,17 +1745,22 @@ void BeamModuleAssembler::emit_is_lt(const ArgLabel &Fail,
         /* The only possible kind of immediate is a small and all other
          * values are boxed, so we can test for smalls by testing boxed. */
         comment("simplified small test since all other types are boxed");
-        a.mov(RETd, ARG1d);
-        a.and_(RETd, ARG2d);
-        a.test(RETb, imm(_TAG_PRIMARY_MASK - TAG_PRIMARY_BOXED));
-        a.short_().je(generic);
+        if (always_small(LHS)) {
+            emit_is_not_boxed(generic, ARG2, dShort);
+        } else if (always_small(RHS)) {
+            emit_is_not_boxed(generic, ARG1, dShort);
+        } else {
+            a.mov(RETd, ARG1d);
+            a.and_(RETd, ARG2d);
+            emit_is_not_boxed(generic, RET, dShort);
+        }
     } else {
         /* Relative comparisons are overwhelmingly likely to be used on
          * smalls, so we'll specialize those and keep the rest in a shared
          * fragment. */
-        if (RHS.isSmall()) {
+        if (always_small(RHS)) {
             a.mov(RETd, ARG1d);
-        } else if (LHS.isSmall()) {
+        } else if (always_small(LHS)) {
             a.mov(RETd, ARG2d);
         } else {
             /* Avoid the expensive generic comparison for equal terms. */
@@ -1828,17 +1851,22 @@ void BeamModuleAssembler::emit_is_ge(const ArgLabel &Fail,
         /* The only possible kind of immediate is a small and all other
          * values are boxed, so we can test for smalls by testing boxed. */
         comment("simplified small test since all other types are boxed");
-        a.mov(RETd, ARG1d);
-        a.and_(RETd, ARG2d);
-        a.test(RETb, imm(_TAG_PRIMARY_MASK - TAG_PRIMARY_BOXED));
-        a.short_().je(generic);
+        if (always_small(LHS)) {
+            emit_is_not_boxed(generic, ARG2, dShort);
+        } else if (always_small(RHS)) {
+            emit_is_not_boxed(generic, ARG1, dShort);
+        } else {
+            a.mov(RETd, ARG1d);
+            a.and_(RETd, ARG2d);
+            emit_is_not_boxed(generic, RET, dShort);
+        }
     } else {
         /* Relative comparisons are overwhelmingly likely to be used on
          * smalls, so we'll specialize those and keep the rest in a shared
          * fragment. */
-        if (RHS.isSmall()) {
+        if (always_small(RHS)) {
             a.mov(RETd, ARG1d);
-        } else if (LHS.isSmall()) {
+        } else if (always_small(LHS)) {
             a.mov(RETd, ARG2d);
         } else {
             /* Avoid the expensive generic comparison for equal terms. */
@@ -2456,7 +2484,7 @@ void BeamModuleAssembler::emit_raw_raise() {
     (BEAM_ASM_FUNC_PROLOGUE_SIZE + 16 +                                        \
      (erts_frame_layout == ERTS_FRAME_LAYOUT_FP_RA ? 4 : 0))
 
-/* ARG3 = return address, currLabel + TEST_YIELD_RETURN_OFFSET */
+/* ARG3 = return address, current_label + TEST_YIELD_RETURN_OFFSET */
 void BeamGlobalAssembler::emit_i_test_yield_shared() {
     int mfa_offset = -TEST_YIELD_RETURN_OFFSET - (int)sizeof(ErtsCodeMFA);
 
@@ -2471,16 +2499,16 @@ void BeamGlobalAssembler::emit_i_test_yield_shared() {
 void BeamModuleAssembler::emit_i_test_yield() {
     /* When present, this is guaranteed to be the first instruction after the
      * breakpoint trampoline. */
-    ASSERT((a.offset() - code.labelOffsetFromBase(currLabel)) ==
+    ASSERT((a.offset() - code.labelOffsetFromBase(current_label)) ==
            BEAM_ASM_FUNC_PROLOGUE_SIZE);
 
     emit_enter_frame();
 
-    a.lea(ARG3, x86::qword_ptr(currLabel, TEST_YIELD_RETURN_OFFSET));
+    a.lea(ARG3, x86::qword_ptr(current_label, TEST_YIELD_RETURN_OFFSET));
     a.dec(FCALLS);
-    a.jle(yieldEnter);
+    a.long_().jle(resolve_fragment(ga->get_i_test_yield_shared()));
 
-    ASSERT((a.offset() - code.labelOffsetFromBase(currLabel)) ==
+    ASSERT((a.offset() - code.labelOffsetFromBase(current_label)) ==
            TEST_YIELD_RETURN_OFFSET);
 
 #if defined(JIT_HARD_DEBUG) && defined(ERLANG_FRAME_POINTERS)
@@ -2497,12 +2525,12 @@ void BeamModuleAssembler::emit_i_test_yield() {
 void BeamModuleAssembler::emit_i_yield() {
     a.mov(getXRef(0), imm(am_true));
 #ifdef NATIVE_ERLANG_STACK
-    fragment_call(yieldReturn);
+    fragment_call(resolve_fragment(ga->get_dispatch_return()));
 #else
     Label next = a.newLabel();
 
     a.lea(ARG3, x86::qword_ptr(next));
-    a.jmp(yieldReturn);
+    a.jmp(resolve_fragment(ga->get_dispatch_return()));
 
     a.align(AlignMode::kCode, 8);
     a.bind(next);

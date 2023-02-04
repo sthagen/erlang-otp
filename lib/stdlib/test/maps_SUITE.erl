@@ -30,7 +30,8 @@
 -export([t_update_with_3/1, t_update_with_4/1,
          t_get_3/1, t_filter_2/1, t_filtermap_2/1,
          t_fold_3/1,t_map_2/1,t_size_1/1, t_foreach_2/1,
-         t_iterator_1/1, t_put_opt/1, t_merge_opt/1,
+         t_iterator_1/1, t_iterator_2/1,
+         t_put_opt/1, t_merge_opt/1,
          t_with_2/1,t_without_2/1,
          t_intersect/1, t_intersect_with/1,
          t_merge_with/1, t_from_keys/1,
@@ -57,7 +58,8 @@ all() ->
     [t_update_with_3,t_update_with_4,
      t_get_3,t_filter_2,t_filtermap_2,
      t_fold_3,t_map_2,t_size_1,t_foreach_2,
-     t_iterator_1,t_put_opt,t_merge_opt,
+     t_iterator_1,t_iterator_2,
+     t_put_opt,t_merge_opt,
      t_with_2,t_without_2,
      t_intersect, t_intersect_with,
      t_merge_with, t_from_keys,
@@ -471,12 +473,15 @@ t_iterator_1(Config) when is_list(Config) ->
 
     KVList = lists:sort([{K1,V1},{K2,V2}]),
     KVList = lists:sort(maps:to_list(M0)),
+    KList = lists:sort([K1,K2]),
+    KList = lists:sort(maps:keys(M0)),
 
     %% Large map test
 
     Vs2 = lists:seq(1,200),
     M2 = maps:from_list([{{k,I},I}||I<-Vs2]),
     KVList2 = lists:sort(iter_kv(maps:iterator(M2))),
+    KVList2 = lists:sort(maps:to_list(maps:iterator(M2))),
     KVList2 = lists:sort(maps:to_list(M2)),
 
     %% Larger map test
@@ -484,7 +489,100 @@ t_iterator_1(Config) when is_list(Config) ->
     Vs3 = lists:seq(1,10000),
     M3 = maps:from_list([{{k,I},I}||I<-Vs3]),
     KVList3 = lists:sort(iter_kv(maps:iterator(M3))),
+    KVList3 = lists:sort(maps:to_list(maps:iterator(M3))),
     KVList3 = lists:sort(maps:to_list(M3)),
+    ok.
+
+t_iterator_2(Config) when is_list(Config) ->
+
+    AOrdCmpFun = fun(A, B) -> A =< B end,
+    ARevCmpFun = fun(A, B) -> B < A end,
+
+    %% Small map test
+    M0 = #{ a => 1, b => 2 },
+    TOrdI0 = maps:iterator(M0, ordered),
+    {K1 = a, V1 = 1, TOrdI1} = maps:next(TOrdI0),
+    {K2 = b, V2 = 2, TOrdI2} = maps:next(TOrdI1),
+    none = maps:next(TOrdI2),
+
+    TRevI0 = maps:iterator(M0, reversed),
+    {K2 = b, V2 = 2, TRevI1} = maps:next(TRevI0),
+    {K1 = a, V1 = 1, TRevI2} = maps:next(TRevI1),
+    none = maps:next(TRevI2),
+
+    AOrdI0 = maps:iterator(M0, AOrdCmpFun),
+    {K1 = a, V1 = 1, AOrdI1} = maps:next(AOrdI0),
+    {K2 = b, V2 = 2, AOrdI2} = maps:next(AOrdI1),
+    none = maps:next(AOrdI2),
+
+    ARevI0 = maps:iterator(M0, ARevCmpFun),
+    {K2 = b, V2 = 2, ARevI1} = maps:next(ARevI0),
+    {K1 = a, V1 = 1, ARevI2} = maps:next(ARevI1),
+    none = maps:next(ARevI2),
+
+    OrdKVList = [{K1, V1}, {K2, V2}],
+    OrdKVList = maps:to_list(TOrdI0),
+    OrdKVList = maps:to_list(AOrdI0),
+
+    RevKVList = [{K2, V2}, {K1, V1}],
+    RevKVList = maps:to_list(TRevI0),
+    RevKVList = maps:to_list(ARevI0),
+
+    %% Large map test
+
+    Vs2 = lists:seq(1, 200),
+    OrdKVList2 = [{{k, I}, I} || I <- Vs2],
+    M2 = maps:from_list(OrdKVList2),
+    ok = iterator_2_check_order(M2, ordered, reversed),
+    ok = iterator_2_check_order(M2, AOrdCmpFun, ARevCmpFun),
+
+    %% Larger map test
+
+    Vs3 = lists:seq(1, 10000),
+    OrdKVList3 = [{{k, I}, I} || I <- Vs3],
+    M3 = maps:from_list(OrdKVList3),
+    ok = iterator_2_check_order(M3, ordered, reversed),
+    ok = iterator_2_check_order(M3, AOrdCmpFun, ARevCmpFun),
+
+    %% Float and integer keys
+
+    M4 = #{-1.0 => a, 0.0 => b, -1 => c, 0 => d},
+    OrdIter4 = maps:iterator(M4, ordered),
+    [{-1, c}, {0, d}, {-1.0, a}, {0.0, b}] = maps:to_list(OrdIter4),
+    ok = iterator_2_check_order(M4, ordered, reversed),
+    ok = iterator_2_check_order(M4, AOrdCmpFun, ARevCmpFun),
+
+    ok.
+
+iterator_2_option_to_fun(ordered) ->
+    fun(A, B) -> erts_internal:cmp_term(A, B) =< 0 end;
+iterator_2_option_to_fun(reversed) ->
+    fun(A, B) -> erts_internal:cmp_term(B, A) =< 0 end;
+iterator_2_option_to_fun(F) when is_function(F, 2) ->
+    F.
+
+iterator_2_check_order(M, OrdOption, RevOption) ->
+    OrdCmpFun = iterator_2_option_to_fun(OrdOption),
+    RevCmpFun = iterator_2_option_to_fun(RevOption),
+    OrdKVCmpFun = fun({A, _}, {B, _}) -> OrdCmpFun(A, B) end,
+    RevKVCmpFun = fun({A, _}, {B, _}) -> RevCmpFun(A, B) end,
+
+    OrdKVList = lists:sort(OrdKVCmpFun, maps:to_list(M)),
+    RevKVList = lists:sort(RevKVCmpFun, maps:to_list(M)),
+    RevKVList = lists:reverse(OrdKVList),
+
+    Iter = maps:iterator(M, undefined),
+    OrdIter = maps:iterator(M, OrdOption),
+    RevIter = maps:iterator(M, RevOption),
+
+    OrdKVList = lists:sort(OrdKVCmpFun, iter_kv(Iter)),
+    OrdKVList = lists:sort(OrdKVCmpFun, maps:to_list(Iter)),
+    OrdKVList = iter_kv(OrdIter),
+    OrdKVList = maps:to_list(OrdIter),
+
+    RevKVList = iter_kv(RevIter),
+    RevKVList = maps:to_list(RevIter),
+
     ok.
 
 iter_kv(I) ->
@@ -784,9 +882,13 @@ t_groups_from_list(_Config) ->
 
 error_info(_Config) ->
     BadIterator = [-1|#{}],
+    BadIterator2 = {x, y, z},
     GoodIterator = maps:iterator(#{}),
+    BadOrder = fun(_) -> true end,
+    GoodOrder = fun(A, B) -> A =< B end,
 
-    L = [{filter, [fun(_, _) -> true end, abc]},
+    L = [
+         {filter, [fun(_, _) -> true end, abc]},
          {filter, [fun(_, _) -> true end, BadIterator]},
          {filter, [bad_fun, BadIterator],[{1,".*"},{2,".*"}]},
          {filter, [bad_fun, GoodIterator]},
@@ -838,6 +940,13 @@ error_info(_Config) ->
 
          {iterator,[{no,map}]},
 
+         {iterator, [{no,map}, undefined], [{1, ".*"}]},
+         {iterator, [{no,map}, ordered], [{1, ".*"}]},
+         {iterator, [{no,map}, reversed], [{1, ".*"}]},
+         {iterator, [{no,map}, GoodOrder], [{1, ".*"}]},
+         {iterator, [#{a => b}, BadOrder], [{2, ".*"}]},
+         {iterator, [{no,map}, BadOrder], [{1, ".*"}, {2, ".*"}]},
+
          {keys, [{no,map}]},
 
          {map, [fun(_, _) -> true end, abc]},
@@ -853,6 +962,7 @@ error_info(_Config) ->
          {merge_with, [a, b, c],[{1,".*"},{2,".*"},{3,".*"}]},
 
          {next,[no_iterator]},
+         {next,[BadIterator]},
 
          {put, [key, value, {no,map}]},
 
@@ -863,6 +973,8 @@ error_info(_Config) ->
          {take, [key, no_map]},
 
          {to_list,[xyz]},
+         {to_list,[BadIterator]},
+         {to_list,[BadIterator2]},
 
          {update,[key, value, no_map]},
 
