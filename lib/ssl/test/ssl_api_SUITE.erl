@@ -2295,6 +2295,7 @@ options_whitebox(Config) when is_list(Config) ->
     options_sni(Config),
     options_sign_alg(Config),
     options_supported_groups(Config),
+    options_use_srtp(Config),
     ok.
 
 options_protocol(_Config) ->
@@ -2735,7 +2736,7 @@ options_fallback(_Config) ->
     ok.
 
 options_handshake(_Config) -> %% handshake
-    ?OK(#{handshake := full, max_handshake_size := 262144},
+    ?OK(#{handshake := full, max_handshake_size := 131072},
         [], client),
     ?OK(#{handshake := hello, max_handshake_size := 123800},
         [{handshake, hello}, {max_handshake_size, 123800}], client),
@@ -2986,6 +2987,41 @@ options_supported_groups(_Config) ->
     ?ERR({supported_groups, not_a_list}, [{supported_groups, not_a_list}], client),
     ?ERR({supported_groups, none_valid},  [{supported_groups, []}], client),
     ?ERR({supported_groups, none_valid},  [{supported_groups, [foo]}], client),
+    ok.
+
+options_use_srtp(_Config) ->
+    ?OK(#{use_srtp := #{protection_profiles := [<<0,2>>, <<0,5>>], mki := <<>>}},
+        [{protocol, dtls},
+         {use_srtp, #{protection_profiles => [<<0,2>>, <<0,5>>]}}], client),
+    ?OK(#{use_srtp := #{protection_profiles := [<<0,2>>], mki := <<>>}},
+        [{protocol, dtls},
+         {use_srtp, #{protection_profiles => [<<0,2>>]}}], server),
+    ?OK(#{use_srtp := #{protection_profiles := [<<0,2>>, <<0,5>>], mki := <<"123">>}},
+        [{protocol, dtls},
+         {use_srtp, #{protection_profiles => [<<0,2>>, <<0,5>>], mki => <<"123">>}}], client),
+    ?OK(#{use_srtp := #{protection_profiles := [<<0,2>>], mki := <<"123">>}},
+        [{protocol, dtls},
+         {use_srtp, #{protection_profiles => [<<0,2>>], mki => <<"123">>}}], server),
+
+    %% invalid parameters
+    ?ERR({options, {use_srtp, {no_protection_profiles, _}}},
+         [{protocol, dtls},
+          {use_srtp, #{}}], client),
+    ?ERR({options, {use_srtp, {no_protection_profiles, _}}},
+         [{protocol, dtls},
+          {use_srtp, #{protection_profiles => []}}], client),
+    ?ERR({options, {use_srtp, {invalid_protection_profiles, _}}},
+         [{protocol, dtls},
+          {use_srtp, #{protection_profiles => [<<"bad">>]}}], client),
+    ?ERR({options, {use_srtp, {unknown_parameters,[whatever]}}},
+         [{protocol, dtls},
+          {use_srtp, #{protection_profiles => [<<0,2>>], whatever => xxx}}], client),
+
+    %% use_srtp is DTLS-only extension, by default setting its options should raise an error
+    ?ERR({options, incompatible, _},
+         [{use_srtp, #{protection_profiles => [<<0,2>>, <<0,5>>]}}], client),
+    ?ERR({options, incompatible, _},
+         [{use_srtp, #{protection_profiles => [<<0,2>>]}}], server),
     ok.
 
 %%-------------------------------------------------------------------

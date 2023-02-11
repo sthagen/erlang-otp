@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011-2022. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2023. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -250,7 +250,7 @@ gen_accept(Driver, Listen) ->
 %%  smaller than MaxPending
 accept_loop(DLK, undefined, MaxPending, Pending) when map_size(Pending) < MaxPending ->
     accept_loop(DLK, spawn_accept(DLK), MaxPending, Pending);
-accept_loop(DLK, HandshakePid, MaxPending, Pending) ->
+accept_loop({_, _, NetKernelPid} = DLK, HandshakePid, MaxPending, Pending) ->
     receive
         {continue, HandshakePid} when is_pid(HandshakePid) ->
             accept_loop(DLK, undefined, MaxPending, Pending#{HandshakePid => true});
@@ -261,6 +261,9 @@ accept_loop(DLK, HandshakePid, MaxPending, Pending) ->
         {'EXIT', HandshakePid, Reason} when is_pid(HandshakePid) ->
             %% HandshakePid crashed before turning into Pending, which means
             %%  error happened in accept. Need to restart the listener.
+            exit(Reason);
+        {'EXIT', NetKernelPid, Reason} ->
+            %% Since we're trapping exits, need to manually propagate this signal
             exit(Reason);
         Unexpected ->
             ?LOG_WARNING("TLS distribution: unexpected message: ~p~n" ,[Unexpected]),
@@ -291,7 +294,6 @@ spawn_accept({Driver, Listen, Kernel}) ->
 accept_one(Driver, Kernel, Socket) ->
     Opts = setup_verify_client(Socket, get_ssl_options(server)),
     KTLS = proplists:get_value(ktls, Opts, false),
-    wait_for_code_server(),
     case
         ssl:handshake(
           Socket,
@@ -435,36 +437,6 @@ verify_client(PeerCert, valid_peer, {AllowedHosts,PeerIP} = S) ->
     end.
 
 
-wait_for_code_server() ->
-    %% This is an ugly hack.  Upgrading a socket to TLS requires the
-    %% crypto module to be loaded.  Loading the crypto module triggers
-    %% its on_load function, which calls code:priv_dir/1 to find the
-    %% directory where its NIF library is.  However, distribution is
-    %% started earlier than the code server, so the code server is not
-    %% necessarily started yet, and code:priv_dir/1 might fail because
-    %% of that, if we receive an incoming connection on the
-    %% distribution port early enough.
-    %%
-    %% If the on_load function of a module fails, the module is
-    %% unloaded, and the function call that triggered loading it fails
-    %% with 'undef', which is rather confusing.
-    %%
-    %% Thus, the accept process will terminate, and be
-    %% restarted by ssl_dist_sup.  However, it won't have any memory
-    %% of being asked by net_kernel to listen for incoming
-    %% connections.  Hence, the node will believe that it's open for
-    %% distribution, but it actually isn't.
-    %%
-    %% So let's avoid that by waiting for the code server to start.
-    case whereis(code_server) of
-	undefined ->
-	    timer:sleep(10),
-	    wait_for_code_server();
-	Pid when is_pid(Pid) ->
-            init:run_on_load_handlers([crypto,asn1rt_nif]),
-	    ok
-    end.
-
 %% -------------------------------------------------------------------------
 
 accept_connection(AcceptPid, DistCtrl, MyNode, Allowed, SetupTime) ->
@@ -599,8 +571,6 @@ setup_fun(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
 
 -spec do_setup(_,_,_,_,_,_,_) -> no_return().
 do_setup(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
-    wait_for_code_server(),
-
     {Name, Address} = split_node(Driver, Node, LongOrShortNames),
     ErlEpmd = net_kernel:epmd_module(),
     {ARMod, ARFun} = get_address_resolver(ErlEpmd, Driver),

@@ -41,7 +41,7 @@ ErtsFrameLayout ERTS_WRITE_UNLIKELY(erts_frame_layout);
 
 /* Global configuration variables (under the `+J` prefix) */
 #ifdef HAVE_LINUX_PERF_SUPPORT
-int erts_jit_perf_support;
+enum beamasm_perf_flags erts_jit_perf_support;
 #endif
 /* Force use of single-mapped RWX memory for JIT code */
 int erts_jit_single_map = 0;
@@ -68,7 +68,7 @@ ErtsCodePtr beam_unloaded_fun;
 ErtsCodePtr beam_return_to_trace;   /* OpCode(i_return_to_trace) */
 ErtsCodePtr beam_return_trace;      /* OpCode(i_return_trace) */
 ErtsCodePtr beam_exception_trace;   /* UGLY also OpCode(i_return_trace) */
-ErtsCodePtr beam_return_time_trace; /* OpCode(i_return_time_trace) */
+ErtsCodePtr beam_call_trace_return; /* OpCode(i_call_trace_return) */
 
 static JitAllocator *jit_allocator;
 
@@ -151,10 +151,11 @@ static JitAllocator *pick_allocator() {
 #if defined(HAVE_LINUX_PERF_SUPPORT)
     /* `perf` has a hard time showing symbols for dual-mapped memory, so we'll
      * use single-mapped memory when enabled. */
-    if (erts_jit_perf_support & (BEAMASM_PERF_DUMP | BEAMASM_PERF_MAP))
+    if (erts_jit_perf_support & BEAMASM_PERF_ENABLED) {
         erts_jit_single_map = 1;
-
+    }
 #endif
+
     if (erts_jit_single_map) {
         if (auto *alloc = create_allocator(&single_params)) {
             return alloc;
@@ -221,10 +222,10 @@ void beamasm_init() {
              0,
              op_i_return_to_trace,
              &beam_return_to_trace},
-            {am_return_time_trace,
+            {am_call_trace_return,
              0,
-             op_i_return_time_trace,
-             &beam_return_time_trace}};
+             op_i_call_trace_return,
+             &beam_call_trace_return}};
 
     Eterm mod_name;
     ERTS_DECL_AM(erts_beamasm);
@@ -234,7 +235,7 @@ void beamasm_init() {
      * frame pointers are disabled or unsupported. */
 #if defined(ERLANG_FRAME_POINTERS)
 #    ifdef HAVE_LINUX_PERF_SUPPORT
-    if (erts_jit_perf_support & BEAMASM_PERF_MAP) {
+    if (erts_jit_perf_support & BEAMASM_PERF_FP) {
         erts_frame_layout = ERTS_FRAME_LAYOUT_FP_RA;
     } else {
         erts_frame_layout = ERTS_FRAME_LAYOUT_RA;

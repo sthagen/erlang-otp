@@ -207,8 +207,8 @@ sig_function_1(Id, StMap, State0, FuncDb) ->
                                               name=#b_literal{val=unknown},
                                               arity=0}]},
 
-    Ds = maps:from_list([{Var, FakeCall#b_set{dst=Var}} ||
-                            #b_var{}=Var <- Args]),
+    Ds = #{Var => FakeCall#b_set{dst=Var} ||
+             #b_var{}=Var <- Args},
 
     Ls = #{ ?EXCEPTION_BLOCK => {incoming, Ts},
             0 => {incoming, Ts} },
@@ -438,14 +438,14 @@ opt_continue(Linear0, Args, Anno, FuncDb) when FuncDb =/= #{} ->
         #{ Id := #func_info{exported=true} } ->
             %% We can't infer the parameter types of exported functions, but
             %% running the pass again could still help other functions.
-            Ts = maps:from_list([{V,any} || #b_var{}=V <- Args]),
+            Ts = #{V => any || #b_var{}=V <- Args},
             opt_function(Linear0, Args, Id, Ts, FuncDb)
     end;
 opt_continue(Linear0, Args, Anno, _FuncDb) ->
     %% Module-level optimization is disabled, pass an empty function database
     %% so we only perform local optimizations.
     Id = get_func_id(Anno),
-    Ts = maps:from_list([{V,any} || #b_var{}=V <- Args]),
+    Ts = #{V => any || #b_var{}=V <- Args},
     {Linear, _} = opt_function(Linear0, Args, Id, Ts, #{}),
     {Linear, #{}}.
 
@@ -491,8 +491,8 @@ do_opt_function(Linear0, Args, Id, Ts, FuncDb0, MetaCache) ->
                                               name=#b_literal{val=unknown},
                                               arity=0}]},
 
-    Ds = maps:from_list([{Var, FakeCall#b_set{dst=Var}} ||
-                            #b_var{}=Var <- Args]),
+    Ds = #{Var => FakeCall#b_set{dst=Var} ||
+             #b_var{}=Var <- Args},
 
     Ls = #{ ?EXCEPTION_BLOCK => {incoming, Ts},
             0 => {incoming, Ts} },
@@ -958,12 +958,27 @@ simplify_terminator(#b_switch{arg=Arg0,fail=Fail,list=List0}=Sw0,
         #b_br{}=Br ->
             simplify_terminator(Br, Ts, Ds, Sub)
     end;
-simplify_terminator(#b_ret{arg=Arg}=Ret, Ts, Ds, Sub) ->
+simplify_terminator(#b_ret{arg=Arg,anno=Anno0}=Ret0, Ts, Ds, Sub) ->
     %% Reducing the result of a call to a literal (fairly common for 'ok')
     %% breaks tail call optimization.
-    case Ds of
-        #{ Arg := #b_set{op=call}} -> Ret;
-        #{} -> Ret#b_ret{arg=simplify_arg(Arg, Ts, Sub)}
+    Ret = case Ds of
+              #{ Arg := #b_set{op=call}} -> Ret0;
+              #{} -> Ret0#b_ret{arg=simplify_arg(Arg, Ts, Sub)}
+          end,
+    %% Annotate the terminator with the type it returns, skip the
+    %% annotation if nothing is yet known about the variable. The
+    %% annotation is used by the alias analysis pass.
+    Type = case {Arg, Ts} of
+               {#b_literal{},_} -> concrete_type(Arg, Ts);
+               {_,#{Arg:=_}} -> concrete_type(Arg, Ts);
+               _ -> any
+           end,
+    case Type of
+        any ->
+            Ret;
+        _ ->
+            Anno = Anno0#{ result_type => Type },
+            Ret#b_ret{anno=Anno}
     end.
 
 %%
@@ -1039,7 +1054,12 @@ simplify(#b_set{op=bs_create_bin=Op,dst=Dst,args=Args0,anno=Anno}=I0,
     Args = simplify_args(Args0, Ts0, Sub),
     I1 = I0#b_set{args=Args},
     #t_bitstring{size_unit=Unit} = T = type(Op, Args, Anno, Ts0, Ds0),
-    I = beam_ssa:add_anno(unit, Unit, I1),
+    I2 = case T of
+             #t_bitstring{appendable=true} ->
+                 beam_ssa:add_anno(result_type, T, I1);
+             _ -> I1
+         end,
+    I = beam_ssa:add_anno(unit, Unit, I2),
     Ts = Ts0#{ Dst => T },
     Ds = Ds0#{ Dst => I },
     {I, Ts, Ds};
@@ -2062,7 +2082,19 @@ type({bif,Bif}, Args, _Anno, Ts, _Ds) ->
     end;
 type(bs_create_bin, Args, _Anno, Ts, _Ds) ->
     SizeUnit = bs_size_unit(Args, Ts),
-    #t_bitstring{size_unit=SizeUnit};
+    Appendable = case Args of
+                     [#b_literal{val=private_append}|_] ->
+                         true;
+                     [#b_literal{val=append},_,Var|_] ->
+                         case argument_type(Var, Ts) of
+                             #t_bitstring{appendable=A} -> A;
+                             #t_union{other=#t_bitstring{appendable=A}} -> A;
+                             _ -> false
+                         end;
+                     _ ->
+                         false
+                 end,
+    #t_bitstring{size_unit=SizeUnit,appendable=Appendable};
 type(bs_extract, [Ctx], _Anno, Ts, Ds) ->
     #b_set{op=bs_match,
            args=[#b_literal{val=Type}, _OrigCtx | Args]} = map_get(Ctx, Ds),
@@ -2096,7 +2128,7 @@ type(bs_match, Args0, _Anno, Ts, _Ds) ->
             %% current unit and the increments we know the match will advance
             %% by.
             #t_bs_context{tail_unit=CtxUnit} = concrete_type(Ctx, Ts),
-            OpUnit = bs_match_stride(Args, Ts),
+            OpUnit = bs_match_stride(Type, Args, Ts),
 
             #t_bs_context{tail_unit=gcd(OpUnit, CtxUnit)}
     end;
@@ -2324,17 +2356,14 @@ bs_size_unit([], _Ts, FixedSize, Unit) ->
 
 %% We seldom know how far a match operation may advance, but we can often tell
 %% which increment it will advance by.
-bs_match_stride([#b_literal{val=Type} | Args], Ts) ->
-    bs_match_stride(Type, Args, Ts).
-
-bs_match_stride(_, [_,_,Size,#b_literal{val=Unit}], Ts) ->
+bs_match_stride(_, [_,Size,#b_literal{val=Unit}], Ts) ->
     case concrete_type(Size, Ts) of
         #t_integer{elements={Sz, Sz}} when is_integer(Sz) ->
             Sz * Unit;
         _ ->
             Unit
     end;
-bs_match_stride(string, [_,#b_literal{val=String}], _) ->
+bs_match_stride(string, [#b_literal{val=String}], _) ->
     bit_size(String);
 bs_match_stride(utf8, _, _) ->
     8;
