@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2022. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2023. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -508,9 +508,9 @@ unicode_paths(Config) ->
             run(Config, Cmd, FileName, "", DepRE),
             true = exists(BeamFileName),
             file:delete(BeamFileName),
-            file:delete(OutDir)
-    end,
-    ok.
+            file:delete(OutDir),
+            ok
+    end.
 
 %%% Tests related to the features mechanism
 %% Support macros and functions

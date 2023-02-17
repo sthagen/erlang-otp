@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2022. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2023. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -520,14 +520,14 @@ default_port(https) ->
     443.
 
 
--spec cookie_header(Url) -> [HttpHeader] | {error, Reason} when
+-spec cookie_header(Url) -> HttpHeader | {error, Reason} when
       Url        :: uri_string:uri_string(),
       HttpHeader :: { Field :: [byte()], Value :: binary() | iolist()},
       Reason     :: term().
 cookie_header(Url) ->
     cookie_header(Url, default_profile()).
 
--spec cookie_header(Url, ProfileOrOpts) -> [HttpHeader] | {error, Reason} when
+-spec cookie_header(Url, ProfileOrOpts) -> HttpHeader | {error, Reason} when
       Url        :: uri_string:uri_string(),
       HttpHeader :: { Field :: [byte()], Value :: binary() | iolist()},
       ProfileOrOpts :: Profile | Opts,
@@ -545,7 +545,7 @@ cookie_header(Url, Opts) when is_list(Opts) ->
 %% request to Url using profile Profile. If no profile is specified, the default
 %% profile is used.
 %%
--spec cookie_header(Url, Opts, Profile) -> [HttpHeader] | {error, Reason} when
+-spec cookie_header(Url, Opts, Profile) -> HttpHeader | {error, Reason} when
       Url        :: uri_string:uri_string(),
       HttpHeader :: { Field :: [byte()], Value :: binary() | iolist()},
       Profile    :: atom() | pid(),
