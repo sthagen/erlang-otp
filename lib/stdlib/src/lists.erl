@@ -29,7 +29,7 @@
 %% arguments. Please keep in alphabetical order.
 -export([append/1, append/2, concat/1,
          delete/2, droplast/1, duplicate/2,
-         enumerate/1, enumerate/2,
+         enumerate/1, enumerate/2, enumerate/3,
          flatlength/1, flatten/1, flatten/2,
          join/2, last/1, min/1, max/1,
          nth/2, nthtail/2,
@@ -196,8 +196,12 @@ reverse([A, B | L]) ->
       T :: term().
 
 nth(1, [H|_]) -> H;
-nth(N, [_|T]) when N > 1 ->
-    nth(N - 1, T).
+nth(N, [_|_]=L) when is_integer(N), N > 1 ->
+    nth_1(N, L).
+
+nth_1(1, [H|_]) -> H;
+nth_1(N, [_|T]) ->
+    nth_1(N - 1, T).
 
 -spec nthtail(N, List) -> Tail when
       N :: non_neg_integer(),
@@ -205,10 +209,15 @@ nth(N, [_|T]) when N > 1 ->
       Tail :: [T],
       T :: term().
 
+nthtail(0, []) -> [];
+nthtail(0, [_|_]=L) -> L;
 nthtail(1, [_|T]) -> T;
-nthtail(N, [_|T]) when N > 1 ->
-    nthtail(N - 1, T);
-nthtail(0, L) when is_list(L) -> L.
+nthtail(N, [_|_]=L) when is_integer(N), N > 1 ->
+    nthtail_1(N, L).
+
+nthtail_1(1, [_|T]) -> T;
+nthtail_1(N, [_|T]) ->
+    nthtail_1(N - 1, T).
 
 %% prefix(Prefix, List) -> (true | false)
 
@@ -1160,20 +1169,29 @@ keymap(Fun, Index, []) when is_integer(Index), Index >= 1,
       List2 :: [{Index, T}],
       Index :: integer(),
       T :: term().
-enumerate(List1) when is_list(List1) ->
-    enumerate_1(1, List1).
+enumerate(List1) ->
+    enumerate(1, 1, List1).
 
 -spec enumerate(Index, List1) -> List2 when
       List1 :: [T],
       List2 :: [{Index, T}],
       Index :: integer(),
       T :: term().
-enumerate(Index, List1) when is_integer(Index), is_list(List1) ->
-    enumerate_1(Index, List1).
+enumerate(Index, List1) ->
+    enumerate(Index, 1, List1).
 
-enumerate_1(Index, [H|T]) ->
-    [{Index, H}|enumerate_1(Index + 1, T)];
-enumerate_1(_Index, []) ->
+-spec enumerate(Index, Step, List1) -> List2 when
+      List1 :: [T],
+      List2 :: [{Index, T}],
+      Index :: integer(),
+      Step :: integer(),
+      T :: term().
+enumerate(Index, Step, List1) when is_integer(Index), is_integer(Step) ->
+    enumerate_1(Index, Step, List1).
+
+enumerate_1(Index, Step, [H|T]) ->
+    [{Index, H}|enumerate_1(Index + Step, Step, T)];
+enumerate_1(_Index, _Step, []) ->
     [].
 
 %%% Suggestion from OTP-2948: sort and merge with Fun.

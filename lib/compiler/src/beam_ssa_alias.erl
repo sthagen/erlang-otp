@@ -52,7 +52,8 @@
               func_db :: func_info_db(),
               kills :: kills_map(),
               st_map :: st_map(),
-              orig_st_map :: st_map()
+              orig_st_map :: st_map(),
+              repeats = sets:new([{version,2}]) :: sets:set(func_id())
              }).
 
 %% A code location refering to either the #b_set{} defining a variable
@@ -103,7 +104,7 @@ liveness([], _StMap) ->
 
 liveness_fun(F, StMap0) ->
     #opt_st{ssa=SSA} = map_get(F, StMap0),
-    State0 = maps:from_list([ {Lbl, #liveness_st{}} || {Lbl,_} <- SSA]),
+    State0 = #{Lbl => #liveness_st{} || {Lbl,_} <- SSA},
     liveness_blks_fixp(reverse(SSA), State0, false).
 
 liveness_blks_fixp(_SSA, State0, State0) ->
@@ -185,7 +186,7 @@ is_nif(F, StMap) ->
                st_map()) -> kills_map().
 
 killsets(Liveness, StMap) ->
-    maps:from_list([{F, kills_fun(F, StMap, Live)} || {F, Live} <- Liveness]).
+    #{F => kills_fun(F, StMap, Live) || {F, Live} <- Liveness}.
 
 %%%
 %%% Calculate the killset for a function. The killset allows us to
@@ -291,8 +292,8 @@ aa(Funs, KillsMap, StMap, FuncDb) ->
 %%%   to detect incomplete information in a hypothetical
 %%%   ssa_opt_alias_finish pass.
 %%%
-aa_fixpoint(Order, AAS) ->
-    ?DP("**** Starting fixpoint iteration ****~n"),
+aa_fixpoint(Funs, AAS=#aas{func_db=FuncDb}) ->
+    Order = aa_breadth_first(Funs, FuncDb),
     aa_fixpoint(Order, Order, AAS#aas.alias_map, AAS, ?MAX_REPETITIONS).
 
 aa_fixpoint([F|Fs], Order, OldAliasMap, AAS0=#aas{st_map=StMap}, Limit) ->
@@ -309,12 +310,16 @@ aa_fixpoint([], _Order, OldAliasMap,
 aa_fixpoint([], _, _, #aas{func_db=FuncDb,orig_st_map=StMap}, 0) ->
     ?DP("**** End of iteration, too many iterations ****~n"),
     {StMap, FuncDb};
-aa_fixpoint([], Order, _OldAliasMap, AAS=#aas{alias_map=AliasMap}, Limit) ->
+aa_fixpoint([], Order, _OldAliasMap,
+            AAS=#aas{alias_map=AliasMap,repeats=Repeats}, Limit) ->
     ?DP("**** Things have changed, starting next iteration ****~n"),
-    aa_fixpoint(Order, Order, AliasMap, AAS, Limit - 1).
+    %% Following the depth first order, select those in Repeats.
+    NewOrder = [Id || Id <- Order, sets:is_element(Id, Repeats)],
+    aa_fixpoint(NewOrder, Order, AliasMap,
+                AAS#aas{repeats=sets:new([{version,2}])}, Limit - 1).
 
-aa_fun(F, #opt_st{ssa=Linear0,anno=_Anno,args=Args}=St,
-       AAS0=#aas{alias_map=AliasMap0}) ->
+aa_fun(F, #opt_st{ssa=Linear0,args=Args}=St,
+       AAS0=#aas{alias_map=AliasMap0,func_db=FuncDb,repeats=Repeats0}) ->
     %% Initially assume all formal parameters are unique for a
     %% non-exported function, if we have call argument info in the
     %% AAS, we use it. For an exported function, all arguments are
@@ -325,16 +330,27 @@ aa_fun(F, #opt_st{ssa=Linear0,anno=_Anno,args=Args}=St,
                 end, #{}, ArgsStatus),
     ?DP("@@ Args: ~p~n", [ArgsStatus]),
     {Linear1,SS,AAS1} = aa_blocks(Linear0, SS0, AAS0),
-    ?DP("SS:~n~s~n~n", [aa_format(SS)]),
+    ?DP("SS:~n~s~n~n", [SS]),
     AAS = aa_merge_call_args_status(SS, AAS1),
 
     AliasMap = AliasMap0#{ F => SS },
-    {St#opt_st{ssa=Linear1}, AAS#aas{alias_map=AliasMap}}.
+    PrevSS = maps:get(F, AliasMap0, #{}),
+    Repeats = case PrevSS =/= SS of
+                  true ->
+                      %% Alias status has changed, so schedule both
+                      %% our callers and callees for renewed analysis.
+                      #{ F := #func_info{in=In,out=Out} } = FuncDb,
+                      foldl(fun sets:add_element/2,
+                            foldl(fun sets:add_element/2, Repeats0, Out), In);
+                  false ->
+                      Repeats0
+              end,
+    {St#opt_st{ssa=Linear1}, AAS#aas{alias_map=AliasMap,repeats=Repeats}}.
 
 %% Main entry point for the alias analysis
 aa_blocks([{L,#b_blk{is=Is0,last=T0}=Blk}|Bs0], SS0, AAS0) ->
     {Is,SS1,AAS1} = aa_is(Is0, SS0, [], AAS0),
-    {T,SS2} = aa_terminator(T0, SS1),
+    {T,SS2} = aa_terminator(T0, SS1, AAS1),
     {Bs,SS,AAS} = aa_blocks(Bs0, SS2, AAS1),
     {[{L,Blk#b_blk{is=Is,last=T}}|Bs],SS,AAS};
 aa_blocks([], SS, AAS) ->
@@ -465,14 +481,14 @@ aa_is([I=#b_set{dst=Dst,op=Op,args=Args,anno=Anno0}|Is], SS0, Acc, AAS0) ->
             _ ->
                 exit({unknown_instruction, I})
         end,
-    aa_is(Is, SS, [aa_update_annotation(I, SS1)|Acc], AAS);
+    aa_is(Is, SS, [aa_update_annotation(I, SS1, AAS)|Acc], AAS);
 aa_is([], SS, Acc, AAS) ->
     {reverse(Acc), SS, AAS}.
 
-aa_terminator(T=#b_br{anno=Anno0}, SS0) ->
-    Anno = aa_update_annotation(Anno0, SS0),
+aa_terminator(T=#b_br{anno=Anno0}, SS0, AAS) ->
+    Anno = aa_update_annotation(Anno0, SS0, AAS),
     {T#b_br{anno=Anno}, SS0};
-aa_terminator(T=#b_ret{arg=Arg,anno=Anno0}, SS0) ->
+aa_terminator(T=#b_ret{arg=Arg,anno=Anno0}, SS0, AAS) ->
     Type = maps:get(result_type, Anno0, any),
     Status0 = aa_get_status(Arg, SS0),
     ?DP("Returned ~p:~p:~p~n", [Arg, Status0, Type]),
@@ -486,9 +502,9 @@ aa_terminator(T=#b_ret{arg=Arg,anno=Anno0}, SS0) ->
     Type2Status = Type2Status0#{ Type => Status },
     ?DP("new status map: ~p~n", [Type2Status]),
     SS = SS0#{ returns => Type2Status},
-    {aa_update_annotation(T, SS), SS};
-aa_terminator(T=#b_switch{anno=Anno0}, SS0) ->
-    Anno = aa_update_annotation(Anno0, SS0),
+    {aa_update_annotation(T, SS, AAS), SS};
+aa_terminator(T=#b_switch{anno=Anno0}, SS0, AAS) ->
+    Anno = aa_update_annotation(Anno0, SS0, AAS),
     {T#b_switch{anno=Anno}, SS0}.
 
 %% Add a new ssa variable to the alias state and set its status.
@@ -522,7 +538,7 @@ aa_set_status([X|T], Status, State) ->
 aa_set_status([], _, State) ->
     State.
 
-aa_update_annotation(I=#b_set{anno=Anno0,args=Args}, SS) ->
+aa_update_annotation(I=#b_set{anno=Anno0,args=Args,op=Op}, SS, AAS) ->
     {Aliased,Unique} =
         foldl(fun(#b_var{}=V, {As,Us}) ->
                       case aa_get_status(V, SS) of
@@ -538,12 +554,30 @@ aa_update_annotation(I=#b_set{anno=Anno0,args=Args}, SS) ->
                 [] -> maps:remove(aliased, Anno0);
                 _ -> Anno0#{aliased => Aliased}
             end,
-    Anno = case Unique of
-               [] -> maps:remove(unique, Anno1);
-               _ -> Anno1#{unique => Unique}
+    Anno2 = case Unique of
+                [] -> maps:remove(unique, Anno1);
+                _ -> Anno1#{unique => Unique}
+            end,
+    Anno = case {Op,Args} of
+               {bs_create_bin,[#b_literal{val=append},_,Var|_]} ->
+                   %% Alias analysis indicate the alias status of the
+                   %% instruction arguments before the instruction is
+                   %% executed. For the private-append optimization we
+                   %% need to know if the first fragment dies with
+                   %% this instruction or not. Adding an annotation
+                   %% here, during alias analysis, is more efficient
+                   %% than trying to reconstruct information in the
+                   %% kill map during the private-append pass.
+                   #aas{caller=Caller,kills=KillsMap} = AAS,
+                   #b_set{dst=Dst} = I,
+                   KillMap = map_get(Caller, KillsMap),
+                   Dies = sets:is_element(Var, map_get(Dst, KillMap)),
+                   Anno2#{first_fragment_dies => Dies};
+               _ ->
+                   Anno2
            end,
     I#b_set{anno=Anno};
-aa_update_annotation(I=#b_ret{arg=#b_var{}=V,anno=Anno0}, SS) ->
+aa_update_annotation(I=#b_ret{arg=#b_var{}=V,anno=Anno0}, SS, _AAS) ->
     Anno = case aa_get_status(V, SS) of
                aliased ->
                    maps:remove(unique, Anno0#{aliased=>[V]});
@@ -551,7 +585,7 @@ aa_update_annotation(I=#b_ret{arg=#b_var{}=V,anno=Anno0}, SS) ->
                    maps:remove(aliased, Anno0#{unique=>[V]})
            end,
     I#b_ret{anno=Anno};
-aa_update_annotation(I, _SS) ->
+aa_update_annotation(I, _SS, _AAS) ->
     %% For now we don't care about the other terminators.
     I.
 
@@ -820,9 +854,9 @@ aa_tuple_extraction(Dst, Tuple, #b_literal{val=I}, SS1) ->
             aa_join(Dst, Tuple, SS1#{{tuple_element,Tuple}=>[I]})
     end.
 
-aa_make_fun(Dst, #b_local{name=#b_literal{}} = Callee,
+aa_make_fun(Dst, Callee=#b_local{name=#b_literal{}},
             Env0, SS0,
-            AAS0=#aas{alias_map=_AliasMap,call_args=Info0,st_map=_StMap}) ->
+            AAS0=#aas{call_args=Info0,repeats=Repeats0}) ->
     %% When a value is copied into the environment of a fun we assume
     %% that it has been aliased as there is no obvious way to track
     %% and ensure that the value is only used once, even if the
@@ -834,8 +868,17 @@ aa_make_fun(Dst, #b_local{name=#b_literal{}} = Callee,
     SS = aa_set_aliased([Dst|Env0], SS0),
     #{ Callee := Status0 } = Info0,
     Status = aa_merge_env(reverse(Status0), [aliased || _ <- Env0], []),
+    #{ Callee := PrevStatus } = Info0,
     Info = Info0#{ Callee := Status },
-    AAS = AAS0#aas{call_args=Info},
+    Repeats = case PrevStatus =/= Status of
+                  true ->
+                      %% We have new information for the callee, we
+                      %% have to revisit it.
+                      sets:add_element(Callee, Repeats0);
+                  false ->
+                      Repeats0
+              end,
+    AAS = AAS0#aas{call_args=Info,repeats=Repeats},
     {SS, AAS}.
 
 aa_merge_env([_|Args], [E|Env], Acc) ->
@@ -844,4 +887,35 @@ aa_merge_env([Arg|Args], [], Acc) ->
     aa_merge_env(Args, [], [Arg|Acc]);
 aa_merge_env([], [], Acc) ->
     Acc.
+
+aa_breadth_first(Funs, FuncDb) ->
+    IsExported = fun (F) ->
+                         #{ F := #func_info{exported=E} } = FuncDb,
+                         E
+                 end,
+    Exported = [ F || F <- Funs, IsExported(F)],
+    aa_breadth_first(Exported, [], sets:new([{version,2}]), FuncDb).
+
+aa_breadth_first([F|Work], Next, Seen, FuncDb) ->
+    case sets:is_element(F, Seen) of
+        true ->
+            aa_breadth_first(Work, Next, Seen, FuncDb);
+        false ->
+            case FuncDb of
+                #{ F := #func_info{out=Children} } ->
+                    [F|aa_breadth_first(Work, Children ++ Next,
+                                        sets:add_element(F, Seen), FuncDb)];
+                #{} ->
+                    %% Other optimization steps can have determined
+                    %% that the function is not called and removed it
+                    %% from the funcdb, but it still remains in the
+                    %% #func_info{} of the (at the syntax-level)
+                    %% caller.
+                    aa_breadth_first(Work, Next, Seen, FuncDb)
+            end
+    end;
+aa_breadth_first([], [], _Seen, _FuncDb) ->
+    [];
+aa_breadth_first([], Next, Seen, FuncDb) ->
+    aa_breadth_first(Next, [], Seen, FuncDb).
 
