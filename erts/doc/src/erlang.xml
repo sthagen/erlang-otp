@@ -2545,6 +2545,15 @@ of Floating Point Numbers</seeguide>.</p>
               <c>Fun</c> was statically allocated when module was
               loaded (this optimisation is performed for local
               functions that do not capture the environment).</p>
+            <change>
+              <p>In Erlang/OTP 27, we plan to change the return value so that
+                it always points to the local <c>init</c> process, regardless
+                of which process or node the fun was originally created on. See
+                <seeguide marker="system/general_info:upcoming_incompatibilities#fun_creator_pid">
+                  Upcoming Potential Incompatibilities
+                </seeguide>.
+              </p>
+            </change>
           </item>
           <tag><c>{index, Index}</c></tag>
           <item>
@@ -5325,7 +5334,7 @@ receive_replies(ReqId, N, Acc) ->
               <c><anno>Val</anno></c> must be strings. The one
               exception is <c><anno>Val</anno></c> being the atom
               <c>false</c> (in analogy with
-              <seemfa marker="kernel:os#getenv/1"><c>os:getenv/1</c></seemfa>,
+              <seemfa marker="kernel:os#getenv/1"><c>os:getenv/1</c></seemfa>),
               which removes the environment variable.
 	    </p>
 	    <p>
@@ -6276,7 +6285,7 @@ receive_replies(ReqId, N, Acc) ->
 
     <func>
       <name name="process_flag" arity="2" clause_i="1"
-	    anchor="process_flag_async_dist" since="OTP @OTP-18374@"/>
+	    anchor="process_flag_async_dist" since="OTP 25.3"/>
       <fsummary>
         Enable or disable fully asynchronous distributed signaling
         for the calling process.
@@ -6797,7 +6806,7 @@ receive_replies(ReqId, N, Acc) ->
             <c>{async_dist, Enabled}</c>
           </tag>
           <item>
-            <p>Since: OTP @OTP-18374@</p>
+            <p>Since: OTP 25.3</p>
             <p>
               Current value of the
               <seeerl marker="erlang#process_flag_async_dist">
@@ -8052,7 +8061,7 @@ true</pre>
             <c>{async_dist, Enabled}</c>
           </tag>
           <item>
-            <p>Since: OTP @OTP-18374@</p>
+            <p>Since: OTP 25.3</p>
             <p>
               Set the
               <seeerl marker="erlang#process_flag_async_dist">
@@ -11095,7 +11104,7 @@ Metadata = #{ pid => pid(),
 
     <func>
       <name name="system_info" arity="1" clause_i="79"
-	    anchor="system_info_async_dist" since="OTP @OTP-18374@"/>  <!-- async_dist -->
+	    anchor="system_info_async_dist" since="OTP 25.3"/>  <!-- async_dist -->
       <name name="system_info" arity="1" clause_i="14"
 	    anchor="system_info_dist" since=""/>  <!-- creation -->
       <name name="system_info" arity="1" clause_i="16" since="OTP 18.0"/>  <!-- delayed_node_table_gc -->
@@ -11110,7 +11119,7 @@ Metadata = #{ pid => pid(),
         <taglist>
           <tag><marker id="system_info_async_dist"/><c>async_dist</c></tag>
           <item>
-            <p>Since: OTP @OTP-18374@</p>
+            <p>Since: OTP 25.3</p>
             <p>
               Returns the value of the command line argument
               <seecom marker="erl#+pad">+pad &lt;boolean&gt;</seecom>
@@ -11864,37 +11873,26 @@ hello
 	  <taglist>
 	    <tag><c>0</c></tag>
 	    <item>
-              <p>Floats are encoded using a textual representation.
-	      This option is useful to ensure that releases before Erlang/OTP
-	      R11B-4 can decode resulting binary.</p>
-	      <p>This version encode atoms that can be represented by a
-	      latin1 string using latin1 encoding while only atoms that
-	      cannot be represented by latin1 are encoded using utf8.</p>
+              <p>Floats are encoded using a textual representation.</p>
+	      <p>Atoms that can be represented by a latin1 string are encoded
+	      using latin1 while only atoms that cannot be represented by latin1
+	      are encoded using utf8.</p>
 	    </item>
 	    <tag><c>1</c></tag>
 	    <item>
-              <p>This is as of Erlang/OTP 17.0 the <em>default</em>. It forces any floats
-	      in the term to be encoded in a more space-efficient and exact way
+              <p>Floats are encoded in a more space-efficient and exact way
 	      (namely in the 64-bit IEEE format, rather than converted to a
 	      textual representation). As from Erlang/OTP R11B-4,
 	      <c>binary_to_term/1</c> can decode this representation.</p>
-	      <p>This version encode atoms that can be represented by a
-	      latin1 string using latin1 encoding while only atoms that
-	      cannot be represented by latin1 are encoded using utf8.</p>
+	      <p>Atoms that can be represented by a latin1 string are encoded
+	      using latin1 while only atoms that cannot be represented by latin1
+	      are encoded using utf8.</p>
 	    </item>
 	    <tag><c>2</c></tag>
 	    <item>
-              <p>Drops usage of the latin1 atom encoding and unconditionally
-	      use utf8 encoding for all atoms. Erlang/OTP
-	      systems as of R16B can decode this representation.</p>
-              <change>
-                <p>In Erlang/OTP 26, the default <c>minor_version</c> is planned
-                to change from 1 to 2. See
-                <seeguide marker="system/general_info:upcoming_incompatibilities#atoms_be_utf8">
-                  Upcoming Potential Incompatibilities
-                </seeguide>.
-                </p>
-              </change>
+              <p>This is as of Erlang/OTP 26.0 the <em>default</em>. Atoms are
+	      unconditionally encoded using utf8. Erlang/OTP systems as of R16B
+	      can decode this representation.</p>
 	    </item>
 	  </taglist>
           <p>Option <c>deterministic</c> (introduced in OTP 24.1) can

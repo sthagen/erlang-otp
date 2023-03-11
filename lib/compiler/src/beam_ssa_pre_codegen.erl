@@ -2870,9 +2870,9 @@ reserve_call_args(Args) ->
     reserve_call_args(Args, 0, #{}).
 
 reserve_call_args([#b_var{}=Var|As], X, Xs) ->
-    reserve_call_args(As, X+1, Xs#{Var=>{x,X}});
+    reserve_call_args(As, X+1, Xs#{Var => {x,X}});
 reserve_call_args([#b_literal{}|As], X, Xs) ->
-    reserve_call_args(As, X+1, Xs);
+    reserve_call_args(As, X+1, Xs#{{x,X} => hole});
 reserve_call_args([], _, Xs) -> Xs.
 
 reserve_xreg(V, Xs, Res) ->
@@ -2898,21 +2898,29 @@ reserve_xreg(V, Xs, Res) ->
 %%  invoking the garbage collector.
 
 res_xregs_prune(Xs, Used, Res) when map_size(Xs) =/= 0 ->
-    %% The number of safe registers is the number of the X registers
-    %% used after this point. The actual number of safe registers may
-    %% be higher than this number, but this is a conservative safe
-    %% estimate.
-    NumSafe = foldl(fun(V, N) ->
-                            case Res of
-                                #{V:={x,_}} -> N + 1;
-                                #{V:=_} -> N;
-                                #{} -> N + 1
+    %% Calculate a conservative estimate for the number of safe
+    %% registers based on the used X register after this point. The
+    %% actual number of safe registers may be higher than this number.
+    NumSafe0 = foldl(fun(V, N) ->
+                             %% Count the number of used variables
+                             %% allocated to X registers.
+                             case Res of
+                                 #{V := {x,_}} -> N + 1;
+                                 #{V := _} -> N;
+                                 #{} -> N + 1
+                             end
+                     end, 0, Used),
+    NumSafe = foldl(fun(X, N) ->
+                            %% Decrement the count if there are holes.
+                            case Xs of
+                                #{{x,X} := hole} -> N - 1;
+                                #{} -> N
                             end
-                    end, 0, Used),
+                    end, NumSafe0, seq(0, NumSafe0-1)),
 
     %% Remove unsafe registers from the list of potential
     %% preferred registers.
-    maps:filter(fun(_, {x,X}) -> X < NumSafe end, Xs);
+    #{Var => Reg || Var := {x,X}=Reg <- Xs, X < NumSafe};
 res_xregs_prune(Xs, _Used, _Res) -> Xs.
 
 %%%
@@ -2985,8 +2993,8 @@ init_free(Res) ->
     #{x:=Xs0} = Free1 = maps:from_list(Free0),
     Xs = init_xregs(Xs0),
     Free = Free1#{x:=Xs},
-    Next = maps:fold(fun(K, V, A) -> [{{next,K},length(V)}|A] end, [], Free),
-    maps:merge(Free, maps:from_list(Next)).
+    Next = #{{next,K} => length(V) || K := V <- Free},
+    maps:merge(Free, Next).
 
 init_free_1([{_,{prefer,{x,_}=Reg}}|Res]) ->
     [{x,Reg}|init_free_1(Res)];

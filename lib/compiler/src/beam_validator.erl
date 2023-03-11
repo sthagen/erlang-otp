@@ -2073,7 +2073,7 @@ init_stack(Tag, Y, Vst) ->
     init_stack(Tag, Y - 1, create_tag(Tag, allocate, [], {y,Y}, Vst)).
 
 trim_stack(From, To, Top, #st{ys=Ys0}=St) when From =:= Top ->
-    Ys = maps:filter(fun({y,Y}, _) -> Y < To end, Ys0),
+    Ys = #{Reg => Val || {y,Y}=Reg := Val <- Ys0, Y < To},
     St#st{numy=To,ys=Ys};
 trim_stack(From, To, Top, St0) ->
     Src = {y, From},
@@ -2128,9 +2128,7 @@ prune_x_regs(Live, #vst{current=St0}=Vst) when is_integer(Live) ->
                              ({y,_}) ->
                                   true
                          end, Fragile0),
-    Xs = maps:filter(fun({x,X}, _) ->
-                             X < Live
-                     end, Xs0),
+    Xs = #{Reg => Val || {x,X}=Reg := Val <- Xs0, X < Live},
     St = St0#st{fragile=Fragile,xs=Xs},
     Vst#vst{current=St}.
 
@@ -2282,12 +2280,14 @@ infer_types(CompareOp, LHS, {Kind,_}=RHS, Vst) when Kind =:= x; Kind =:= y ->
 infer_types(CompareOp, LHS, RHS, #vst{current=#st{vs=Vs}}=Vst0) ->
     case Vs of
         #{ LHS := LEntry, RHS := REntry } ->
-            Vst = infer_types_1(LEntry, RHS, CompareOp, Vst0),
-            infer_types_1(REntry, LHS, CompareOp, Vst);
+            Vst = infer_types_1(LEntry, canonical_value(RHS, Vst0),
+                                CompareOp, Vst0),
+            infer_types_1(REntry, canonical_value(LHS, Vst),
+                          CompareOp, Vst);
         #{ LHS := LEntry } ->
-            infer_types_1(LEntry, RHS, CompareOp, Vst0);
+            infer_types_1(LEntry, canonical_value(RHS, Vst0), CompareOp, Vst0);
         #{ RHS := REntry } ->
-            infer_types_1(REntry, LHS, CompareOp, Vst0);
+            infer_types_1(REntry, canonical_value(LHS, Vst0), CompareOp, Vst0);
         #{} ->
             Vst0
     end.
@@ -2626,12 +2626,9 @@ update_ne_types_1(LHS, RHS, Vst0) ->
             %% If LHS has a specific value after subtraction we can infer types
             %% as if we've made an exact match, which is much stronger than
             %% ne_exact.
-            LType = get_term_type(LHS, Vst),
-            case beam_types:get_singleton_value(LType) of
-                {ok, Value} ->
-                    infer_types(eq_exact, LHS, value_to_literal(Value), Vst);
-                error ->
-                    Vst
+            case canonical_value(LHS, Vst) of
+                LHS -> Vst;
+                Value -> infer_types(eq_exact, LHS, Value, Vst)
             end;
         false ->
             Vst0
@@ -2760,6 +2757,18 @@ value_to_literal(A) when is_atom(A) -> {atom,A};
 value_to_literal(F) when is_float(F) -> {float,F};
 value_to_literal(I) when is_integer(I) -> {integer,I};
 value_to_literal(Other) -> {literal,Other}.
+
+canonical_value(Val, Vst) ->
+    Type = get_term_type(Val, Vst),
+    case beam_types:is_singleton_type(Type) of
+        true ->
+            case beam_types:get_singleton_value(Type) of
+                {ok, Res} -> value_to_literal(Res);
+                error -> Val
+            end;
+        false ->
+            Val
+    end.
 
 %% These are just wrappers around their equivalents in beam_types, which
 %% handle the validator-specific #t_abstract{} type.
