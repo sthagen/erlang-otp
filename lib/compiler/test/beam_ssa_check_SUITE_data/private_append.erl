@@ -58,6 +58,7 @@
 	 transformable31b/1,
          transformable32/0,
          transformable32/1,
+         transformable33/0,
 
 	 not_transformable1/2,
 	 not_transformable2/1,
@@ -72,7 +73,10 @@
          not_transformable11/0,
          not_transformable12/1,
          not_transformable13/1,
-         not_transformable14/0]).
+         not_transformable14/0,
+         not_transformable15/2,
+
+         id/1]).
 
 %% Trivial smoke test
 transformable0(L) ->
@@ -749,6 +753,18 @@ transformable32(#{}) ->
 transformable32(_) ->
     <<>>.
 
+%% Check that we don't crash (Github issue #6999) while attempting to
+%% patch the empty list, but also that Dest is created with private_append.
+transformable33() ->
+%ssa% () when post_ssa_opt ->
+%ssa% _ = bs_create_bin(private_append, ...).
+    [F01] = [transformable33_inner(<<"0">>) || _ <- [1]],
+    Dest = <<F01/binary>>,
+    Dest.
+
+transformable33_inner(V) ->
+    << <<C>> || <<C:4>> <= V >>.
+
 % Should not be transformed as we can't know the alias status of Acc
 not_transformable1([H|T], Acc) ->
 %ssa% (_, Arg1) when post_ssa_opt ->
@@ -946,3 +962,18 @@ not_transformable14() ->
     A = << <<"x">> || true >>,
     B = <<A/binary, "z">>,
     {A, B}.
+
+
+%% Check that we don't crash in cases where tracking a value ends up
+%% in operations through which we can't continue tracking. GH-7011.
+not_transformable15(V, _) when V ->
+%ssa% (_, _) when post_ssa_opt ->
+%ssa% _ = bs_init_writable(_),
+%ssa% B = call(fun not_transformable15/2, _, _),
+%ssa% _ = bs_create_bin(private_append, _, B, ...).
+    << ok || catch <<(not_transformable15(id(ok), ok))/binary>> >>;
+not_transformable15(_, V) ->
+    id(ok) bor V.
+
+id(I) ->
+    I.

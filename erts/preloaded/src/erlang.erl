@@ -86,6 +86,7 @@
 -type boolean() :: true | false.
 -type byte() :: 0..255.
 -type char() :: 0..16#10FFFF.
+-type dynamic() :: dynamic().
 -type float() :: float().
 -type function() :: fun().
 -type identifier() :: pid() | port() | reference().
@@ -123,7 +124,7 @@
 -type timeout() :: 'infinity' | non_neg_integer().
 -type tuple() :: tuple().
 -export_type([any/0, arity/0, atom/0, binary/0, bitstring/0, bool/0, boolean/0, byte/0,
-              char/0, float/0, function/0, identifier/0, integer/0, iodata/0, iolist/0,
+              char/0, dynamic/0, float/0, function/0, identifier/0, integer/0, iodata/0, iolist/0,
               list/0, list/1, map/0, maybe_improper_list/0, maybe_improper_list/2, mfa/0,
               module/0, neg_integer/0, nil/0, no_return/0, node/0, non_neg_integer/0,
               none/0, nonempty_binary/0, nonempty_bitstring/0, nonempty_improper_list/2,
@@ -974,7 +975,11 @@ external_size(_Term) ->
 %% external_size/2
 -spec erlang:external_size(Term, Options) -> non_neg_integer() when
       Term :: term(),
-      Options :: [{minor_version, Version :: non_neg_integer()}].
+      Options :: [compressed |
+         {compressed, Level :: 0..9} |
+         deterministic |
+         {minor_version, Version :: 0..2} |
+         local ].
 external_size(_Term, _Options) ->
     erlang:nif_error(undefined).
 
@@ -2768,7 +2773,8 @@ term_to_binary(_Term) ->
       Options :: [compressed |
          {compressed, Level :: 0..9} |
          deterministic |
-         {minor_version, Version :: 0..2} ].
+         {minor_version, Version :: 0..2} |
+         local ].
 term_to_binary(_Term, _Options) ->
     erlang:nif_error(undefined).
 
@@ -2782,7 +2788,8 @@ term_to_iovec(_Term) ->
       Options :: [compressed |
          {compressed, Level :: 0..9} |
          deterministic |
-         {minor_version, Version :: 0..2} ].
+         {minor_version, Version :: 0..2} |
+         local ].
 term_to_iovec(_Term, _Options) ->
     erlang:nif_error(undefined).
 
