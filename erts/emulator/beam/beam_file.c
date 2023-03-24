@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2020-2022. All Rights Reserved.
+ * Copyright Ericsson AB 2020-2023. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -651,13 +651,14 @@ static int parse_type_chunk_otp_26(BeamFile *beam, BeamReader *p_reader) {
 
     for (i = 0; i < count; i++) {
         const byte *type_data;
+        int raw_types;
         int extra;
 
         LoadAssert(beamreader_read_bytes(p_reader, 2, &type_data));
-        extra = beam_types_decode_type_otp_26(type_data, &types->entries[i]);
+        extra = beam_types_decode_type_otp_26(type_data, &raw_types, &types->entries[i]);
         LoadAssert(extra >= 0);
         LoadAssert(beamreader_read_bytes(p_reader, extra, &type_data));
-        beam_types_decode_extra_otp_26(type_data, &types->entries[i]);
+        beam_types_decode_extra_otp_26(type_data, raw_types, &types->entries[i]);
     }
 
     /* The first entry MUST be the "any type." */
