@@ -2168,7 +2168,7 @@ AC_CHECK_FUNCS([getipnodebyname getipnodebyaddr gethostbyname2])
 AC_CHECK_FUNCS([ieee_handler fpsetmask finite isnan isinf res_gethostbyname dlopen \
 		dlvsym pread pwrite memmove strerror strerror_r strncasecmp \
 		gethrtime localtime_r gmtime_r mprotect madvise posix_madvise \
-		mmap mremap memcpy mallopt sbrk _sbrk __sbrk brk _brk __brk \
+		mmap mremap memcpy memrchr mallopt sbrk _sbrk __sbrk brk _brk __brk \
 		flockfile fstat strlcpy strlcat setsid posix2time time2posix \
 		setlocale nl_langinfo poll mlockall ppoll vsyslog])
 
@@ -3539,26 +3539,6 @@ dnl ----------------------------------------------------------------------
 if test "x$GCC" = xyes; then
   CFLAGS="$WERRORFLAGS $CFLAGS"
 fi
-
-dnl ----------------------------------------------------------------------
-dnl Enable -fsanitize= flags.
-dnl ----------------------------------------------------------------------
-
-m4_define(DEFAULT_SANITIZERS, [address,undefined])
-AC_ARG_ENABLE(
-    sanitizers,
-    AS_HELP_STRING(
-        [--enable-sanitizers@<:@=comma-separated list of sanitizers@:>@],
-	    [Default=DEFAULT_SANITIZERS]),
-[
-case "$enableval" in
-    no) sanitizers= ;;
-    yes) sanitizers="-fsanitize=DEFAULT_SANITIZERS" ;;
-    *) sanitizers="-fsanitize=$enableval" ;;
-esac
-CFLAGS="$CFLAGS $sanitizers"
-LDFLAGS="$LDFLAGS $sanitizers"
-])
 
 dnl ----------------------------------------------------------------------
 dnl Enable build determinism flag
