@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1999-2022. All Rights Reserved.
+ * Copyright Ericsson AB 1999-2023. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -3079,7 +3079,7 @@ erts_tracer_update(ErtsTracer *tracer, const ErtsTracer new_tracer)
     }
 }
 
-static void init_tracer_nif()
+static void init_tracer_nif(void)
 {
     erts_rwmtx_opt_t rwmtx_opt = ERTS_RWMTX_OPT_DEFAULT_INITER;
     rwmtx_opt.type = ERTS_RWMTX_TYPE_EXTREMELY_FREQUENT_READ;
@@ -3092,7 +3092,7 @@ static void init_tracer_nif()
 
 }
 
-int erts_tracer_nif_clear()
+int erts_tracer_nif_clear(void)
 {
 
     erts_rwmtx_rlock(&tracer_mtx);
