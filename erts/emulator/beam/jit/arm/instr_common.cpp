@@ -78,8 +78,8 @@ void BeamModuleAssembler::emit_error(int reason) {
 void BeamModuleAssembler::emit_error(int reason, const ArgSource &Src) {
     auto src = load_source(Src, TMP2);
 
-    ERTS_CT_ASSERT_FIELD_PAIR(Process, freason, fvalue);
     mov_imm(TMP1, reason);
+    ERTS_CT_ASSERT_FIELD_PAIR(Process, freason, fvalue);
     a.stp(TMP1, src.reg, arm::Mem(c_p, offsetof(Process, freason)));
     emit_raise_exception();
 }
@@ -240,7 +240,7 @@ void BeamModuleAssembler::emit_normal_exit() {
 
     mov_imm(TMP1, EXC_NORMAL);
     a.str(TMP1, arm::Mem(c_p, offsetof(Process, freason)));
-    a.str(ZERO, arm::Mem(c_p, offsetof(Process, arity)));
+    a.strb(ZERO.w(), arm::Mem(c_p, offsetof(Process, arity)));
     a.mov(ARG1, c_p);
     mov_imm(ARG2, am_normal);
     runtime_call<2>(erts_do_exit_process);
@@ -2481,7 +2481,8 @@ void BeamModuleAssembler::emit_raw_raise() {
 }
 
 #define TEST_YIELD_RETURN_OFFSET                                               \
-    (BEAM_ASM_FUNC_PROLOGUE_SIZE + sizeof(Uint32[3]))
+    (BEAM_ASM_FUNC_PROLOGUE_SIZE + sizeof(Uint32[3]) +                         \
+     (erts_alcu_enable_code_atags ? sizeof(Uint32) : 0))
 
 /* ARG3 = current_label */
 void BeamGlobalAssembler::emit_i_test_yield_shared() {
@@ -2489,8 +2490,8 @@ void BeamGlobalAssembler::emit_i_test_yield_shared() {
     a.add(ARG3, ARG3, imm(TEST_YIELD_RETURN_OFFSET));
 
     a.str(ARG2, arm::Mem(c_p, offsetof(Process, current)));
-    a.ldr(ARG2, arm::Mem(ARG2, offsetof(ErtsCodeMFA, arity)));
-    a.str(ARG2, arm::Mem(c_p, offsetof(Process, arity)));
+    a.ldr(ARG2.w(), arm::Mem(ARG2, offsetof(ErtsCodeMFA, arity)));
+    a.strb(ARG2.w(), arm::Mem(c_p, offsetof(Process, arity)));
 
     a.b(labels[context_switch_simplified]);
 }
@@ -2502,6 +2503,16 @@ void BeamModuleAssembler::emit_i_test_yield() {
            BEAM_ASM_FUNC_PROLOGUE_SIZE);
 
     a.adr(ARG3, current_label);
+
+    if (erts_alcu_enable_code_atags) {
+        /* The point-of-origin allocation tags are vastly improved when the
+         * instruction pointer is updated frequently. This has a relatively low
+         * impact on performance but there's little point in doing this unless
+         * the user has requested it -- it's an undocumented feature for
+         * now. */
+        a.str(ARG3, arm::Mem(c_p, offsetof(Process, i)));
+    }
+
     a.subs(FCALLS, FCALLS, imm(1));
     a.b_le(resolve_fragment(ga->get_i_test_yield_shared(), disp1MB));
 

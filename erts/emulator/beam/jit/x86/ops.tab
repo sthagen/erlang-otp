@@ -761,7 +761,7 @@ nofail_bif2 S1=d S2 Bif Dst | is_ne_exact_bif(Bif) => bif_is_ne_exact S1 S2 Dst
 nofail_bif2 S1 S2 Bif Dst | is_ge_bif(Bif) => bif_is_ge S1 S2 Dst
 nofail_bif2 S1 S2 Bif Dst | is_lt_bif(Bif) => bif_is_lt S1 S2 Dst
 
-i_get_hash c I d
+i_get_hash c W d
 i_get s d
 
 self d
@@ -858,7 +858,7 @@ int_func_start Func_Label Func_Line M F A |
     func_line Func_Line |
     aligned_label Func_Label u=8 |
     i_func_info Func_Label M F A |
-      aligned_label Entry_Label u=8 |
+      aligned_label Entry_Label u=4 |
       i_breakpoint_trampoline |
       line Entry_Line |
       call_bif_mfa M F A
@@ -868,7 +868,7 @@ int_func_start Func_Label Func_Line M F A |
     func_line Func_Line |
     aligned_label Func_Label u=8 |
     i_func_info Func_Label M F A |
-      aligned_label Entry_Label u=8 |
+      aligned_label Entry_Label u=4 |
       i_breakpoint_trampoline |
       line Entry_Line |
       i_test_yield
@@ -1254,7 +1254,7 @@ i_get_map_elements f s I *
 
 i_get_map_element_hash Fail Src=c Key Hash Dst =>
     move Src x | i_get_map_element_hash Fail x Key Hash Dst
-i_get_map_element_hash f S c I S
+i_get_map_element_hash f S c W S
 
 i_get_map_element Fail Src=c Key Dst =>
     move Src x | i_get_map_element Fail x Key Dst
@@ -1409,19 +1409,6 @@ unsupported_guard_bif A B C | never() => _
 # R13B03
 #
 on_load
-
-#
-# R14A.
-#
-# Superseded in OTP 24 by 'recv_marker_reserve' and friends.
-#
-
-recv_mark f => i_recv_mark
-i_recv_mark
-
-recv_set Fail | label Lbl | loop_rec Lf Reg =>
-    i_recv_set | label Lbl | loop_rec Lf Reg
-i_recv_set
 
 #
 # OTP 21.

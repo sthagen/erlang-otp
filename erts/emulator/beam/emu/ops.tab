@@ -1013,7 +1013,7 @@ bif1 Fail=f Bif S1 Dst    => i_bif1 S1 Fail Bif Dst
 bif2 p Bif S1 S2 Dst      => i_bif2_body S2 S1 Bif Dst
 bif2 Fail=f Bif S1 S2 Dst => i_bif2 S2 S1 Fail Bif Dst
 
-i_get_hash c I d
+i_get_hash c W d
 i_get s d
 
 self xy
@@ -1573,7 +1573,7 @@ i_get_map_elements f? s I *
 
 i_get_map_element_hash Fail Src=c Key Hash Dst =>
     move Src x | i_get_map_element_hash Fail x Key Hash Dst
-i_get_map_element_hash f? xy c I xy
+i_get_map_element_hash f? xy c W xy
 
 i_get_map_element Fail Src=c Key Dst =>
     move Src x | i_get_map_element Fail x Key Dst
@@ -1736,19 +1736,6 @@ unsupported_guard_bif A B C | never() => _
 # R13B03
 #
 on_load
-
-#
-# R14A.
-#
-# Superseded in OTP 24 by 'recv_marker_reserve' and friends.
-#
-
-recv_mark f => i_recv_mark
-i_recv_mark
-
-recv_set Fail | label Lbl | loop_rec Lf Reg =>
-    i_recv_set | label Lbl | loop_rec Lf Reg
-i_recv_set
 
 #
 # OTP 21.

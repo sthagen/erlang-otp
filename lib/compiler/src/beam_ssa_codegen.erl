@@ -34,14 +34,14 @@
                 splitwith/2,takewhile/2]).
 
 -record(cg, {lcount=1 :: beam_label(),          %Label counter
-	     functable=#{} :: #{fa()=>beam_label()},
-             labels=#{} :: #{ssa_label()=>0|beam_label()},
+	     functable=#{} :: #{fa() => beam_label()},
+             labels=#{} :: #{ssa_label() => 0|beam_label()},
              used_labels=gb_sets:empty() :: gb_sets:set(ssa_label()),
-             regs=#{} :: #{beam_ssa:var_name()=>ssa_register()},
+             regs=#{} :: #{beam_ssa:b_var() => ssa_register()},
              ultimate_fail=1 :: beam_label(),
              catches=gb_sets:empty() :: gb_sets:set(ssa_label()),
              fc_label=1 :: beam_label()
-             }).
+            }).
 
 -spec module(beam_ssa:b_module(), [compile:option()]) ->
                     {'ok',beam_asm:module_code()}.
@@ -68,7 +68,7 @@ module(#b_module{name=Mod,exports=Es,attributes=Attrs,body=Fs}, Opts) ->
                    stack=none :: 'none' | pos_integer(),
                    words=#need{} :: #need{},
                    live :: 'undefined' | pos_integer(),
-                   def_yregs=[] :: [yreg()]
+                   def_yregs=[] :: [b_var()]
                   }).
 
 -record(cg_br, {bool :: beam_ssa:value(),
@@ -1814,6 +1814,18 @@ cg_instr(bs_get_position, [Ctx], Dst, Set) ->
 cg_instr(put_map, [{atom,assoc},SrcMap|Ss], Dst, Set) ->
     Live = get_live(Set),
     [{put_map_assoc,{f,0},SrcMap,Dst,Live,{list,Ss}}];
+cg_instr(put_map, [{atom,exact},SrcBadMap|_Ss], _Dst, #cg_set{anno=Anno}=Set) ->
+    %% GH-7283: An exact `put_map` without a failure label was not
+    %% handled. The absence of the failure label can only mean that
+    %% the source is known not to be a valid map. (None of the current
+    %% optimization passes can figure out that the key is always
+    %% present in the map and that the operation therefore can never
+    %% fail.)
+    Live = get_live(Set),
+    [{test_heap,3,Live},
+     {put_tuple2,{x,0},{list,[{atom,badmap},SrcBadMap]}},
+     line(Anno),
+     {call_ext_last,1,{extfunc,erlang,error,1},1}];
 cg_instr(is_nonempty_list, Ss, Dst, Set) ->
     #cg_set{anno=#{was_bif_is_list := true}} = Set, %Assertion.
 
