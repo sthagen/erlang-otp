@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2001-2022. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2023. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -2619,6 +2619,7 @@ beam_bool_SUITE(_Config) ->
     gh_6164(),
     gh_6184(),
     gh_7252(),
+    gh_7339(),
     ok.
 
 before_and_inside_if() ->
@@ -3192,6 +3193,17 @@ gh_7252_c(A) when ((ok > A) and ((bnot ok) =:= ok)) or (not (ok > A)) ->
     foo;
 gh_7252_c(_) ->
     bar.
+
+gh_7339() ->
+    b = do_gh_7339(id(42)),
+    b = do_gh_7339(id(42.0)),
+    b = do_gh_7339(id(#{})),
+    ok.
+
+do_gh_7339(M) when is_number(M) or (not is_map(M#{a => b})) ->
+  a;
+do_gh_7339(_) ->
+  b.
 
 %%%
 %%% End of beam_bool_SUITE tests.

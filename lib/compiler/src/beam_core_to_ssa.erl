@@ -66,7 +66,7 @@
                 map/2,mapfoldl/3,member/2,
                 keyfind/3,keysort/2,last/1,
                 partition/2,reverse/1,reverse/2,
-                seq/2,sort/1,sort/2,splitwith/2,
+                sort/1,sort/2,splitwith/2,
                 zip/2]).
 -import(ordsets, [add_element/2,del_element/2,intersection/2,
                   subtract/2,union/2,union/1]).
@@ -148,8 +148,6 @@ get_anno(#cg_select{anno=Anno}) -> Anno.
                funs=[],                         %Fun functions
                free=#{},                        %Free variables
                ws=[]   :: [warning()],          %Warnings.
-               no_make_fun3 :: boolean(),
-               no_shared_fun_wrappers=false :: boolean(),
                no_min_max_bifs=false :: boolean()
               }).
 
@@ -159,14 +157,9 @@ get_anno(#cg_select{anno=Anno}) -> Anno.
 module(#c_module{name=#c_literal{val=Mod},exports=Es,attrs=As,defs=Fs}, Options) ->
     Kas = attributes(As),
     Kes = map(fun (#c_var{name={_,_}=Fname}) -> Fname end, Es),
-    NoSharedFunWrappers = proplists:get_bool(no_shared_fun_wrappers,
-                                             Options),
     NoMinMaxBifs = proplists:get_bool(no_min_max_bifs, Options),
-    NoMakeFun3 = proplists:get_bool(no_make_fun3, Options),
     St0 = #kern{module=Mod,
-                no_shared_fun_wrappers=NoSharedFunWrappers,
-                no_min_max_bifs=NoMinMaxBifs,
-                no_make_fun3=NoMakeFun3},
+                no_min_max_bifs=NoMinMaxBifs},
     {Kfs,St} = mapfoldl(fun function/2, St0, Fs),
     Body = Kfs ++ St#kern.funs,
     Code = #b_module{name=Mod,exports=Kes,attributes=Kas,body=Body},
@@ -281,21 +274,9 @@ gexpr_test_add(Ke, St0) ->
 %% expr(Cexpr, Sub, State) -> {Kexpr,[PreKexpr],State}.
 %%  Convert a Core expression, flattening it at the same time.
 
-expr(#c_var{anno=A,name={Name0,Arity}}=Fname, Sub, St) ->
-    case St#kern.no_shared_fun_wrappers of
-        false ->
-            Name = get_fsub(Name0, Arity, Sub),
-            {#b_local{name=#b_literal{val=Name},arity=Arity},[],St};
-        true ->
-            %% For backward compatibility with OTP 22 and earlier,
-            %% use the pre-generated name for the fun wrapper.
-            %% There will be one wrapper function for each occurrence
-            %% of `fun F/A`.
-            Vs = [#c_var{name=list_to_atom("V" ++ integer_to_list(V))} ||
-                     V <- seq(1, Arity)],
-            Fun = #c_fun{anno=A,vars=Vs,body=#c_apply{anno=A,op=Fname,args=Vs}},
-            expr(Fun, Sub, St)
-    end;
+expr(#c_var{name={Name0,Arity}}, Sub, St) ->
+    Name = get_fsub(Name0, Arity, Sub),
+    {#b_local{name=#b_literal{val=Name},arity=Arity},[],St};
 expr(#c_var{name=V}, Sub, St) ->
     {#b_var{name=get_vsub(V, Sub)},[],St};
 expr(#c_literal{val=V}, _Sub, St) ->
@@ -375,15 +356,8 @@ expr(#c_call{anno=A,module=M0,name=F0,args=Cargs}, Sub, St0) ->
             Remote = #b_remote{mod=M,name=F,arity=length(Args)},
             {#cg_call{anno=A,op=Remote,args=Args},Ap,St};
         is_record ->
-            [TupleVar,#c_literal{}=Tag,#c_literal{val=Arity}] = Cargs,
-            {[Any|NotUsed],St} = new_core_vars(Arity, St0),
-            TuplePat = #c_tuple{es=[Tag|NotUsed]},
-            False = #c_literal{val=false},
-            True = #c_literal{val=true},
-            Cs = [#c_clause{pats=[TuplePat],guard=True,body=True},
-                  #c_clause{pats=[Any],guard=True,body=False}],
-            Case = #c_case{arg=TupleVar,clauses=Cs},
-            expr(Case, Sub, St);
+            {Args,Ap,St} = atomic_list(Cargs, Sub, St0),
+            {#cg_internal{anno=internal_anno(A),op=is_record,args=Args},Ap,St};
         error ->
             %% Invalid call (e.g. M:42/3). Issue a warning, and let
             %% the generated code call apply/3.
@@ -1019,16 +993,6 @@ new_vars(N, St0, Vs) when N > 0 ->
 new_vars(0, St, Vs) -> {Vs,St}.
 
 make_vars(Vs) -> [#b_var{name=V} || V <- Vs].
-
-%% new_core_vars(Count, State) -> {[#c_var{}],State}.
-
-new_core_vars(N, St) when is_integer(N) ->
-    new_core_vars(N, St, []).
-
-new_core_vars(N, St0, Vs) when N > 0 ->
-    {V,St1} = new_var_name(St0),
-    new_core_vars(N-1, St1, [#c_var{name=V}|Vs]);
-new_core_vars(0, St, Vs) -> {Vs,St}.
 
 %% call_type(Mod, Name, [Arg], State) -> bif | call | is_record | error.
 
@@ -2157,11 +2121,7 @@ uexpr(Atomic, {break,[Dst]}, St0) ->
 
 make_fun(Rs, Local, FreeVars, St0) ->
     {[Dst],St1} = ensure_return_vars(Rs, St0),
-    Op = case St1 of
-             #kern{no_make_fun3=false} -> make_fun;
-             #kern{no_make_fun3=true} -> old_make_fun
-         end,
-    {#b_set{op=Op,dst=Dst,args=[Local|FreeVars]},St1}.
+    {#b_set{op=make_fun,dst=Dst,args=[Local|FreeVars]},St1}.
 
 add_local_function(_, #kern{funs=ignore}=St) ->
     St;
@@ -2402,7 +2362,8 @@ cg(#cg_seq{arg=Arg,body=Body}, St0) ->
     {ArgIs ++ BodyIs,St};
 cg(#cg_call{anno=Anno,op=Func,args=As,ret=Rs}, St) ->
     call_cg(Func, As, Rs, Anno, St);
-cg(#cg_internal{anno=Anno,op=Op,args=As,ret=Rs}, St) ->
+cg(#cg_internal{anno=Anno,op=Op,args=As0,ret=Rs}, St) ->
+    As = ssa_args(As0, St),
     internal_cg(Anno, Op, As, Rs, St);
 cg(#cg_try{arg=Ta,vars=Vs,body=Tb,evars=Evs,handler=Th,ret=Rs}, St) ->
     try_cg(Ta, Vs, Tb, Evs, Th, Rs, St);
@@ -2843,6 +2804,24 @@ internal_anno(Le) ->
 
 %% internal_cg(Anno, Op, [Arg], [Ret], State) ->
 %%      {[Ainstr],State}.
+internal_cg(_Anno, is_record, [Tuple,TagVal,ArityVal], [Dst], St0) ->
+    {Arity,St1} = new_ssa_var(St0),
+    {Tag,St2} = new_ssa_var(St1),
+    {Phi,St3} = new_label(St2),
+    {False,St4} = new_label(St3),
+    {Is0,St5} = make_cond_branch({bif,is_tuple}, [Tuple], False, St4),
+    GetArity = #b_set{op={bif,tuple_size},dst=Arity,args=[Tuple]},
+    {Is1,St6} = make_cond_branch({bif,'=:='}, [Arity,ArityVal], False, St5),
+    GetTag = #b_set{op=get_tuple_element,dst=Tag,
+                    args=[Tuple,#b_literal{val=0}]},
+    {Is2,St} = make_cond_branch({bif,'=:='}, [Tag,TagVal], False, St6),
+    Is3 = [#cg_break{args=[#b_literal{val=true}],phi=Phi},
+           {label,False},
+           #cg_break{args=[#b_literal{val=false}],phi=Phi},
+           {label,Phi},
+           #cg_phi{vars=[Dst]}],
+    Is = Is0 ++ [GetArity] ++ Is1 ++ [GetTag] ++ Is2 ++ Is3,
+    {Is,St};
 internal_cg(Anno, recv_peek_message, [], [#b_var{name=Succeeded0},
                                           #b_var{}=Dst], St0) ->
     St = new_succeeded_value(Succeeded0, Dst, St0),
