@@ -144,6 +144,7 @@ static ErlNifFunc nif_funcs[] = {
     {"tgetnum_nif", 1, tty_tgetnum_nif},
     {"tgetflag_nif", 1, tty_tgetflag_nif},
     {"tgetstr_nif", 1, tty_tgetstr_nif},
+    {"tgoto_nif", 1, tty_tgoto_nif},
     {"tgoto_nif", 2, tty_tgoto_nif},
     {"tgoto_nif", 3, tty_tgoto_nif}
 };
@@ -212,6 +213,10 @@ static int tty_get_fd(ErlNifEnv *env, ERL_NIF_TERM atom, int *fd) {
 
 static ERL_NIF_TERM isatty_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     int fd;
+#ifdef __WIN32__
+    TTYResource *tty;
+#endif
+
     if (tty_get_fd(env, argv[0], &fd)) {
         if (isatty(fd)) {
             return atom_true;
@@ -221,7 +226,18 @@ static ERL_NIF_TERM isatty_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
             return atom_ebadf;
         }
     }
+
+#ifdef __WIN32__
+    if (!enif_get_resource(env, argv[0], tty_rt, (void **)&tty))
+        return enif_make_badarg(env);
+    if (tty->tty && tty->dwInMode)
+        return atom_true;
+    else
+        return atom_false;
+#else
     return enif_make_badarg(env);
+#endif
+
 }
 
 static ERL_NIF_TERM isprint_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
@@ -353,7 +369,7 @@ static ERL_NIF_TERM tty_read_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
         return enif_make_badarg(env);
 
 #ifdef __WIN32__
-    if (tty->dwInMode) {
+    if (tty->tty && tty->dwInMode) {
         ssize_t inputs_read, num_characters = 0;
         wchar_t *characters = NULL;
         INPUT_RECORD inputs[128];
@@ -361,17 +377,74 @@ static ERL_NIF_TERM tty_read_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
                               &inputs_read)) {
             return make_errno_error(env, "ReadConsoleInput");
         }
+
+        /**
+         * Reading keyevents using ReadConsoleInput is a bit fragile as
+         * different consoles and different input modes cause events to
+         * be triggered in different ways. I've so far identified four
+         * different input methods that work slightly differently and
+         * two classes of consoles that also work slightly differently.
+         *
+         * The input methods are:
+         *   - Normal key presses
+         *   - Microsoft IME
+         *   - Pasting into console
+         *   - Using ALT+ modifiers
+         *
+         * ### Normal key presses
+         *
+         * When typing normally both key down and up events are sent with
+         * the typed character. If typing a Unicode character (for instance if
+         * you are using a keyboard with Cyrillic layout), that character also
+         * is sent as both key up and key down. This behavior is the same on all
+         * consoles.
+         *
+         * ### Microsoft IME
+         *
+         * When typing Japanese, Chinese and many other languages it is common to
+         * use a "Input Method Editor". Basically what it does is that if you type
+         * "sushi" using the Japanese IME it convert that to "すし". All characters
+         * typed using IME end up as only keydown events on cmd.exe and powershell,
+         * while in Windows Terminal and Alacritty both keydown and keyup events
+         * are sent.
+         *
+         * ### Pasting into console
+         *
+         * When text pasting into the console, any ascii text pasted ends up as both
+         * keydown and keyup events. Any non-ascii text pasted seem to be sent using
+         * a keydown event with UnicodeChar set to 0 and then immediately followed by a
+         * keyup event with the non-ascii text.
+         *
+         * ### Using ALT+ modifiers
+         *
+         * A very old way of inputting Unicode characters on Windows is to press
+         * the left alt key and then some numbers on the number pad. For instance
+         * you can type ALT+1 to write a ☺. When doing this first a keydown
+         * with 0 is sent and then some events later a keyup with the character
+         * is sent. This behavior seems to only work on cmd.exe and powershell.
+         *
+         *
+         * So to summarize:
+         *  - Normal presses -- Always keydown and keyup events
+         *  - IME -- Always keydown, sometimes keyup
+         *  - Pasting -- Always keydown=0 directly followed by keyup=value
+         *  - ALT+ -- Sometimes keydown=0 followed eventually by keyup=value
+         *
+         * So in order to read characters we should always read the keydown event,
+         * except when it is 0, then we should read the adjacent keyup event.
+         * This covers all modes and consoles except ALT+. If we want ALT+ to work
+         * we probably have to use PeekConsoleInput to make sure the correct events
+         * are available and inspect the state of the key event somehow.
+         **/
+
         for (int i = 0; i < inputs_read; i++) {
             if (inputs[i].EventType == KEY_EVENT) {
-                if (inputs[i].Event.KeyEvent.bKeyDown &&
-                    inputs[i].Event.KeyEvent.uChar.UnicodeChar < 256 &&
-                    inputs[i].Event.KeyEvent.uChar.UnicodeChar != 0) {
-                    num_characters++;
-                }
-                if (!inputs[i].Event.KeyEvent.bKeyDown &&
-                    inputs[i].Event.KeyEvent.uChar.UnicodeChar > 255 &&
-                    inputs[i].Event.KeyEvent.uChar.UnicodeChar != 0) {
-                    num_characters++;
+                if (inputs[i].Event.KeyEvent.bKeyDown) {
+                    if (inputs[i].Event.KeyEvent.uChar.UnicodeChar != 0) {
+                        num_characters++;
+                    } else if (i + 1 < inputs_read && !inputs[i].Event.KeyEvent.bKeyDown) {
+                        num_characters++;
+                    }
                 }
             }
         }
@@ -381,15 +454,12 @@ static ERL_NIF_TERM tty_read_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
             switch (inputs[i].EventType)
             {
             case KEY_EVENT:
-                if (inputs[i].Event.KeyEvent.bKeyDown &&
-                    inputs[i].Event.KeyEvent.uChar.UnicodeChar < 256 &&
-                    inputs[i].Event.KeyEvent.uChar.UnicodeChar != 0) {
-                    characters[res++] = inputs[i].Event.KeyEvent.uChar.UnicodeChar;
-                }
-                if (!inputs[i].Event.KeyEvent.bKeyDown &&
-                    inputs[i].Event.KeyEvent.uChar.UnicodeChar > 255 &&
-                    inputs[i].Event.KeyEvent.uChar.UnicodeChar != 0) {
-                    characters[res++] = inputs[i].Event.KeyEvent.uChar.UnicodeChar;
+                if (inputs[i].Event.KeyEvent.bKeyDown) {
+                    if (inputs[i].Event.KeyEvent.uChar.UnicodeChar != 0) {
+                        characters[res++] = inputs[i].Event.KeyEvent.uChar.UnicodeChar;
+                    } else if (i + 1 < inputs_read && !inputs[i].Event.KeyEvent.bKeyDown) {
+                        characters[res++] = inputs[i+1].Event.KeyEvent.uChar.UnicodeChar;
+                    }
                 }
                 break;
             case WINDOW_BUFFER_SIZE_EVENT:
@@ -564,16 +634,13 @@ static ERL_NIF_TERM tty_tgoto_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
 #ifdef HAVE_TERMCAP
     ErlNifBinary TERM;
     char *ent;
-    int value1, value2 = 0;
+    int value1 = 0, value2 = 0;
     if (!enif_inspect_iolist_as_binary(env, argv[0], &TERM) ||
-        !enif_get_int(env, argv[1], &value1))
+        (argc > 1 && !enif_get_int(env, argv[1], &value1)) ||
+        (argc > 2 && !enif_get_int(env, argv[2], &value2))
+        )
         return enif_make_badarg(env);
-    if (argc == 2) {
-        ent = tgoto((char*)TERM.data, 0, value1);
-    } else {
-        ASSERT(argc == 3);
-        ent = tgoto((char*)TERM.data, value1, value2);
-    }
+    ent = tgoto((char*)TERM.data, value1, value2);
     if (!ent) return make_errno_error(env, "tgoto");
 
     tputs_buffer_index = 0;

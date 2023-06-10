@@ -178,6 +178,15 @@
     </func>
 
     <func>
+      <name name="filtermap" arity="2" since="OTP @OTP-18622@"/>
+      <fsummary>Filter and map set elements.</fsummary>
+      <desc>
+        <p>Filters and maps elements in <c><anno>Set1</anno></c> using function
+          <c><anno>Fun</anno></c>.</p>
+      </desc>
+    </func>
+
+    <func>
       <name name="fold" arity="3" since=""/>
       <fsummary>Fold over set elements.</fsummary>
       <desc>
@@ -262,6 +271,17 @@
     </func>
 
     <func>
+      <name name="is_equal" arity="2" since="OTP @OTP-18622@"/>
+      <fsummary>Test for equality.</fsummary>
+      <desc>
+        <p>Returns <c>true</c> if <c><anno>Set1</anno></c> and
+          <c><anno>Set2</anno></c> are equal, that is when every element of
+          one set is also a member of the respective other set, otherwise
+          <c>false</c>.</p>
+      </desc>
+    </func>
+
+    <func>
       <name name="is_member" arity="2" since=""/>
       <fsummary>Test for membership of a set.</fsummary>
       <desc>
@@ -332,6 +352,15 @@
       <desc>
         <p>Returns the largest element in <c><anno>Set</anno></c>. Assumes that
           <c><anno>Set</anno></c> is not empty.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="map" arity="2" since="OTP @OTP-18622@"/>
+      <fsummary>Map set elements.</fsummary>
+      <desc>
+        <p>Maps elements in <c><anno>Set1</anno></c> using mapping function
+          <c><anno>Fun</anno></c>.</p>
       </desc>
     </func>
 
