@@ -45,8 +45,10 @@
          proxy_call/3,
 
          %% Generic 'has support' test function(s)
+         is_socket_supported/0,
          has_support_ipv4/0,
          has_support_ipv6/0,
+	 has_support_unix_domain_socket/0,
 
          which_local_host_info/1, which_local_host_info/2,
          which_local_addr/1, which_link_local_addr/1,
@@ -1896,12 +1898,14 @@ analyze_and_print_win_host_info(Version) ->
         try
             begin
                 %% "Normally" this looks like this: "16,123 MB"
-                %% But sometimes the "," is replaced by a 255 char
-                %% which I assume must be some unicode screwup...
+                %% But sometimes the "," is replaced by a
+		%% 255 or 160 char, which I assume must be some
+		%% unicode screwup...
                 %% Anyway, filter out both of them!
                 TotPhysMem1 = lists:delete($,, TotPhysMem),
                 TotPhysMem2 = lists:delete(255, TotPhysMem1),
-                [MStr, MUnit|_] = string:tokens(TotPhysMem2, [$\ ]),
+                TotPhysMem3 = lists:delete(160, TotPhysMem2),
+                [MStr, MUnit|_] = string:tokens(TotPhysMem3, [$\ ]),
                 case string:to_lower(MUnit) of
                     "gb" ->
                         try list_to_integer(MStr) of
@@ -2682,7 +2686,19 @@ has_support_ipv6() ->
             skip("IPv6 Not Supported")
     end.
 
+is_socket_supported() ->
+    try socket:info() of
+        #{} ->
+            true
+    catch
+        error : notsup ->
+            false;
+        error : undef ->
+            false
+    end.
 
+has_support_unix_domain_socket() ->
+    socket:is_supported(local).
 
 %% This gets the local "proper" address
 %% (not {127, ...} or {169,254, ...} or {0, ...} or {16#fe80, ...})
@@ -2716,7 +2732,8 @@ which_local_host_info(Domain) ->
 
 
 which_local_host_info(LinkLocal, Domain)
-  when is_boolean(LinkLocal) andalso ((Domain =:= inet) orelse (Domain =:= inet6)) ->
+  when is_boolean(LinkLocal) andalso
+       ((Domain =:= inet) orelse (Domain =:= inet6)) ->
     case inet:getifaddrs() of
         {ok, IFL} ->
             which_local_host_info(LinkLocal, Domain, IFL, []);
@@ -2778,7 +2795,7 @@ which_local_host_info(LinkLocal, Domain, [{Name, IFO}|IFL], Acc) ->
                     which_local_host_info(LinkLocal, Domain, IFL,
                                           [Info#{name => Name}|Acc])
             catch
-                throw:_:_ ->
+                throw:_E:_ ->
                     which_local_host_info(LinkLocal, Domain, IFL, Acc)
             end;
         false ->
@@ -2805,15 +2822,27 @@ which_local_host_info2(LinkLocal, inet = _Domain, IFO) ->
                      ({_, _, _, _}) -> not LinkLocal;
                      (_) -> false
                   end),
-    NetMask   = which_local_host_info3(netmask,  IFO,
-                                       fun({_, _, _, _}) -> true;
-                                          (_) -> false
-                                       end),
-    BroadAddr = which_local_host_info3(broadaddr,  IFO,
-                                       fun({_, _, _, _}) -> true;
-                                          (_) -> false
-                                       end),
-    Flags     = which_local_host_info3(flags, IFO, fun(_) -> true end),
+    NetMask   = try which_local_host_info3(netmask,  IFO,
+					   fun({_, _, _, _}) -> true;
+					      (_) -> false
+					   end)
+		catch
+		    throw:{error, no_address} ->
+			undefined
+		end,
+    BroadAddr = try which_local_host_info3(broadaddr,  IFO,
+					   fun({_, _, _, _}) -> true;
+					      (_) -> false
+					   end)
+		catch
+		    throw:{error, no_address} ->
+			undefined
+		end,
+    Flags     = try which_local_host_info3(flags, IFO, fun(_) -> true end)
+		catch
+		    throw:{error, no_address} ->
+			[]
+		end,
     #{flags     => Flags,
       addr      => Addr,
       broadaddr => BroadAddr,

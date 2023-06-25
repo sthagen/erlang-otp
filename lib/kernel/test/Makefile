@@ -30,12 +30,15 @@ SOCKET_MODULES = \
 	socket_test_evaluator \
 	socket_test_ttest_lib \
 	socket_test_ttest_tcp_gen \
+	socket_test_ttest_tcp_gs \
 	socket_test_ttest_tcp_socket \
 	socket_test_ttest_tcp_client \
 	socket_test_ttest_tcp_client_gen \
+	socket_test_ttest_tcp_client_gs \
 	socket_test_ttest_tcp_client_socket \
 	socket_test_ttest_tcp_server \
 	socket_test_ttest_tcp_server_gen \
+	socket_test_ttest_tcp_server_gs \
 	socket_test_ttest_tcp_server_socket \
 	socket_SUITE
 
@@ -150,7 +153,7 @@ TARGET_FILES= $(MODULES:%=$(EBIN)/%.$(EMULATOR))
 INSTALL_PROGS= $(TARGET_FILES)
 
 EMAKEFILE=Emakefile
-COVERFILE=kernel.cover logger.cover
+COVERFILE=kernel.cover logger.cover tty.cover
 
 # ----------------------------------------------------
 # Release directory specification
