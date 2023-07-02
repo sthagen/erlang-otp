@@ -414,11 +414,6 @@ void BeamModuleAssembler::emit_get_two_tuple_elements(const ArgSource &Src,
     flush_vars(dst1, dst2);
 }
 
-void BeamModuleAssembler::emit_init(const ArgYRegister &Y) {
-    mov_imm(TMP1, NIL);
-    a.str(TMP1, getArgRef(Y));
-}
-
 void BeamModuleAssembler::emit_init_yregs(const ArgWord &Size,
                                           const Span<ArgVal> &args) {
     unsigned count = Size.get();
@@ -1409,8 +1404,12 @@ void BeamModuleAssembler::emit_is_eq_exact(const ArgLabel &Fail,
 
     bool is_empty_binary = false;
     if (exact_type<BeamTypeId::Bitstring>(X) && Y.isLiteral()) {
-        Eterm literal = beamfile_get_literal(beam, Y.as<ArgLiteral>().get());
-        is_empty_binary = is_binary(literal) && binary_size(literal) == 0;
+        auto unit = getSizeUnit(X);
+        if (unit != 0 && std::gcd(unit, 8) == 8) {
+            Eterm literal =
+                    beamfile_get_literal(beam, Y.as<ArgLiteral>().get());
+            is_empty_binary = is_binary(literal) && binary_size(literal) == 0;
+        }
     }
 
     if (is_empty_binary) {
@@ -2380,8 +2379,8 @@ void BeamModuleAssembler::emit_try_end(const ArgYRegister &CatchTag) {
     a.ldr(TMP1, arm::Mem(c_p, offsetof(Process, catches)));
     a.sub(TMP1, TMP1, imm(1));
     a.str(TMP1, arm::Mem(c_p, offsetof(Process, catches)));
-
-    emit_init(CatchTag);
+    mov_imm(TMP1, NIL);
+    a.str(TMP1, getArgRef(CatchTag));
 }
 
 void BeamModuleAssembler::emit_try_case(const ArgYRegister &CatchTag) {

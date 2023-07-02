@@ -32,6 +32,35 @@
   <p>This document describes the changes made to the Compiler
     application.</p>
 
+<section><title>Compiler 8.3.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed a type handling bug that would cause an internal
+	    consistence failure for correct code.</p>
+          <p>
+	    Own Id: OTP-18625 Aux Id: GH-7354 </p>
+        </item>
+        <item>
+	    <p>Fixed a bug that could cause the stack trace of
+	    <c>throw</c> exceptions to be erroneously optimized
+	    out.</p>
+          <p>
+	    Own Id: OTP-18626 Aux Id: GH-7356 </p>
+        </item>
+        <item>
+	    <p>Complex guard expression using '<c>or</c>' were not
+	    always fully evaluated, making guards that were supposed
+	    to fail succeed.</p>
+          <p>
+	    Own Id: OTP-18634 Aux Id: GH-7370 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Compiler 8.3.1</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
@@ -210,6 +239,22 @@
 	    Potential Incompatibilities</seeguide>.</p>
           <p>
 	    Own Id: OTP-18574</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Compiler 8.2.6.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed a bug that could cause the stack trace of
+	    <c>throw</c> exceptions to be erroneously optimized
+	    out.</p>
+          <p>
+	    Own Id: OTP-18626 Aux Id: GH-7356 </p>
         </item>
       </list>
     </section>
@@ -656,6 +701,22 @@
 	    the reference manual.</p>
           <p>
 	    Own Id: OTP-17988</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Compiler 8.1.1.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>The compiler could be very slow when compiling guards
+	    with multiple guard tests separated with '<c>or</c>' or
+	    '<c>;</c>'.</p>
+          <p>
+	    Own Id: OTP-18617 Aux Id: GH-7338 </p>
         </item>
       </list>
     </section>
