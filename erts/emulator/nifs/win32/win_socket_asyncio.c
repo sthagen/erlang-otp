@@ -3861,12 +3861,6 @@ ERL_NIF_TERM recv_check_ok(ErlNifEnv*       env,
                        ("WIN-ESAIO",
                         "recv_check_ok(%T, %d) -> complete success"
                         "\r\n", sockRef, descP->sock) );
-
-                /* This transfers "ownership" of the *allocated* binary to an
-                 * erlang term (no need for an explicit free).
-                 */
-                data = MKBIN(env, &opP->data.recv.buf);
-
             } else {
 
                 SSDBG( descP,
@@ -3874,13 +3868,12 @@ ERL_NIF_TERM recv_check_ok(ErlNifEnv*       env,
                         "recv_check_ok(%T, %d) -> partial (%d) success"
                         "\r\n", sockRef, descP->sock, read) );
 
-                /* This transfers "ownership" of the *allocated* binary to an
-                 * erlang term (no need for an explicit free).
-                 */
-                data = MKBIN(env, &opP->data.recv.buf);
-                data = MKSBIN(env, data, 0, read);
-
+                ESOCK_ASSERT( REALLOC_BIN(&opP->data.recv.buf, read) );
             }
+            /* This transfers "ownership" of the *allocated* binary to an
+             * erlang term (no need for an explicit free).
+             */
+            data = MKBIN(env, &opP->data.recv.buf);
 
             ESOCK_CNT_INC(env, descP, sockRef,
                           esock_atom_read_pkg, &descP->readPkgCnt, 1);
@@ -4278,18 +4271,13 @@ ERL_NIF_TERM recvfrom_check_ok(ErlNifEnv*       env,
                               opP->data.recvfrom.addrLen,
                               &eSockAddr);
 
-        if (read == opP->data.recvfrom.buf.size) {
-            /* This transfers "ownership" of the *allocated* binary to an
-             * erlang term (no need for an explicit free).
-             */
-            data = MKBIN(env, &opP->data.recvfrom.buf);
-        } else {
-            /* This transfers "ownership" of the *allocated* binary to an
-             * erlang term (no need for an explicit free).
-             */
-            data = MKBIN(env, &opP->data.recvfrom.buf);
-            data = MKSBIN(env, data, 0, read);
+        if (read != opP->data.recvfrom.buf.size) {
+            ESOCK_ASSERT( REALLOC_BIN(&opP->data.recvfrom.buf, read) );
         }
+        /* This transfers "ownership" of the *allocated* binary to an
+         * erlang term (no need for an explicit free).
+         */
+        data = MKBIN(env, &opP->data.recvfrom.buf);
 
         ESOCK_CNT_INC(env, descP, sockRef,
                       esock_atom_read_pkg, &descP->readPkgCnt, 1);
@@ -4828,7 +4816,12 @@ extern
 ERL_NIF_TERM esaio_close(ErlNifEnv*       env,
                          ESockDescriptor* descP)
 {
-    if (! IS_OPEN(descP->readState)) {
+    SSDBG( descP,
+           ("WIN-ESAIO",
+            "esaio_close(%d) -> begin closing\r\n",
+            descP->sock) );
+
+     if (! IS_OPEN(descP->readState)) {
         /* A bit of cheeting; maybe not closed yet - do we need a queue? */
         return esock_make_error_closed(env);
     }
@@ -4902,12 +4895,14 @@ BOOLEAN_T do_stop(ErlNifEnv*       env,
          * (will result in OPERATION_ABORTED for the threads).
          */
         if (! CancelIoEx((HANDLE) descP->sock, NULL) ) {
-            int save_errno = sock_errno();
+            int          save_errno = sock_errno();
+            ERL_NIF_TERM ereason    = ENO2T(env, save_errno);
 
             SSDBG( descP,
                    ("WIN-ESAIO",
-                    "do_stop {%d} -> cancel I/O failed: %s (%d)\r\n",
-                    descP->sock, erl_errno_id(save_errno), save_errno) );
+                    "do_stop {%d} -> cancel I/O failed: "
+                    "\r\n   %T\r\n",
+                    descP->sock, ereason) );
 
             /* Only issue an error message for errors *other* than
              * 'not found' (since 'not found' means there is no active
@@ -4917,10 +4912,9 @@ BOOLEAN_T do_stop(ErlNifEnv*       env,
             if (save_errno != ERROR_NOT_FOUND)
                 esock_error_msg("Failed cancel outstanding I/O operations:"
                                 "\r\n   Socket: " SOCKET_FORMAT_STR
-                                "\r\n   Reason: %s (%d)"
+                                "\r\n   Reason: %T"
                                 "\r\n",
-                                descP->sock,
-                                erl_errno_id(save_errno), save_errno);
+                                descP->sock, ereason);
             
             ret = FALSE;
 
@@ -8243,11 +8237,11 @@ ERL_NIF_TERM esaio_completion_recv_partial_done(ErlNifEnv*       env,
     if (read > descP->readPkgMax)
         descP->readPkgMax = read;
 
+    ESOCK_ASSERT( REALLOC_BIN(&opDataP->buf, read) );
     /* This transfers "ownership" of the *allocated* binary to an
      * erlang term (no need for an explicit free).
      */
     data = MKBIN(opEnv, &opDataP->buf);
-    data = MKSBIN(opEnv, data, 0, read);
 
     (void) flags;
 
@@ -8985,11 +8979,11 @@ ERL_NIF_TERM esaio_completion_recvfrom_partial(ErlNifEnv*           env,
                           opDataP->addrLen,
                           &eSockAddr);
 
+    ESOCK_ASSERT( REALLOC_BIN(&opDataP->buf, read) );
     /* This transfers "ownership" of the *allocated* binary to an
      * erlang term (no need for an explicit free).
      */
     data = MKBIN(opEnv, &opDataP->buf);
-    data = MKSBIN(opEnv, data, 0, read);
 
     /* We ignore the flags *for now*.
      * Needs to be passed up eventually!
@@ -9777,8 +9771,12 @@ void esaio_stop(ErlNifEnv*       env,
      * +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
      */
 
-    if (! IS_PID_UNDEF(&descP->closerPid)) {
-        /* We have a waiting closer process after nif_close()
+    if ( !IS_PID_UNDEF(&descP->closerPid) &&
+        (descP->closeEnv != NULL) ) {
+
+        /* We will only send this message if the user was made to 
+         * wait (async close). In that case we have en env!
+         * We have a waiting closer process after nif_close()
          * - send message to trigger nif_finalize_close()
          */
 
