@@ -2255,22 +2255,86 @@
     </func>
 
     <func>
-      <name name="ioctl" arity="2" since="OTP 24.2"/>
+      <name name="ioctl" arity="2" clause_i="1" since="OTP 24.2"
+	    anchor="ioctl-gifconf"/>
+      <name name="ioctl" arity="2" clause_i="2" since="OTP @OTP-18660@"
+	    anchor="ioctl-fion"/>
+      <name name="ioctl" arity="2" clause_i="3" since="OTP @OTP-18660@"
+	    anchor="ioctl-atmark"/>
+      <name name="ioctl" arity="2" clause_i="4" since="OTP @OTP-18660@"
+	    anchor="ioctl-atmark"/>
       <fsummary>Control device.</fsummary>
       <desc>
         <p>Retrieve socket (device) parameters.</p>
+	<p>This function retrieves a specific parameter,
+	according to <c>GetRequest</c> argument. </p>
+        <taglist>
+          <tag><c>gifconf</c></tag>
+          <item>
+	    <p>Return a list of interface (transport layer) addresses. </p>
+	    <p>Result, a list of interfaces, map with name and address. </p>
+          </item>
+
+          <tag><c>nread</c></tag>
+          <item>
+	    <p>Get the number of bytes that are immediately available
+	    for	reading. </p>
+	    <p>Result, number of bytes, is a <c>integer()</c>. </p>
+          </item>
+
+          <tag><c>nwrite</c></tag>
+          <item>
+	    <p>The number of bytes in the send queue. </p>
+	    <p>Result, number of bytes, is a <c>integer()</c>. </p>
+          </item>
+
+          <tag><c>nspace</c></tag>
+          <item>
+	    <p>Get the free space in the send queue. </p>
+	    <p>Result, number of bytes, is a <c>integer()</c>. </p>
+          </item>
+
+          <tag><c>atmark</c></tag>
+          <item>
+	    <p>Test if there is oob (out-of-bound) data waiting to be read. </p>
+	    <p>Result is a <c>boolean()</c>. </p>
+          </item>
+
+          <tag><c>tcp_info</c></tag>
+          <item>
+	    <p>Return miscellaneous TCP related information for a
+	    <em>connected</em> socket. </p>
+	    <p>Result is a <c>map()</c>. </p>
+          </item>
+
+	</taglist>
+
+	<note>
+	  <p>To see if a ioctl request is supported on the
+	  current platform: </p>
+	  <code>
+	    Request = nread,
+	    {ok, true} = socket:is_supported(ioctl_requests, Request),
+	    . 
+	    .
+	    .
+	  </code>
+	</note>
+
       </desc>
     </func>
 
     <func>
-      <name name="ioctl" arity="3" since="OTP 24.2"/>
+      <name name="ioctl" arity="3" clause_i="1" since="OTP 24.2"
+	    anchor="ioctl-misc-get"/>
       <fsummary>Control device.</fsummary>
       <desc>
-	<p>Retrieve socket (device) parameters.
-	This function retrieves a specific parameter,
+	<p>Retrieve socket (device) parameters. </p>
+	<p>This function retrieves a specific parameter,
 	according to <c>GetRequest</c> argument. The third
-	argument is the (lookup) "key", identifying the
-	interface (usually the name of the interface).</p>
+	argument is a the (lookup) "key", identifying the
+	interface (usually the name of the interface) or a
+	command to set.</p>
         <taglist>
           <tag><c>gifname</c></tag>
           <item>
@@ -2288,7 +2352,8 @@
           <tag><c>gifaddr</c></tag>
           <item>
 	    <p>Get the address of the interface with the specified name.
-	    Result, address of the interface, is a <c>socket:sockaddr()</c>. </p>
+	    Result, address of the interface,
+	    is a <c>socket:sockaddr()</c>. </p>
           </item>
 
           <tag><c>gifdstaddr</c></tag>
@@ -2346,6 +2411,86 @@
 	    <p>Result, the active flag word of the interface,
 	    is an list of <c>socket:ioctl_device_flag() | integer()</c>. </p>
           </item>
+
+	</taglist>
+
+      </desc>
+    </func>
+
+    <func>
+      <name name="ioctl" arity="3" clause_i="2" since="OTP @OTP-18660@"
+	    anchor="ioctl-rcvall"/>
+      <fsummary>Control device.</fsummary>
+      <desc>
+	<p>Set socket (device) parameters. </p>
+	<p>This function sets a specific parameter,
+	according to <c>SetRequest</c> argument. The third
+	argument is the value to set.</p>
+        <taglist>
+          <tag><c>rcvall</c></tag>
+          <item>
+	    <p>Enables (or disables) a socket to receive all IPv4 or IPv6
+	    packages passing through a network interface. </p>
+	    <p>The socket has to be either one of: </p>
+	    <taglist>
+	      <tag>An IPv4 socket</tag>
+	      <item>
+		<p>Created with the address family of <c>inet</c>,
+		socket type of <c>raw</c> and protocol set to <c>ip</c>. </p>
+	      </item>
+	      <tag>An IPv6 socket</tag>
+	      <item>
+		<p>Created with the address family of <c>inet6</c>,
+		socket type of <c>raw</c> and protocol set to <c>ipv6</c>. </p>
+	      </item>
+	    </taglist>
+	    <p>The socket must also be bound to an (explicit) local IPv4
+	    or IPv6 interface (<c>any</c> not allowed). </p>
+	    <p>Setting this IOCTL requires admin privileges. </p>
+          </item>
+
+	</taglist>
+
+      </desc>
+    </func>
+
+    <func>
+      <name name="ioctl" arity="3" clause_i="3" since="OTP @OTP-18660@"
+	    anchor="ioctl-rcvall_x"/>
+      <fsummary>Control device.</fsummary>
+      <desc>
+	<p>Set socket (device) parameters. </p>
+	<p>This function sets a specific parameter,
+	according to <c>SetRequest</c> argument. The third
+	argument is the value to set.</p>
+        <taglist>
+          <tag><c>rcvall_igmpmcall</c></tag>
+          <item>
+	    <p>Enables (or disables) a socket to receive IGMP multicast
+	    IP traffic, <em>without</em> receiving any other IP traffic. </p>
+	    <p>The socket has to be created with the address family of
+	    <c>inet</c>, socket type of <c>raw</c> and protocol set
+	    to <c>igmp</c>. </p>
+	    <p>The socket must also be bound to an (explicit) local interface
+	    (<c>any</c> not allowed). </p>
+	    <p>Must have a sufficiently large buffer. </p>
+	    <p>Setting this IOCTL requires admin privileges. </p>
+          </item>
+
+          <tag><c>rcvall_mcall</c></tag>
+          <item>
+	    <p>Enables (or disables) a socket to receive all multicast
+	    IP traffic (as in; all IP packets destined for IP addresses
+	    in the range of 224.0.0.0 to 239.255.255.255). </p>
+	    <p>The socket has to be created with the address family of
+	    <c>inet</c>, socket type of <c>raw</c> and protocol set
+	    to <c>udp</c>. </p>
+	    <p>The socket must also be bound to an (explicit) local interface
+	    (<c>any</c> not allowed). And bind to port zero</p>
+	    <p>Must have a sufficiently large buffer. </p>
+	    <p>Setting this IOCTL requires admin privileges. </p>
+          </item>
+
 	</taglist>
 
       </desc>
@@ -2562,7 +2707,7 @@
 	    <br/>Defaults to <c>false</c>. </p>
 	  </item>
 
-	  <tag><c>use_registry></c></tag>
+	  <tag><c>use_registry</c></tag>
 	  <item>
 	    <p>Enable or disable use of the socket registry for this socket.
 	    This overrides the global value.

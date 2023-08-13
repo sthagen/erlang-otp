@@ -24,7 +24,8 @@
 -compile({no_auto_import, [monitor/1]}).
 
 %% gen_tcp
--export([connect/4, listen/2, accept/2,
+-export([connect/3, connect/4,
+         listen/2, accept/2,
          send/2, recv/3,
          sendfile/4,
          shutdown/2, close/1, controlling_process/2]).
@@ -107,6 +108,14 @@ socket_inherit_opts() ->
 %%% API
 %%%
 
+connect(SockAddr, Opts, Timeout) ->
+    Timer = inet:start_timer(Timeout),
+    try
+        connect_lookup(SockAddr, Opts, Timer)
+    after
+        _ = inet:stop_timer(Timer)
+    end.
+
 connect(Address, Port, Opts, Timeout) ->
     %% ?DBG([{address, Address}, {port, Port}, {opts, Opts}, {timeout, Timeout}]),
     Timer = inet:start_timer(Timeout),
@@ -116,13 +125,31 @@ connect(Address, Port, Opts, Timeout) ->
         _ = inet:stop_timer(Timer)
     end.
 
+
 %% Helpers -------
 
-connect_lookup(Address, Port, Opts, Timer) ->
-    Opts_1 = internalize_setopts(Opts),
-    {Mod, Opts_2} = inet:tcp_module(Opts_1, Address),
-    Domain = domain(Mod),
-    {StartOpts, Opts_3} = split_start_opts(Opts_2),
+connect_lookup(#{family := Domain,
+                 addr   := Address,
+                 port   := Port} = _SockAddr, Opts0, Timer) ->
+    %% ?DBG([{domain, Domain}, {addr, Address}, {port, Port},
+    %%       {opts0, Opts0}, {timer, Timer}]),
+    Opts1        = internalize_setopts(Opts0),
+    {Mod, Opts2} = inet:tcp_module(Opts1, Address),
+    connect_lookup(Domain, Address, Port, Mod, Opts2, Timer).
+
+
+connect_lookup(Address, Port, Opts0, Timer) ->
+    %% ?DBG([{addr, Address}, {port, Port},
+    %%       {opts0, Opts0}, {timer, Timer}]),
+    Opts1        = internalize_setopts(Opts0),
+    {Mod, Opts2} = inet:tcp_module(Opts1, Address),
+    Domain       = domain(Mod),
+    connect_lookup(Domain, Address, Port, Mod, Opts2, Timer).
+
+connect_lookup(Domain, Address, Port, Mod, Opts0, Timer) ->
+    %% ?DBG([{domain, Domain}, {addr, Address}, {port, Port},
+    %%       {mod, Mod}, {opts0, Opts0}, {timer, Timer}]),
+    {StartOpts, Opts} = split_start_opts(Opts0),
     ErrRef = make_ref(),
     try
 	%% ?DBG(['try getaddrs']),
@@ -130,7 +157,7 @@ connect_lookup(Address, Port, Opts, Timer) ->
 	%% ?DBG(['try getserv']),
         TP  = val(ErrRef, Mod:getserv(Port)),
 	%% ?DBG(['process connect options']),
-        CO  = val(ErrRef, inet:connect_options(Opts_3, Mod)),
+        CO  = val(ErrRef, inet:connect_options(Opts, Mod)),
 	%% ?DBG(['process sockaddrs']),
 	SAs = sockaddrs(IPs, TP, Domain),
 	%% ?DBG([{sas, SAs}, {co, CO}]),
@@ -363,6 +390,7 @@ listen(Port, Opts) ->
         {error, _} = Error ->
             ?badarg_exit(Error)
     end.
+
 
 %% Helpers -------
 
@@ -685,14 +713,27 @@ cancel_monitor(MRef) ->
 %% -------------------------------------------------------------------------
 
 setopts(?MODULE_socket(Server, _Socket), Opts) when is_list(Opts) ->
-    call(Server, {setopts, internalize_setopts(Opts)}).
-
+    try
+        begin
+            call(Server, {setopts, internalize_setopts(Opts)})
+        end
+    catch
+        exit:badarg ->
+            {error, einval}
+    end.
 
 
 %% -------------------------------------------------------------------------
 
 getopts(?MODULE_socket(Server, _Socket), Opts) when is_list(Opts) ->
-    call(Server, {getopts, internalize_getopts(Opts)}).
+    try
+        begin
+            call(Server, {getopts, internalize_getopts(Opts)})
+        end
+    catch
+        exit:badarg ->
+            {error, einval}
+    end.
 
 
 %% -------------------------------------------------------------------------
@@ -817,6 +858,7 @@ fdopen(Fd, Opts) when is_integer(Fd), 0 =< Fd, is_list(Opts) ->
         {error, _} = Error ->
             ?badarg_exit(Error)
     end.
+
 
 %%% ========================================================================
 %%% Socket glue code
@@ -967,8 +1009,9 @@ internalize_setopts(Opts) ->
          local                      -> {tcp_module, local_tcp};
          {Tag, _} when is_atom(Tag) -> Opt;
          {raw, Level, Key, Value}   -> {raw, {Level, Key, Value}};
-        _ ->
-            exit(badarg)
+         _ ->
+             %% ?DBG([{opt, Opt}]),
+             exit(badarg)
      end || Opt <- Opts].
 
 internalize_getopts(Opts) ->
@@ -976,14 +1019,16 @@ internalize_getopts(Opts) ->
          Tag when is_atom(Tag)        -> Opt;
          {raw, _}                     -> Opt;
          {raw, Level, Key, ValueSpec} -> {raw, {Level, Key, ValueSpec}};
-         _                            -> exit(badarg)
+         _                            -> %% ?DBG([{opt, Opt}]),
+                                         exit(badarg)
      end || Opt <- Opts].
 
 externalize_getopts(Opts) ->
     [case Opt of
          {raw, {Level, Key, Value}} -> {raw, Level, Key, Value};
          {Tag, _} when is_atom(Tag) -> Opt;
-         _                          -> exit(badarg)
+         _                          -> %% ?DBG([{opt, Opt}]),
+                                       exit(badarg)
      end || Opt <- Opts].
  
 %%
@@ -1039,19 +1084,28 @@ setopts_opts(ErrRef, Opts) ->
 %% Socket options
 
 socket_setopt(Socket, raw, Value) ->
+    %% ?DBG([raw, {value, Value}]),
     case Value of
         {Level, Key, Val} ->
-            socket:setopt_native(Socket, {Level,Key}, Val);
+            try socket:setopt_native(Socket, {Level,Key}, Val) of
+                Res ->
+                    %% ?DBG([{res, Res}]),
+                    Res
+            catch
+                throw:{invalid, _} ->
+                    {error, einval}
+            end;
         _ ->
             {error, einval}
     end;
 socket_setopt(Socket, {Domain, _} = Opt, Value) when is_atom(Domain) ->
-    %% ?DBG(Opt),
+    %% ?DBG([{opt, Opt}, {value, Value}]),
     %% socket:setopt(Socket, otp, debug, true),
     Res = socket:setopt(Socket, Opt, socket_setopt_value(Opt, Value)),
     %% socket:setopt(Socket, otp, debug, false),
     Res;
 socket_setopt(Socket, DomainProps, Value) when is_list(DomainProps) ->
+    %% ?DBG([{domain_props, DomainProps}, {value, Value}]),
     %% We need to lookup the domain of the socket,
     %% so we can select which one to use.
     %% ?DBG(Opt0),
@@ -1085,45 +1139,51 @@ socket_setopt_value(_Opt, Value) -> Value.
 
 
 socket_getopt(Socket, raw, Val) ->
+    %% ?DBG([raw, {val, Val}]),
     case Val of
         {Level, Key, ValueSpec} ->
             case socket:getopt_native(Socket, {Level,Key}, ValueSpec) of
                 {ok, Value} ->
                     {ok, {Level, Key, Value}};
-                {error, _} = ERROR ->
+                {error, {invalid, _} = _Reason} ->
+                    %% ?DBG([{reason, _Reason}]),
+                    {error, einval};
+                {error, _Reason} = ERROR ->
+                    %% ?DBG([{reason, _Reason}]),
                     ERROR
             end;
         _ ->
+            %% ?DBG(bad_raw_value),
             {error, einval}
     end;
 socket_getopt(Socket, {Domain, _} = Opt, _) when is_atom(Domain) ->
-    %% ?DBG({'socket_getopt - match', Opt}),
+    %% ?DBG([{opt, Opt}]),
     %% _ = socket:setopt(Socket, otp, debug, true),
     Res = socket:getopt(Socket, Opt),
-    %% ?DBG({'socket_getopt - result', Res}),
+    %% ?DBG([{res, Res}]),
     %% _ = socket:setopt(Socket, otp, debug, false),
     socket_getopt_value(Opt, Res);
 socket_getopt(Socket, DomainProps, _) when is_list(DomainProps) ->
+    %% ?DBG([{domain_props, DomainProps}]),
     %% We need to lookup the domain of the socket,
     %% so we can select which one to use.
-    %% ?DBG({'socket_getopt - match', Tag, DomainProps}),
     case socket:getopt(Socket, otp, domain) of
         {ok, Domain} ->
             %% ?DBG({'socket_getopt - domain', Tag, Domain}),
             case lists:keysearch(Domain, 1, DomainProps) of
                 {value, {Domain, Opt}} ->
-                    %% ?DBG({'socket_getopt - ok domain', Tag, Level, OptKey}),
+                    %% ?DBG([{domain, Domain}, {opt, Opt}]),
                     %% _ = socket:setopt(Socket, otp, debug, true),
                     Res = socket:getopt(Socket, Opt),
                     %% _ = socket:setopt(Socket, otp, debug, false),
-                    %% ?DBG({'socket_getopt - result', Res}),
+                    %% ?DBG([{result, Res}]),
                     socket_getopt_value(Opt, Res);
                 false ->
-                    %% ?DBG({'socket_getopt - invalid domain', Tag, Domain, DomainProps}),
+                    %% ?DBG(no_domain),
                     {error, einval}
             end;
         {error, _DReason} ->
-            %% ?DBG({'socket_getopt - unknown domain', Tag, _DReason}),
+            %% ?DBG(no_domain),
             {error, einval}
     end.
 
@@ -1170,68 +1230,107 @@ ignore_optname(Tag) ->
         high_watermark      -> true;
         low_msgq_watermark  -> true;
         low_watermark       -> true;
-        nopush              -> true;
-        _ -> false
+        nopush              ->
+            case nopush_or_cork() of
+                undefined ->
+                    true;
+                _ ->
+                    false
+            end;
+        _ ->
+            false
     end.
 
 %% 'socket' options; translation to 'level' and 'opt'
 %%
 -compile({inline, [socket_opts/0]}).
 socket_opts() ->
-    #{
-      %% Level: otp
-      buffer => {otp, rcvbuf},
-      debug  => {otp, debug},
-      fd     => {otp, fd},
+    Opts =
+        #{
+          %% Level: otp
+          buffer => {otp, rcvbuf},
+          debug  => {otp, debug},
+          fd     => {otp, fd},
 
-      %%
-      %% Level: socket
-      bind_to_device => {socket, bindtodevice},
-      dontroute      => {socket, dontroute},
-      keepalive      => {socket, keepalive},
-      linger         => {socket, linger},
-      priority       => {socket, priority},
-      recbuf         => {socket, rcvbuf},
-      reuseaddr      => {socket, reuseaddr},
-      sndbuf         => {socket, sndbuf},
+          %%
+          %% Level: socket
+          bind_to_device   => {socket, bindtodevice},
+          dontroute        => {socket, dontroute},
+          exclusiveaddruse => {socket, exclusiveaddruse},
+          keepalive        => {socket, keepalive},
+          linger           => {socket, linger},
+          priority         => {socket, priority},
+          recbuf           => {socket, rcvbuf},
+          reuseaddr        => {socket, reuseaddr},
+          sndbuf           => {socket, sndbuf},
 
-      %%
-      %% Level: tcp
-      nodelay => {tcp, nodelay},
+          %%
+          %% Level: tcp
+          nodelay => {tcp, nodelay},
 
-      %%
-      %% Level: ip
-      recvtos => {ip, recvtos},
-      recvttl => {ip, recvttl},
-      tos     => {ip, tos},
-      ttl     => {ip, ttl},
+          %%
+          %% Level: ip
+          recvtos => {ip, recvtos},
+          recvttl => {ip, recvttl},
+          tos     => {ip, tos},
+          ttl     => {ip, ttl},
 
-      %%
-      %% Level: ipv6
-      recvtclass  => {ipv6, recvtclass},
-      ipv6_v6only => {ipv6, v6only},
-      tclass      => {ipv6, tclass},
+          %%
+          %% Level: ipv6
+          recvtclass  => {ipv6, recvtclass},
+          ipv6_v6only => {ipv6, v6only},
+          tclass      => {ipv6, tclass},
 
-      %%
-      %% Raw
-      raw => raw,
+          %%
+          %% Raw
+          raw => raw,
 
-      %%
-      %% Special cases
-      %% These are options that cannot be mapped as above,
-      %% as they, for instance, "belong to" several domains.
-      %% So, we select which level to use based on the domain
-      %% of the socket.
+          %%
+          %% Special cases
+          %% These are options that cannot be mapped as above,
+          %% as they, for instance, "belong to" several domains.
+          %% So, we select which level to use based on the domain
+          %% of the socket.
 
-      %% This is a special case.
-      %% Only supported on Linux and then only actually for IPv6,
-      %% but unofficially also for ip...barf...
-      %% In both cases this is *no longer valid* as the RFC which 
-      %% introduced this, RFC 2292, is *obsoleted* by RFC 3542, where
-      %% this "feature" *does not exist*...
-      pktoptions  =>
-           [{inet, {ip, pktoptions}}, {inet6, {ipv6, pktoptions}}]
-      }.
+          %% This is a special case.
+          %% Only supported on Linux and then only actually for IPv6,
+          %% but unofficially also for ip...barf...
+          %% In both cases this is *no longer valid* as the RFC which 
+          %% introduced this, RFC 2292, is *obsoleted* by RFC 3542, where
+          %% this "feature" *does not exist*...
+          pktoptions  =>
+              [{inet, {ip, pktoptions}}, {inet6, {ipv6, pktoptions}}]
+         },
+    case nopush_or_cork() of
+        undefined ->
+            %% Neither
+            Opts;
+        NopushOpt ->
+            maps:put(nopush, {tcp, NopushOpt}, Opts)
+    end.
+
+-compile({inline, [nopush_or_cork/0]}).
+nopush_or_cork() ->
+    case os:type() of
+        {unix, darwin} ->
+            %% This option exist (on Darwin), but does something else!
+            undefined;
+        _ ->
+            OptsSup = socket:supports(options),
+            NoPushKey = {tcp, nopush},
+            case lists:keysearch(NoPushKey, 1, OptsSup) of
+                {value, {NoPushKey, true}} ->
+                    nopush;
+                _ ->
+                    CorkKey = {tcp, cork},
+                    case lists:keysearch(CorkKey, 1, OptsSup) of
+                        {value, {CorkKey, true}} ->
+                            cork;
+                        _ ->
+                            undefined
+                    end
+            end
+    end.
 
 -compile({inline, [server_read_write_opts/0]}).
 server_read_write_opts() ->
@@ -1605,34 +1704,48 @@ handle_event({call, From}, close, State, {P, D} = P_D) ->
 
 %% Call: getopts/1
 handle_event({call, From}, {getopts, Opts}, State, {P, D}) ->
-    %% ?DBG({call, getopts, Opts, State, D}),
+    %% ?DBG([{opts, Opts}, {state, State}, {d, D}]),
     Result = case state_getopts(P, D, State, Opts) of
                  {ok, OptVals} ->
+                     %% ?DBG([{opt_vals, OptVals}]),
                      {ok, externalize_getopts(OptVals)};
                  {error, _} = ERROR ->
                      ERROR
              end,
-    %% ?DBG({call, getopts_result, Result}),
+    %% ?DBG([{result, Result}]),
     {keep_state_and_data,
      [{reply, From, Result}]};
 
 %% Call: setopts/1
 handle_event({call, From}, {setopts, Opts}, State, {P, D}) ->
     %% ?DBG([{setopts, Opts}, {state, State}, {d, D}]),
-    {Result, D_1} = state_setopts(P, D, State, Opts),
-    %% ?DBG([{result, Result}, {d1, D_1}]),
-    case Result of
-	{error, einval} ->
-	    %% If we get this error, either the options where crap or
-	    %% the socket is in a "bad state" (maybe its closed).
-	    %% So, if that is the case we accept that we may not be
-	    %% able to update the meta data.
-	    _ = socket:setopt(P#params.socket, {otp,meta}, meta(D_1)),
-	    ok;
-	_ ->
-	    %% We should really handle this better. stop_and_reply?
-	    ok = socket:setopt(P#params.socket, {otp,meta}, meta(D_1))
-    end,
+    {Result_1, D_1} = state_setopts(P, D, State, Opts),
+    %% ?DBG([{result, Result_1}, {d1, D_1}]),
+    Result =
+        case Result_1 of
+            {error, enoprotoopt} ->
+                %% If we get this error, the options is not valid for
+                %% this (tcp) protocol.
+                _ = socket:setopt(P#params.socket, {otp,meta}, meta(D_1)),
+                {error, einval};
+
+            {error, {invalid, _}} ->
+                %% If we get this error, the options where crap.
+                _ = socket:setopt(P#params.socket, {otp,meta}, meta(D_1)),
+                {error, einval};
+
+            {error, einval} ->
+                %% If we get this error, either the options where crap or
+                %% the socket is in a "bad state" (maybe its closed).
+                %% So, if that is the case we accept that we may not be
+                %% able to update the meta data.
+                _ = socket:setopt(P#params.socket, {otp,meta}, meta(D_1)),
+                Result_1;
+            _ ->
+                %% We should really handle this better. stop_and_reply?
+                ok = socket:setopt(P#params.socket, {otp,meta}, meta(D_1)),
+                Result_1
+        end,
     Reply = {reply, From, Result},
 
     %% If the socket is deactivated; active: once | true | N > 0 -> false
@@ -2965,12 +3078,20 @@ tag(Packet) ->
 %% Exported socket option translation
 %%
 socket_setopts(Socket, Opts) ->
-    socket_setopts(
-      Socket,
-      [Opt ||
-          Opt <- internalize_setopts(Opts),
-          element(1, Opt) =/= tcp_module],
-      socket_opts()).
+    try
+        begin
+            socket_setopts(
+              Socket,
+              [Opt ||
+                  Opt <- internalize_setopts(Opts),
+                  element(1, Opt) =/= tcp_module],
+              socket_opts())
+        end
+    catch
+        exit:badarg ->
+            {error, einval}
+    end.
+
 %%
 socket_setopts(_Socket, [], _SocketOpts) ->
     ok;
@@ -3124,10 +3245,10 @@ state_setopts_active(P, D, State, Opts, Active) ->
 %% -> {ok, [Options]} | {error, einval}
 state_getopts(P, D, State, Opts) ->
     state_getopts(P, D, State, Opts, []).
-%%
 state_getopts(_P, _D, _State, [], Acc) ->
     {ok, reverse(Acc)};
 state_getopts(P, D, State, [Tag | Tags], Acc) ->
+    %% ?DBG([{tag, Tag}]),
     SocketOpts = socket_opts(),
     {Key, Val} =
         case Tag of
@@ -3151,8 +3272,10 @@ state_getopts(P, D, State, [Tag | Tags], Acc) ->
                             %% ?DBG({'socket getopt', ok, Value}),
                             state_getopts(
                               P, D, State, Tags, [{Key, Value} | Acc]);
+                        {error, einval} = ERROR ->
+                            ERROR;
                         {error, _Reason} ->
-                            %% ?DBG({'socket getopt', error, _Reason}),
+                            %% ?DBG([{reason, _Reason}]),
                             state_getopts(P, D, State, Tags, Acc)
                     end
               end;

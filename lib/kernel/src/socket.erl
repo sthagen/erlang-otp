@@ -77,7 +77,9 @@
 
 %% Misc utility functions
 -export([
-	 which_socket_kind/1
+	 which_socket_kind/1,
+         options/0, options/1, options/2, option/1, option/2,
+         protocols/0, protocol/1
 	]).
 
 -export_type([
@@ -423,14 +425,18 @@
            acceptfilter |
            bindtodevice |
            broadcast |
+           bsp_state |
            busy_poll |
            debug |
            domain |
            dontroute |
            error |
+           exclusiveaddruse |
            keepalive |
            linger |
            mark |
+           maxdg |
+           max_msg_size |
            oobinline |
            passcred |
            peek_off |
@@ -1401,6 +1407,34 @@ is_supported(Key1, Key2) ->
 %% Undocumented legacy function
 is_supported(options, Level, Opt) when is_atom(Level), is_atom(Opt) ->
     is_supported(options, {Level,Opt}).
+
+
+options() ->
+    lists:sort(supports(options)).
+
+options(Level) ->
+    [{Opt, Supported} || {{Lvl, Opt}, Supported} <- options(), (Lvl =:= Level)].
+
+options(Level, Supported) ->
+    [Opt || {Opt, Sup} <- options(Level), (Sup =:= Supported)].
+
+option({Level, Opt}) ->
+    lists:member(Opt, options(Level, true)).
+option(Level, Opt) ->
+    option({Level, Opt}).
+
+
+protocols() ->
+    lists:sort(supports(protocols)).
+
+protocol(Proto) ->
+    case lists:keysearch(Proto, 1, protocols()) of
+        {value, {Proto, Supported}} ->
+            Supported;
+        false ->
+            false
+    end.
+
 
 
 %% ===========================================================================
@@ -4390,15 +4424,39 @@ peername(Socket) ->
 %%
 %%
 
--spec ioctl(Socket, GetRequest) -> {'ok', IFConf} | {'error', Reason} when
-      Socket     :: socket(),
-      GetRequest :: 'gifconf',
-      IFConf     :: [#{name := string, addr := sockaddr()}],
-      Reason     :: posix() | 'closed'.
+-spec ioctl(Socket, GetRequest :: 'gifconf') ->
+          {'ok', IFConf :: [#{name := string, addr := sockaddr()}]} |
+          {'error', Reason} when
+      Socket :: socket(),
+      Reason :: posix() | 'closed';
 
-%% gifconf | {gifaddr, string()} | {gifindex, string()} | {gifname, integer()}
+           (Socket, GetRequest :: 'nread' | 'nwrite' | 'nspace') ->
+          {'ok', NumBytes :: non_neg_integer()} | {'error', Reason} when
+      Socket :: socket(),
+      Reason :: posix() | 'closed';
+
+           (Socket, GetRequest :: 'atmark') ->
+          {'ok', Available :: boolean()} | {'error', Reason} when
+      Socket :: socket(),
+      Reason :: posix() | 'closed';
+
+           (Socket, GetRequest :: 'tcp_info') ->
+          {'ok', Info :: map()} | {'error', Reason} when
+      Socket :: socket(),
+      Reason :: posix() | 'closed'.
+
+%% gifconf | nread | nwrite | nspace | atmark |
+%% {gifaddr, string()} | {gifindex, string()} | {gifname, integer()}
 ioctl(?socket(SockRef), gifconf = GetRequest) ->
     prim_socket:ioctl(SockRef, GetRequest);
+ioctl(?socket(SockRef), GetRequest) when (nread =:= GetRequest) orelse
+                                         (nwrite =:= GetRequest) orelse
+                                         (nspace =:= GetRequest) ->
+    prim_socket:ioctl(SockRef, GetRequest);
+ioctl(?socket(SockRef), GetRequest) when (atmark =:= GetRequest) ->
+    prim_socket:ioctl(SockRef, GetRequest);
+ioctl(Socket, GetRequest) when (tcp_info =:= GetRequest) ->
+    ioctl(Socket, GetRequest, 0);
 ioctl(Socket, GetRequest) ->
     erlang:error(badarg, [Socket, GetRequest]).
 
@@ -4474,10 +4532,21 @@ ioctl(Socket, GetRequest) ->
       GetRequest  :: 'gifname' | 'gifindex' |
                      'gifaddr' | 'gifdstaddr' | 'gifbrdaddr' |
                      'gifnetmask' | 'gifhwaddr' |
-                     'gifmtu' | 'giftxqlen' | 'gifflags',
+                     'gifmtu' | 'giftxqlen' | 'gifflags' |
+		     'tcp_info',
       NameOrIndex :: string() | integer(),
       Result      :: term(),
-      Reason      :: posix() | 'closed'.
+      Reason      :: posix() | 'closed';
+	   (Socket, SetRequest, Value) -> ok | {'error', Reason} when
+      Socket     :: socket(),
+      SetRequest :: 'rcvall',
+      Value      :: off | on | iplevel,
+      Reason     :: posix() | 'closed';
+	   (Socket, SetRequest, Value) -> ok | {'error', Reason} when
+      Socket     :: socket(),
+      SetRequest :: 'rcvall_igmpmcast' | 'rcvall_mcast',
+      Value      :: off | on,
+      Reason     :: posix() | 'closed'.
 
 ioctl(?socket(SockRef), gifname = GetRequest, Index)
   when is_integer(Index) ->
@@ -4512,8 +4581,25 @@ ioctl(?socket(SockRef), gifflags = GetRequest, Name)
 ioctl(?socket(SockRef), gifmap = GetRequest, Name)
   when is_list(Name) ->
     prim_socket:ioctl(SockRef, GetRequest, Name);
-ioctl(Socket, GetRequest, Arg) ->
-    erlang:error(badarg, [Socket, GetRequest, Arg]).
+
+ioctl(?socket(SockRef), tcp_info = GetRequest, Version)
+  when (Version =:= 0) ->
+    prim_socket:ioctl(SockRef, GetRequest, Version);
+
+ioctl(?socket(SockRef), rcvall = SetRequest, Value)
+  when (Value =:= off) orelse
+       (Value =:= on)  orelse
+       (Value =:= iplevel) ->
+    prim_socket:ioctl(SockRef, SetRequest, Value);
+ioctl(?socket(SockRef), SetRequest, Value)
+  when ((SetRequest =:= rcvall_igmpmcast) orelse
+        (SetRequest =:= rcvall_mcast)) andalso
+       ((Value =:= off) orelse
+        (Value =:= on)) ->
+    prim_socket:ioctl(SockRef, SetRequest, Value);
+
+ioctl(Socket, Request, Arg) ->
+    erlang:error(badarg, [Socket, Request, Arg]).
 
 
 -spec ioctl(Socket, SetRequest, Name, Value) -> 'ok' | {'error', Reason} when
