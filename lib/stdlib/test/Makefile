@@ -44,6 +44,7 @@ MODULES= \
 	filename_SUITE \
 	fixtable_SUITE \
 	format_SUITE \
+	gb_sets_property_test_SUITE \
 	gen_event_SUITE \
 	gen_fsm_SUITE \
 	gen_server_SUITE \
@@ -71,6 +72,7 @@ MODULES= \
 	re_testoutput1_split_test \
 	slave_SUITE \
 	sets_SUITE \
+	sets_property_test_SUITE \
 	sets_test_lib \
 	sofs_SUITE \
 	stdlib_SUITE \
