@@ -46,7 +46,8 @@
          shell_history_custom/1, shell_history_custom_errors/1,
 	 job_control_remote_noshell/1,ctrl_keys/1,
          get_columns_and_rows_escript/1,
-         shell_navigation/1, shell_multiline_navigation/1, shell_xnfix/1, shell_delete/1,
+         shell_navigation/1, shell_multiline_navigation/1, shell_multiline_prompt/1,
+         shell_xnfix/1, shell_delete/1,
          shell_transpose/1, shell_search/1, shell_insert/1,
          shell_update_window/1, shell_small_window_multiline_navigation/1, shell_huge_input/1,
          shell_invalid_unicode/1, shell_support_ansi_input/1,
@@ -63,6 +64,7 @@
          external_editor/1, external_editor_visual/1,
          external_editor_unicode/1, shell_ignore_pager_commands/1]).
 
+-export([test_invalid_keymap/1, test_valid_keymap/1]).
 %% Exports for custom shell history module
 -export([load/0, add/1]).
 %% For custom prompt testing
@@ -107,6 +109,7 @@ groups() ->
      {tty,[],
       [{group,tty_unicode},
        {group,tty_latin1},
+       test_invalid_keymap, test_valid_keymap,
        shell_suspend,
        shell_full_queue,
        external_editor,
@@ -125,7 +128,8 @@ groups() ->
       ]},
      {tty_latin1,[],[{group,tty_tests}]},
      {tty_tests, [parallel],
-      [shell_navigation, shell_multiline_navigation, shell_xnfix, shell_delete,
+      [shell_navigation, shell_multiline_navigation, shell_multiline_prompt,
+       shell_xnfix, shell_delete,
        shell_transpose, shell_search, shell_insert,
        shell_update_window, shell_small_window_multiline_navigation, shell_huge_input,
        shell_support_ansi_input,
@@ -470,6 +474,39 @@ shell_multiline_navigation(Config) ->
     after
         stop_tty(Term)
     end.
+
+shell_multiline_prompt(Config) ->
+    Term1 = start_tty([{args,["-stdlib","shell_multiline_prompt","{edlin,inverted_space_prompt}"]}|Config]),
+    Term2 = start_tty([{args,["-stdlib","shell_multiline_prompt","\"...> \""]}|Config]),
+    Term3 = start_tty([{args,["-stdlib","shell_multiline_prompt","edlin"]}|Config]),
+
+    try
+        check_location(Term1, {0, 0}),
+        send_tty(Term1,"\na"),
+        check_location(Term1, {0, 1}),
+        check_content(Term1, "   a"),
+        ok
+    after
+        stop_tty(Term1)
+    end,
+    try
+        check_location(Term2, {0, 0}),
+        send_tty(Term2,"\na"),
+        check_location(Term2, {0, 1}),
+        check_content(Term2, "...> a"),
+        ok
+    after
+        stop_tty(Term2)
+    end,
+    try
+        send_tty(Term3,"\na"),
+        check_location(Term3, {0, 1}),
+        check_content(Term3, ".. a"),
+        ok
+    after
+        stop_tty(Term3)
+    end.
+
 shell_clear(Config) ->
 
     Term = start_tty(Config),
@@ -1173,7 +1210,46 @@ shell_ignore_pager_commands(Config) ->
                 ok
             end
     end.
+test_valid_keymap(Config) when is_list(Config) ->
+    DataDir = proplists:get_value(data_dir,Config),
+    Term = setup_tty([{args, ["-kernel", "shell_keymap", "\"" ++ DataDir ++ "valid_keymap.toml\""]} | Config]),
+    try
+        check_not_in_content(Term, "Invalid key"),
+        check_not_in_content(Term, "Invalid function"),
+        send_tty(Term, "asdf"),
+        send_tty(Term, "C-u"),
+        check_content(Term, ">$"),
+        ok
+    after
+        stop_tty(Term),
+        ok
+    end.
 
+test_invalid_keymap(Config) when is_list(Config) ->
+    DataDir = proplists:get_value(data_dir,Config),
+    Term1 = setup_tty([{args, ["-kernel", "shell_keymap", "\"" ++ DataDir ++ "nope.toml\""]} | Config]),
+    try
+        check_content(Term1, "Invalid keymap file:"),
+        send_tty(Term1, "asdf"),
+        send_tty(Term1, "C-u"),
+        check_content(Term1, ">$"),
+        ok
+    after
+        stop_tty(Term1),
+        ok
+    end,
+    Term2 = setup_tty([{args, ["-kernel", "shell_keymap", "\"" ++ DataDir ++ "invalid_keymap.toml\""]} | Config]),
+    try
+        check_content(Term2, "Invalid key"),
+        check_content(Term2, "Invalid function"),
+        send_tty(Term2, "asdf"),
+        send_tty(Term2, "C-u"),
+        check_content(Term2, ">$"),
+        ok
+    after
+        stop_tty(Term2),
+        ok
+    end.
 external_editor(Config) ->
     case os:find_executable("nano") of
         false -> {skip, "nano is not installed"};
@@ -1684,6 +1760,33 @@ get_window_size(Term) ->
     [Row, Col] = string:lexemes(string:trim(RowAndCol,both)," "),
     {list_to_integer(Row), list_to_integer(Col)}.
 
+check_not_in_content(Term, NegativeMatch) ->
+    check_not_in_content(Term, NegativeMatch, #{}, 5).
+check_not_in_content(Term, NegativeMatch, Opts, Attempt) ->
+    Opts = #{},
+    OrigContent = case Term of
+        #tmux{} -> get_content(Term);
+        Fun when is_function(Fun,0) -> Fun()
+    end,
+    Content = case maps:find(replace, Opts) of
+                {ok, {RE,Repl} } ->
+                    re:replace(OrigContent, RE, Repl, [global]);
+                error ->
+                    OrigContent
+                end,
+    case re:run(string:trim(Content, both), lists:flatten(NegativeMatch), [unicode]) of
+        {match,_} ->
+            io:format("Failed, found '~ts' in ~n'~ts'~n",
+            [unicode:characters_to_binary(NegativeMatch), Content]),
+            io:format("Failed, found '~w' in ~n'~w'~n",
+                        [unicode:characters_to_binary(NegativeMatch), Content]),
+            ct:fail(match);
+        _ when Attempt =:= 0 ->
+            ok;
+        _ ->
+            timer:sleep(500),
+            check_not_in_content(Term, NegativeMatch, Opts, Attempt - 1)
+    end.
 check_content(Term, Match) ->
     check_content(Term, Match, #{}).
 check_content(Term, Match, Opts) when is_map(Opts) ->
