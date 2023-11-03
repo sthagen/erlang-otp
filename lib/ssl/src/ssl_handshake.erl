@@ -3499,7 +3499,9 @@ is_supported_sign({Hash, Sign}, SignatureSchemes) ->
                            rsa_pkcs1 ->
                                rsa;
                            rsa_pss_rsae ->
-                               rsa; 
+                               rsa;
+                           ecdsa_sha1 ->
+                               ecdsa;
                            S ->
                                S
                        end,
@@ -3841,7 +3843,9 @@ path_validation(TrustedCert, Path, ServerName, Role, CertDbHandle, CertDbRef, CR
                                               cert_ext => CertExt,
                                               issuer => TrustedCert,
                                               ocsp_responder_certs => OcspResponderCerts,
-                                              ocsp_state => OcspState},
+                                              ocsp_state => OcspState,
+                                              path_len => length(Path)
+                                             },
                                  Path, Level),
     Options = [{max_path_length, maps:get(depth, Opts, ?DEFAULT_DEPTH)},
                {verify_fun, ValidationFunAndState}],
