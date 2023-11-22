@@ -452,7 +452,9 @@ expr({op,Anno,Op,L0,R0}, St0) ->
     {L,St1} = expr(L0, St0),
     {R,St2} = expr(R0, St1),
     {{op,Anno,Op,L,R},St2};
-expr(E={ssa_check_when,_,_,_,_,_}, St) ->
+expr({executable_line,_,_}=E, St) ->
+    {E, St};
+expr({ssa_check_when,_,_,_,_,_}=E, St) ->
     {E, St}.
 
 expr_list([E0 | Es0], St0) ->
@@ -526,9 +528,12 @@ lc_tq(Anno, [{b_generate,AnnoG,P0,G0} | Qs0], St0) ->
     {[{b_generate,AnnoG,P1,G1} | Qs1],St3};
 lc_tq(Anno, [{m_generate,AnnoG,P0,G0} | Qs0], St0) ->
     {G1,St1} = expr(G0, St0),
-    {P1,St2} = pattern(P0, St1),
-    {Qs1,St3} = lc_tq(Anno, Qs0, St2),
-    {[{m_generate,AnnoG,P1,G1} | Qs1],St3};
+    {map_field_exact,AnnoMFE,KeyP0,ValP0} = P0,
+    {KeyP1,St2} = pattern(KeyP0, St1),
+    {ValP1,St3} = pattern(ValP0, St2),
+    {Qs1,St4} = lc_tq(Anno, Qs0, St3),
+    P1 = {map_field_exact,AnnoMFE,KeyP1,ValP1},
+    {[{m_generate,AnnoG,P1,G1} | Qs1],St4};
 lc_tq(Anno, [F0 | Qs0], #exprec{calltype=Calltype,raw_records=Records}=St0) ->
     %% Allow record/2 and expand out as guard test.
     IsOverriden = fun(FA) ->
