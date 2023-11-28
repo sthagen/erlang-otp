@@ -1706,9 +1706,7 @@ static Eterm process_flag_aux(Process *c_p, int *redsp, Eterm flag, Eterm val)
                     */
 
                    state = erts_atomic32_read_nob(&c_p->state);
-                   if (state & (ERTS_PSFLG_RUNNING_SYS
-                                | ERTS_PSFLG_DIRTY_RUNNING_SYS
-                                | ERTS_PSFLG_DIRTY_RUNNING)) {
+                   if (!(state & ERTS_PSFLG_RUNNING)) {
                        /*
                         * We are either processing signals before
                         * being executed or executing dirty. That
@@ -1717,7 +1715,6 @@ static Eterm process_flag_aux(Process *c_p, int *redsp, Eterm flag, Eterm val)
                        *redsp = 1;
                    }
                    else {
-                       ASSERT(state & ERTS_PSFLG_RUNNING);
 
                        /*
                         * F_DELAY_GC is currently only set when
@@ -4152,8 +4149,6 @@ BIF_RETTYPE ref_to_list_1(BIF_ALIST_1)
 
 BIF_RETTYPE make_fun_3(BIF_ALIST_3)
 {
-    ErlFunThing *funp;
-    Eterm *hp;
     Export *ep;
     Sint arity;
 
@@ -4168,12 +4163,8 @@ BIF_RETTYPE make_fun_3(BIF_ALIST_3)
         BIF_ERROR(BIF_P, BADARG);
     }
 
-    hp = HAlloc(BIF_P, ERL_FUN_SIZE);
-
     ep = erts_export_get_or_make_stub(BIF_ARG_1, BIF_ARG_2, (Uint) arity);
-    funp = erts_new_export_fun_thing(&hp, ep, arity);
-
-    BIF_RET(make_fun(funp));
+    BIF_RET(ep->lambda);
 }
 
 BIF_RETTYPE fun_to_list_1(BIF_ALIST_1)
