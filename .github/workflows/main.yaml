@@ -21,6 +21,10 @@ on:
   schedule:
       - cron: 0 1 * * *
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 env:
     ## Equivalent to github.event_name == 'pull_request' ? github.base_ref : github.ref_name
     BASE_BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
@@ -236,7 +240,7 @@ jobs:
     runs-on: windows-2022
     needs: pack
     steps:
-      - uses: Vampire/setup-wsl@v2.0.1
+      - uses: Vampire/setup-wsl@v2.0.2
         with:
           distribution: Ubuntu-18.04
 
