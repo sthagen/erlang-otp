@@ -18,6 +18,11 @@
 %% %CopyrightEnd%
 %%
 
+%%
+%% gen_tcp with inet_backend = socket.
+%% That is, socket "via" gen_tcp.
+%%
+
 -module(socket_test_ttest_tcp_gs).
 
 -export([
@@ -38,6 +43,7 @@
 
 -define(LIB, socket_test_lib).
 
+
 %% ==========================================================================
 
 accept(Sock) ->
@@ -57,8 +63,10 @@ accept(Sock, Timeout) ->
     end.
 
 
-active(Sock, NewActive) 
-  when (is_boolean(NewActive) orelse (NewActive =:= once)) ->
+%% active(Sock, NewActive) 
+%%   when (is_boolean(NewActive) orelse (NewActive =:= once)) ->
+%%     inet:setopts(Sock, [{active, NewActive}]).
+active(Sock, NewActive) ->
     inet:setopts(Sock, [{active, NewActive}]).
 
 
