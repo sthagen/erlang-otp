@@ -54,7 +54,7 @@ jobs:
           ALL_APPS=$(grep '^[a-z_]*:' .github/scripts/path-filters.yaml | sed 's/:.*$//')
           ALL_APPS=$(jq -n --arg inarr "${ALL_APPS}" '$inarr | split("\n")' | tr '\n' ' ')
           echo "all=${ALL_APPS}" >> $GITHUB_OUTPUT
-      - uses: dorny/paths-filter@v2.11.1
+      - uses: dorny/paths-filter@v3.0.0
         id: app-changes
         with:
           filters: .github/scripts/path-filters.yaml
@@ -70,14 +70,14 @@ jobs:
               echo "changes=${CHANGED_APPS}" >> "$GITHUB_OUTPUT"
           fi
       - name: Cache pre-built src
-        uses: actions/cache@v3.3.3
+        uses: actions/cache@v4.0.0
         with:
             path: otp_src.tar.gz
             key: prebuilt-src-${{ github.ref_name }}-${{ github.sha }}
             restore-keys: |
                 prebuilt-src-${{ github.base_ref }}-${{ github.event.pull_request.base.sha }}
       - name: Cache pre-built binaries
-        uses: actions/cache@v3.3.3
+        uses: actions/cache@v4.0.0
         with:
             path: otp_cache.tar.gz
             key: prebuilt-cache-64-bit-${{ github.ref_name }}-${{ github.sha }}
@@ -86,11 +86,11 @@ jobs:
       - name: Create initial pre-release tar
         run: .github/scripts/init-pre-release.sh otp_archive.tar.gz otp_src.tar.gz
       - name: Upload source tar archive
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         with:
           name: otp_git_archive
           path: otp_archive.tar.gz
-      - uses: dorny/paths-filter@v2.11.1
+      - uses: dorny/paths-filter@v3.0.0
         id: cache
         with:
           filters: |
@@ -129,7 +129,7 @@ jobs:
               "`pwd`/.github/otp.tar.gz" \
               "`pwd`/otp_archive.tar.gz"
       - name: Upload restored cache
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         if: runner.debug == 1
         with:
           name: restored-cache
@@ -156,7 +156,7 @@ jobs:
             bash -c 'set -x; C_APPS=$(ls -d ./lib/*/c_src); find Makefile ./make ./erts ./bin/`erts/autoconf/config.guess` ./lib/erl_interface ./lib/jinterface ${C_APPS} `echo "${C_APPS}" | sed -e 's:c_src$:priv:'` -type f -newer README.md \! -name "*.beam" \! -path "*/doc/*" | xargs tar --transform "s:^./:otp/:" -uvf /github/otp_cache.tar'
           gzip otp_cache.tar
       - name: Upload pre-built tar archives
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         with:
           name: otp_prebuilt
           path: |
@@ -179,7 +179,7 @@ jobs:
 
       - name: Cache wxWidgets
         id: wxwidgets-cache
-        uses: actions/cache@v3.3.3
+        uses: actions/cache@v4.0.0
         with:
           path: wxWidgets
           key: wxWidgets-${{ env.WXWIDGETS_VERSION }}-${{ runner.os }}-12
@@ -205,7 +205,7 @@ jobs:
           ./bin/erl -noshell -eval '{wx_ref,_,_,_} = wx:new(), io:format("wx ok~n"), halt().'
 
       - name: Upload tarball
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         with:
           name: otp_prebuilt_macos_x86-64
           path: otp/otp_macos_*_x86-64.tar.gz
@@ -239,7 +239,7 @@ jobs:
           xcodebuild -create-xcframework -output ./liberlang.xcframework -library liberlang.a
 
       - name: Upload framework
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         with:
           name: ios_framework_${{ env.TARGET_ARCH }}
           path: otp/liberlang.xcframework
@@ -268,7 +268,7 @@ jobs:
           IF EXIST "c:\\Program Files\\OpenSSL-Win64" (move "c:\\Program Files\\OpenSSL-Win64" "c:\\OpenSSL-Win64") ELSE (move "c:\\Program Files\\OpenSSL" "c:\\OpenSSL-Win64")
 
       - name: Cache wxWidgets
-        uses: actions/cache@v3.3.3
+        uses: actions/cache@v4.0.0
         with:
           path: wxWidgets
           key: wxWidgets-${{ env.WXWIDGETS_VERSION }}-${{ runner.os }}
@@ -338,7 +338,7 @@ jobs:
           ./otp_build installer_win32
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         with:
           name: otp_win32_installer
           path: otp/release/win32/otp*.exe
@@ -396,34 +396,29 @@ jobs:
       ## Build all the documentation
       - name: Build documentation
         run: |
-          docker build -t otp - <<EOF
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_URL="${{ github.event.pull_request.head.repo.full_name }}/blob/${{ github.event.pull_request.head.ref }}/"
+          else
+            BASE_URL="${{ github.repository }}/blob/${{ github.ref_name }}/"
+          fi
+          docker build --build-arg BASE_URL="$BASE_URL" -t otp - <<EOF
           FROM otp
+          ENV BASE_URL=$BASE_URL
           RUN make release docs release_docs && sudo make install-docs
           EOF
       - name: Release docs to publish
         run: |
           docker run -v $PWD/:/github otp \
-            "make release_docs DOC_TARGETS='man html pdf' RELEASE_ROOT=/github/docs"
+            "make release_docs DOC_TARGETS='html' RELEASE_ROOT=/github/docs"
             sudo chown -R `whoami` docs
-            cd docs
-            tar czf ../otp_doc_man.tar.gz man
-            rm -rf man
-            tar czf ../otp_doc_html.tar.gz *
+            cd docs && tar czf ../otp_doc_html.tar.gz *
       - name: Upload html documentation archive
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         with:
           name: otp_doc_html
           path: otp_doc_html.tar.gz
-      - name: Upload man documentation archive
-        uses: actions/upload-artifact@v4.1.0
-        with:
-          name: otp_doc_man
-          path: otp_doc_man.tar.gz
-      ## Documentation checks
-      - name: Run xmllint
-        run: docker run otp "make xmllint"
       - name: Run html link check
-        run: docker run -v $PWD/:/github otp "/github/scripts/otp_html_check /github/docs doc/index.html"
+        run: docker run -v $PWD/:/github otp "cd /github/docs && /github/scripts/otp_check_html_links.exs"
 
   static:
     name: Run static analysis
@@ -496,7 +491,7 @@ jobs:
           sudo bash -c "chown -R `whoami` make_test_dir && chmod -R +r make_test_dir"
           tar czf ${{ matrix.type }}_test_results.tar.gz make_test_dir
       - name: Upload test results
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         if: ${{ !cancelled() }}
         with:
           name: ${{ matrix.type }}_test_results
@@ -543,14 +538,14 @@ jobs:
               -e 's:\(file="erts/\)make_test_dir/[^/]*:\1test:g' \
               make_test_dir/*_junit.xml
       - name: Upload test results
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         if: ${{ !cancelled() }}
         with:
           name: test_results
           path: test_results.tar.gz
       - name: Upload Test Results
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         with:
           name: Unit Test Results
           path: |
@@ -585,10 +580,6 @@ jobs:
         uses: actions/download-artifact@v4.1.1
         with:
           name: otp_doc_html
-      - name: Download man docs
-        uses: actions/download-artifact@v4.1.1
-        with:
-          name: otp_doc_man
 
       ## We add the correct version name into the file names
       ## and create the hash files for all assets
@@ -624,7 +615,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Upload
-        uses: actions/upload-artifact@v4.1.0
+        uses: actions/upload-artifact@v4.3.0
         with:
           name: Event File
           path: ${{ github.event_path }}
