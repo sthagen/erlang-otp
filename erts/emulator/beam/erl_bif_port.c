@@ -116,7 +116,7 @@ BIF_RETTYPE erts_internal_open_port_2(BIF_ALIST_2)
         res = port->common.id;
     }
 
-    if (IS_TRACED_FL(BIF_P, F_TRACE_PROCS))
+    if (ERTS_IS_P_TRACED_FL(BIF_P, F_TRACE_PROCS))
         trace_proc(BIF_P, ERTS_PROC_LOCK_MAIN, BIF_P,
                    am_link, port->common.id);
 
@@ -794,7 +794,6 @@ static Port *
 open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
 {
     int merged_environment = 0;
-    Sint i;
     Eterm option;
     Uint arity;
     Eterm* tp;
@@ -1029,24 +1028,6 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
     /*
      * Parse the first argument and start the appropriate driver.
      */
-
-    if (is_atom(name) || (i = is_string(name))) {
-	/* a vanilla port */
-	if (is_atom(name)) {
-	    name_buf = (char *) erts_alloc(ERTS_ALC_T_TMP,
-					   atom_tab(atom_val(name))->len+1);
-	    sys_memcpy((void *) name_buf,
-		       (void *) atom_tab(atom_val(name))->name, 
-		       atom_tab(atom_val(name))->len);
-	    name_buf[atom_tab(atom_val(name))->len] = '\0';
-	} else {
-	    name_buf = (char *) erts_alloc(ERTS_ALC_T_TMP, i + 1);
-	    if (intlist_to_buf(name, name_buf, i) != i)
-		erts_exit(ERTS_ERROR_EXIT, "%s:%d: Internal error\n", __FILE__, __LINE__);
-	    name_buf[i] = '\0';
-	}
-	driver = &vanilla_driver;
-    } else {   
 	if (is_not_tuple(name)) {
 	    goto badarg;		/* Not a process or fd port */
 	}
@@ -1099,7 +1080,6 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
 	} else {
 	    goto badarg;
 	}
-    }
 
     if ((driver != &spawn_driver && opts.argv != NULL) ||
 	(driver == &spawn_driver && 
@@ -1119,8 +1099,8 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
 	goto badarg;
     }
     
-    if (IS_TRACED_FL(p, F_TRACE_SCHED_PROCS)) {
-        trace_sched(p, ERTS_PROC_LOCK_MAIN, am_out);
+    if (ERTS_IS_P_TRACED_FL(p, F_TRACE_SCHED_PROCS)) {
+        trace_sched(p, ERTS_PROC_LOCK_MAIN, am_out, F_TRACE_SCHED_PROCS);
     }
     
 
@@ -1138,13 +1118,13 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
     }
 #endif
 
-    if (port && IS_TRACED_FL(port, F_TRACE_PORTS))
-        trace_port(port, am_getting_linked, p->common.id);
+    if (port && ERTS_IS_P_TRACED_FL(port, F_TRACE_PORTS))
+        trace_port(port, am_getting_linked, p->common.id, F_TRACE_PORTS);
 
     erts_proc_lock(p, ERTS_PROC_LOCK_MAIN);
 
-    if (IS_TRACED_FL(p, F_TRACE_SCHED_PROCS)) {
-        trace_sched(p, ERTS_PROC_LOCK_MAIN, am_in);
+    if (ERTS_IS_P_TRACED_FL(p, F_TRACE_SCHED_PROCS)) {
+        trace_sched(p, ERTS_PROC_LOCK_MAIN, am_in, F_TRACE_SCHED_PROCS);
     }
 
     if (!port) {

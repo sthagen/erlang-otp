@@ -1593,8 +1593,9 @@ do {								\
 
 #define MatchSetGetSource(MPSP) erts_match_set_get_source(MPSP)
 
-extern Binary *erts_match_set_compile(Process *p, Eterm matchexpr, Eterm MFA,
-                                      Uint *freasonp);
+extern Binary *erts_match_set_compile_trace(Process *p, Eterm matchexpr,
+                                            ErtsTraceSession* session,
+                                            Eterm MFA, Uint *freasonp);
 extern void erts_match_set_release_result(Process* p);
 ERTS_GLB_INLINE void erts_match_set_release_result_trace(Process* p, Eterm);
 
@@ -1631,7 +1632,6 @@ extern void erts_match_prog_foreach_offheap(Binary *b,
 #define MATCH_SET_EXCEPTION_TRACE (0x4) /* exception trace requested */
 #define MATCH_SET_RX_TRACE (MATCH_SET_RETURN_TRACE|MATCH_SET_EXCEPTION_TRACE)
 
-extern erts_driver_t vanilla_driver;
 extern erts_driver_t spawn_driver;
 extern erts_driver_t forker_driver;
 extern erts_driver_t fd_driver;
