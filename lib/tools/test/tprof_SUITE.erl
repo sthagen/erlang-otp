@@ -16,7 +16,7 @@
 %%
 %%-------------------------------------------------------------------
 %% @author Maxim Fedorov <maximfca@gmail.com>
-%% Basic heap profiler tests.
+%% Basic process tracing profiler tests.
 -module(tprof_SUITE).
 -author("maximfca@gmail.com").
 
@@ -28,6 +28,7 @@
     call_count_ad_hoc/0, call_count_ad_hoc/1,
     call_time_ad_hoc/0, call_time_ad_hoc/1,
     call_memory_ad_hoc/0, call_memory_ad_hoc/1,
+    lists_seq_loop/1, call_memory_total/1,
     sort/0, sort/1,
     rootset/0, rootset/1,
     set_on_spawn/0, set_on_spawn/1, seq/1,
@@ -36,7 +37,8 @@
     processes/0, processes/1,
     server/0, server/1,
     hierarchy/0, hierarchy/1,
-    code_reload/0, code_reload/1
+    code_reload/0, code_reload/1,
+    code_load/0, code_load/1
 ]).
 
 -include_lib("stdlib/include/assert.hrl").
@@ -49,6 +51,7 @@ suite() ->
 
 all() ->
     [call_count_ad_hoc, call_time_ad_hoc, call_memory_ad_hoc,
+     call_memory_total,
      sort, rootset, set_on_spawn, live_trace, patterns,
      processes, server, hierarchy, code_reload].
 
@@ -151,6 +154,22 @@ call_memory_ad_hoc(Config) when is_list(Config) ->
         fun () -> Delay = hd(lists:seq(5001, 5032)), timer:sleep(Delay) end,
         #{timeout => 1000, report => return, type => call_memory}),
     ?assertMatch({call_memory, [{lists, seq_loop, 3, [{_, 9, 64}]}]}, Profile2).
+
+lists_seq_loop(N) ->
+    [int_to_bin_twice(M) || M <- lists:seq(1, N)].
+
+int_to_bin_twice(M) ->
+    B = integer_to_binary(M),
+    <<B/binary, B/binary>>.
+
+%% Ensure total is not truncated,
+%% as per https://github.com/erlang/otp/issues/8139
+call_memory_total(_Config) ->
+    ct:capture_start(),
+    ok = tprof:profile(?MODULE, lists_seq_loop, [10000], #{type => call_memory}),
+    ct:capture_stop(),
+    ?assertNotMatch(nomatch, string:find(ct:capture_get(), " 150000 ")),
+    ok.
 
 sort() ->
     [{doc, "Tests sorting methods work"}].
@@ -263,7 +282,7 @@ patterns(Config) when is_list(Config) ->
     ?assertEqual(#{?MODULE => Expected}, tprof:get_trace_map()),
     %% verify tracing flags
     verify_trace([{?MODULE, F, A} || {F, A} <- Expected], [{?MODULE, pattern_fun, 2}]),
-    %% trace the entire lists module, and then exclude pattern_fun/1,2,3 and seq/1
+    %% trace the entire ?MODULE module, and then exclude pattern_fun/1,2,3 and seq/1
     _ = tprof:set_pattern(?MODULE, '_', '_'),
     3 = tprof:clear_pattern(?MODULE, pattern_fun, '_'),
     1 = tprof:clear_pattern(?MODULE, seq, 1),
@@ -274,6 +293,11 @@ patterns(Config) when is_list(Config) ->
     _ = tprof:clear_pattern('_', '_', '_'),
     verify_trace([], [{?MODULE, F, A} || {F, A} <- Traced ++ Cleared]),
     ?assertEqual(#{}, tprof:get_trace_map()),
+
+    %% Trace the entire node then exclude pattern_fun/1,2,3 and seq/1
+    _ = tprof:set_pattern('_', '_', '_'),
+    ?assertEqual(all, tprof:get_trace_map()),
+
     tprof:stop().
 
 verify_trace(On, Off) ->
@@ -387,6 +411,18 @@ code_reload() ->
     [{doc, "Tests that collection does not fail for a hot-code-reloaded module"}].
 
 code_reload(Config) when is_list(Config) ->
-    Sample = tprof:profile(fun () -> code:load_file(?MODULE) end, #{report => return, type => call_memory}),
+    {_, Sample}  = tprof:profile(fun () -> code:load_file(?MODULE) end,
+                                 #{report => return, type => call_memory}),
     %% don't care about actual returned values, but do care that profile/2 does not crash
     ?assertNotEqual([], Sample).
+
+code_load() ->
+    [{doc, "Tests profiling works for modules loaded during profiling"}].
+
+code_load(Config) when is_list(Config) ->
+    code:purge(sofs),
+    code:delete(sofs),
+    {_, Sample} =
+        tprof:profile(fun () -> sofs:relation([{b,1},{c,2},{c,3}]) end,
+                      #{report => return, type => call_memory}),
+    ?assertNotEqual(false, lists:keyfind(sofs, 1, Sample)).
