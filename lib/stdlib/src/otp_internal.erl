@@ -9,8 +9,10 @@
 %%
 %%    -deprecated([{foo,1,"use bar/1 instead"}]).
 %%    -deprecated_type([{gadget,1,"use widget/1 instead"}]).
+%%    -deprecated_callback([{gadget,1,"use widget/1 instead"}]).
 %%    -removed([{hello,2,"use there/2 instead"}]).
 %%    -removed_type([{frobnitz,1,"use grunka/1 instead"}]).
+%%    -removed_callback([{frobnitz,1,"use grunka/1 instead"}]).
 %%
 %% Descriptions cannot be given with the `f/1` shorthand, and
 %% it will fall back to a generic description referring the
@@ -32,6 +34,8 @@ obsolete(auth, is_auth, 1) ->
     {deprecated, "use net_adm:ping/1 instead"};
 obsolete(calendar, local_time_to_universal_time, 1) ->
     {deprecated, "use calendar:local_time_to_universal_time_dst/1 instead"};
+obsolete(code, lib_dir, 2) ->
+    {deprecated, "this functionality will be removed in a future release"};
 obsolete(crypto, rand_uniform, 2) ->
     {deprecated, "use rand:uniform/1 instead"};
 obsolete(dbg, stop_clear, 0) ->
@@ -221,7 +225,7 @@ obsolete(zlib, setBufSize, 2) ->
 obsolete(auth, node_cookie, _) ->
     {deprecated, "use erlang:set_cookie/2 and net_adm:ping/1 instead"};
 obsolete(mnesia_registry, create_table, _) ->
-    {deprecated, "Use mnesia:create_table/2 instead", "OTP 28"};
+    {deprecated, "use mnesia:create_table/2 instead", "OTP 28"};
 obsolete(asn1ct, decode, _) ->
     {removed, "use Mod:decode/2 instead"};
 obsolete(asn1ct, encode, _) ->
@@ -290,4 +294,13 @@ obsolete_type(http_uri, uri, 0) ->
 obsolete_type(http_uri, user_info, 0) ->
     {removed, "use uri_string instead"};
 obsolete_type(_,_,_) -> no.
+
+-dialyzer({no_match, obsolete_callback/3}).
+obsolete_callback(gen_event, format_status, 2) ->
+    {deprecated, "use format_status/1 instead"};
+obsolete_callback(gen_server, format_status, 2) ->
+    {deprecated, "use format_status/1 instead"};
+obsolete_callback(gen_statem, format_status, 2) ->
+    {deprecated, "use format_status/1 instead"};
+obsolete_callback(_,_,_) -> no.
 

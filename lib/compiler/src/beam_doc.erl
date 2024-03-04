@@ -36,8 +36,6 @@
 
 -include_lib("kernel/include/eep48.hrl").
 
--moduledoc false.
-
 -define(DEFAULT_MODULE_DOC_LOC, 1).
 -define(DEFAULT_FORMAT, <<"text/markdown">>).
 
@@ -313,18 +311,18 @@ preprocessing(AST, State) ->
                              Funs = [% Order matters
                                      fun has_docs/2,
                                      fun extract_deprecated/2,
-                                     fun extract_exported_types0/2, % done
-                                     fun extract_signature_from_spec0/2,%done
+                                     fun extract_exported_types0/2,
+                                     fun extract_signature_from_spec0/2,
                                      fun track_documentation/2,      %must be before upsert_documentation_from_terminal_item/2
                                      fun upsert_documentation_from_terminal_item/2,
-                                     fun extract_docformat0/2, %done
-                                     fun extract_moduledoc0/2, %done
-                                     fun extract_module_meta/2, %done
-                                     fun extract_exported_funs/2, %done
-                                     fun extract_file/2, %done
+                                     fun extract_docformat0/2,
+                                     fun extract_moduledoc0/2,
+                                     fun extract_module_meta/2,
+                                     fun extract_exported_funs/2,
+                                     fun extract_file/2,
                                      fun extract_record/2,
-                                     fun extract_hidden_types0/2, %done
-                                     fun extract_type_defs0/2,    %done
+                                     fun extract_hidden_types0/2,
+                                     fun extract_type_defs0/2,
                                      fun extract_type_dependencies/2],
                              foldl(fun (F, State1) -> F(AST0, State1) end, State0, Funs)
                        end,
@@ -337,6 +335,14 @@ has_docs({attribute, _Anno, doc, _}, State) ->
 has_docs(_, State) ->
     State.
 
+extract_deprecated({attribute, Anno, DeprecatedType, Deprecations}, State)
+  when is_list(Deprecations),
+       DeprecatedType =:= deprecated orelse
+       DeprecatedType =:= deprecated_type orelse
+       DeprecatedType =:= deprecated_callback ->
+    lists:foldl(fun(D, S) ->
+                        extract_deprecated({attribute, Anno, DeprecatedType, D}, S)
+                end, State, Deprecations);
 extract_deprecated({attribute, Anno, deprecated, {F, A}}, State) ->
     extract_deprecated({attribute, Anno, deprecated, {F, A, undefined}}, State);
 extract_deprecated({attribute, _, deprecated, {F, A, Reason}}, State) ->
@@ -346,6 +352,11 @@ extract_deprecated({attribute, Anno, deprecated_type, {F, A}}, State) ->
     extract_deprecated({attribute, Anno, deprecated_type, {F, A, undefined}}, State);
 extract_deprecated({attribute, _, deprecated_type, {F, A, Reason}}, State) ->
     Deprecations = (State#docs.deprecated)#{ {type, F, A} => Reason },
+    State#docs{ deprecated = Deprecations };
+extract_deprecated({attribute, Anno, deprecated_callback, {F, A}}, State) ->
+    extract_deprecated({attribute, Anno, deprecated_callback, {F, A, undefined}}, State);
+extract_deprecated({attribute, _, deprecated_callback, {F, A, Reason}}, State) ->
+    Deprecations = (State#docs.deprecated)#{ {callback, F, A} => Reason },
     State#docs{ deprecated = Deprecations };
 extract_deprecated(_, State) ->
    State.
@@ -1021,6 +1032,9 @@ maybe_add_deprecation({Kind, Name, Arity}, Meta, #docs{ module = Module,
                                                info_string(Value)});
                    Kind =:= type ->
                         erl_lint:format_error({deprecated_type, {Module,Name,Arity},
+                                               info_string(Value)});
+                   Kind =:= callback ->
+                        erl_lint:format_error({deprecated_callback, {Module,Name,Arity},
                                                info_string(Value)})
                 end,
             Meta#{ deprecated => unicode:characters_to_binary(Text) }
