@@ -2866,15 +2866,24 @@ AS_IF([test ${enable_jit} != no],
         amd64)
            case "$OPSYS" in
               darwin)
-                # MacOS Sonoma introduced some very annoying popups when
+                # macOS Sonoma introduced some very annoying popups when
                 # dual-mapping memory through the documented APIs, and we did
                 # not wish to start using undocumented functionality in a patch
-                # release, so we have disabled the JIT on this platform.
+                # release, so we have disabled the JIT by default on this
+                # platform.
+                #
+                # The previous version, macOS Ventura, does not have the
+                # annoying popups, so it is still possible to explicitly
+                # enable the JIT.
                 #
                 # The ARM JIT is unaffected because it uses per-thread
                 # permissions instead of dual-mapped memory.
-                enable_jit=no
-                AC_MSG_WARN([JIT disabled due to lack to support on x86 Macs])
+                if test ${enable_jit} = yes; then
+                  JIT_ARCH=x86
+                else
+                  enable_jit=no
+                  AC_MSG_WARN([JIT disabled due to annoying popus on x86 Macs with Sononma])
+                fi
                 ;;
               *)
                 JIT_ARCH=x86
@@ -3075,7 +3084,7 @@ AS_IF([test "x$erts_cv_linux_thp" = "xyes"],
         unused_command_line_argument=""
       ]
     )
-    LDFLAGS=$saved_LDFLAGS
+    LDFLAGS="$saved_LDFLAGS"
     for flag in "-Wl,-z,common-page-size=2097152" "-Wl,-z,max-page-size=2097152"
     do
       AC_MSG_CHECKING([if we can add $flag to LDFLAGS])
@@ -3084,7 +3093,7 @@ AS_IF([test "x$erts_cv_linux_thp" = "xyes"],
       AC_LINK_IFELSE([AC_LANG_PROGRAM([[]],[[return 0;]])],
          [
            AC_MSG_RESULT([yes])
-           LDFLAGS="$save_LDFLAGS $flag"
+           LDFLAGS="$saved_LDFLAGS $flag"
          ],
          [
            AC_MSG_RESULT([no])
