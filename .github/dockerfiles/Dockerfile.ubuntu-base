@@ -45,19 +45,21 @@ RUN mkdir /buildroot /tests /otp && chown ${USER}:${GROUP} /buildroot /tests /ot
 
 ## We install the latest version of the previous three releases in order to do
 ## backwards compatability testing of Erlang.
-RUN apt-get install -y git curl && \
-    curl -L https://raw.githubusercontent.com/kerl/kerl/3.1.0/kerl > /usr/bin/kerl && \
+RUN apt-get update && apt-get install -y git curl && \
+    curl -L https://raw.githubusercontent.com/kerl/kerl/master/kerl > /usr/bin/kerl && \
     chmod +x /usr/bin/kerl && \
     kerl update releases && \
-    LATEST=$(kerl list releases | tail -1 | awk -F '.' '{print $1}') && \
+    LATEST=$(kerl list releases | grep "\*$" | tail -1 | awk -F '.' '{print $1}') && \
     for release in $(seq $(( LATEST - 2 )) $(( LATEST ))); do \
-      VSN=$(kerl list releases | grep "^$release" | tail -1); \
+      VSN=$(kerl list releases | grep "^$release" | tail -1 | awk '{print $1}'); \
       if [ $release = $LATEST ]; then \
         echo "/usr/local/lib/erlang-${VSN}/bin" > /home/${USER}/LATEST; \
         echo "${VSN}" > /home/${USER}/LATEST_VSN; \
         echo "${release}" > /home/${USER}/LATEST_RELEASE; \
       fi && \
+      echo "Building ${VSN}" && \
       kerl build ${VSN} ${VSN} && \
+      echo "Installing ${VSN} to /usr/local/lib/erlang-${VSN}" && \
       kerl install ${VSN} /usr/local/lib/erlang-${VSN}; \
     done && \
     rm -rf ~/.kerl
@@ -104,10 +106,8 @@ COPY --chown=${USER}:${GROUP} dockerfiles/init.sh /buildroot/
 
 WORKDIR /buildroot/
 
-## Build and install elixir, hex and ex_doc
-ENV ELIXIR_VSN=latest \
-    HEX_VSN=latest \
-    EX_DOC_VSN=latest
+## Build and install elixir and hex
+ENV ELIXIR_VSN=latest
 RUN export PATH="$(cat /home/${USER}/LATEST):${PATH}" && \
     set -x && \
     mkdir /buildroot/elixir && cd /buildroot/elixir && \
@@ -115,11 +115,7 @@ RUN export PATH="$(cat /home/${USER}/LATEST):${PATH}" && \
     jq '.tarball_url' | xargs curl -L > elixir.tar.gz && \
     tar xzf elixir.tar.gz --strip-components=1 && \
     make && sudo make install && \
-    mkdir /buildroot/hex && cd /buildroot/hex && \
-    curl -s https://api.github.com/repos/hexpm/hex/releases/${HEX_VSN} | \
-    jq '.tarball_url' | xargs curl -L > hex.tar.gz && \
-    tar xzf hex.tar.gz --strip-components=1 && \
-    mix install
+    mix archive.install github hexpm/hex branch latest --force
 
 ## Install test tools rebar3, proper and jsx
 RUN export PATH="$(cat /home/${USER}/LATEST):${PATH}" && \
@@ -127,7 +123,7 @@ RUN export PATH="$(cat /home/${USER}/LATEST):${PATH}" && \
     local VSN=$(curl -sL "https://api.github.com/repos/$1/tags" | jq -r ".[] | .name" | grep -E '^v?[0-9]' | sort -V | tail -1); \
     curl -sL "https://github.com/$1/archive/$VSN.tar.gz" > $(basename $1).tar.gz; \
     } && \
-    curl -sL "https://github.com/erlang/rebar3/archive/refs/heads/main.tar.gz" > rebar3.tar.gz && ls -la && \
+    latest erlang/rebar3 && \
     (tar xzf rebar3.tar.gz && cd rebar3-* && ./bootstrap && sudo cp rebar3 /usr/bin) && \
     latest proper-testing/proper && \
     (tar xzf proper.tar.gz && mv proper-* proper && cd proper && make) && \
