@@ -137,7 +137,7 @@ protocol.
 
 -type open_option() :: {ip,             inet:socket_address()}
                      | {fd,             non_neg_integer()}
-                     | {ifaddr,         socket:sockaddr_in() |
+                     | {ifaddr,         socket:sockaddr_in()  |
                                         socket:sockaddr_in6() |
                                         inet:socket_address()}
                      | inet:address_family()
@@ -287,6 +287,7 @@ retrieve it.
       Reason :: system_limit | inet:posix().
 
 open(Port, Opts0) ->
+    %% ?DBG(['entry', {port, Port}, {opts0, Opts0}]),
     case inet:gen_udp_module(Opts0) of
 	{?MODULE, Opts} ->
 	    open1(Port, Opts);
@@ -295,8 +296,11 @@ open(Port, Opts0) ->
     end.
 
 open1(Port, Opts0) ->
+    %% ?DBG(['entry', {port, Port}, {opts0, Opts0}]),
     {Mod, Opts} = inet:udp_module(Opts0),
+    %% ?DBG([{mod, Mod}, {opts, Opts}]),
     {ok, UP} = Mod:getserv(Port),
+    %% ?DBG([{up, UP}]),
     Mod:open(UP, Opts).
     
 

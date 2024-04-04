@@ -1,8 +1,6 @@
-%% This is an -*- erlang -*- file.
-%%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2024. All Rights Reserved.
+%% Copyright Ericsson AB 2024. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,16 +16,21 @@
 %%
 %% %CopyrightEnd%
 %%
+%% Check that the compiler doesn't enter an infinte loop while trying
+%% to run the destructive update pass.
+%%
+-module(tuple_inplace_abort1).
 
-{"%VSN%",
- [
-  {<<"0\\..*">>, [{restart_application, diameter}]},
-  {<<"1\\..*">>, [{restart_application, diameter}]},
-  {<<"2\\..*">>, [{restart_application, diameter}]}
- ],
- [
-  {<<"0\\..*">>, [{restart_application, diameter}]},
-  {<<"1\\..*">>, [{restart_application, diameter}]},
-  {<<"2\\..*">>, [{restart_application, diameter}]}
- ]
-}.
+-export([f/0]).
+
+-record(rec, {a, b = ext:ernal()}).
+
+f() ->
+    g({#rec{}}).
+
+g({A}) ->
+%ssa% xfail (_) when post_ssa_opt ->
+%ssa% _ = update_record(inplace, 3, ...).
+    g(A);
+g(#rec{} = A) ->
+    A#rec{ a = a }.
