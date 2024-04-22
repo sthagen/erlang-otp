@@ -6920,7 +6920,7 @@ failure:
   old code of a module that has been upgraded; this is not allowed.
 
 If the [`-nifs()`](`e:system:modules.md#nifs_attribute`) attribute is used
-(which is recommended), all NIFs in the dynamic library much be declared as such
+(which is recommended), all NIFs in the dynamic library must be declared as such
 for [`load_nif/2`](`load_nif/2`) to succeed. On the other hand, all functions
 declared with the `-nifs()` attribute do not have to be implemented by the
 dynamic library. This allows a target independent Erlang file to contain
@@ -7058,9 +7058,21 @@ encoding. For details, see the module `m:file`, the function
   filenames or directory names. If spaces in executable filenames are desired,
   use `{spawn_executable, Command}` instead.
 
-- **`{spawn_driver, Command}`** - Works like `{spawn, Command}`, but demands the
-  first (space-separated) token of the command to be the name of a loaded
-  driver. If no driver with that name is loaded, a `badarg` error is raised.
+  > #### Warning {: .warning }
+  >
+  > On Unix systems, arguments are passed to a new operating system process as
+  > an array of strings but on Windows it is up to the child process to parse
+  > them and some Windows programs may apply their own rules, which are
+  > inconsistent with the standard C runtime `argv` parsing.
+  >
+  > This is particularly troublesome when invoking `.bat`, `.cmd`, or `.com`
+  > files as these run implicitly through `cmd.exe`, whose argument parsing is
+  > vulnerable to malicious input and can be used to run arbitrary shell
+  > commands.
+  >
+  > Therefore, if you are running on Windows and you execute batch files or
+  > `.com` applications, you must not pass untrusted input as arguments to the
+  > program. This affects both `spawn` and `spawn_executable`.
 
 - **`{spawn_executable, FileName}`** - Works like `{spawn, FileName}`, but only
   runs external executables. `FileName` in its whole is used as the name of the
@@ -7079,6 +7091,10 @@ encoding. For details, see the module `m:file`, the function
   error code as the reason. The error reason can differ between OSs. Typically
   the error `enoent` is raised when an attempt is made to run a program that is
   not found and `eacces` is raised when the specified file is not executable.
+
+- **`{spawn_driver, Command}`** - Works like `{spawn, Command}`, but demands the
+  first (space-separated) token of the command to be the name of a loaded
+  driver. If no driver with that name is loaded, a `badarg` error is raised.
 
 - **`{fd, In, Out}`** - Allows an Erlang process to access any currently opened
   file descriptors used by Erlang. The file descriptor `In` can be used for
