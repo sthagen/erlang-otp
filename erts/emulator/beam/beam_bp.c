@@ -961,7 +961,7 @@ do_session_breakpoint(Process *c_p, ErtsCodeInfo *info, Eterm *reg,
     ErtsTracerRef* ref;
     Uint bp_flags;
 
-    if (erts_atomic_read_nob(&g->session->state) != ERTS_TRACE_SESSION_ALIVE) {
+    if (!erts_is_trace_session_alive(g->session)) {
         return 0;
     }
 
@@ -1735,7 +1735,8 @@ set_break(BpFunctions* f, Binary *match_spec, Uint break_flags,
 
 
 static GenericBp*
-get_bp_session(ErtsTraceSession *session, const ErtsCodeInfo *ci)
+get_bp_session(ErtsTraceSession *session, const ErtsCodeInfo *ci,
+               int is_staging)
 {
     GenericBp *g = ci->gen_bp;
 
@@ -1743,10 +1744,12 @@ get_bp_session(ErtsTraceSession *session, const ErtsCodeInfo *ci)
     if (!g)
         return NULL;
 
-    if (g->to_insert) {
+    if (is_staging) {
         ASSERT(session == erts_staging_trace_session);
-        ASSERT(g->to_insert->next == g);
-        g = g->to_insert;
+        if (g->to_insert) {
+            ASSERT(g->to_insert->next == g);
+            g = g->to_insert;
+        }
     }
 
     for ( ; g; g = g->next) {
@@ -1759,7 +1762,7 @@ get_bp_session(ErtsTraceSession *session, const ErtsCodeInfo *ci)
 static GenericBp*
 get_staging_bp_session(const ErtsCodeInfo *ci)
 {
-    return get_bp_session(erts_staging_trace_session, ci);
+    return get_bp_session(erts_staging_trace_session, ci, 1);
 }
 
 
@@ -2039,7 +2042,7 @@ get_memory_break(ErtsTraceSession *session, const ErtsCodeInfo *ci)
 static GenericBpData*
 check_break(ErtsTraceSession *session, const ErtsCodeInfo *ci, Uint break_flags)
 {
-    GenericBp* g = get_bp_session(session, ci);
+    GenericBp* g = get_bp_session(session, ci, 0);
 
 #ifndef BEAMASM
     ASSERT(BeamIsOpCode(ci->u.op, op_i_func_info_IaaI));
@@ -2065,9 +2068,7 @@ Eterm erts_make_bp_session_list(ErtsHeapFactory * factory,
     Eterm list = tail;
 
     for (g = ci->gen_bp ; g; g = g->next) {
-        if (erts_atomic_read_nob(&g->session->state)
-            == ERTS_TRACE_SESSION_ALIVE) {
-
+        if (erts_is_trace_session_alive(g->session)) {
             Eterm *hp = erts_produce_heap(factory,
                                           ERTS_TRACE_SESSION_WEAK_REF_SZ+2, 0);
             Eterm weak_ref = erts_make_trace_session_weak_ref(g->session, &hp);
