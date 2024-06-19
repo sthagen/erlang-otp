@@ -146,6 +146,8 @@ extras =
 
 annotations = Access.get(local_config, :annotations_for_docs, fn _ -> [] end)
 
+current_datetime = System.os_time() |> DateTime.from_unix!(:native)
+
 config = [
   proglang: :erlang,
   source_url_pattern: source_url_pattern,
@@ -153,7 +155,7 @@ config = [
   logo: Path.join(:code.root_dir(), "system/doc/assets/erlang-logo.png"),
   before_closing_head_tag: fn _ -> "<style>.dark img { background-color: white; }</style>" end,
   before_closing_footer_tag: fn _ ->
-    ~S'<p>Copyright © 1996-2023 <a href="https://www.ericsson.com">Ericsson AB</a></p>'
+    ~s'<p>Copyright © 1996-#{current_datetime.year} <a href="https://www.ericsson.com">Ericsson AB</a></p>'
   end,
   annotations_for_docs: fn md ->
     if Map.has_key?(md, :exported) && not md.exported do
@@ -174,7 +176,7 @@ config = [
   extras: extras,
   skip_undefined_reference_warnings_on: ["notes.md"],
   groups_for_docs:
-    (Access.get(local_config, :groups_for_extras, []) ++ groups_for_docs) |> Enum.uniq(),
+    (Access.get(local_config, :groups_for_docs, []) ++ groups_for_docs) |> Enum.uniq(),
   deps:
     deps ++
       [
@@ -227,4 +229,7 @@ config = [
   end
 ]
 
-Keyword.merge(config, local_config |> Keyword.drop([:extras, :groups_for_extras]))
+Keyword.merge(
+  config,
+  local_config |> Keyword.drop([:extras, :groups_for_extras, :group_for_docs])
+)
