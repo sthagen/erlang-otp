@@ -232,6 +232,11 @@ server(StartSync) ->
                     init:wait_until_started()
             end
     end,
+
+    %% We disable line history for all commands. We will explicitly enable
+    %% it only for the commands that we want.
+    _ = io:setopts([{line_history, false}]),
+
     %% Our spawner has fixed the process groups.
     Bs = erl_eval:new_bindings(),
 
@@ -360,11 +365,13 @@ get_command(Prompt, Eval, Bs, RT, FT, Ds) ->
     Parse =
         fun() ->
                 put('$ancestors', Ancestors),
+                PreviousHistory = proplists:get_value(line_history, io:getopts()),
+                [ok = io:setopts([{line_history, true}]) || PreviousHistory =/= undefined],
+                Res = io:scan_erl_exprs(group_leader(), Prompt, {1,1},
+                                        [text,{reserved_word_fun,ResWordFun}]),
+                _ = [io:setopts([{line_history, PreviousHistory}]) || PreviousHistory =/= undefined],
                 exit(
-                  case
-                      io:scan_erl_exprs(group_leader(), Prompt, {1,1},
-                                        [text,{reserved_word_fun,ResWordFun}])
-                  of
+                  case Res of
                       {ok,Toks,_EndPos} ->
                           %% NOTE: we can handle function definitions, records and type declarations
                           %% but this cannot be handled by the function which only expects erl_parse:abstract_expressions()
@@ -728,6 +735,8 @@ shell_cmd(Es, Eval, Bs, RT, FT, Ds, W) ->
     shell_rep(Eval, Bs, RT, FT, Ds).
 
 shell_rep(Ev, Bs0, RT, FT, Ds0) ->
+    shell_rep(Ev, Bs0, RT, FT, Ds0, 5000).
+shell_rep(Ev, Bs0, RT, FT, Ds0, Timeout) ->
     receive
         {shell_rep,Ev,{value,V,Bs,Ds}} ->
             {V,Ev,Bs,Ds};
@@ -774,6 +783,9 @@ shell_rep(Ev, Bs0, RT, FT, Ds0) ->
         _Other ->                               % Ignore everything else
             io:format("Throwing ~p~n", [_Other]),
             shell_rep(Ev, Bs0, RT, FT, Ds0)
+        after Timeout ->
+            io:format("Command is taking a long time, type Ctrl+G, then enter 'i' to interrupt~n"),
+            shell_rep(Ev, Bs0, RT, FT, Ds0, infinity)
     end.
 
 nocatch(throw, {Term,Stack}) ->
@@ -1981,8 +1993,6 @@ results(L) when is_integer(L), L >= 0 ->
     set_env(stdlib, shell_saved_results, L, ?DEF_RESULTS).
 
 -doc """
-catch_exception(Bool) -> boolean()
-
 Sets the exception handling of the evaluator process. The previous exception
 handling is returned. The default (`false`) is to kill the evaluator process
 when an exception occurs, which causes the shell to create a new evaluator
