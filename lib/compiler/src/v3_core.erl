@@ -82,9 +82,12 @@
 
 -export([module/2,format_error/1]).
 
--import(lists, [any/2,reverse/1,reverse/2,map/2,member/2,foldl/3,foldr/3,mapfoldl/3,
-                splitwith/2,keydelete/3,keyfind/3,keymember/3,sort/1,droplast/1,last/1,
-                duplicate/2]).
+-import(lists, [all/2,any/2,append/1,droplast/1,duplicate/2,
+                foldl/3,foldr/3,
+                keydelete/3,keyfind/3,keymember/3,
+                last/1,map/2,member/2,mapfoldl/3,
+                reverse/1,reverse/2,
+                split/2,splitwith/2,sort/1]).
 -import(ordsets, [add_element/2,del_element/2,is_element/2,
 		  union/1,union/2,intersection/2,subtract/2]).
 -import(cerl, [ann_c_cons/3,ann_c_tuple/2,c_tuple/1,
@@ -121,9 +124,13 @@
 -record(itry,      {anno=#a{},args,vars,body,evars,handler}).
 -record(ifilter,   {anno=#a{},arg}).
 -record(igen,      {anno=#a{},acc_pat,acc_guard,
-                    nomatch_pat,nomatch_guard,nomatch_mode,
+                    nomatch_pat,nomatch_mode,
                     tail,tail_pat,arg,
                     refill={nomatch,ignore}}).
+-record(izip,      {anno=#a{},acc_pats=[],acc_guard,
+                    nomatch_pats=[],nomatch_total=[],skip_pats=[],
+                    tails=[],tail_pats=[],pres=[],args=[],
+                    refill_pats=[],refill_as=[]}).
 -record(isimple,   {anno=#a{},term :: cerl:cerl()}).
 
 -type iapply()    :: #iapply{}.
@@ -144,13 +151,14 @@
 -type itry()      :: #itry{}.
 -type ifilter()   :: #ifilter{}.
 -type igen()      :: #igen{}.
+-type izip()      :: #izip{}.
 -type isimple()   :: #isimple{}.
 
 -type i() :: iapply()    | ibinary()   | icall()     | icase()  | icatch()
            | iclause()   | ifun()      | iletrec()   | imatch() | imap()
            | iprimop()   | iprotect()  | ireceive1() | ireceive2()
            | iset()      | itry()      | ifilter()
-           | igen()      | isimple().
+           | igen()      | izip()      | isimple().
 
 -type warning() :: {file:filename(), [{integer(), module(), term()}]}.
 
@@ -1602,10 +1610,22 @@ fun_tq(Cs0, L, St0, NameInfo) ->
 %% lc_tq(Line, Exp, [Qualifier], Mc, State) -> {LetRec,[PreExp],State}.
 %%  This TQ from Simon PJ pp 127-138.
 
-lc_tq(Line, E, [#igen{anno=#a{anno=GA}=GAnno,
+lc_tq(Line, E, [#igen{}|_T] = Qs, Mc, St) ->
+    lc_tq1(Line, E, Qs, Mc, St);
+lc_tq(Line, E, [#izip{}=Zip|Qs], Mc, St) ->
+    zip_tq(Line, E, Zip, Mc, St, Qs);
+lc_tq(Line, E, [#ifilter{}=Filter|Qs], Mc, St) ->
+    filter_tq(Line, E, Filter, Mc, St, Qs, fun lc_tq/5);
+lc_tq(Line, E0, [], Mc0, St0) ->
+    {H1,Hps,St1} = safe(E0, St0),
+    {T1,Tps,St} = force_safe(Mc0, St1),
+    Anno = lineno_anno(Line, St),
+    E = ann_c_cons(Anno, H1, T1),
+    {set_anno(E, [compiler_generated|Anno]),Hps ++ Tps,St}.
+
+lc_tq1(Line, E, [#igen{anno=#a{anno=GA}=GAnno,
 		      acc_pat=AccPat,acc_guard=AccGuard,
                       nomatch_pat=NomatchPat,
-                      nomatch_guard=NomatchGuard,
                       nomatch_mode=NomatchMode,
                       tail=Tail,tail_pat=TailPat,
                       refill={RefillPat,RefillAction},
@@ -1626,7 +1646,7 @@ lc_tq(Line, E, [#igen{anno=#a{anno=GA}=GAnno,
     {[FcVar,Var],St2} = new_vars(2, St1),
     Fc = bad_generator([FcVar], FcVar, Arg),
     NomatchClause = make_clause([nomatch_clause,compiler_generated|LA],
-                                NomatchPat, [], NomatchGuard, [Nc]),
+                                NomatchPat, [], [], [Nc]),
     TailClause = make_clause(LA, TailPat, [], [], [Mc]),
     {Lc,Lps,St3} = lc_tq(Line, E, Qs, Sc, St2),
     AccClause = make_clause(LA, AccPat, [], AccGuard, Lps ++ [Lc]),
@@ -1640,20 +1660,74 @@ lc_tq(Line, E, [#igen{anno=#a{anno=GA}=GAnno,
                                             AccPat, [], [], [Sc])
                         end,
     RefillClause = make_clause(LA, RefillPat, [], [], [RefillAction,Sc]),
-    Cs0 = [AccClause,AccClauseNoGuards,NomatchClause,TailClause,RefillClause],
+    Cs0 = [AccClause,AccClauseNoGuards|
+           case TailPat of
+               #ibinary{segments=[]} ->
+                   %% Order clauses for strict binary generator.
+                   [TailClause,NomatchClause,RefillClause];
+               _ ->
+                   %% Order clauses for relaxed generator.
+                   [NomatchClause,TailClause,RefillClause]
+           end],
     Cs = [C || C <- Cs0, C =/= nomatch],
     Fun = #ifun{anno=GAnno,id=[],vars=[Var],clauses=Cs,fc=Fc},
     {#iletrec{anno=GAnno#a{anno=[list_comprehension|GA]},defs=[{{Name,1},Fun}],
               body=Pre ++ [#iapply{anno=GAnno,op=F,args=[Arg]}]},
-     [],St3};
-lc_tq(Line, E, [#ifilter{}=Filter|Qs], Mc, St) ->
-    filter_tq(Line, E, Filter, Mc, St, Qs, fun lc_tq/5);
-lc_tq(Line, E0, [], Mc0, St0) ->
-    {H1,Hps,St1} = safe(E0, St0),
-    {T1,Tps,St} = force_safe(Mc0, St1),
-    Anno = lineno_anno(Line, St),
-    E = ann_c_cons(Anno, H1, T1),
-    {set_anno(E, [compiler_generated|Anno]),Hps ++ Tps,St}.
+     [],St3}.
+
+%% zip_tq(Line, Exp, [Qualifier], Mc, State, TqFun) -> {LetRec,[PreExp],State}.
+zip_tq(Line, E, #izip{anno=#a{anno=GA}=GAnno,
+                      acc_pats=AccPats,acc_guard=AccGuard,
+                      nomatch_total=NomatchTotal,
+                      skip_pats=SkipPats,
+                      tails=TailVars,tail_pats=TailPats,
+                      refill_pats=RefillPats0,
+                      refill_as=RefillAs,pres=Pres,args=Args}, Mc, St0, Qs) ->
+    {Name,St1} = new_fun_name("zlc", St0),
+    LA = lineno_anno(Line, St1),
+    NumGenerators = length(AccPats),
+
+    %% Generate new vars for each generator, 1 for the regular call, and 1 for
+    %% the bad generator case.
+    {CallVars,St2} = new_vars(NumGenerators, St1),
+    {FcVars, St3} = new_vars(NumGenerators, St2),
+
+    %% Generate the name for the letrec.
+    F = #c_var{anno=LA,name={Name,NumGenerators}},
+
+    %% Generate the clauses for the letrec. First, the accumulating
+    %% clause.
+    Sc = #iapply{anno=GAnno,op=F,args=TailVars},
+    {Lc,Lps,St4} = lc_tq(Line, E, Qs, Sc, St3),
+    AccClause = make_clause(LA, AccPats, AccGuard, Lps++[Lc]),
+
+    %% Generate the skip clause unless all generators are strict, in
+    %% which case no skipping is possible.
+    AccClauseNoGuards =
+        case NomatchTotal of
+            strict ->
+                nomatch;
+            _ ->
+                make_clause([skip_clause,compiler_generated|LA],
+                            SkipPats, [], [Sc])
+        end,
+
+    %% Generate the clause testing for empty generators.
+    TailClause = make_clause(LA, TailPats, [], [Mc]),
+
+    %% Generate refill clauses for map generators.
+    RefillClauses = make_refill(RefillPats0, 0, RefillAs, {TailVars, LA, [], Sc}),
+
+    %% Gather clauses.
+    Cs0 = [AccClause, AccClauseNoGuards, TailClause | RefillClauses],
+    Cs = [C || C <- Cs0, C =/= nomatch],
+
+    Fc = bad_generators(FcVars, hd(Args), lc, bad_generators),
+    Fun = #ifun{anno=GAnno,id=[],vars=CallVars,clauses=Cs,fc=Fc},
+    {#iletrec{anno=GAnno#a{anno=[list_comprehension|GA]},
+              defs=[{{Name,NumGenerators},Fun}],
+              body=append(Pres) ++
+                  [#iapply{anno=GAnno,op=F,args=Args}]},[],St4}.
 
 %% bc_tq(Line, Exp, [Qualifier], More, State) -> {LetRec,[PreExp],State}.
 %%  This TQ from Gustafsson ERLANG'05.
@@ -1680,7 +1754,6 @@ bc_tq(Line, Exp, Qs0, St0) ->
 bc_tq1(Line, E, [#igen{anno=#a{anno=GA}=GAnno,
 		       acc_pat=AccPat,acc_guard=AccGuard,
                        nomatch_pat=NomatchPat,
-                       nomatch_guard=NomatchGuard,
                        nomatch_mode=NomatchMode,
                        tail=Tail,tail_pat=TailPat,
                        refill={RefillPat,RefillAction},
@@ -1704,7 +1777,7 @@ bc_tq1(Line, E, [#igen{anno=#a{anno=GA}=GAnno,
           end,
     Fc = bad_generator(FcVars, hd(FcVars), Arg),
     NomatchClause = make_clause([compiler_generated,nomatch_clause|LA],
-                             NomatchPat, [IgnoreVar], NomatchGuard, [Nc]),
+                             NomatchPat, [IgnoreVar], [], [Nc]),
     TailClause = make_clause(LA, TailPat, [IgnoreVar], [], [AccVar]),
     {Bc,Bps,St5} = bc_tq1(Line, E, Qs, AccVar, St4),
     Body = Bps ++ [#iset{var=AccVar,arg=Bc},Sc],
@@ -1719,7 +1792,15 @@ bc_tq1(Line, E, [#igen{anno=#a{anno=GA}=GAnno,
                                             AccPat, [IgnoreVar], [], [Sc])
                         end,
     RefillClause = make_clause(LA, RefillPat, [AccVar], [], [RefillAction,Sc]),
-    Cs0 = [AccClause,AccClauseNoGuards,NomatchClause,TailClause,RefillClause],
+    Cs0 = [AccClause,AccClauseNoGuards|
+           case TailPat of
+               #ibinary{segments=[]} ->
+                   %% Order clauses for strict binary generator.
+                   [TailClause,NomatchClause,RefillClause];
+               _ ->
+                   %% Order clauses for relaxed generator.
+                   [NomatchClause,TailClause,RefillClause]
+           end],
     Cs = [C || C <- Cs0, C =/= nomatch],
     Fun = #ifun{anno=GAnno,id=[],vars=Vars,clauses=Cs,fc=Fc},
 
@@ -1729,6 +1810,8 @@ bc_tq1(Line, E, [#igen{anno=#a{anno=GA}=GAnno,
               defs=[{{Name,2},Fun}],
               body=Pre ++ [#iapply{anno=LAnno,op=F,args=[Arg,Mc]}]},
      [],St5};
+bc_tq1(Line, E, [#izip{}=Zip|Qs], Mc, St) ->
+    bzip_tq1(Line, E, Zip, Mc, St, Qs);
 bc_tq1(Line, E, [#ifilter{}=Filter|Qs], Mc, St) ->
     filter_tq(Line, E, Filter, Mc, St, Qs, fun bc_tq1/5);
 bc_tq1(_, {bin,Bl,Elements}, [], AccVar, St0) ->
@@ -1765,6 +1848,66 @@ bc_tq_build(Line, Pre0, #c_var{name=AccVar}, Elements0, St0) ->
     Anno = Anno0#a{anno=[compiler_generated,single_use|A]},
     {set_anno(E, Anno),Pre0++Pre,St}.
 
+bzip_tq1(Line, E, #izip{anno=#a{anno=_GA}=GAnno,
+                        acc_pats=AccPats,acc_guard=AccGuard,
+                        nomatch_total=NomatchTotal,
+                        skip_pats=SkipPats,
+                        tails=TailVars,tail_pats=TailPats,
+                        refill_pats=RefillPats0,
+                        refill_as=RefillAs,pres=Pres,args=Args}, Mc, St0, Qs) ->
+    {Name,St1} = new_fun_name("bzip", St0),
+    LA = lineno_anno(Line, St1),
+    LAnno = #a{anno=LA},
+    Arity = length(AccPats) + 1,
+
+    %% Generate new vars for each generator, 1 for the regular call, and 1 for
+    %% the bad generator case. last(CallVars) is used as the accumulator var
+    %% when constructing the new binary.
+    {CallVars, St2} = new_vars(LA, Arity, St1),
+    {FcVars, St3} = new_vars(LA, Arity, St2),
+
+    %% Generate the name for the letrec.
+    F = #c_var{anno=LA,name={Name,Arity}},
+
+    %% Generate the clauses for the letrec. First, the accumulating
+    %% clause.
+    BinAccVar = last(CallVars),
+    Sc = #iapply{anno=GAnno,op=F,args=TailVars++[BinAccVar]},
+    {Bc,Bps,St4} = bc_tq1(Line, E, Qs, BinAccVar, St3),
+    Body = Bps++[#iset{var=hd(CallVars), arg=Bc}, Sc],
+    AccClause = make_clause(LA, AccPats++[Mc], AccGuard, Body),
+
+    %% Generate the skip clause unless all generators are strict, in
+    %% which case no skipping is possible.
+    AccClauseNoGuards =
+        case NomatchTotal of
+            strict ->
+                nomatch;
+            _ ->
+                make_clause([skip_clause,compiler_generated|LA],
+                            SkipPats++[Mc], [], [Sc])
+        end,
+
+    %% Generate the clause testing for empty generators.
+    TailClause = make_clause(LA, TailPats++[Mc], [], [Mc]),
+
+    %% Generate refill clauses for map generators.
+    RefillClauses = make_refill(RefillPats0, 0, RefillAs, {TailVars, LA, [Mc], Sc}),
+
+    %% Gather clauses.
+    Cs0 = [AccClause, AccClauseNoGuards, TailClause | RefillClauses],
+    Cs = [C || C <- Cs0, C =/= nomatch],
+
+    Fc = bad_generators(FcVars, hd(Args), bc, bad_generators),
+    Fun = #ifun{anno=GAnno,id=[],vars=CallVars,clauses=Cs,fc=Fc},
+
+    %% Inlining would disable the size calculation optimization for
+    %% bs_init_writable.
+    {#iletrec{anno=LAnno#a{anno=[list_comprehension,no_inline|LA]},
+              defs=[{{Name,Arity},Fun}],
+              body=append(Pres) ++
+                  [#iapply{anno=LAnno,op=F,args=Args++[Mc]}]},[],St4}.
+
 mc_tq(Line, {map_field_assoc,Lf,K,V}, Qs, Mc, St0) ->
     E = {tuple,Lf,[K,V]},
     {Lc,Pre0,St1} = lc_tq(Line, E, Qs, Mc, St0),
@@ -1774,6 +1917,19 @@ mc_tq(Line, {map_field_assoc,Lf,K,V}, Qs, Mc, St0) ->
                   name=#c_literal{val=from_list},
                   args=[LcVar]},
     {Call,Pre,St2}.
+
+make_refill([nomatch|RefillPats], Index, [_|Bodies], Args) ->
+    make_refill(RefillPats, Index + 1, Bodies, Args);
+make_refill([RefillPat0|RefillPats], Index, [RefillBody|Bodies], {TailVars, LA, Mc, Sc}=Args) ->
+    {H, [_|T]} = split(Index, TailVars),
+    RefillPat1 = H ++ [RefillPat0|T] ++ Mc,
+    RefillClause = make_clause(LA, RefillPat1, [], [RefillBody,Sc]),
+    [RefillClause|make_refill(RefillPats, Index + 1, Bodies, Args)];
+make_refill([], _Index, [], _Args) ->
+    [].
+
+make_clause(Anno, [Pat|PatExtra], Guard, Body) ->
+    make_clause(Anno, Pat, PatExtra, Guard, Body).
 
 make_clause(_Anno, nomatch, _PatExtra, _Guard, _Body) ->
     nomatch;
@@ -1825,6 +1981,31 @@ filter_tq(Line, E, #ifilter{anno=#a{anno=LA}=LAnno,arg=Guard},
 preprocess_quals(Line, Qs, St) ->
     preprocess_quals(Line, Qs, St, []).
 
+preprocess_quals(Line, [{zip,Anno,Gens}|Qs], St, Acc) ->
+    LAnno = #a{anno=lineno_anno(Anno, St)},
+    {Gens1, St1} = preprocess_quals(Line, Gens, St, []),
+    [#igen{acc_guard=AccGuard}|_] = Gens1,
+    Zip0 = #izip{anno=LAnno,
+                 acc_guard=AccGuard},
+    Zip1 = preprocess_zip_generators(Gens1, Zip0),
+    Zip2 = Zip1#izip{skip_pats=[case NomatchMode of
+                                    skip -> NomatchPat;
+                                    _ -> AccPat
+                                end ||
+                                   {NomatchMode, NomatchPat, AccPat} <:-
+                                       lists:zip3(Zip1#izip.nomatch_total,
+                                                  Zip1#izip.nomatch_pats,
+                                                  Zip1#izip.acc_pats)],
+                     tail_pats=[case {NomatchMode,AccPat} of
+                                    {skip,_} -> AccPat;
+                                    {_,#ibinary{}} -> AccPat#ibinary{segments=[]};
+                                    {_,_} -> AccPat
+                                end ||
+                                   {NomatchMode, AccPat} <:-
+                                       lists:zip(Zip1#izip.nomatch_total,
+                                                 Zip1#izip.tail_pats)],
+                     nomatch_total=get_nomatch_total(Zip1#izip.nomatch_total)},
+    preprocess_quals(Line, Qs, St1, [Zip2|Acc]);
 preprocess_quals(Line, [Q|Qs0], St0, Acc) ->
     case is_generator(Q) of
         true ->
@@ -1853,6 +2034,39 @@ preprocess_quals(Line, [Q|Qs0], St0, Acc) ->
 preprocess_quals(_, [], St, Acc) ->
     {reverse(Acc),St}.
 
+preprocess_zip_generators([#igen{}=Igen | Rest], #izip{}=Zip0) ->
+    Zip = preprocess_zip_generators(Rest, Zip0),
+
+    #igen{arg={Pre,Arg},
+          tail=Tail,
+          acc_pat=AccPat,
+          tail_pat=TailPat,
+          nomatch_mode=NomatchMode,
+          nomatch_pat=NomatchPat,
+          refill={RefillPat, RefillArg}} = Igen,
+
+    Zip#izip{acc_pats=[AccPat | Zip#izip.acc_pats],
+             tails=[Tail | Zip#izip.tails],
+             tail_pats=[TailPat | Zip#izip.tail_pats],
+             nomatch_total = [NomatchMode | Zip#izip.nomatch_total],
+             nomatch_pats = [NomatchPat | Zip#izip.nomatch_pats],
+             refill_pats=[RefillPat | Zip#izip.refill_pats],
+             refill_as=[RefillArg | Zip#izip.refill_as],
+             pres=[Pre | Zip#izip.pres],
+             args=[Arg | Zip#izip.args]};
+preprocess_zip_generators([], Zip) ->
+    Zip.
+
+get_nomatch_total(NomatchModes) ->
+    case all(fun(X) -> X =:= skip end, NomatchModes) of
+        true -> skip;
+        false ->
+            case any(fun(X) -> X =:= skip end, NomatchModes) of
+                true -> mixed;
+                false -> strict
+            end
+        end.
+
 is_generator({generate,_,_,_}) -> true;
 is_generator({generate_strict,_,_,_}) -> true;
 is_generator({b_generate,_,_,_}) -> true;
@@ -1873,7 +2087,6 @@ get_qual_anno(Abstract) -> element(2, Abstract).
 %%    generator in the qualifier list input.
 %%  - nomatch_pat is the no-match pattern, e.g. <<X,_:X,Tail/bitstring>>
 %%    for <<X,1:X>> <= Expr.
-%%  - nomatch_guard is the list of guards to add to the no-match clause.
 %%  - nomatch_mode is either skip (not matching elements of the relaxed
 %%    generator have to be silently skipped by the comprehension) or a
 %%    value X (to be used in the {badmatch, X} error a strict generator
@@ -1914,7 +2127,7 @@ generator(Line, {Generate,Lg,P0,E}, Gs, St0) when Generate =:= generate;
                   end,
     {Ce,Pre,St4} = safe(E, St3),
     Gen = #igen{anno=#a{anno=GA},acc_pat=AccPat,acc_guard=Cg,
-                nomatch_pat=NomatchPat,nomatch_guard=[],nomatch_mode=NomatchMode,
+                nomatch_pat=NomatchPat,nomatch_mode=NomatchMode,
                 tail=Tail,tail_pat=#c_literal{anno=LA,val=[]},arg={Pre,Ce}},
     {Gen,St4};
 generator(Line, {Generate,Lg,P,E}, Gs, St0) when Generate =:= b_generate;
@@ -1965,7 +2178,7 @@ generator(Line, {Generate,Lg,P,E}, Gs, St0) when Generate =:= b_generate;
             NomatchPat = Cp#ibinary{segments=SkipSegs},
             {Ce,Pre,St5} = safe(E, St4),
             Gen = #igen{anno=GAnno,acc_pat=AccPat,acc_guard=Cg,
-                        nomatch_pat=NomatchPat,nomatch_guard=[],nomatch_mode=skip,
+                        nomatch_pat=NomatchPat,nomatch_mode=skip,
                         tail=Tail,tail_pat=#ibinary{anno=#a{anno=LA},segments=[TailSeg]},
                         arg={Pre,Ce}},
             {Gen,St5};
@@ -1973,23 +2186,18 @@ generator(Line, {Generate,Lg,P,E}, Gs, St0) when Generate =:= b_generate;
             {AccSegs,Tail,TailSeg,St2} = append_tail_segment(Segs, St1),
             AccPat = Cp#ibinary{segments=AccSegs},
             {Cg,St3} = lc_guard_tests(Gs, St2),
-            Guard = #icall{anno=GAnno,
-                           module=#c_literal{anno=GA,val=erlang},
-                           name=#c_literal{anno=GA,val='=/='},
-                           args=[Tail,#c_literal{anno=GA,val= <<>>}]},
             {Ce,Pre,St4} = safe(E, St3),
             Gen = #igen{anno=GAnno,acc_pat=AccPat,acc_guard=Cg,
                         nomatch_pat=#ibinary{anno=#a{anno=LA},segments=[TailSeg]},
-                        nomatch_guard=[Guard],
                         nomatch_mode=Tail,
-                        tail=Tail,tail_pat=#ibinary{anno=#a{anno=LA},segments=[TailSeg]},
+                        tail=Tail,tail_pat=#ibinary{anno=#a{anno=LA},segments=[]},
                         arg={Pre,Ce}},
             {Gen,St4}
     catch
         throw:nomatch ->
             {Ce,Pre,St1} = safe(E, St0),
             Gen = #igen{anno=#a{anno=GA},acc_pat=nomatch,acc_guard=[],
-                        nomatch_pat=nomatch,nomatch_guard=[],nomatch_mode=skip,
+                        nomatch_pat=nomatch,nomatch_mode=skip,
                         tail_pat=#c_var{name='_'},
                         arg={Pre,Ce}},
             {Gen,St1}
@@ -2023,7 +2231,7 @@ generator(Line, {Generate,Lg,{map_field_exact,_,K0,V0},E}, Gs, St0) when
     %%                   call 'erlang':'error'({'badmatch',{K,V}})
     %%               <'none'> when 'true' ->
     %%                   []
-    %%               <Iter> when 'true' ->
+    %%               <Iter=[_|_]> when 'true' ->
     %%                   let NextIter =
     %%                       call 'erts_internal':'mc_refill'(Iter)
     %%                   in apply 'lc$^0'/1(NextIter)
@@ -2062,12 +2270,12 @@ generator(Line, {Generate,Lg,{map_field_exact,_,K0,V0},E}, Gs, St0) when
                       m_generate_strict ->
                           #c_tuple{es=[NomatchK,NomatchV]}
                   end,
-    Refill = {NomatchK,
+    Refill = {ann_c_cons(GA,NomatchK,NomatchV),
               #iset{var=IterVar,
                     arg=#icall{anno=#a{anno=GA},
                                module=#c_literal{val=erts_internal},
                                name=#c_literal{val=mc_refill},
-                               args=[NomatchK]}}},
+                               args=[ann_c_cons(GA,NomatchK,NomatchV)]}}},
 
     InitIter = #icall{anno=#a{anno=GA},
                       module=#c_literal{val=erts_internal},
@@ -2089,7 +2297,6 @@ generator(Line, {Generate,Lg,{map_field_exact,_,K0,V0},E}, Gs, St0) when
     Gen = #igen{anno=#a{anno=GA},
 		acc_pat=AccPat,acc_guard=Cg,
                 nomatch_pat=NomatchPat,
-                nomatch_guard=[],
                 nomatch_mode=NomatchMode,
                 tail=IterVar,tail_pat=#c_literal{anno=LA,val=none},
                 refill=Refill,
@@ -2537,8 +2744,21 @@ new_vars_1(N, Anno, St0, Vs) when N > 0 ->
 new_vars_1(0, _, St, Vs) -> {Vs,St}.
 
 bad_generator(Ps, Generator, Arg) ->
+    L = [#c_literal{val=bad_generator}, Generator],
+    bad_generator_common(L, Ps, Arg).
+
+bad_generators(Ps, Arg, bc, ErrorType) ->
+    T1 = #c_tuple{es=droplast(Ps)},
+    L = [#c_literal{val=ErrorType}, T1],
+    bad_generator_common(L, Ps, Arg);
+bad_generators(Ps, Arg, lc, ErrorType) ->
+    T = #c_tuple{es=Ps},
+    L = [#c_literal{val=ErrorType}, T],
+    bad_generator_common(L, Ps, Arg).
+
+bad_generator_common(L, Ps, Arg) ->
     Anno = get_anno(Arg),
-    Tuple = ann_c_tuple(Anno, [#c_literal{val=bad_generator},Generator]),
+    Tuple = ann_c_tuple(Anno, L),
     Call = #icall{anno=#a{anno=Anno},           %Must have an #a{}
                   module=#c_literal{anno=Anno,val=erlang},
                   name=#c_literal{anno=Anno,val=error},
@@ -4224,7 +4444,7 @@ is_simple(_) -> false.
 
 -spec is_simple_list([cerl:cerl()]) -> boolean().
 
-is_simple_list(Es) -> lists:all(fun is_simple/1, Es).
+is_simple_list(Es) -> all(fun is_simple/1, Es).
 
 insert_nif_start([VF={V,F=#c_fun{body=Body}}|Funs]) ->
     case Body of
