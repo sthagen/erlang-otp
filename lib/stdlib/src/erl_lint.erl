@@ -180,8 +180,8 @@ value_option(Flag, Default, On, OnVal, Off, OffVal, Opts) ->
                    :: #{atom() => {anno(),Fields :: term()}},
                locals=gb_sets:empty()     %All defined functions (prescanned)
                    :: gb_sets:set(fa()),
-               no_auto=gb_sets:empty() %Functions explicitly not autoimported
-                   :: gb_sets:set(fa()) | 'all',
+               no_auto={set, gb_sets:empty()} %Functions explicitly not autoimported
+                   :: 'all' | {set, gb_sets:set(fa())},
                defined=gb_sets:empty()          %Defined fuctions
                    :: gb_sets:set(fa()),
 	       on_load=[] :: [fa()],		%On-load function
@@ -283,12 +283,12 @@ format_error_1({redefine_import,{{F,A},M}}) ->
     {~"function ~tw/~w already imported from ~w", [F,A,M]};
 format_error_1({bad_inline,{F,A}}) ->
     {~"inlined function ~tw/~w undefined", [F,A]};
-format_error_1({bad_inline,{F,A},GuessF}) ->
-    {~"inlined function ~tw/~w undefined, did you mean ~ts/~w?", [F,A,GuessF,A]};
+format_error_1({bad_inline,{F,A},GuessFA}) ->
+    {~"inlined function ~tw/~w undefined, did you mean ~s?", [F,A,format_fa(GuessFA)]};
 format_error_1({undefined_nif,{F,A}}) ->
     {~"nif ~tw/~w undefined", [F,A]};
-format_error_1({undefined_nif,{F,A},GuessF}) ->
-    {~"nif ~tw/~w undefined, did you mean ~ts/~w?", [F,A,GuessF,A]};
+format_error_1({undefined_nif,{F,A},GuessFA}) ->
+    {~"nif ~tw/~w undefined, did you mean ~s?", [F,A,format_fa(GuessFA)]};
 format_error_1(no_load_nif) ->
     {~"nifs defined, but no call to erlang:load_nif/2", []};
 format_error_1({invalid_deprecated,D}) ->
@@ -305,10 +305,12 @@ format_error_1({bad_removed,{F,A}}) ->
     {~"removed function ~tw/~w is still exported", [F,A]};
 format_error_1({bad_nowarn_unused_function,{F,A}}) ->
     {~"function ~tw/~w undefined", [F,A]};
-format_error_1({bad_nowarn_unused_function,{F,A},GuessF}) ->
-    {~"function ~tw/~w undefined, did you mean ~ts/~w?", [F,A,GuessF,A]};
+format_error_1({bad_nowarn_unused_function,{F,A},GuessFA}) ->
+    {~"function ~tw/~w undefined, did you mean ~s?", [F,A,format_fa(GuessFA)]};
 format_error_1({bad_nowarn_bif_clash,{F,A}}) ->
     {~"function ~tw/~w undefined", [F,A]};
+format_error_1({bad_nowarn_bif_clash,{F,A},GuessFA}) ->
+    {~"function ~tw/~w undefined, did you mean ~s?", [F,A,format_fa(GuessFA)]};
 format_error_1(disallowed_nowarn_bif_clash) ->
     ~"""
      compile directive nowarn_bif_clash is no longer allowed --
@@ -338,8 +340,8 @@ format_error_1({unused_import,{{F,A},M}}) ->
     {~"import ~w:~tw/~w is unused", [M,F,A]};
 format_error_1({undefined_function,{F,A}}) ->
     {~"function ~tw/~w undefined", [F,A]};
-format_error_1({undefined_function,{F,A},GuessF}) ->
-    {~"function ~tw/~w undefined, did you mean ~ts/~w?", [F,A,GuessF,A]};
+format_error_1({undefined_function,{F,A},GuessFA}) ->
+    {~"function ~tw/~w undefined, did you mean ~s?", [F,A,format_fa(GuessFA)]};
 format_error_1({redefine_function,{F,A}}) ->
     {~"function ~tw/~w already defined", [F,A]};
 format_error_1({define_import,{F,A}}) ->
@@ -617,6 +619,10 @@ format_mfa({M, F, [_|_]=As}) ->
     format_mf(M, F, ArityString);
 format_mfa({M, F, A}) when is_integer(A) ->
     format_mf(M, F, integer_to_list(A)).
+
+format_fa({F, [_|_]=As}) ->
+    ","++ArityString = lists:append([[$,|integer_to_list(A)] || A <- As]),
+    atom_to_list(F) ++ "/" ++ ArityString.
 
 format_mf(M, F, ArityString) when is_atom(M), is_atom(F) ->
     atom_to_list(M) ++ ":" ++ atom_to_list(F) ++ "/" ++ ArityString.
@@ -1074,6 +1080,9 @@ attribute_state({attribute,A,type,{TypeName,TypeDef,Args}}, St) ->
 attribute_state({attribute,A,opaque,{TypeName,TypeDef,Args}}, St) ->
     St1 = untrack_doc({type, TypeName, length(Args)}, St),
     type_def(opaque, A, TypeName, TypeDef, Args, St1);
+attribute_state({attribute,A,nominal,{TypeName,TypeDef,Args}}=AST, St) ->
+    St1 = untrack_doc(AST, St),
+    type_def(nominal, A, TypeName, TypeDef, Args, St1);
 attribute_state({attribute,A,spec,{Fun,Types}}, St) ->
     spec_decl(A, Fun, Types, St);
 attribute_state({attribute,A,callback,{Fun,Types}}, St) ->
@@ -1155,6 +1164,9 @@ function_state({attribute,A,type,{TypeName,TypeDef,Args}}, St) ->
 function_state({attribute,A,opaque,{TypeName,TypeDef,Args}}, St) ->
     St1 = untrack_doc({type, TypeName, length(Args)}, St),
     type_def(opaque, A, TypeName, TypeDef, Args, St1);
+function_state({attribute,A,nominal,{TypeName,TypeDef,Args}}=AST, St) ->
+    St1 = untrack_doc(AST, St),
+    type_def(nominal, A, TypeName, TypeDef, Args, St1);
 function_state({attribute,A,spec,{Fun,Types}}, St) ->
     spec_decl(A, Fun, Types, St);
 function_state({attribute,_A,doc,_Val}=AST, St) ->
@@ -1609,14 +1621,7 @@ check_undefined_functions(#lint{called=Called0,defined=Def0}=St0) ->
     Def = sofs:from_external(gb_sets:to_list(Def0), [func]),
     Undef = sofs:to_external(sofs:drestriction(Called, Def)),
     FAList = sofs:to_external(Def),
-    foldl(fun ({NA,Anno}, St) ->
-                  {Name, Arity} = NA,
-                  PossibleFs = [atom_to_list(F) || {F, A} <- FAList, A =:= Arity],
-                  case most_possible_string(Name, PossibleFs) of
-                      [] -> add_error(Anno, {undefined_function,NA}, St);
-                      GuessF -> add_error(Anno, {undefined_function,NA,GuessF}, St)
-                  end
-          end, St0, Undef).
+    func_location_error(undefined_function, Undef, St0, FAList).
 
 most_possible_string(Name, PossibleNames) ->
     case PossibleNames of
@@ -1631,7 +1636,7 @@ most_possible_string(Name, PossibleNames) ->
                                F <- PossibleNames],
             {MaxSim, GuessName} = lists:last(lists:sort(Similarities)),
             case MaxSim > SufficientlySimilar of
-                true -> GuessName;
+                true -> list_to_existing_atom(GuessName);
                 false -> []
             end
     end.
@@ -1691,15 +1696,26 @@ nowarn_function(Tag, Opts) ->
 func_location_warning(Type, Fs, St) ->
     foldl(fun ({F,Anno}, St0) -> add_warning(Anno, {Type,F}, St0) end, St, Fs).
 
-func_location_error(Type, Fs, St, FAList) ->
-    foldl(fun ({F,Anno}, St0) ->
-                  {Name, Arity} = F,
-                  PossibleFs = [atom_to_list(Func) || {Func, A} <- FAList, A =:= Arity],
-                  case most_possible_string(Name, PossibleFs) of
-                      [] -> add_error(Anno, {Type,F}, St0);
-                      GuessF -> add_error(Anno, {Type,F,GuessF}, St0)
-                  end
-          end, St, Fs).
+func_location_error(Type, [{F,Anno}|Fs], St0, FAList) ->
+    {Name, Arity} = F,
+    PossibleAs = lists:sort([A || {FName, A} <:- FAList, FName =:= Name]),
+    case PossibleAs of
+        [] ->
+            PossibleFs = [atom_to_list(Func) ||
+                             {Func, A} <:- FAList, A =:= Arity],
+            St1 = case most_possible_string(Name, PossibleFs) of
+                      [] ->
+                          add_error(Anno, {Type,F}, St0);
+                      GuessF ->
+                          add_error(Anno, {Type,F,{GuessF,[Arity]}}, St0)
+                  end,
+            func_location_error(Type, Fs, St1, FAList);
+        _ ->
+            St1 = add_error(Anno, {Type,F,{Name,PossibleAs}}, St0),
+            func_location_error(Type, Fs, St1, FAList)
+    end;
+func_location_error(_, [], St, _) ->
+    St.
 
 check_untyped_records(Forms, St0) ->
     case is_warn_enabled(untyped_record, St0) of
@@ -3818,6 +3834,8 @@ check_local_opaque_types(St) ->
     FoldFun =
         fun(_Type, #typeinfo{attr = type}, AccSt) ->
                 AccSt;
+           (_Type, #typeinfo{attr = nominal, anno = _Anno}, AccSt) ->
+                AccSt;
            (Type, #typeinfo{attr = opaque, anno = Anno}, AccSt) ->
                 case gb_sets:is_element(Type, ExpTs) of
                     true -> AccSt;
@@ -3855,12 +3873,10 @@ check_dialyzer_attribute(Forms, St0) ->
                           case lists:member(FA, DefFunctions) of
                               true -> St;
                               false ->
-                                  {Name, Arity} = FA,
-                                  PossibleFs = [atom_to_list(F) || {F, A} <- DefFunctions, A =:= Arity],
-                                  case most_possible_string(Name, PossibleFs) of
-                                      [] -> add_error(Anno, {undefined_function,FA}, St);
-                                      GuessF -> add_error(Anno, {undefined_function,FA,GuessF}, St)
-                                  end
+                                  func_location_error(undefined_function,
+                                                      [{FA,Anno}],
+                                                      St,
+                                                      DefFunctions)
                           end;
                       false ->
                           add_error(Anno, {bad_dialyzer_option,Option}, St)
@@ -3886,7 +3902,8 @@ is_module_dialyzer_option(Option) ->
                   error_handling,race_conditions,no_missing_calls,
                   specdiffs,overspecs,underspecs,unknown,
                   no_underspecs,extra_return,no_extra_return,
-                  missing_return,no_missing_return,overlapping_contract
+                  missing_return,no_missing_return,overlapping_contract,
+                  opaque_union,no_opaque_union
                  ]).
 
 %% try_catch_clauses(Scs, Ccs, In, ImportVarTable, State) ->
@@ -5037,12 +5054,12 @@ auto_import_suppressed(CompileFlags) ->
         false ->
             L0 = [ X || {no_auto_import,X} <- CompileFlags ],
             L1 = [ {Y,Z} || {Y,Z} <- lists:flatten(L0), is_atom(Y), is_integer(Z) ],
-            gb_sets:from_list(L1)
+            {set, gb_sets:from_list(L1)}
     end.
 %% Predicate to find out if autoimport is explicitly suppressed for a function
 is_autoimport_suppressed(all,{_Func,_Arity}) ->
     true;
-is_autoimport_suppressed(NoAutoSet,{Func,Arity}) ->
+is_autoimport_suppressed({set, NoAutoSet},{Func,Arity}) ->
     gb_sets:is_element({Func,Arity},NoAutoSet).
 %% Predicate to find out if a function specific bif-clash suppression (old deprecated) is present
 bif_clash_specifically_disabled(St,{F,A}) ->

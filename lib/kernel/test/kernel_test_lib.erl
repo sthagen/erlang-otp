@@ -49,6 +49,8 @@
 -export([
          proxy_call/3,
 
+         ensure_not_dog_slow/2,
+
          %% Generic 'has support' test function(s)
          is_socket_supported/0,
          has_support_ipv4/0,
@@ -1750,9 +1752,9 @@ analyze_and_print_solaris_host_info(Version) ->
             IS ->
                 IS
         end,
-    PtrConf = [list_to_tuple([string:trim(S) || S <- Items]) || Items <- [string:tokens(S, [$:]) || S <- string:tokens(os:cmd("prtconf"), [$\n])], length(Items) > 1],
+    PrtConf = [list_to_tuple([string:trim(S) || S <- Items]) || Items <- [string:tokens(S, [$:]) || S <- string:tokens(os:cmd("prtconf"), [$\n])], length(Items) > 1],
     SysConf =
-        case lists:keysearch("System Configuration", 1, PtrConf) of
+        case lists:keysearch("System Configuration", 1, PrtConf) of
             {value, {_, SC}} ->
                 SC;
             _ ->
@@ -1790,7 +1792,7 @@ analyze_and_print_solaris_host_info(Version) ->
                 "-"
         end,
     MemSz =
-        case lists:keysearch("Memory size", 1, PtrConf) of
+        case lists:keysearch("Memory size", 1, PrtConf) of
             {value, {_, MS}} ->
                 MS;
             _ ->
@@ -2708,6 +2710,16 @@ proxy_call(F, Timeout, Default)
     end.
 
 
+
+ensure_not_dog_slow(Config, Limit) ->
+    Key = kernel_factor,
+    case lists:keysearch(Key, 1, Config) of
+        {value, {Key, Value}} when (Value > Limit) ->
+            skip({factor_limit, Value, Limit});
+        _ ->
+            ok
+    end.
+            
 
 %% This is an extremely simple check...
 has_support_ipv4() ->
