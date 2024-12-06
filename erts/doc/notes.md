@@ -21,6 +21,20 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 15.1.3
+
+### Fixed Bugs and Malfunctions
+
+- gen_udp:send on domain local can leak inet_reply messages.
+
+  Own Id: OTP-19332 Aux Id: [#8989]
+
+- net:getifaddrs does not properly report the running flag on windows.
+
+  Own Id: OTP-19366 Aux Id: OTP-19061, ERIERL-1134
+
+[#8989]: https://github.com/erlang/otp/issues/8989
+
 ## Erts 15.1.2
 
 ### Fixed Bugs and Malfunctions
@@ -493,6 +507,20 @@ This document describes the changes made to the ERTS application.
 [PR-7125]: https://github.com/erlang/otp/pull/7125
 [PR-7809]: https://github.com/erlang/otp/pull/7809
 [PR-7977]: https://github.com/erlang/otp/pull/7977
+
+## Erts 14.2.5.5
+
+### Fixed Bugs and Malfunctions
+
+* Fix lock order violation if a NIF monitor `down` callback calls `enif_whereis_pid`. Would cause debug emulator to crash but could potentially lead to deadlocks in optimized emulator.
+
+  Own Id: OTP-19330 Aux Id: GH-8983, PR-9008
+* gen_udp:send on domain local can leak inet_reply messages.
+
+  Own Id: OTP-19332 Aux Id: #8989
+* net:getifaddrs does not properly report the running flag on windows.
+
+  Own Id: OTP-19366 Aux Id: OTP-19061, ERIERL-1134
 
 ## Erts 14.2.5.4
 
@@ -1491,6 +1519,14 @@ This document describes the changes made to the ERTS application.
   [Upcoming Potential Incompatibilities](`e:general_info:upcoming_incompatibilities.md#float_matching`).
 
   Own Id: OTP-18574
+
+## Erts 13.2.2.12
+
+### Fixed Bugs and Malfunctions
+
+* Fix lock order violation if a NIF monitor `down` callback calls `enif_whereis_pid`. Would cause debug emulator to crash but could potentially lead to deadlocks in optimized emulator.
+
+  Own Id: OTP-19330 Aux Id: GH-8983, PR-9008
 
 ## Erts 13.2.2.11
 

@@ -19,6 +19,25 @@ limitations under the License.
 -->
 # Common Test Release Notes
 
+## Common_Test 1.27.4
+
+### Fixed Bugs and Malfunctions
+
+- With this change, cth_surefire hook module handles group path reduction for a skipped group. This fixes a bug manifesting with improper group path for a group executed after a group which was skipped.
+
+  Own Id: OTP-19365 Aux Id: ERIERL-1157, [PR-9080]
+
+[PR-9080]: https://github.com/erlang/otp/pull/9080
+
+### Improvements and New Features
+
+- With this change, prefix option can be specified in cth_conn_log option list. Option allows to specify how much of additional information is added in raw log output.
+
+  Own Id: OTP-19293 Aux Id: ERIERL-1139, [PR-8924], [PR-8931]
+
+[PR-8924]: https://github.com/erlang/otp/pull/8924
+[PR-8931]: https://github.com/erlang/otp/pull/8931
+
 ## Common_Test 1.27.3
 
 ### Fixed Bugs and Malfunctions
@@ -121,6 +140,14 @@ limitations under the License.
 [PR-8026]: https://github.com/erlang/otp/pull/8026
 [GH-7972]: https://github.com/erlang/otp/issues/7972
 [PR-8112]: https://github.com/erlang/otp/pull/8112
+
+## Common_Test 1.26.2.3
+
+### Fixed Bugs and Malfunctions
+
+* With this change, cth_surefire hook module handles group path reduction for a skipped group. This fixes a bug manifesting with improper group path for a group executed after a group which was skipped.
+
+  Own Id: OTP-19365 Aux Id: ERIERL-1157, PR-9080
 
 ## Common_Test 1.26.2.2
 
@@ -244,6 +271,14 @@ limitations under the License.
   `dbg:stop/0`
 
   Own Id: OTP-18478 Aux Id: GH-6903
+
+## Common_Test 1.24.0.5
+
+### Fixed Bugs and Malfunctions
+
+* With this change, cth_surefire hook module handles group path reduction for a skipped group. This fixes a bug manifesting with improper group path for a group executed after a group which was skipped.
+
+  Own Id: OTP-19365 Aux Id: ERIERL-1157, PR-9080
 
 ## Common_Test 1.24.0.4
 
