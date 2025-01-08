@@ -483,7 +483,7 @@ See `t:gen_tcp:socket/0` and `t:gen_udp:socket/0`.
 -doc """
 Implementation backend selector for `t:socket/0`.
 
-Selects the implementation backend for [sockets](`t:socket/0`.
+Selects the implementation backend for [sockets](`t:socket/0`).
 The current default is `inet` which uses `inet_drv.c` to call
 the platform's socket API. The value `socket` instead uses
 the `m:socket` module and its NIF implementation.
@@ -975,10 +975,10 @@ The following options are available:
 
   Use active mode only if your high-level protocol provides its own flow control
   (for example, acknowledging received messages) or the amount of data exchanged
-  is small. `{active, false}` mode, use of the `{active, once}` mode, or
-  `{active, N}` mode with values of `N` appropriate for the application
-  to provide flow control. The other side cannot send faster than
-  the receiver can read.
+  is small. Using `{active, false}` mode, `{active, once}` mode, or
+  `{active, N}` mode with values of `N` appropriate for the application to
+  provide flow control, ensures the other side cannot send faster than the
+  receiver can read.
 
 - **`{broadcast, Boolean}` (UDP sockets)** [](){: #option-broadcast } -
   Enables/disables permission to send broadcasts.
