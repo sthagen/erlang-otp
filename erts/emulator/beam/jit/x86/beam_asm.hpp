@@ -1388,6 +1388,28 @@ protected:
                                const x86::Gp &out,
                                unsigned max_size = 0);
 
+    void emit_bs_get_small(const Label &fail,
+                           const ArgRegister &Ctx,
+                           const ArgWord &Live,
+                           const ArgSource &Sz,
+                           Uint unit,
+                           Uint flags);
+
+    void emit_bs_get_any_int(const Label &fail,
+                             const ArgRegister &Ctx,
+                             const ArgWord &Live,
+                             const ArgSource &Sz,
+                             Uint unit,
+                             Uint flags);
+
+    void emit_bs_get_binary(const ArgWord heap_need,
+                            const ArgRegister &Ctx,
+                            const ArgLabel &Fail,
+                            const ArgWord &Live,
+                            const ArgSource &Size,
+                            const ArgWord &Unit,
+                            const ArgRegister &Dst);
+
     void emit_bs_get_utf8(const ArgRegister &Ctx, const ArgLabel &Fail);
     void emit_bs_get_utf16(const ArgRegister &Ctx,
                            const ArgLabel &Fail,
@@ -1399,6 +1421,12 @@ protected:
                           x86::Gp size_reg);
     bool need_mask(const ArgVal Val, Sint size);
     void set_zero(Sint effectiveSize);
+    void emit_accumulate(ArgVal src,
+                         Sint effectiveSize,
+                         x86::Gp bin_data,
+                         x86::Gp tmp,
+                         x86::Gp value,
+                         bool isFirst);
     bool bs_maybe_enter_runtime(bool entered);
     void bs_maybe_leave_runtime(bool entered);
     void emit_construct_utf8_shared();
