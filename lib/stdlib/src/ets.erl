@@ -226,6 +226,8 @@ A match specifications with excessive nesting will cause a
 [`system_limit`](`m:ets#ets_failures`) error exception to be raised.
 """.
 
+-compile(nowarn_deprecated_catch).
+
 %% Interface to the Term store BIF's
 %% ets == Erlang Term Store
 
@@ -2025,9 +2027,7 @@ fun2ms(ShellFun) when is_function(ShellFun) ->
         {fun_data,ImportList,Clauses} ->
             case ms_transform:transform_from_shell(
                    ?MODULE,Clauses,ImportList) of
-                {error,[{_,[{_,_,Code}|_]}|_],_} ->
-                    io:format("Error: ~ts~n",
-                              [ms_transform:format_error(Code)]),
+                {error,[_|_],_} ->
                     {error,transform_error};
                 Else ->
                     Else
