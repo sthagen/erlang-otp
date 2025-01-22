@@ -132,7 +132,7 @@ wait_cert(internal,
             tls_gen_connection:next_event(NextState, no_record, State)
     end;
 wait_cert(info, Msg, State) ->
-    tls_gen_connection:handle_info(Msg, ?STATE(wait_cert), State);
+    tls_gen_connection:gen_info(Msg, ?STATE(wait_cert), State);
 wait_cert(Type, Msg, State) ->
     ssl_gen_statem:handle_common_event(Type, Msg, ?STATE(wait_cert), State).
 
@@ -144,7 +144,7 @@ wait_cv(internal = Type, #change_cipher_spec{} = Msg,
   when Id =/= ?EMPTY_ID ->
     handle_change_cipher_spec(Type, Msg, ?STATE(wait_cv), State);
 wait_cv(info, Msg, State) ->
-    tls_gen_connection:handle_info(Msg, ?STATE(wait_cv), State);
+    tls_gen_connection:gen_info(Msg, ?STATE(wait_cv), State);
 wait_cv(Type, Msg, State) ->
     ssl_gen_statem:handle_common_event(Type, Msg, ?STATE(wait_cv), State).
 
@@ -303,20 +303,17 @@ update_cipher_key(ConnStateName, CS0) ->
       cipher_state := CipherState0} = ConnState0 = maps:get(ConnStateName, CS0),
     HKDF = SecParams0#security_parameters.prf_algorithm,
     CipherSuite = SecParams0#security_parameters.cipher_suite,
-    ApplicationTrafficSecret0 =
-        SecParams0#security_parameters.application_traffic_secret,
-    ApplicationTrafficSecret =
-        tls_v1:update_traffic_secret(HKDF,
-                                     ApplicationTrafficSecret0),
+    ApplicationTrafficSecret0 = SecParams0#security_parameters.application_traffic_secret,
+    ApplicationTrafficSecret = tls_v1:update_traffic_secret(HKDF,ApplicationTrafficSecret0),
 
     %% Calculate traffic keys
     KeyLength = tls_v1:key_length(CipherSuite),
-    {Key, IV} = tls_v1:calculate_traffic_keys(HKDF, KeyLength,
-                                              ApplicationTrafficSecret),
+    {Key, IV} = tls_v1:calculate_traffic_keys(HKDF, KeyLength, ApplicationTrafficSecret),
 
     SecParams = SecParams0#security_parameters{application_traffic_secret = ApplicationTrafficSecret},
     CipherState = CipherState0#cipher_state{key = Key, iv = IV},
-    ConnState = ConnState0#{security_parameters => SecParams,
+    ConnState1 = maps:remove(aead_handle, ConnState0),
+    ConnState = ConnState1#{security_parameters => SecParams,
                             cipher_state => CipherState,
                             sequence_number => 0},
     CS0#{ConnStateName => ConnState}.

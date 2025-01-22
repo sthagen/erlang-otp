@@ -479,6 +479,9 @@ handle_info(_State, {io_request,From,ReplyAs, {get_geometry, What}}, Data) ->
     keep_state_and_data;
 handle_info(_State, {io_request,From,ReplyAs,Req}, Data) when ?IS_PUTC_REQ(Req) ->
     putc_request(Req, From, ReplyAs, Data);
+handle_info(_State, {io_request,From,ReplyAs, _Req}, _Data) ->
+    io_reply(From, ReplyAs, {error, request}),
+    keep_state_and_data;
 
 handle_info(_State, {reply, undefined, _Reply}, _Data) ->
     %% Ignore any reply with an undefined From.
@@ -1350,7 +1353,7 @@ type({io_request, _From, _ReplyAs, Req}) ->
     type(Req);
 type(getopts) ->
     ctrl;
-type(Req) ->
+type(Req) when tuple_size(Req) > 1 ->
     ReqType = element(1, Req),
     case {lists:member(ReqType, [put_chars, requests]),
             lists:member(ReqType, [get_chars, get_line, get_until, get_password])} of
@@ -1360,7 +1363,9 @@ type(Req) ->
             input;
         {false, false} ->
             ctrl
-    end.
+    end;
+type(_InvalidReq) ->
+    ctrl.
 
 format_io_request_log(#{ request := {io_request, From, ReplyAs, Request},
                          server := Server,

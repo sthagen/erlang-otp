@@ -214,7 +214,7 @@ start(internal = Type, #change_cipher_spec{} = Msg, State) ->
 start(internal, #client_hello{extensions = #{client_hello_versions :=
                                                  #client_hello_versions{versions = ClientVersions}
                                             }} = Hello,
-      #state{ssl_options = #{handshake := full}} = State) ->
+      #state{handshake_env = #handshake_env{continue_status = full}} = State) ->
     case tls_record:is_acceptable_version(?TLS_1_3, ClientVersions) of
         true ->
             handle_client_hello(Hello, State);
@@ -238,7 +238,7 @@ start(internal, #client_hello{}, State0) -> %% Missing mandantory TLS-1.3 extens
     %% so it is a previous version hello.
     ssl_gen_statem:handle_own_alert(?ALERT_REC(?FATAL, ?PROTOCOL_VERSION), ?STATE(start), State0);
 start(info, Msg, State) ->
-    tls_gen_connection:handle_info(Msg, ?STATE(start), State);
+    tls_gen_connection:gen_info(Msg, ?STATE(start), State);
 start(Type, Msg, State) ->
     ssl_gen_statem:handle_common_event(Type, Msg, ?STATE(start), State).
 
@@ -261,7 +261,7 @@ negotiated(internal, {start_handshake, _} = Message, State0) ->
             {next_state, NextState, State, []}
     end;
 negotiated(info, Msg, State) ->
-    tls_gen_connection:handle_info(Msg, ?STATE(negotiated), State);
+    tls_gen_connection:gen_info(Msg, ?STATE(negotiated), State);
 negotiated(Type, Msg, State) ->
     ssl_gen_statem:handle_common_event(Type, Msg, ?STATE(negotiated), State).
 
@@ -328,7 +328,7 @@ wait_finished(internal,
             ssl_gen_statem:handle_own_alert(Alert, ?STATE(wait_finished), State0)
     end;
 wait_finished(info, Msg, State) ->
-    tls_gen_connection:handle_info(Msg, ?STATE(wait_finished), State);
+    tls_gen_connection:gen_info(Msg, ?STATE(wait_finished), State);
 wait_finished(Type, Msg, State) ->
     ssl_gen_statem:handle_common_event(Type, Msg, ?STATE(wait_finished), State).
 
@@ -354,7 +354,7 @@ wait_eoed(internal, #end_of_early_data{}, #state{handshake_env = HsEnv0} = State
                                             wait_eoed, State0)
     end;
 wait_eoed(info, Msg, State) ->
-    tls_gen_connection:handle_info(Msg, ?STATE(wait_eoed), State);
+    tls_gen_connection:gen_info(Msg, ?STATE(wait_eoed), State);
 wait_eoed(Type, Msg, State) ->
     ssl_gen_statem:handle_common_event(Type, Msg, ?STATE(wait_eoed), State).
 
@@ -363,6 +363,8 @@ wait_eoed(Type, Msg, State) ->
                  term(), #state{}) ->
           gen_statem:state_function_result().
 %%--------------------------------------------------------------------
+connection(info, Msg, State) ->
+    tls_gen_connection:handle_info(Msg, connection, State);
 connection(Type, Msg, State) ->
     tls_gen_connection_1_3:connection(Type, Msg, State).
 
@@ -509,8 +511,8 @@ do_handle_client_hello(#client_hello{cipher_suites = ClientCiphers,
         {Ref, #alert{} = Alert} ->
             Alert;
         error:Reason:ST ->
-            ?SSL_LOG(debug, handshake_error, [{reason, Reason}, {stacktrace, ST}]),
-            ?ALERT_REC(?ILLEGAL_PARAMETER, illegal_parameter_in_client_hello)
+            ?SSL_LOG(info, handshake_error, [{reason, Reason}, {stacktrace, ST}]),
+            ?ALERT_REC(?FATAL, ?ILLEGAL_PARAMETER, illegal_parameter_in_client_hello)
     end.
 
 send_hello_flight({start_handshake, PSK0},
@@ -592,8 +594,8 @@ send_hello_flight({start_handshake, PSK0},
         {Ref, #alert{} = Alert} ->
             Alert;
         error:Reason:ST ->
-            ?SSL_LOG(debug, crypto_error, [{reason, Reason}, {stacktrace, ST}]),
-            ?ALERT_REC(?ILLEGAL_PARAMETER, illegal_parameter_to_compute_key)
+            ?SSL_LOG(info, crypto_error, [{reason, Reason}, {stacktrace, ST}]),
+            ?ALERT_REC(?FATAL, ?ILLEGAL_PARAMETER, illegal_parameter_to_compute_key)
     end.
 
 validate_cookie(_Cookie, #state{ssl_options = #{cookie := false}}) ->
