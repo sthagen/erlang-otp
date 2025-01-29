@@ -48,8 +48,6 @@
 -module(core_scan).
 -moduledoc false.
 
--compile(nowarn_deprecated_catch).
-
 -export([string/1, string/2, format_error/1]).
 
 -import(lists, [reverse/1]).
@@ -297,7 +295,7 @@ scan1([$$|Cs0], Toks, Pos) ->				%Character constant
 scan1([$'|Cs0], Toks, Pos) ->				%Atom (always quoted)
     {S,Cs1,Pos1} = scan_string(Cs0, $', Pos),
     try binary_to_atom(list_to_binary(S), utf8) of
-	A when is_atom(A) ->
+	A ->
 	    scan1(Cs1, [{atom,Pos,A}|Toks], Pos1)
     catch
         error:_ ->
@@ -327,18 +325,22 @@ scan1([], Toks0, _) ->
 
 scan_key_word(C, Cs0, Toks, Pos) ->
     {Wcs,Cs} = scan_name(Cs0, []),
-    case catch list_to_atom([C|reverse(Wcs)]) of
-	Name when is_atom(Name) ->
-	    scan1(Cs, [{Name,Pos}|Toks], Pos);
-	_Error -> scan_error({illegal,atom}, Pos)
+    try list_to_atom([C|reverse(Wcs)]) of
+	Name ->
+	    scan1(Cs, [{Name,Pos}|Toks], Pos)
+    catch
+        _:_ ->
+            scan_error({illegal,atom}, Pos)
     end.
 
 scan_variable(C, Cs0, Toks, Pos) ->
     {Wcs,Cs} = scan_name(Cs0, []),
-    case catch list_to_atom([C|reverse(Wcs)]) of
-	Name when is_atom(Name) ->
-	    scan1(Cs, [{var,Pos,Name}|Toks], Pos);
-	_Error -> scan_error({illegal,var}, Pos)
+    try list_to_atom([C|reverse(Wcs)]) of
+	Name ->
+	    scan1(Cs, [{var,Pos,Name}|Toks], Pos)
+    catch
+        _:_ ->
+            scan_error({illegal,var}, Pos)
     end.
 
 %% scan_name(Cs) -> lists:splitwith(fun (C) -> name_char(C) end, Cs).
@@ -490,10 +492,12 @@ scan_after_fraction([$E|Cs], Ncs, Toks, SPos, CPos) ->
 scan_after_fraction([$e|Cs], Ncs, Toks, SPos, CPos) ->
     scan_exponent(Cs, [$E|Ncs], Toks, SPos, CPos);
 scan_after_fraction(Cs, Ncs, Toks, SPos, CPos) ->
-    case catch list_to_float(reverse(Ncs)) of
-	N when is_float(N) ->
-	    scan1(Cs, [{float,SPos,N}|Toks], CPos);
-	_Error -> scan_error({illegal,float}, SPos)
+    try list_to_float(reverse(Ncs)) of
+	N ->
+	    scan1(Cs, [{float,SPos,N}|Toks], CPos)
+    catch
+        _:_ ->
+            scan_error({illegal,float}, SPos)
     end.
 
 %% scan_exponent(CharList, NumberCharStack, TokenStack, StartPos, CurPos)
@@ -509,10 +513,12 @@ scan_exponent(Cs, Ncs, Toks, SPos, CPos) ->
 scan_exponent1([C|Cs0], Ncs0, Toks, SPos, CPos) when
       is_integer(C), C >= $0, C =< $9 ->
     {Ncs,Cs,CPos1} = scan_integer(Cs0, [C|Ncs0], CPos),
-    case catch list_to_float(reverse(Ncs)) of
-	N when is_float(N) ->
-	    scan1(Cs, [{float,SPos,N}|Toks], CPos1);
-	_Error -> scan_error({illegal,float}, SPos)
+    try list_to_float(reverse(Ncs)) of
+	N ->
+	    scan1(Cs, [{float,SPos,N}|Toks], CPos1)
+    catch
+        _:_ ->
+            scan_error({illegal,float}, SPos)
     end;
 scan_exponent1(_, _, _, _, CPos) ->
     scan_error(float, CPos).
