@@ -568,9 +568,18 @@ bs_insert_is([#b_set{dst=Dst}=I|Is], Saves, Restores, Acc0) ->
 bs_insert_is([], _, _, Acc) ->
     {reverse(Acc), []}.
 
-%% Translate bs_match instructions to bs_get, bs_match_string,
-%% or bs_skip. Also rename match context variables to use the
-%% variable assigned to by the start_match instruction.
+%% Translate bs_match instructions to one of:
+%%
+%%    * bs_get / bs_ensured_get
+%%    * bs_skip / bs_ensured_skip
+%%    * bs_match_string / bs_ensured_match_string
+%%
+%% The bs_ensured_* instructions don't check that the bitstring being
+%% matched is long enough, because that has already been done by a
+%% bs_ensure instruction.
+%%
+%% Also rename match context variables to use the variable assigned to
+%% by the start_match instruction.
 
 bs_instrs([{L,#b_blk{is=Is0}=Blk}|Bs], CtxChain, Acc0) ->
     case bs_instrs_is(Is0, CtxChain, []) of
@@ -591,6 +600,8 @@ bs_rewrite_skip([{L,#b_blk{is=Is0,last=Last0}=Blk}|Bs]) ->
         no ->
             [{L,Blk}|bs_rewrite_skip(Bs)];
         {yes,Is} ->
+            %% bs_skip was rewritten to bs_ensured_skip, which
+            %% can't fail.
             #b_br{succ=Succ} = Last0,
             Last = beam_ssa:normalize(Last0#b_br{fail=Succ}),
             [{L,Blk#b_blk{is=Is,last=Last}}|bs_rewrite_skip(Bs)]
@@ -600,7 +611,7 @@ bs_rewrite_skip([]) ->
 
 bs_rewrite_skip_is([#b_set{anno=#{ensured := true},op=bs_skip}=I0,
                     #b_set{op={succeeded,guard}}], Acc) ->
-    I = I0#b_set{op=bs_checked_skip},
+    I = I0#b_set{op=bs_ensured_skip},
     {yes,reverse(Acc, [I])};
 bs_rewrite_skip_is([I|Is], Acc) ->
     bs_rewrite_skip_is(Is, [I|Acc]);
@@ -623,8 +634,13 @@ bs_instrs_is([#b_set{anno=Anno0,op=Op,args=Args0}=I0|Is], CtxChain, Acc) ->
                                Anno0
                        end,
                 I1#b_set{anno=Anno,op=bs_skip,args=[Type,Ctx|As]};
-            {bs_match,[#b_literal{val=string},Ctx|As]} ->
-                I1#b_set{op=bs_match_string,args=[Ctx|As]};
+            {bs_match,[#b_literal{val=string},Ctx,#b_literal{val=S}=S0]} ->
+                case Anno0 of
+                    #{ensured := true} when bit_size(S) =< 64 ->
+                        I1#b_set{op=bs_ensured_match_string,args=[Ctx,S0]};
+                    #{} ->
+                        I1#b_set{op=bs_match_string,args=[Ctx,S0]}
+                end;
             {_,_} ->
                 I1
         end,
@@ -640,7 +656,8 @@ bs_combine(Dst, Ctx, [{L,#b_blk{is=Is0}=Blk}|Acc]) ->
      #b_set{anno=Anno,op=bs_match,args=[Type,_|As]}=BsMatch|Is1] = reverse(Is0),
     if
         is_map_key(ensured, Anno) ->
-            Is = reverse(Is1, [BsMatch#b_set{op=bs_checked_get,dst=Dst,
+            %% This instruction can't fail.
+            Is = reverse(Is1, [BsMatch#b_set{op=bs_ensured_get,dst=Dst,
                                              args=[Type,Ctx|As]}]),
             #b_blk{last=#b_br{succ=Succ}=Br0} = Blk,
             Br = beam_ssa:normalize(Br0#b_br{fail=Succ}),
@@ -1990,6 +2007,11 @@ copy_retval_is([#b_set{op=call,dst=#b_var{}=Dst}=I0|Is], RC, Yregs,
         false ->
             copy_retval_is(Is, RC, Yregs, none, Count1, [I1|Acc])
     end;
+copy_retval_is([#b_set{op=landingpad,args=[#b_literal{val='try'}|_]=Args0}=I0|Is],
+               _RC, Yregs, Copy, Count, Acc0) ->
+    I = I0#b_set{args=copy_sub_args(Args0, Copy)},
+    Acc = [I|acc_copy(Acc0, Copy)],
+    copy_landingpad(Is, Yregs, Count, Acc, []);
 copy_retval_is([#b_set{args=Args0}=I0|Is], RC, Yregs, Copy, Count, Acc) ->
     I = I0#b_set{args=copy_sub_args(Args0, Copy)},
     case beam_ssa:clobbers_xregs(I) of
@@ -2006,6 +2028,53 @@ copy_retval_is([], RC, _, Copy, Count, Acc) ->
             {reverse(Acc),Count,Copy};
         {#b_set{},false} ->
             {reverse(Acc, [Copy]),Count}
+    end.
+
+%% Consider this function:
+%%
+%%     do_try(F) ->
+%%        try F()
+%%        catch
+%%            C:R:Stk ->
+%%                {'EXIT',C,R,Stk}
+%%        end.
+%%
+%% That would result in the following SSA code for the `catch` clause:
+%%
+%%     z0/_16 = landingpad `'try'`, y2/_14
+%%     y1/_4 = extract z0/_16, `0`
+%%     y0/_3 = extract z0/_16, `1`
+%%     x0/_2 = extract z0/_16, `2`
+%%     z0/_17 = kill_try_tag y2/_14
+%%     x0/Stk = build_stacktrace x0/_2
+%%
+%% Note that three Y registers are required. That can be reduced to
+%% two Y registers if we rewrite the code like so:
+%%
+%%      x0/_37 = extract z0/_16, `0`
+%%      x1/_38 = extract z0/_16, `1`
+%%      x2/_2 = extract z0/_16, `2`
+%%      z0/_17 = kill_try_tag y1/_14
+%%      y1/_3 = copy x1/_38
+%%      y0/_4 = copy x0/_37
+%%
+
+copy_landingpad([I0|Is], Yregs, Count0, Acc0, Copies0) ->
+    case I0 of
+        #b_set{dst=Dst,op=extract} ->
+            case sets:is_element(Dst, Yregs) of
+                true ->
+                    {NewDst,Count} = new_var(Count0),
+                    Copies = [#b_set{op=copy,dst=Dst,args=[NewDst]}|Copies0],
+                    I = I0#b_set{dst=NewDst},
+                    Acc = [I|Acc0],
+                    copy_landingpad(Is, Yregs, Count, Acc, Copies);
+                false ->
+                    Acc = [I0|Acc0],
+                    copy_landingpad(Is, Yregs, Count0, Acc, Copies0)
+            end;
+        #b_set{op=kill_try_tag} ->
+            {reverse(Acc0, [I0|Copies0 ++ Is]),Count0}
     end.
 
 %%
@@ -2609,7 +2678,8 @@ reserve_zreg([#b_set{op=Op,dst=Dst} | Is], Last, ShortLived, A) ->
     end;
 reserve_zreg([], _, _, A) -> A.
 
-use_zreg(bs_checked_skip) -> yes;
+use_zreg(bs_ensured_match_string) -> yes;
+use_zreg(bs_ensured_skip) -> yes;
 use_zreg(bs_ensure) -> yes;
 use_zreg(bs_match_string) -> yes;
 use_zreg(bs_set_position) -> yes;
@@ -2770,15 +2840,22 @@ reserve_xregs_is([gc|Is], Res, Xs0, Used) ->
     Xs = res_xregs_prune(Xs0, Used, Res),
     reserve_xregs_is(Is, Res, Xs, Used);
 reserve_xregs_is([#b_set{op=Op,dst=Dst,args=Args}=I|Is], Res0, Xs0, Used0) ->
-    Res = reserve_xreg(Dst, Xs0, Res0),
+    Res1 = reserve_xreg(Dst, Xs0, Res0),
     Used1 = ordsets:union(Used0, beam_ssa:used(I)),
     Used = ordsets:del_element(Dst, Used1),
     case Op of
         call ->
             Xs = reserve_call_args(tl(Args)),
-            reserve_xregs_is(Is, Res, Xs, Used);
+            reserve_xregs_is(Is, Res1, Xs, Used);
+        extract ->
+            %% Avoid potential register shuffling by pinning the
+            %% destination variable to the X register where the
+            %% runtime system will place it.
+            [_,#b_literal{val=Reg}] = Args,
+            Res = Res1#{Dst => {x,Reg}},
+            reserve_xregs_is(Is, Res, Xs0, Used);
         _ ->
-            reserve_xregs_is(Is, Res, Xs0, Used)
+            reserve_xregs_is(Is, Res1, Xs0, Used)
     end;
 reserve_xregs_is([], Res, Xs, _Used) ->
     {Res,Xs}.
