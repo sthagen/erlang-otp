@@ -71,6 +71,7 @@ MODULES= \
 	random_SUITE \
 	re_SUITE \
 	run_pcre_tests \
+	run_old_pcre1_tests \
 	re_testoutput1_replacement_test \
 	re_testoutput1_split_test \
 	slave_SUITE \
@@ -111,6 +112,7 @@ MODULES= \
 	random_iolist \
 	error_logger_forwarder \
 	maps_SUITE \
+	zstd_SUITE \
 	zzz_SUITE
 
 ERTS_MODULES= erts_test_utils
