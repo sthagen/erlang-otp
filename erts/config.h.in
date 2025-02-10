@@ -1,5 +1,5 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
-/* SPDX-License-Identifier: GPL-3.0-or-later WITH Autoconf-exception-generic-3.0 */
+
 
 #ifndef __ERTS_CONFIG_H__
 #define __ERTS_CONFIG_H__
@@ -116,6 +116,9 @@
 
 /* Use socket registry by default */
 #undef ESOCK_USE_SOCKET_REGISTRY
+
+/* Use verbose mutex names */
+#undef ESOCK_VERBOSE_MTX_NAMES
 
 /* Define if bigendian */
 #undef ETHR_BIGENDIAN

@@ -480,9 +480,13 @@ handle_sni_extension(#sni{hostname = Hostname}, #state{static_env = #static_env{
                                                        ssl_options = #{protocol := Protocol}} = State0) ->
     case check_hostname(Hostname) of
         ok ->
-
-            proc_lib:set_label({Protocol, ?SERVER_ROLE, erlang:iolist_to_binary(Hostname), Port}),
-            {ok, handle_sni_hostname(Hostname, State0)};
+            case handle_sni_hostname(Hostname, State0) of
+                #alert{} = OptAlert ->
+                    {error, OptAlert};
+                State ->
+                    proc_lib:set_label({Protocol, ?SERVER_ROLE, erlang:iolist_to_binary(Hostname), Port}),
+                    {ok, State}
+            end;
         #alert{} = Alert ->
             {error, Alert}
     end.
@@ -840,15 +844,29 @@ handle_info({ErrorTag, Socket, econnaborted}, StateName,
     maybe_invalidate_session(Version, Type, Role, Host, Port, Session),
     alert_user(UserSocket, StartFrom, ?ALERT_REC(?FATAL, ?CLOSE_NOTIFY), Role, StateName, Connection),
     {stop, {shutdown, transport_closed}, State};
-handle_info({ErrorTag, Socket, Reason}, StateName, #state{static_env = #static_env{
-                                                                          role = Role,
-                                                                          socket = Socket,
-                                                                          error_tag = ErrorTag}
-                                                         } = State)  ->
+handle_info({ErrorTag, Socket, Reason}, StateName,
+            #state{static_env = #static_env{
+                                   role = Role,
+                                   socket = Socket,
+                                   error_tag = ErrorTag}
+                  } = State)  ->
     ?SSL_LOG(info, "Socket error", [{error_tag, ErrorTag}, {description, Reason}]),
     Alert = ?ALERT_REC(?FATAL, ?CLOSE_NOTIFY, {transport_error, Reason}),
     handle_normal_shutdown(Alert#alert{role = Role}, StateName, State),
-    {stop, {shutdown, transport_closed}, State};
+    {stop, {shutdown,normal}, State};
+
+handle_info({ErrorTag, Socket, abort, Reason}, StateName,
+            #state{static_env = #static_env{
+                                   role = Role,
+                                   socket = Socket,
+                                   error_tag = ErrorTag}
+                  } = State)  ->
+    ?SSL_LOG(info, "Socket error", [{error_tag, ErrorTag}, {description, Reason}]),
+    Alert = ?ALERT_REC(?FATAL, ?CLOSE_NOTIFY, {transport_error, Reason}),
+    handle_normal_shutdown(Alert#alert{role = Role}, StateName, State),
+    {stop, {shutdown,normal}, State};
+
+
 handle_info({'DOWN', MonitorRef, _, _, Reason}, _,
             #state{connection_env = #connection_env{user_application = {MonitorRef, _Pid}},
                    ssl_options = #{erl_dist := true}}) ->
@@ -1276,15 +1294,18 @@ handle_sni_hostname(Hostname,
                            handshake_env = HsEnv,
                            connection_env = CEnv,
                            ssl_options = Opts} = State0) ->
+    %% RFC6060:  "If the server understood the ClientHello extension but
+    %%  does not recognize the server name, the server SHOULD take one of two
+    %%  actions: either abort the handshake by sending a fatal-level
+    %%  unrecognized_name(112) alert or continue the handshake."
+    %% Realized as use_default_options |  #alert{description = ?UNRECOGNIZED_NAME}
     case update_ssl_options_from_sni(Opts, Hostname) of
-        undefined ->
-            %% RFC6060:  "If the server understood the ClientHello extension but
-            %%  does not recognize the server name, the server SHOULD take one of two
-            %%  actions: either abort the handshake by sending a fatal-level
-            %%  unrecognized_name(112) alert or continue the handshake."
+        use_original_options ->
             State0#state{handshake_env = HsEnv#handshake_env{sni_hostname = Hostname}};
+        #alert{} = Alert ->
+            Alert;
         NewOptions ->
-	    {ok, #{cert_db_ref := Ref,
+            {ok, #{cert_db_ref := Ref,
                    cert_db_handle := CertDbHandle,
                    fileref_db_handle := FileRefHandle,
                    session_cache := CacheHandle,
@@ -1309,13 +1330,36 @@ handle_sni_hostname(Hostname,
     end.
 
 update_ssl_options_from_sni(#{sni_fun := SNIFun} = OrigSSLOptions, SNIHostname) ->
-    case SNIFun(SNIHostname) of
+    try SNIFun(SNIHostname) of
         undefined ->
-            undefined;
+            use_original_options;
+        unrecognized ->
+            ?ALERT_REC(?FATAL, ?UNRECOGNIZED_NAME, {sni, SNIHostname});
         SSLOptions ->
-            VersionsOpt = proplists:get_value(versions, SSLOptions, []),
-            FallBackOptions = filter_for_versions(VersionsOpt, OrigSSLOptions),
-            ssl_config:update_options(SSLOptions, server, FallBackOptions)
+            try
+                FallBackOptions = fallback_options(SSLOptions, OrigSSLOptions),
+                ssl_config:update_options(SSLOptions, server, FallBackOptions)
+            catch
+                throw:#alert{} = Alert ->
+                    Alert;
+                throw:Reason ->
+                    ?LOG_ERROR("sni_fun provided erroneous options : ~p~n", [Reason]),
+                    ?ALERT_REC(?FATAL, ?HANDSHAKE_FAILURE, sni_fun_provided_erroneous_options)
+            end
+    catch
+        Error:Reason:ST ->
+            ?LOG_ERROR("sni_fun crashed ~p ~p~n ~p~n", [Error, Reason, {stacktrace, ST}]),
+            ?ALERT_REC(?FATAL, ?HANDSHAKE_FAILURE, sni_fun_crashed)
+    end.
+
+fallback_options(SSLOptions, OrigSSLOptions) ->
+    VersionsOpt = proplists:get_value(versions, SSLOptions, []),
+    try filter_for_versions(VersionsOpt, OrigSSLOptions) of
+        FallBackOptions ->
+            FallBackOptions
+    catch _:_:ST ->
+            ?LOG_ERROR("sni_fun provided erroneous options : ~p ~n ~p ~n", [VersionsOpt,  {stacktrace, ST}]),
+            throw(?ALERT_REC(?FATAL, ?HANDSHAKE_FAILURE, sni_fun_provided_erroneous_versions))
     end.
 
 filter_for_versions([], OrigSSLOptions) ->
