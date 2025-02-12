@@ -1,7 +1,7 @@
 <!--
 %CopyrightBegin%
 
-Copyright Ericsson AB 2023-2024. All Rights Reserved.
+Copyright Ericsson AB 2023-2025. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -315,6 +315,20 @@ limitations under the License.
   \*** POTENTIAL INCOMPATIBILITY \***
 
   Own Id: OTP-18490 Aux Id: OTP-18471, GH-6339, PR-6843
+
+## Ssh 4.15.3.9
+
+### Fixed Bugs and Malfunctions
+
+* With this change, type specs for ssh:connection_info/1,2 functions are fixed so they include \{error, term()\} return value.
+
+  Own Id: OTP-19388 Aux Id: ERIERL-1165, PR-9161
+* With this change, ssh client accepts a banner sent during processing keyboard interactive user authentication.
+
+  Own Id: OTP-19392 Aux Id: PR-9139, GH-9065
+* With this change, large sftp transfers does not hang. Redundant window adjustment are not requested.
+
+  Own Id: OTP-19435 Aux Id: PR-9309
 
 ## Ssh 4.15.3.8
 

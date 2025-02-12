@@ -1,7 +1,7 @@
 <!--
 %CopyrightBegin%
 
-Copyright Ericsson AB 2023-2024. All Rights Reserved.
+Copyright Ericsson AB 2023-2025. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -1298,8 +1298,8 @@ Each element `Ei` specifies a _segment_ of the bit string. The segments are
 ordered left to right from the most significant bit to the least significant bit
 of the bit string.
 
-Each segment specification `Ei` is a value, followed by an optional _size
-expression_ and an optional _type specifier list_.
+Each segment specification `Ei` is a value, whose default type is `integer`,
+followed by an optional _size expression_ and an optional _type specifier list_.
 
 ```
 Ei = Value |

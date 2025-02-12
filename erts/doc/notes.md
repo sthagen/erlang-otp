@@ -1,7 +1,7 @@
 <!--
 %CopyrightBegin%
 
-Copyright Ericsson AB 2023-2024. All Rights Reserved.
+Copyright Ericsson AB 2023-2025. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -620,6 +620,14 @@ This document describes the changes made to the ERTS application.
 [PR-7125]: https://github.com/erlang/otp/pull/7125
 [PR-7809]: https://github.com/erlang/otp/pull/7809
 [PR-7977]: https://github.com/erlang/otp/pull/7977
+
+## Erts 14.2.5.7
+
+### Fixed Bugs and Malfunctions
+
+* Disabled an unsafe runtime optimization in binary construction that caused silent memory corruption.
+
+  Own Id: OTP-19462 Aux Id: ERIERL-1177, PR-9372
 
 ## Erts 14.2.5.6
 
@@ -1640,6 +1648,14 @@ This document describes the changes made to the ERTS application.
   [Upcoming Potential Incompatibilities](`e:general_info:upcoming_incompatibilities.md#float_matching`).
 
   Own Id: OTP-18574
+
+## Erts 13.2.2.13
+
+### Fixed Bugs and Malfunctions
+
+* Disabled an unsafe runtime optimization in binary construction that caused silent memory corruption.
+
+  Own Id: OTP-19462 Aux Id: ERIERL-1177, PR-9372
 
 ## Erts 13.2.2.12
 

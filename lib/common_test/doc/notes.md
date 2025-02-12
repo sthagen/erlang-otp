@@ -1,7 +1,7 @@
 <!--
 %CopyrightBegin%
 
-Copyright Ericsson AB 2023-2024. All Rights Reserved.
+Copyright Ericsson AB 2023-2025. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -300,6 +300,14 @@ limitations under the License.
   `dbg:stop/0`
 
   Own Id: OTP-18478 Aux Id: GH-6903
+
+## Common_Test 1.24.0.6
+
+### Fixed Bugs and Malfunctions
+
+* Common test will now not crash when running tests with OTP-26 and earlier, while having previous test results from OTP-27.
+
+  Own Id: OTP-19385 Aux Id: ERIERL-1166, PR-9155, PR-9156
 
 ## Common_Test 1.24.0.5
 
