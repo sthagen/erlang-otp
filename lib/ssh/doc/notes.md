@@ -19,6 +19,14 @@ limitations under the License.
 -->
 # SSH Release Notes
 
+## Ssh 5.2.7
+
+### Fixed Bugs and Malfunctions
+
+- SFTP packets exceeding max packet size are not processed and dropped.
+
+  Own Id: OTP-19466 Aux Id: ERIERL-1173, CVE-2025-26618
+
 ## Ssh 5.2.6
 
 ### Fixed Bugs and Malfunctions
@@ -140,6 +148,14 @@ limitations under the License.
 
 [PR-7845]: https://github.com/erlang/otp/pull/7845
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Ssh 5.1.4.6
+
+### Fixed Bugs and Malfunctions
+
+* SFTP packets exceeding max packet size are not processed and dropped.
+
+  Own Id: OTP-19466 Aux Id: ERIERL-1173, CVE-2025-26618
 
 ## Ssh 5.1.4.5
 
@@ -315,6 +331,14 @@ limitations under the License.
   \*** POTENTIAL INCOMPATIBILITY \***
 
   Own Id: OTP-18490 Aux Id: OTP-18471, GH-6339, PR-6843
+
+## Ssh 4.15.3.10
+
+### Fixed Bugs and Malfunctions
+
+* SFTP packets exceeding max packet size are not processed and dropped.
+
+  Own Id: OTP-19466 Aux Id: ERIERL-1173, CVE-2025-26618
 
 ## Ssh 4.15.3.9
 
