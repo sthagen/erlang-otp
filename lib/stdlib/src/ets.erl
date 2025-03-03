@@ -496,7 +496,7 @@ table, `undefined` is returned. If `Table` is not of the correct type, a
                  | {protection, table_access()}
                  | {size, non_neg_integer()}
                  | {type, table_type()}
-		 | {write_concurrency, boolean()}
+		 | {write_concurrency, boolean() | auto}
 		 | {read_concurrency, boolean()}.
 
 info(_) ->
@@ -1804,7 +1804,7 @@ The function fails with reason `badarg` in the following situations:
 - The element to update is also the key.
 """.
 -doc(#{since => <<"OTP 27.0">>}).
--spec update_element(Table, Key, ElementSpec, Default) -> true when
+-spec update_element(Table, Key, ElementSpec, Default) -> boolean() when
       Table :: table(),
       Key :: term(),
       ElementSpec :: {Pos, Value} | [{Pos, Value}],
