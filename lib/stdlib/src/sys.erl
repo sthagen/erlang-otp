@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2024. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2025. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -315,7 +315,7 @@ The value of `Misc` varies for different types of processes, for example:
 - A `m:gen_event` process returns information about each of its registered
   handlers.
 - A bare `m:sys` process returns the value passed as `Misc` to
-  `handle_system_message/6`.
+  `handle_system_msg/6`.
 
 Callback modules for `m:gen_server`, `m:gen_statem`, and `m:gen_event` can also change
 the value of `Misc` by exporting a function `format_status/1`, which contributes
