@@ -21,6 +21,25 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 15.2.4
+
+### Fixed Bugs and Malfunctions
+
+- Behavior for socket:recv/3 has been improved. The behavior has also been clarified in the documentation.
+
+  Own Id: OTP-19469 Aux Id: [#9172]
+
+- Trace messages due to `receive` tracing could potentially be delayed a very long time if the traced process waited in a `receive` expression without clauses matching on messages (timed wait), or just did not enter a `receive` expression for a very long time.
+
+  Own Id: OTP-19527 Aux Id: [PR-9577]
+
+- Improve the naming of the (internal) esock mutex(es). It is now possible to configure (as in autoconf) the use of simple names for the esock mutex(es).
+
+  Own Id: OTP-19548 Aux Id: OTP-19472
+
+[#9172]: https://github.com/erlang/otp/issues/9172
+[PR-9577]: https://github.com/erlang/otp/pull/9577
+
 ## Erts 15.2.3
 
 ### Fixed Bugs and Malfunctions
@@ -654,6 +673,23 @@ This document describes the changes made to the ERTS application.
 [PR-7125]: https://github.com/erlang/otp/pull/7125
 [PR-7809]: https://github.com/erlang/otp/pull/7809
 [PR-7977]: https://github.com/erlang/otp/pull/7977
+
+## Erts 14.2.5.9
+
+### Fixed Bugs and Malfunctions
+
+* Behavior for socket:recv/3 has been improved. The behavior has also been clarified in the documentation.
+
+  Own Id: OTP-19469 Aux Id: #9172
+* Fix `prim_inet:send/3` (and in extension `gen_tcp:send/2,3`) to use the selective recive optimization when waiting for a send acknowledgement.
+
+  Own Id: OTP-19493 Aux Id: PR-9443
+* Trace messages due to `receive` tracing could potentially be delayed a very long time if the traced process waited in a `receive` expression without clauses matching on messages (timed wait), or just did not enter a `receive` expression for a very long time.
+
+  Own Id: OTP-19527 Aux Id: PR-9577
+* Improve the naming of the (internal) esock mutex(es). It is now possible to configure (as in autoconf) the use of simple names for the esock mutex(es).
+
+  Own Id: OTP-19548 Aux Id: OTP-19472
 
 ## Erts 14.2.5.8
 
@@ -1690,6 +1726,14 @@ This document describes the changes made to the ERTS application.
   [Upcoming Potential Incompatibilities](`e:general_info:upcoming_incompatibilities.md#float_matching`).
 
   Own Id: OTP-18574
+
+## Erts 13.2.2.15
+
+### Fixed Bugs and Malfunctions
+
+* Trace messages due to `receive` tracing could potentially be delayed a very long time if the traced process waited in a `receive` expression without clauses matching on messages (timed wait), or just did not enter a `receive` expression for a very long time.
+
+  Own Id: OTP-19527 Aux Id: PR-9577
 
 ## Erts 13.2.2.14
 

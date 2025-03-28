@@ -21,6 +21,21 @@ limitations under the License.
 
 This document describes the changes made to the Kernel application.
 
+## Kernel 10.2.4
+
+### Fixed Bugs and Malfunctions
+
+- Behavior for socket:recv/3 has been improved. The behavior has also been clarified in the documentation.
+
+  Own Id: OTP-19469 Aux Id: [#9172]
+
+- An infinite loop in CNAME loop detection that can cause Out Of Memory has been fixed. This affected CNAME lookup with the internal DNS resolver.
+
+  Own Id: OTP-19545 Aux Id: [PR-9587], OTP-19544
+
+[#9172]: https://github.com/erlang/otp/issues/9172
+[PR-9587]: https://github.com/erlang/otp/pull/9587
+
 ## Kernel 10.2.3
 
 ### Fixed Bugs and Malfunctions
@@ -452,6 +467,17 @@ This document describes the changes made to the Kernel application.
 [PR-8103]: https://github.com/erlang/otp/pull/8103
 [#6724]: https://github.com/erlang/otp/issues/6724
 [PR-8396]: https://github.com/erlang/otp/pull/8396
+
+## Kernel 9.2.4.7
+
+### Fixed Bugs and Malfunctions
+
+* Behavior for socket:recv/3 has been improved. The behavior has also been clarified in the documentation.
+
+  Own Id: OTP-19469 Aux Id: #9172
+* An infinite loop in CNAME loop detection that can cause Out Of Memory has been fixed. This affected CNAME lookup with the internal DNS resolver.
+
+  Own Id: OTP-19545 Aux Id: PR-9587, OTP-19544
 
 ## Kernel 9.2.4.6
 
@@ -1220,6 +1246,14 @@ This document describes the changes made to the Kernel application.
   multi-line statements. Redraw the prompt after continuing from JCL menu.
 
   Own Id: OTP-18575 Aux Id: PR-7169
+
+## Kernel 8.5.4.5
+
+### Fixed Bugs and Malfunctions
+
+* An infinite loop in CNAME loop detection that can cause Out Of Memory has been fixed. This affected CNAME lookup with the internal DNS resolver.
+
+  Own Id: OTP-19545 Aux Id: PR-9587, OTP-19544
 
 ## Kernel 8.5.4.4
 

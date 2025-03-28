@@ -25,6 +25,16 @@ as all enhancements and bugfixes for every release of Mnesia. Each release of
 Mnesia thus constitutes one section in this document. The title of each section
 is the version number of Mnesia.
 
+## Mnesia 4.23.5
+
+### Fixed Bugs and Malfunctions
+
+- With this change mnesia will merge schema of tables using external backends.
+
+  Own Id: OTP-19437 Aux Id: [PR-9534]
+
+[PR-9534]: https://github.com/erlang/otp/pull/9534
+
 ## Mnesia 4.23.4
 
 ### Fixed Bugs and Malfunctions
@@ -66,6 +76,17 @@ is the version number of Mnesia.
   Own Id: OTP-18955 Aux Id: [PR-8026]
 
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Mnesia 4.23.1.2
+
+### Fixed Bugs and Malfunctions
+
+* With this change mnesia will merge schema of tables using external backends.
+
+  Own Id: OTP-19437 Aux Id: PR-9534
+* Mnesia could fail to load a table, if one of the copy holders was moved during startup.
+
+  Own Id: OTP-19501 Aux Id: ERIERL-1195, PR-9499
 
 ## Mnesia 4.23.1.1
 
@@ -124,6 +145,14 @@ is the version number of Mnesia.
   \*** POTENTIAL INCOMPATIBILITY \***
 
   Own Id: OTP-18490 Aux Id: OTP-18471, GH-6339, PR-6843
+
+## Mnesia 4.21.4.4
+
+### Fixed Bugs and Malfunctions
+
+* Mnesia could fail to load a table, if one of the copy holders was moved during startup.
+
+  Own Id: OTP-19501 Aux Id: ERIERL-1195, PR-9499
 
 ## Mnesia 4.21.4.3
 
