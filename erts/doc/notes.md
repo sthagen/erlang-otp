@@ -1,6 +1,8 @@
 <!--
 %CopyrightBegin%
 
+SPDX-License-Identifier: Apache-2.0
+
 Copyright Ericsson AB 2023-2025. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +22,18 @@ limitations under the License.
 # ERTS Release Notes
 
 This document describes the changes made to the ERTS application.
+
+## Erts 15.2.5
+
+### Fixed Bugs and Malfunctions
+
+- On Windows, using socket:sendv, a large IOV (size > MAX), the tail was not sent.
+
+  Own Id: OTP-19482
+
+- Uplift pcre 8.44 to pcre 8.45
+
+  Own Id: OTP-19565
 
 ## Erts 15.2.4
 

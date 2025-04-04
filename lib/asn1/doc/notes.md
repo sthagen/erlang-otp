@@ -1,6 +1,8 @@
 <!--
 %CopyrightBegin%
 
+SPDX-License-Identifier: Apache-2.0
+
 Copyright Ericsson AB 2023-2024. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +22,16 @@ limitations under the License.
 # asn1 Release Notes
 
 This document describes the changes made to the asn1 application.
+
+## Asn1 5.3.4
+
+### Fixed Bugs and Malfunctions
+
+- Negative REAL numbers greater than -1 would be incorrectly encoded (the minus sign would be lost).
+
+  Own Id: OTP-19567 Aux Id: ERIERL-1214, [PR-9658]
+
+[PR-9658]: https://github.com/erlang/otp/pull/9658
 
 ## Asn1 5.3.3
 

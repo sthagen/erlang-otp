@@ -2,6 +2,8 @@
 
 # %CopyrightBegin%
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Copyright Ericsson AB 1997-2021. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +21,6 @@
 # %CopyrightEnd%
 
 APPLICATION = megaco
-MEGACO_VSN  = 4.7
+MEGACO_VSN  = 4.7.1
 PRE_VSN     =
 APP_VSN     = "$(APPLICATION)-$(MEGACO_VSN)$(PRE_VSN)"

@@ -1,6 +1,8 @@
 <!--
 %CopyrightBegin%
 
+SPDX-License-Identifier: Apache-2.0
+
 Copyright Ericsson AB 2023-2024. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +22,16 @@ limitations under the License.
 # Compiler Release Notes
 
 This document describes the changes made to the Compiler application.
+
+## Compiler 8.6.1
+
+### Fixed Bugs and Malfunctions
+
+- Fix the compiler crash when the inner-most tuple in a nested tuple with 3 layers is updated.
+
+  Own Id: OTP-19561 Aux Id: ERIERL-1208, ERIERL-1210, [PR-9650]
+
+[PR-9650]: https://github.com/erlang/otp/pull/9650
 
 ## Compiler 8.6
 

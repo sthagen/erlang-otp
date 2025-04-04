@@ -2,6 +2,8 @@
 
 # %CopyrightBegin%
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Copyright Ericsson AB 1997-2021. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +21,6 @@
 # %CopyrightEnd%
 
 APPLICATION = snmp
-SNMP_VSN    = 5.18.1
+SNMP_VSN    = 5.18.2
 PRE_VSN     =
 APP_VSN     = "$(APPLICATION)-$(SNMP_VSN)$(PRE_VSN)"

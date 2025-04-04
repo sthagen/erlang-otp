@@ -1,6 +1,8 @@
 # 
 # %CopyrightBegin%
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Copyright Ericsson AB 1997-2021. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,7 +20,7 @@
 # %CopyrightEnd%
 # 
 
-VSN = 15.2.4
+VSN = 15.2.5
 
 # Port number 4365 in 4.2
 # Port number 4366 in 4.3

@@ -1,6 +1,8 @@
 <!--
 %CopyrightBegin%
 
+SPDX-License-Identifier: Apache-2.0
+
 Copyright Ericsson AB 2023-2025. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +22,16 @@ limitations under the License.
 # SSL Release Notes
 
 This document describes the changes made to the SSL application.
+
+## SSL 11.2.11
+
+### Fixed Bugs and Malfunctions
+
+- Correct the debug functionality for NSS keylogging for TLS-1.3 introduced in OTP-27.3.1 so that TLS-1.3 key updates items always get correct counter value and each item is logged as one single line.
+
+  Own Id: OTP-19569 Aux Id: [PR-9661]
+
+[PR-9661]: https://github.com/erlang/otp/pull/9661
 
 ## SSL 11.2.10
 

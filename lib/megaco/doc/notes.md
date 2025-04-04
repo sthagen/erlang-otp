@@ -1,6 +1,8 @@
 <!--
 %CopyrightBegin%
 
+SPDX-License-Identifier: Apache-2.0
+
 Copyright Ericsson AB 2023-2024. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,6 +26,14 @@ version. The intention of this document is to list all incompatibilities as well
 as all enhancements and bugfixes for every release of Megaco. Each release of
 Megaco thus constitutes one section in this document. The title of each section
 is the version number of Megaco.
+
+## Megaco 4.7.1
+
+### Fixed Bugs and Malfunctions
+
+- Correct type spec for ActionReply
+
+  Own Id: OTP-19563 Aux Id: ERIERL-1216
 
 ## Megaco 4.7
 
