@@ -27,8 +27,8 @@ License Headers in Erlang/OTP
 Each file in the Erlang/OTP repository must contain a license header containing
 information about which license the file is under and who owns the copyright of it.
 
-The contents can be checked by calling `./scripts/license-header.es --path /path/to/file`
-and needs to exactly follow the rules described above to pass the check.
+The contents can be checked by calling `./scripts/license-header.es scan --path /path/to/file`
+and needs to exactly follow the rules described in this document to pass the check.
 
 The check of how the license headers need to look is very strict as otherwise
 the layout tends to vary and the exact text in the headers have had copy-paste
@@ -43,7 +43,7 @@ The standard template to use is the following:
 
 SPDX-License-Identifier: Apache-2.0
 
-Copyright Ericsson AB 2025. All Rights Reserved.
+Copyright YYYY-yyyy Full Name <email@example.com>
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -61,7 +61,16 @@ limitations under the License.
 ```
 
 If the file is under some other license, it needs to have its `SPDX-License-Identifier`
-and also a copy of the license information needs to be in `scripts/license-header-templates/`.
+and also a copy of the license header information needs to be in `LICENSE-HEADERS/`.
+If the entire license is to be part of the header, you should place the license
+text in `LICENSES/` directly and the tool will use those. Different licenses have
+different conventions regarding if the whole license should be in the header or not.
+If you are adding a new license, please check what the community at large is doing
+with that specific license. If it is unclear, then a general guideline is that
+"small" licenses should be in the header and "large" should have a short text in
+the header and a link to where you can find the license.
+
+You can find a list of all `SPDX-License-Identifier`s on <https://spdx.org/licenses/>.
 
 The license header can be prefixed by any characters, but it needs to be same
 prefix for all lines. For example:
@@ -112,11 +121,20 @@ the above is valid, while the example below is invalid:
  * %CopyrightEnd% */
 ```
 
-## Multiple copyright lines
+## Copyright statement
+
+When creating or editing a file you should add the copyright statement of
+you or the organization you represent in the license header.
+The copyright notice must start with either `Copyright ` or `SPDX-FileCopyrightText: `
+followed by the holders of the copyright. It is highly recommended that you follow
+the format described by the [REUSE Copyright Spec](https://reuse.software/spec-3.3/#format-of-copyright-notices).
+
+> For any contributions made by the Erlang/OTP team, the copyright statement must
+> be `Copyright Ericsson AB YYYY. All Rights Reserved.`. The `license-header.es` script
+> will check that this format is followed and will automatically update the copyright
+> year when any changes are made.
 
 There can be multiple "Copyright" lines if there are multiple copyright holders.
-The copyright notice should follow the guidelines described by the
-[REUSE Copyright Spec](https://reuse.software/spec-3.3/#format-of-copyright-notices).
 
 For example:
 
@@ -160,7 +178,13 @@ header, including the `%CopyrightBegin%` and `%CopyrightEnd%`.
 The standard license header does not have to be used with vendored dependencies.
 However, the files should all be [REUSE](https://reuse.software) compatible,
 so that means that they have to have a `SPDX-License-Identifier` and a
-copyright notice.
+copyright notice. For example:
+
+```
+// zstd.c
+SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
+Copyright (c) Meta Platforms, Inc. and affiliates.
+```
 
 Vendored dependencies are defined as any dependency covered by a `vendor.info`
 file as described in [SBOM.md](SBOM.md#update-spdx-vendor-packages).
