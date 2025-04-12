@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2017-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2025-2025. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,8 +20,4 @@
 %% %CopyrightEnd%
 %%
 
-{groups,"../kernel_test",zlib_SUITE,[bench]}.
-{groups,"../kernel_test",file_SUITE,[bench]}.
-{groups,"../kernel_test",socket_traffic_SUITE,[bench]}.
-{groups,"../kernel_test",socket_ttest_SUITE,[bench]}.
-{suites,"../kernel_test",[logger_stress_SUITE]}.
+{groups,"../megaco_test",megaco_examples_SUITE,[bench]}.
