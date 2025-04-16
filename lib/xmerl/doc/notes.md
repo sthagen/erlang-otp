@@ -3,7 +3,7 @@
 
 SPDX-License-Identifier: Apache-2.0
 
-Copyright Ericsson AB 2023-2024. All Rights Reserved.
+Copyright Ericsson AB 2023-2025. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -103,6 +103,14 @@ This document describes the changes made to the Xmerl application.
 
 [PR-7942]: https://github.com/erlang/otp/pull/7942
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Xmerl 1.3.34.2
+
+### Fixed Bugs and Malfunctions
+
+* Some old-style `catch` expressions in the xmerl_sax_parser when the continuation fun was called caused the stack to grow until all free memory was exhausted. These parts have been rewritten so that the parser now runs correctly without growing the stack. At the same time all old-style `catch` expressions in xmerl were replaced with `try`/`catch`.
+
+  Own Id: OTP-19496 Aux Id: GH-9190, PR-9463
 
 ## Xmerl 1.3.34.1
 

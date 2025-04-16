@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1999-2021. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2025. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,6 +43,7 @@
   {<<"^10\\.2\\.2(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
   {<<"^10\\.2\\.3(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
   {<<"^10\\.2\\.4(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
+  {<<"^10\\.2\\.5(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
   {<<"^8\\.4$">>,[restart_new_emulator]},
   {<<"^8\\.4\\.0(?:\\.[0-9]+)+$">>,[restart_new_emulator]},
   {<<"^8\\.4\\.1(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
@@ -78,6 +79,7 @@
   {<<"^10\\.2\\.2(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
   {<<"^10\\.2\\.3(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
   {<<"^10\\.2\\.4(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
+  {<<"^10\\.2\\.5(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
   {<<"^8\\.4$">>,[restart_new_emulator]},
   {<<"^8\\.4\\.0(?:\\.[0-9]+)+$">>,[restart_new_emulator]},
   {<<"^8\\.4\\.1(?:\\.[0-9]+)*$">>,[restart_new_emulator]},

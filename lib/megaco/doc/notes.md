@@ -3,7 +3,7 @@
 
 SPDX-License-Identifier: Apache-2.0
 
-Copyright Ericsson AB 2023-2024. All Rights Reserved.
+Copyright Ericsson AB 2023-2025. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,14 @@ version. The intention of this document is to list all incompatibilities as well
 as all enhancements and bugfixes for every release of Megaco. Each release of
 Megaco thus constitutes one section in this document. The title of each section
 is the version number of Megaco.
+
+## Megaco 4.7.2
+
+### Fixed Bugs and Malfunctions
+
+- Corrected type spec for type mid().
+
+  Own Id: OTP-19585 Aux Id: ERIERL-1222
 
 ## Megaco 4.7.1
 
