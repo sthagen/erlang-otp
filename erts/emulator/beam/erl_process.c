@@ -4471,6 +4471,8 @@ try_steal_task_from_victim(ErtsRunQueue *rq, ErtsRunQueue *vrq, Uint32 flags, Pr
     Process *last_stolen_proc = NULL;
     unsigned first_stolen_proc_prio;
 
+    ERTS_UNDEF(first_stolen_proc_prio, INT_MAX);
+
     ERTS_LC_ASSERT(!erts_lc_runq_is_locked(rq));
 
     if (ERTS_RUNQ_FLGS_GET_NOB(rq) & ERTS_RUNQ_FLG_HALTING) {
@@ -4521,6 +4523,8 @@ try_steal_task_from_victim(ErtsRunQueue *rq, ErtsRunQueue *vrq, Uint32 flags, Pr
             continue;
         }
         rpq = &vrq->procs.prio[prio_q];
+        /* Steal at least one task, even if there is a single one */
+        max_processes_to_steal++;
         /* Only steal half the tasks (to balance the load between the victim runqueue and this one) */
         max_processes_to_steal /= 2;
         /* Don't steal too many tasks at once, to keep the critical section from getting too long */
@@ -10830,6 +10834,7 @@ execute_sys_tasks(Process *c_p, erts_aint32_t *statep, int in_reds)
 	    if (c_p->flags & F_DISABLE_GC) {
 		save_gc_task(c_p, st, st_prio);
 		st = NULL;
+                ERTS_UNDEF(st_res, am_undefined);
 		reds--;
 	    }
 	    else {
@@ -10843,6 +10848,7 @@ execute_sys_tasks(Process *c_p, erts_aint32_t *statep, int in_reds)
 		    if (c_p->flags & (F_DIRTY_MAJOR_GC|F_DIRTY_MINOR_GC)) {
 			save_dirty_task(c_p, st);
 			st = NULL;
+                        ERTS_UNDEF(st_res, am_undefined);
 			break;
 		    }
 		    if (type == ERTS_PSTT_GC_MAJOR)
@@ -10885,6 +10891,7 @@ execute_sys_tasks(Process *c_p, erts_aint32_t *statep, int in_reds)
                  * but instead unconditionally schedule this as dirty
                  * work...
                  */
+                ERTS_UNDEF(st_res, am_undefined);
                 if (c_p->flags & F_DISABLE_GC) {
                     /* We might need to GC, but GC was disabled */
                     save_gc_task(c_p, st, st_prio);
@@ -13151,8 +13158,10 @@ erts_send_local_spawn_reply(Process *parent, ErtsProcLocks parent_locks,
 
     type = child ? am_ok : am_error;
 
-    if (have_seqtrace(token) && child)
+    if (have_seqtrace(token) && child) {
         token_sz = size_object(token);
+        ERTS_UNDEF(token_copy, NIL);
+    }
     else {
         token_copy = token = NIL;
         token_sz = 0;
