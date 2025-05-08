@@ -23,6 +23,21 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 15.2.7
+
+### Fixed Bugs and Malfunctions
+
+- Fixed an emulator crash when setting an error_handler module that was not yet loaded.
+
+  Own Id: OTP-19577 Aux Id: ERIERL-1220, [PR-9696]
+
+- Fixed a rare bug that could cause an emulator crash after unloading a module or erasing a persistent_term.
+
+  Own Id: OTP-19599 Aux Id: [PR-9724]
+
+[PR-9696]: https://github.com/erlang/otp/pull/9696
+[PR-9724]: https://github.com/erlang/otp/pull/9724
+
 ## Erts 15.2.6
 
 ### Fixed Bugs and Malfunctions
@@ -699,6 +714,17 @@ This document describes the changes made to the ERTS application.
 [PR-7125]: https://github.com/erlang/otp/pull/7125
 [PR-7809]: https://github.com/erlang/otp/pull/7809
 [PR-7977]: https://github.com/erlang/otp/pull/7977
+
+## Erts 14.2.5.10
+
+### Fixed Bugs and Malfunctions
+
+* Fixed an emulator crash when setting an error_handler module that was not yet loaded.
+
+  Own Id: OTP-19577 Aux Id: ERIERL-1220, PR-9696
+* Fixed a rare bug that could cause an emulator crash after unloading a module or erasing a persistent_term.
+
+  Own Id: OTP-19599 Aux Id: PR-9724
 
 ## Erts 14.2.5.9
 
@@ -1752,6 +1778,17 @@ This document describes the changes made to the ERTS application.
   [Upcoming Potential Incompatibilities](`e:general_info:upcoming_incompatibilities.md#float_matching`).
 
   Own Id: OTP-18574
+
+## Erts 13.2.2.16
+
+### Fixed Bugs and Malfunctions
+
+* Fixed an emulator crash when setting an error_handler module that was not yet loaded.
+
+  Own Id: OTP-19577 Aux Id: ERIERL-1220, PR-9696
+* Fixed a rare bug that could cause an emulator crash after unloading a module or erasing a persistent_term.
+
+  Own Id: OTP-19599 Aux Id: PR-9724
 
 ## Erts 13.2.2.15
 

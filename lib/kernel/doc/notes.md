@@ -23,6 +23,23 @@ limitations under the License.
 
 This document describes the changes made to the Kernel application.
 
+## Kernel 10.2.7
+
+### Fixed Bugs and Malfunctions
+
+- With this change, disk_log will not crash when using chunk_step/3 after log size was decreased.
+
+  Own Id: OTP-19605 Aux Id: [GH-9720], [PR-9765]
+
+- With this change, disk_log will not run into infinite loop when using chunk/2,3 after log size was decreased.
+
+  Own Id: OTP-19608 Aux Id: [GH-9707], [PR-9767]
+
+[GH-9720]: https://github.com/erlang/otp/issues/9720
+[PR-9765]: https://github.com/erlang/otp/pull/9765
+[GH-9707]: https://github.com/erlang/otp/issues/9707
+[PR-9767]: https://github.com/erlang/otp/pull/9767
+
 ## Kernel 10.2.6
 
 ### Fixed Bugs and Malfunctions
@@ -499,6 +516,17 @@ This document describes the changes made to the Kernel application.
 [PR-8103]: https://github.com/erlang/otp/pull/8103
 [#6724]: https://github.com/erlang/otp/issues/6724
 [PR-8396]: https://github.com/erlang/otp/pull/8396
+
+## Kernel 9.2.4.8
+
+### Fixed Bugs and Malfunctions
+
+* With this change, disk_log will not crash when using chunk_step/3 after log size was decreased.
+
+  Own Id: OTP-19605 Aux Id: GH-9720, PR-9765
+* With this change, disk_log will not run into infinite loop when using chunk/2,3 after log size was decreased.
+
+  Own Id: OTP-19608 Aux Id: GH-9707, PR-9767
 
 ## Kernel 9.2.4.7
 
@@ -1278,6 +1306,17 @@ This document describes the changes made to the Kernel application.
   multi-line statements. Redraw the prompt after continuing from JCL menu.
 
   Own Id: OTP-18575 Aux Id: PR-7169
+
+## Kernel 8.5.4.6
+
+### Fixed Bugs and Malfunctions
+
+* With this change, disk_log will not crash when using chunk_step/3 after log size was decreased.
+
+  Own Id: OTP-19605 Aux Id: GH-9720, PR-9765
+* With this change, disk_log will not run into infinite loop when using chunk/2,3 after log size was decreased.
+
+  Own Id: OTP-19608 Aux Id: GH-9707, PR-9767
 
 ## Kernel 8.5.4.5
 
