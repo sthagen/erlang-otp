@@ -21,6 +21,23 @@ limitations under the License.
 -->
 # SSH Release Notes
 
+## Ssh 5.3.1
+
+### Fixed Bugs and Malfunctions
+
+- Various channel closing robustness improvements. Avoid crashes when channel handling process closes channel and immediately exits. Avoid breaking the protocol by sending duplicated channel-close messages. Cleanup channels which timeout during closing procedure.
+
+  Own Id: OTP-19634 Aux Id: [GH-9102], [PR-9103]
+
+- Improved interoperability with clients acting as Paramiko.
+
+  Own Id: OTP-19637 Aux Id: [GH-6463], [PR-9838]
+
+[GH-9102]: https://github.com/erlang/otp/issues/9102
+[PR-9103]: https://github.com/erlang/otp/pull/9103
+[GH-6463]: https://github.com/erlang/otp/issues/6463
+[PR-9838]: https://github.com/erlang/otp/pull/9838
+
 ## Ssh 5.3
 
 ### Fixed Bugs and Malfunctions
@@ -71,6 +88,23 @@ limitations under the License.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9214]: https://github.com/erlang/otp/pull/9214
 [PR-9298]: https://github.com/erlang/otp/pull/9298
+
+## Ssh 5.2.11.1
+
+### Fixed Bugs and Malfunctions
+
+- Various channel closing robustness improvements. Avoid crashes when channel handling process closes channel and immediately exits. Avoid breaking the protocol by sending duplicated channel-close messages. Cleanup channels which timeout during closing procedure.
+
+  Own Id: OTP-19634 Aux Id: [GH-9102], [PR-9103]
+
+- Improved interoperability with clients acting as Paramiko.
+
+  Own Id: OTP-19637 Aux Id: [GH-6463], [PR-9838]
+
+[GH-9102]: https://github.com/erlang/otp/issues/9102
+[PR-9103]: https://github.com/erlang/otp/pull/9103
+[GH-6463]: https://github.com/erlang/otp/issues/6463
+[PR-9838]: https://github.com/erlang/otp/pull/9838
 
 ## Ssh 5.2.11
 
@@ -258,6 +292,17 @@ limitations under the License.
 
 [PR-7845]: https://github.com/erlang/otp/pull/7845
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Ssh 5.1.4.10
+
+### Fixed Bugs and Malfunctions
+
+* Various channel closing robustness improvements. Avoid crashes when channel handling process closes channel and immediately exits. Avoid breaking the protocol by sending duplicated channel-close messages. Cleanup channels which timeout during closing procedure.
+
+  Own Id: OTP-19634 Aux Id: GH-9102, PR-9103
+* Improved interoperability with clients acting as Paramiko.
+
+  Own Id: OTP-19637 Aux Id: GH-6463, PR-9838
 
 ## Ssh 5.1.4.9
 

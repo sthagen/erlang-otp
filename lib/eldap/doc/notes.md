@@ -23,6 +23,16 @@ limitations under the License.
 
 This document describes the changes made to the Eldap application.
 
+## Eldap 1.2.16
+
+### Fixed Bugs and Malfunctions
+
+- With this change eldap's 'not' function will have specs fixed.
+
+  Own Id: OTP-19658 Aux Id: [PR-9859]
+
+[PR-9859]: https://github.com/erlang/otp/pull/9859
+
 ## Eldap 1.2.15
 
 ### Fixed Bugs and Malfunctions
@@ -47,6 +57,16 @@ This document describes the changes made to the Eldap application.
 [PR-9402]: https://github.com/erlang/otp/pull/9402
 [PR-9819]: https://github.com/erlang/otp/pull/9819
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## Eldap 1.2.14.1
+
+### Fixed Bugs and Malfunctions
+
+- With this change eldap's 'not' function will have specs fixed.
+
+  Own Id: OTP-19658 Aux Id: [PR-9859]
+
+[PR-9859]: https://github.com/erlang/otp/pull/9859
 
 ## Eldap 1.2.14
 

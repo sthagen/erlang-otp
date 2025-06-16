@@ -23,6 +23,18 @@ limitations under the License.
 
 This document describes the changes made to the Xmerl application.
 
+## Xmerl 2.1.5
+
+### Fixed Bugs and Malfunctions
+
+- The type specs of `xmerl_scan:file/2` and `xmerl_scan:string/2`
+  has been updated to return `t:dynamic/0`. Due to hook functions
+  they can return any user defined term.
+
+  Own Id: OTP-19662 Aux Id: [PR-9905], ERIERL-1225
+
+[PR-9905]: https://github.com/erlang/otp/pull/9905
+
 ## Xmerl 2.1.4
 
 ### Fixed Bugs and Malfunctions
@@ -40,6 +52,18 @@ This document describes the changes made to the Xmerl application.
   Own Id: OTP-19575 Aux Id: [PR-9670]
 
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## Xmerl 2.1.3.1
+
+### Fixed Bugs and Malfunctions
+
+- The type specs of `xmerl_scan:file/2` and `xmerl_scan:string/2`
+  has been updated to return `t:dynamic/0`. Due to hook functions
+  they can return any user defined term.
+
+  Own Id: OTP-19662 Aux Id: [PR-9905], ERIERL-1225
+
+[PR-9905]: https://github.com/erlang/otp/pull/9905
 
 ## Xmerl 2.1.3
 

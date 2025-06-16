@@ -23,6 +23,17 @@ limitations under the License.
 
 This document describes the changes made to the Kernel application.
 
+## Kernel 10.3.1
+
+### Fixed Bugs and Malfunctions
+
+- Fix bug where calling `io:setopts/1` in a shell without the `line_history` option would always disable `line_history`. This bug was introduced in Erlang/OTP 28.0.
+
+  Own Id: OTP-19645 Aux Id: [GH-9863], [PR-9870]
+
+[GH-9863]: https://github.com/erlang/otp/issues/9863
+[PR-9870]: https://github.com/erlang/otp/pull/9870
+
 ## Kernel 10.3
 
 ### Fixed Bugs and Malfunctions
@@ -197,6 +208,24 @@ This document describes the changes made to the Kernel application.
 [PR-8670]: https://github.com/erlang/otp/pull/8670
 [PR-9334]: https://github.com/erlang/otp/pull/9334
 [PR-9604]: https://github.com/erlang/otp/pull/9604
+
+## Kernel 10.2.7.1
+
+### Fixed Bugs and Malfunctions
+
+- A remote shell can now exit by closing the input stream, without terminating the remote node.
+
+  Own Id: OTP-19667 Aux Id: [PR-9912]
+
+[PR-9912]: https://github.com/erlang/otp/pull/9912
+
+### Improvements and New Features
+
+- Document default buffer sizes
+
+  Own Id: OTP-19640 Aux Id: [GH-9722]
+
+[GH-9722]: https://github.com/erlang/otp/issues/9722
 
 ## Kernel 10.2.7
 
@@ -691,6 +720,14 @@ This document describes the changes made to the Kernel application.
 [PR-8103]: https://github.com/erlang/otp/pull/8103
 [#6724]: https://github.com/erlang/otp/issues/6724
 [PR-8396]: https://github.com/erlang/otp/pull/8396
+
+## Kernel 9.2.4.9
+
+### Fixed Bugs and Malfunctions
+
+* A remote shell can now exit by closing the input stream, without terminating the remote node.
+
+  Own Id: OTP-19667 Aux Id: PR-9912
 
 ## Kernel 9.2.4.8
 

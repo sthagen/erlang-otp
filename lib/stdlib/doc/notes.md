@@ -23,6 +23,19 @@ limitations under the License.
 
 This document describes the changes made to the STDLIB application.
 
+## STDLIB 7.0.1
+
+### Fixed Bugs and Malfunctions
+
+- Properly strip the leading `/` and drive letter from filepaths when zipping and unzipping archives.
+  
+  Thanks to Wander Nauta for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  Own Id: OTP-19653 Aux Id: [CVE-2025-4748], [PR-9941]
+
+[CVE-2025-4748]: https://nvd.nist.gov/vuln/detail/2025-4748
+[PR-9941]: https://github.com/erlang/otp/pull/9941
+
 ## STDLIB 7.0
 
 ### Fixed Bugs and Malfunctions
@@ -561,6 +574,41 @@ This document describes the changes made to the STDLIB application.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9705]: https://github.com/erlang/otp/pull/9705
 [PR-9680]: https://github.com/erlang/otp/pull/9680
+
+## STDLIB 6.2.2.1
+
+### Fixed Bugs and Malfunctions
+
+- The `save_module/1` command in the shell now saves both the locally defined records and the imported records using the `rr/1` command.
+
+  Own Id: OTP-19647 Aux Id: [GH-9816], [PR-9897]
+
+- It's now possible to write `lists:map(fun is_atom/1, [])` or `lists:map(fun my_func/1, [])`, in the shell, instead of `lists:map(fun erlang:is_atom/1, [])` or `lists:map(fun shell_default:my_func/1, [])`.
+
+  Own Id: OTP-19649 Aux Id: [GH-9771], [PR-9898]
+
+- Properly strip the leading `/` and drive letter from filepaths when zipping and unzipping archives.
+  
+  Thanks to Wander Nauta for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  Own Id: OTP-19653 Aux Id: [CVE-2025-4748], [PR-9941]
+
+- Shell no longer crashes when requesting to autocomplete map keys containing non-atoms.
+
+  Own Id: OTP-19659 Aux Id: [PR-9896]
+
+- A remote shell can now exit by closing the input stream, without terminating the remote node.
+
+  Own Id: OTP-19667 Aux Id: [PR-9912]
+
+[GH-9816]: https://github.com/erlang/otp/issues/9816
+[PR-9897]: https://github.com/erlang/otp/pull/9897
+[GH-9771]: https://github.com/erlang/otp/issues/9771
+[PR-9898]: https://github.com/erlang/otp/pull/9898
+[CVE-2025-4748]: https://nvd.nist.gov/vuln/detail/2025-4748
+[PR-9941]: https://github.com/erlang/otp/pull/9941
+[PR-9896]: https://github.com/erlang/otp/pull/9896
+[PR-9912]: https://github.com/erlang/otp/pull/9912
 
 ## STDLIB 6.2.2
 
@@ -1202,6 +1250,22 @@ This document describes the changes made to the STDLIB application.
 [PR-8164]: https://github.com/erlang/otp/pull/8164
 [PR-8205]: https://github.com/erlang/otp/pull/8205
 [PR-8111]: https://github.com/erlang/otp/pull/8111
+
+## STDLIB 5.2.3.4
+
+### Fixed Bugs and Malfunctions
+
+* It's now possible to write `lists:map(fun is_atom/1, [])` or `lists:map(fun my_func/1, [])`, in the shell, instead of `lists:map(fun erlang:is_atom/1, [])` or `lists:map(fun shell_default:my_func/1, [])`.
+
+  Own Id: OTP-19649 Aux Id: GH-9771 PR-9898
+* Properly strip the leading `/` and drive letter from filepaths when zipping and unzipping archives.
+
+  Thanks to Wander Nauta for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  Own Id: OTP-19653 Aux Id: CVE-2025-4748 PR-9941
+* A remote shell can now exit by closing the input stream, without terminating the remote node.
+
+  Own Id: OTP-19667 Aux Id: PR-9912
 
 ## STDLIB 5.2.3.3
 
