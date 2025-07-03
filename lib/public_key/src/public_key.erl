@@ -609,6 +609,7 @@ get_asn1_module('BasicConstraints') -> 'PKIX1Implicit-2009';
 get_asn1_module('ExtKeyUsageSyntax') -> 'PKIX1Implicit-2009';
 get_asn1_module('KeyUsage') -> 'PKIX1Implicit-2009';
 get_asn1_module('Certificate') -> 'PKIX1Explicit-2009';
+get_asn1_module('TBSCertificate') -> 'PKIX1Explicit-2009';
 get_asn1_module('SubjectAltName') -> 'PKIX1Implicit-2009';
 get_asn1_module('CRLDistributionPoints') -> 'PKIX1Implicit-2009';
 get_asn1_module('CRLReason') ->  'PKIX1Implicit-2009';
@@ -1084,7 +1085,7 @@ encrypt_private(PlainText, Key) ->
 -doc """
 Public-key encryption using the private key.
 
-See also `crypto:private_encrypt/4`. The key, can besides a standard
+See also `crypto:private_encrypt/4`. The key can, besides a standard
 RSA key, be a map specifing the key algorithm `rsa` and a fun to
 handle the encryption operation.  This may be used for customized the
 encryption operation with for instance hardware security modules (HSM)
@@ -1345,7 +1346,7 @@ sign(DigestOrPlainText, DigestType, Key) ->
 Creates a digital signature.
 
 The `Msg` is either the binary "plain text" data to be signed or it is the
-hashed value of "plain text", that is, the digest. The key, can besides a
+hashed value of "plain text", that is, the digest. The key can, besides a
 standard key, be a map specifing a key algorithm and a fun that should handle
 the signing. This may be used for customized signing with for instance hardware
 security modules (HSM) or trusted platform modules (TPM).
