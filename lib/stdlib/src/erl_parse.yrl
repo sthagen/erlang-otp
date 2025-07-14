@@ -955,7 +955,7 @@ processed (see section [Error Information](#module-error-information)).
                       | {'b_generate_strict', anno(), af_pattern(), abstract_expr()}
                       | af_zip_generator().
 
--type af_zip_generator() :: [af_generator(), ...].
+-type af_zip_generator() :: {'zip', anno(), [af_generator(), ...]}.
 
 -type af_filter() :: abstract_expr().
 
@@ -1214,7 +1214,7 @@ processed (see section [Error Information](#module-error-information)).
 -type binary_op() :: '/' | '*' | 'div' | 'rem' | 'band' | 'and' | '+' | '-'
                    | 'bor' | 'bxor' | 'bsl' | 'bsr' | 'or' | 'xor' | '++'
                    | '--' | '==' | '/=' | '=<' | '<'  | '>=' | '>' | '=:='
-                   | '=/=' | '!'.
+                   | '=/=' | '!' | 'andalso' | 'orelse'.
 
 -type af_unary_op(T) :: {'op', anno(), unary_op(), T}.
 
