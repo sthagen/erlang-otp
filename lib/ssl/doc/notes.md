@@ -23,6 +23,17 @@ limitations under the License.
 
 This document describes the changes made to the SSL application.
 
+## SSL 11.3.2
+
+### Fixed Bugs and Malfunctions
+
+- Improve error message for bad arguments to underlying connect.
+
+  Own Id: OTP-19697 Aux Id: [GH-10007], [PR-10016]
+
+[GH-10007]: https://github.com/erlang/otp/issues/10007
+[PR-10016]: https://github.com/erlang/otp/pull/10016
+
 ## SSL 11.3.1
 
 ### Fixed Bugs and Malfunctions
@@ -80,6 +91,25 @@ This document describes the changes made to the SSL application.
 [PR-9563]: https://github.com/erlang/otp/pull/9563
 [PR-9511]: https://github.com/erlang/otp/pull/9511
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## SSL 11.2.12.2
+
+### Fixed Bugs and Malfunctions
+
+- Improve error message for bad arguments to underlying connect.
+
+  Own Id: OTP-19697 Aux Id: [GH-10007], [PR-10016]
+
+[GH-10007]: https://github.com/erlang/otp/issues/10007
+[PR-10016]: https://github.com/erlang/otp/pull/10016
+
+### Improvements and New Features
+
+- Allow the PSK identity to be the empty string in TLS-1.2 for compatibility reasons. It is allowed according to the spec although providing a proper value makes more sense.
+
+  Own Id: OTP-19688 Aux Id: [PR-9843]
+
+[PR-9843]: https://github.com/erlang/otp/pull/9843
 
 ## SSL 11.2.12.1
 
@@ -421,6 +451,14 @@ This document describes the changes made to the SSL application.
 [PR-8026]: https://github.com/erlang/otp/pull/8026
 [PR-8250]: https://github.com/erlang/otp/pull/8250
 [PR-8255]: https://github.com/erlang/otp/pull/8255
+
+## SSL 11.1.4.9
+
+### Fixed Bugs and Malfunctions
+
+* Improve error message for bad arguments to underlying connect.
+
+  Own Id: OTP-19697 Aux Id: GH-10007, PR-10016
 
 ## SSL 11.1.4.8
 

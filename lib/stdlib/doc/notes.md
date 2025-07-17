@@ -23,6 +23,24 @@ limitations under the License.
 
 This document describes the changes made to the STDLIB application.
 
+## STDLIB 7.0.2
+
+### Fixed Bugs and Malfunctions
+
+- A set of small bugs in sort stability for \`lists:sort/1\` and \`lists:keysort/1\` has been fixed. The bug happened for only some, seemingly random, element sequences. Most sorts were stable.
+  
+  Sort stability for \`lists:sort/1\` is only possible to observe when sorting lists with floating point and integer numbers of the same value.
+  
+  For \`lists:keysort/1\` the list had to start with two tuples where the keys or the whole tuples compared equal.
+
+  Own Id: OTP-19673 Aux Id: ERIERL-1240
+
+- Fixed bug in `io_lib:bformat/2` which crashed if format string contained unicode characters.
+
+  Own Id: OTP-19680 Aux Id: [PR-9952]
+
+[PR-9952]: https://github.com/erlang/otp/pull/9952
+
 ## STDLIB 7.0.1
 
 ### Fixed Bugs and Malfunctions
@@ -574,6 +592,18 @@ This document describes the changes made to the STDLIB application.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9705]: https://github.com/erlang/otp/pull/9705
 [PR-9680]: https://github.com/erlang/otp/pull/9680
+
+## STDLIB 6.2.2.2
+
+### Fixed Bugs and Malfunctions
+
+- A set of small bugs in sort stability for \`lists:sort/1\` and \`lists:keysort/1\` has been fixed. The bug happened for only some, seemingly random, element sequences. Most sorts were stable.
+  
+  Sort stability for \`lists:sort/1\` is only possible to observe when sorting lists with floating point and integer numbers of the same value.
+  
+  For \`lists:keysort/1\` the list had to start with two tuples where the keys or the whole tuples compared equal.
+
+  Own Id: OTP-19673 Aux Id: ERIERL-1240
 
 ## STDLIB 6.2.2.1
 
@@ -1250,6 +1280,18 @@ This document describes the changes made to the STDLIB application.
 [PR-8164]: https://github.com/erlang/otp/pull/8164
 [PR-8205]: https://github.com/erlang/otp/pull/8205
 [PR-8111]: https://github.com/erlang/otp/pull/8111
+
+## STDLIB 5.2.3.5
+
+### Fixed Bugs and Malfunctions
+
+* A set of small bugs in sort stability for \`lists:sort/1\` and \`lists:keysort/1\` has been fixed. The bug happened for only some, seemingly random, element sequences. Most sorts were stable.
+
+  Sort stability for \`lists:sort/1\` is only possible to observe when sorting lists with floating point and integer numbers of the same value.
+
+  For \`lists:keysort/1\` the list had to start with two tuples where the keys or the whole tuples compared equal.
+
+  Own Id: OTP-19673 Aux Id: ERIERL-1240
 
 ## STDLIB 5.2.3.4
 

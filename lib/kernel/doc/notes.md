@@ -23,6 +23,36 @@ limitations under the License.
 
 This document describes the changes made to the Kernel application.
 
+## Kernel 10.3.2
+
+### Fixed Bugs and Malfunctions
+
+- socket:sendv/3 with 'nowait' sometimes return 'completion' without 'CompletionInfo' (Windows only).
+
+  Own Id: OTP-19661
+
+- prim_net nif used incorrect encoding for family resulting in non-functional address selection.
+
+  Own Id: OTP-19674
+
+- socket:accept can return unexpected 'select_sent'.
+
+  Own Id: OTP-19684 Aux Id: ERIERL-1242
+
+- `net_kernel` could be blocked for a very long time when selecting distribution module for a connection if the DNS service was slow. This prevented any new connections to be set up during that time.
+
+  Own Id: OTP-19702 Aux Id: ERIERL-1241, [PR-10029]
+
+[PR-10029]: https://github.com/erlang/otp/pull/10029
+
+### Improvements and New Features
+
+- Improved documentation of CompletionStatus for asynchronous (nowait) socket operations.
+
+  Own Id: OTP-19670 Aux Id: [PR-9930]
+
+[PR-9930]: https://github.com/erlang/otp/pull/9930
+
 ## Kernel 10.3.1
 
 ### Fixed Bugs and Malfunctions
@@ -208,6 +238,32 @@ This document describes the changes made to the Kernel application.
 [PR-8670]: https://github.com/erlang/otp/pull/8670
 [PR-9334]: https://github.com/erlang/otp/pull/9334
 [PR-9604]: https://github.com/erlang/otp/pull/9604
+
+## Kernel 10.2.7.2
+
+### Fixed Bugs and Malfunctions
+
+- socket:sendv/3 with 'nowait' sometimes return 'completion' without 'CompletionInfo' (Windows only).
+
+  Own Id: OTP-19661
+
+- socket:accept can return unexpected 'select_sent'.
+
+  Own Id: OTP-19684 Aux Id: ERIERL-1242
+
+- `net_kernel` could be blocked for a very long time when selecting distribution module for a connection if the DNS service was slow. This prevented any new connections to be set up during that time.
+
+  Own Id: OTP-19702 Aux Id: ERIERL-1241, [PR-10029]
+
+[PR-10029]: https://github.com/erlang/otp/pull/10029
+
+### Improvements and New Features
+
+- Improved documentation of CompletionStatus for asynchronous (nowait) socket operations.
+
+  Own Id: OTP-19670 Aux Id: [PR-9930]
+
+[PR-9930]: https://github.com/erlang/otp/pull/9930
 
 ## Kernel 10.2.7.1
 
@@ -720,6 +776,14 @@ This document describes the changes made to the Kernel application.
 [PR-8103]: https://github.com/erlang/otp/pull/8103
 [#6724]: https://github.com/erlang/otp/issues/6724
 [PR-8396]: https://github.com/erlang/otp/pull/8396
+
+## Kernel 9.2.4.10
+
+### Fixed Bugs and Malfunctions
+
+* `net_kernel` could be blocked for a very long time when selecting distribution module for a connection if the DNS service was slow. This prevented any new connections to be set up during that time.
+
+  Own Id: OTP-19702 Aux Id: ERIERL-1241, PR-10029
 
 ## Kernel 9.2.4.9
 
