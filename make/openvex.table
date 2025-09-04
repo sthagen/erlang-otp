@@ -73,7 +73,7 @@
                 }
     },
     {
-      "pkg:otp/ssh@5.1.4.7": "CVE-2025-32433",
+      "pkg:otp/ssh@5.0": "CVE-2025-32433",
       "status": { "affected": "A temporary workaround involves disabling the SSH server or to prevent access via firewall rules.",
                   "fixed": ["pkg:otp/ssh@5.1.4.8"]
                 }
@@ -97,7 +97,7 @@
                 }
     },
     {
-      "pkg:otp/ssl@11.1": "CVE-2025-53846",
+      "pkg:otp/ssl@11.1": "CVE-2024-53846",
       "status": { "affected": "Update to ssl@11.1.4.6",
                   "fixed": ["pkg:otp/ssl@11.1.4.6"]
                 }
@@ -171,7 +171,7 @@
                 }
     },
     {
-      "pkg:otp/ssh@5.2.9": "CVE-2025-32433",
+      "pkg:otp/ssh@5.2": "CVE-2025-32433",
       "status": { "affected": "A temporary workaround involves disabling the SSH server or to prevent access via firewall rules.",
                   "fixed": ["pkg:otp/ssh@5.2.10"]
                 }
@@ -195,7 +195,7 @@
                 }
     },
     {
-      "pkg:otp/ssl@11.2": "CVE-2025-53846",
+      "pkg:otp/ssl@11.2": "CVE-2024-53846",
       "status": { "affected": "Update to ssl@11.2.5",
                   "fixed": ["pkg:otp/ssl@11.2.5"]
                 }
@@ -221,6 +221,10 @@
       "pkg:github/openssl/openssl@01d5e2318405362b4de5e670c90d9b40a351d053": "CVE-2025-4575",
       "status": { "not_affected": "vulnerable_code_not_present",
                         "apps": ["pkg:otp/erts@16.0", "pkg:otp/erl_interface@5.6"]}
+    },
+    {
+      "pkg:github/PCRE2Project/pcre2@2dce7761b1831fd3f82a9c2bd5476259d945da4d": "CVE-2025-58050",
+      "status": "under_investigation"
     }
   ]
 }
