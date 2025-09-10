@@ -59,6 +59,8 @@ Specifies a channel process to handle an SFTP subsystem.
 	  file_handler,			% atom() - callback module 
 	  file_state,                   % state for the file callback module
 	  max_files,                    % integer >= 0 max no files sent during READDIR
+	  max_handles,                  % integer > 0  - max number of file handles
+	  max_path,                     % integer > 0 - max length of path
 	  options,			% from the subsystem declaration
 	  handles			% list of open handles
 	  %% handle is either {<int>, directory, {Path, unread|eof}} or
@@ -88,6 +90,18 @@ Options:
   limit. If supplied, the number of filenames returned to the SFTP client per
   `READDIR` request is limited to at most the given value.
 
+- **`max_handles`** - The default value is `1000`. Positive integer
+  value represents the maximum number of file handles allowed for a
+  connection.
+
+  (Note: separate limitation might be also enforced by underlying
+  operating system)
+
+- **`max_path`** - The default value is `4096`. Positive integer value
+    represents the maximum path length which cannot be exceeded in
+    data provided by the SFTP client. (Note: limitations might be also
+    enforced by underlying operating system)
+
 - **`root`** - Sets the SFTP root directory. Then the user cannot see any files
   above this root. If, for example, the root directory is set to `/tmp`, then
   the user sees this directory as `/`. If the user then writes `cd /etc`, the
@@ -100,6 +114,8 @@ Options:
       Options :: [ {cwd, string()} |
                    {file_handler, CbMod | {CbMod, FileState}} |
                    {max_files, integer()} |
+                   {max_handles, integer()} |
+                   {max_path, integer()} |
                    {root, string()} |
                    {sftpd_vsn, integer()}
                  ],
@@ -151,8 +167,14 @@ init(Options) ->
 		{Root0, State0}
 	end,
     MaxLength = proplists:get_value(max_files, Options, 0),
+    MaxHandles = proplists:get_value(max_handles, Options, 1000),
+    MaxPath = proplists:get_value(max_path, Options, 4096),
     Vsn = proplists:get_value(sftpd_vsn, Options, 5),
-    {ok,  State#state{cwd = CWD, root = Root, max_files = MaxLength,
+    {ok,  State#state{cwd = CWD,
+                      root = Root,
+                      max_files = MaxLength,
+                      max_handles = MaxHandles,
+                      max_path = MaxPath,
 		      options = Options,
 		      handles = [], pending = <<>>,
 		      xf = #ssh_xfer{vsn = Vsn, ext = []}}}.
@@ -261,6 +283,41 @@ handle_data(Type, ChannelId, Data0, State = #state{pending = Pending}) ->
             handle_data(Type, ChannelId, Data, State#state{pending = <<>>})
     end.
 
+%% From draft-ietf-secsh-filexfer-02 "The file handle strings MUST NOT be longer than 256 bytes."
+handle_op(Request, ReqId, <<?UINT32(HLen), _/binary>>, State = #state{xf = XF})
+  when (Request == ?SSH_FXP_CLOSE orelse
+        Request == ?SSH_FXP_FSETSTAT orelse
+        Request == ?SSH_FXP_FSTAT orelse
+        Request == ?SSH_FXP_READ orelse
+        Request == ?SSH_FXP_READDIR orelse
+        Request == ?SSH_FXP_WRITE),
+       HLen > 256 ->
+    ssh_xfer:xf_send_status(XF, ReqId, ?SSH_FX_INVALID_HANDLE, "Invalid handle"),
+    State;
+handle_op(Request, ReqId, <<?UINT32(PLen), _/binary>>,
+          State = #state{max_path = MaxPath, xf = XF})
+  when (Request == ?SSH_FXP_LSTAT orelse
+        Request == ?SSH_FXP_MKDIR orelse
+        Request == ?SSH_FXP_OPEN orelse
+        Request == ?SSH_FXP_OPENDIR orelse
+        Request == ?SSH_FXP_READLINK orelse
+        Request == ?SSH_FXP_REALPATH orelse
+        Request == ?SSH_FXP_REMOVE orelse
+        Request == ?SSH_FXP_RMDIR orelse
+        Request == ?SSH_FXP_SETSTAT orelse
+        Request == ?SSH_FXP_STAT),
+       PLen > MaxPath ->
+    ssh_xfer:xf_send_status(XF, ReqId, ?SSH_FX_NO_SUCH_PATH,
+                            "No such path"),
+    State;
+handle_op(Request, ReqId, <<?UINT32(PLen), _:PLen/binary, ?UINT32(PLen2), _/binary>>,
+          State = #state{max_path = MaxPath, xf = XF})
+  when (Request == ?SSH_FXP_RENAME orelse
+        Request == ?SSH_FXP_SYMLINK),
+       (PLen > MaxPath orelse PLen2 > MaxPath) ->
+    ssh_xfer:xf_send_status(XF, ReqId, ?SSH_FX_NO_SUCH_PATH,
+                            "No such path"),
+    State;
 handle_op(?SSH_FXP_INIT, Version, B, State) when is_binary(B) ->
     XF = State#state.xf,
     Vsn = lists:min([XF#ssh_xfer.vsn, Version]),
@@ -268,7 +325,7 @@ handle_op(?SSH_FXP_INIT, Version, B, State) when is_binary(B) ->
     ssh_xfer:xf_send_reply(XF1, ?SSH_FXP_VERSION, <<?UINT32(Vsn)>>),
     State#state{xf = XF1};
 handle_op(?SSH_FXP_REALPATH, ReqId,
-	  <<?UINT32(Rlen), RPath:Rlen/binary>>,
+	  <<?UINT32(RLen), RPath:RLen/binary>>,
 	  State0) ->
     RelPath = relate_file_name(RPath, State0, _Canonicalize=false),
     {Res, State} = resolve_symlinks(RelPath, State0),
@@ -284,14 +341,16 @@ handle_op(?SSH_FXP_REALPATH, ReqId,
     end;
 handle_op(?SSH_FXP_OPENDIR, ReqId,
 	 <<?UINT32(RLen), RPath:RLen/binary>>,
-	  State0 = #state{xf = #ssh_xfer{vsn = Vsn}, 
-			  file_handler = FileMod, file_state = FS0}) ->
+	  State0 = #state{xf = #ssh_xfer{vsn = Vsn},
+			  file_handler = FileMod, file_state = FS0,
+                          max_handles = MaxHandles}) ->
     RelPath = unicode:characters_to_list(RPath),
     AbsPath = relate_file_name(RelPath, State0),
     
     XF = State0#state.xf,
     {IsDir, FS1} = FileMod:is_dir(AbsPath, FS0),
     State1 = State0#state{file_state = FS1},
+    HandlesCnt = length(State0#state.handles),
     case IsDir of
 	false when Vsn > 5 ->
 	    ssh_xfer:xf_send_status(XF, ReqId, ?SSH_FX_NOT_A_DIRECTORY,
@@ -301,8 +360,12 @@ handle_op(?SSH_FXP_OPENDIR, ReqId,
 	    ssh_xfer:xf_send_status(XF, ReqId, ?SSH_FX_FAILURE,
 				    "Not a directory"),
 	    State1;
-	true ->
-	    add_handle(State1, XF, ReqId, directory, {RelPath,unread})
+	true when HandlesCnt < MaxHandles ->
+	    add_handle(State1, XF, ReqId, directory, {RelPath,unread});
+        true ->
+	    ssh_xfer:xf_send_status(XF, ReqId, ?SSH_FX_FAILURE,
+				    "max_handles limit reached"),
+	    State1
     end;
 handle_op(?SSH_FXP_READDIR, ReqId,
 	  <<?UINT32(HLen), BinHandle:HLen/binary>>,
@@ -437,14 +500,12 @@ handle_op(?SSH_FXP_RMDIR, ReqId, <<?UINT32(PLen), BPath:PLen/binary>>,
     send_status(Status, ReqId, State1);
 
 handle_op(?SSH_FXP_RENAME, ReqId,
-  	  Bin = <<?UINT32(PLen), _:PLen/binary, ?UINT32(PLen2),
-  		 _:PLen2/binary>>,
+  	  Bin = <<?UINT32(PLen), _:PLen/binary, ?UINT32(PLen2), _:PLen2/binary>>,
   	  State = #state{xf = #ssh_xfer{vsn = Vsn}}) when Vsn==3; Vsn==4  ->
     handle_op(?SSH_FXP_RENAME, ReqId, <<Bin/binary, 0:32>>, State);
 
 handle_op(?SSH_FXP_RENAME, ReqId,
-	  <<?UINT32(PLen), BPath:PLen/binary, ?UINT32(PLen2), 
-	   BPath2:PLen2/binary, ?UINT32(Flags)>>,
+	  <<?UINT32(PLen), BPath:PLen/binary, ?UINT32(PLen2), BPath2:PLen2/binary, ?UINT32(Flags)>>,
 	  State0 = #state{file_handler = FileMod, file_state = FS0}) ->
     Path = relate_file_name(BPath, State0),
     Path2 = relate_file_name(BPath2, State0),
@@ -759,7 +820,9 @@ open(Vsn, ReqId, Data, State) when Vsn >= 4 ->
     do_open(ReqId, State, Path, Flags).
 
 do_open(ReqId, State0, Path, Flags) ->
-    #state{file_handler = FileMod, file_state = FS0, xf = #ssh_xfer{vsn = Vsn}} = State0,
+    #state{file_handler = FileMod, file_state = FS0, xf = #ssh_xfer{vsn = Vsn},
+           max_handles = MaxHandles} = State0,
+    HandlesCnt = length(State0#state.handles),
     AbsPath = relate_file_name(Path, State0),
     {IsDir, _FS1} = FileMod:is_dir(AbsPath, FS0),
     case IsDir of 
@@ -771,7 +834,7 @@ do_open(ReqId, State0, Path, Flags) ->
 	    ssh_xfer:xf_send_status(State0#state.xf, ReqId,
 				    ?SSH_FX_FAILURE, "File is a directory"),
 	    State0;
-	false ->
+	false when HandlesCnt < MaxHandles ->
 	    OpenFlags = [binary | Flags],
 	    {Res, FS1} = FileMod:open(AbsPath, OpenFlags, FS0),
 	    State1 = State0#state{file_state = FS1},
@@ -782,7 +845,11 @@ do_open(ReqId, State0, Path, Flags) ->
 		    ssh_xfer:xf_send_status(State1#state.xf, ReqId,
 					    ssh_xfer:encode_erlang_status(Error)),
 		    State1
-	    end
+	    end;
+        false ->
+	    ssh_xfer:xf_send_status(State0#state.xf, ReqId,
+				    ?SSH_FX_FAILURE, "max_handles limit reached"),
+	    State0
     end.
 
 %% resolve all symlinks in a path

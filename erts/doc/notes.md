@@ -23,6 +23,21 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 16.0.3
+
+### Fixed Bugs and Malfunctions
+
+- Update PCRE2 from 10.45 to 10.46. Fixes potential buffer read overflow on regular expressions with `(*scs:)` and `(*ACCEPT)` syntax combined.
+
+  Own Id: OTP-19755 Aux Id: [CVE-2025-58050]
+
+- Fixed bug that could cause crash in beam started with `erl -emu_type debug +JPperf true` with any type of tracing return from function.
+
+  Own Id: OTP-19761 Aux Id: [PR-19755]
+
+[CVE-2025-58050]: https://nvd.nist.gov/vuln/detail/2025-58050
+[PR-19755]: https://github.com/erlang/otp/pull/19755
+
 ## Erts 16.0.2
 
 ### Fixed Bugs and Malfunctions
@@ -414,6 +429,17 @@ This document describes the changes made to the ERTS application.
 [PR-9775]: https://github.com/erlang/otp/pull/9775
 [PR-9759]: https://github.com/erlang/otp/pull/9759
 [PR-9809]: https://github.com/erlang/otp/pull/9809
+
+## Erts 15.2.7.2
+
+### Fixed Bugs and Malfunctions
+
+- As an optimization, when the `unicode:characters_to_binary/3` was used to convert from `latin1` to `utf8` or vice versa, it would return the original binary unchanged if it only contained 7-bit ASCII characters. That otpimization was broken in Erlang/OTP 27, and has now been mended.
+
+  Own Id: OTP-19728 Aux Id: [GH-10072], [PR-10093]
+
+[GH-10072]: https://github.com/erlang/otp/issues/10072
+[PR-10093]: https://github.com/erlang/otp/pull/10093
 
 ## Erts 15.2.7.1
 
