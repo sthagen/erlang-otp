@@ -110,7 +110,7 @@ opens a tar file on a remote machine using an SFTP channel.
          format_error/1]).
 
 -include_lib("kernel/include/file.hrl").
--include_lib("erl_tar.hrl").
+-include("erl_tar.hrl").
 
 %% Converts the short error reason to a descriptive string.
 -doc "Converts an error reason term to a human-readable error message string.".
@@ -1151,7 +1151,7 @@ split_ustar_path(Path) ->
             false;
        true ->
             PathBin = binary:list_to_bin(Path),
-            case binary:split(PathBin, [<<$/>>], [global, trim_all]) of
+            case filename:split(PathBin) of
                 [Part] when byte_size(Part) >= ?V7_NAME_LEN ->
                     false;
                 Parts ->
