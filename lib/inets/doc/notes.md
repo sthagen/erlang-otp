@@ -82,6 +82,16 @@ limitations under the License.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9101]: https://github.com/erlang/otp/pull/9101
 
+## Inets 9.3.2.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed uri_string:uri_string() to string() type specs inside httpc.erl module.
+
+  Own Id: OTP-19835 Aux Id: [PR-10242]
+
+[PR-10242]: https://github.com/erlang/otp/pull/10242
+
 ## Inets 9.3.2.1
 
 ### Fixed Bugs and Malfunctions
@@ -212,6 +222,14 @@ limitations under the License.
 [PR-7678]: https://github.com/erlang/otp/pull/7678
 [PR-8029]: https://github.com/erlang/otp/pull/8029
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Inets 9.1.0.4
+
+### Fixed Bugs and Malfunctions
+
+* Fixed uri_string:uri_string() to string() type specs inside httpc.erl module.
+
+  Own Id: OTP-19835 Aux Id: PR-10242
 
 ## Inets 9.1.0.3
 
