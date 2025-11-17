@@ -107,7 +107,7 @@ init(Ref, Parent, [Root,Mode]) ->
 		{ok,Dirs} = erl_prim_loader:list_dir(LibDir),
 		Paths = make_path(LibDir, Dirs),
 		UserLibPaths = get_user_lib_dirs(),
-		["."] ++ UserLibPaths ++ Paths;
+		UserLibPaths ++ Paths ++ ["."];
 	    _ ->
 		[]
 	end,
@@ -843,6 +843,9 @@ insert_name(Name, Dir, Db) ->
     AppDir = del_ebin(Dir),
     do_insert_name(Name, AppDir, Db).
 
+do_insert_name(".", _, _) ->
+    %% "." is most likely not an archive, avoid looking for subdirs
+    true;
 do_insert_name(Name, AppDir, Db) ->
     {Base, SubDirs} = archive_subdirs(AppDir),
     ets:insert(Db, {Name, AppDir, Base, SubDirs}),

@@ -1160,7 +1160,7 @@ sleep(T) -> receive after T -> ok end.
 
 start_prim_loader(Init, Path0, {Pa,Pz}) ->
     Path = case Path0 of
-	       false -> Pa ++ ["."|Pz];
+	       false -> Pa ++ Pz ++ ["."];
 	       _ -> Path0
 	   end,
     case erl_prim_loader:start() of
@@ -1259,7 +1259,10 @@ path_flags(Flags) ->
     {bs2ss(Pa),bs2ss(Pz)}.
 
 get_boot(BootFile0,Root) ->
-    BootFile = BootFile0 ++ ".boot",
+    BootFile = case BootFile0 of
+        "$ROOT/" ++ BootFile1 -> Root ++ "/bin/" ++ BootFile1 ++ ".boot";
+        _ -> BootFile0 ++ ".boot"
+    end,
     
     case get_boot(BootFile) of
 	{ok, CmdList} ->
