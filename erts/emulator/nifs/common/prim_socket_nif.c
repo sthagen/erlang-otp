@@ -1310,6 +1310,10 @@ static ERL_NIF_TERM esock_getopt_int_opt(ErlNifEnv*       env,
                                          ESockDescriptor* descP,
                                          int              level,
                                          int              opt);
+static ERL_NIF_TERM esock_getopt_uint_opt(ErlNifEnv*       env,
+                                          ESockDescriptor* descP,
+                                          int              level,
+                                          int              opt);
 static ERL_NIF_TERM esock_getopt_size_opt(ErlNifEnv*       env,
                                           ESockDescriptor* descP,
                                           int              level,
@@ -1719,6 +1723,11 @@ static ERL_NIF_TERM esock_setopt_int_opt(ErlNifEnv*       env,
                                          int              level,
                                          int              opt,
                                          ERL_NIF_TERM     eVal);
+static ERL_NIF_TERM esock_setopt_uint_opt(ErlNifEnv*       env,
+                                          ESockDescriptor* descP,
+                                          int              level,
+                                          int              opt,
+                                          ERL_NIF_TERM     eVal);
 #if (defined(SO_RCVTIMEO) || defined(SO_SNDTIMEO))      \
     && defined(ESOCK_USE_RCVSNDTIMEO)
 static ERL_NIF_TERM esock_setopt_timeval_opt(ErlNifEnv*       env,
@@ -3762,7 +3771,14 @@ static struct ESockOpt optLevelTCP[] =
 #endif
         &esock_atom_nopush},
         {0, NULL, NULL, &esock_atom_syncnt},
-        {0, NULL, NULL, &esock_atom_user_timeout}
+        {
+#ifdef TCP_USER_TIMEOUT
+            TCP_USER_TIMEOUT,
+            esock_setopt_uint_opt, esock_getopt_uint_opt,
+#else
+            0, NULL, NULL,
+#endif
+            &esock_atom_user_timeout}
 
     };
 
@@ -6040,7 +6056,7 @@ nif_sendfile(ErlNifEnv*         env,
 
         if ((! (a2ok = GET_INT64(env, argv[2], &offset64))) ||
             (! GET_UINT64(env, argv[3], &count64u))) {
-            if ((! IS_INTEGER(env, argv[3])) ||
+            if ((! IS_INTEGER(env, argv[2])) ||
                 (! IS_INTEGER(env, argv[3])))
                 return enif_make_badarg(env);
             if (! a2ok)
@@ -8018,6 +8034,10 @@ ERL_NIF_TERM esock_setopt_sctp_events(ErlNifEnv*       env,
 {
     struct    sctp_event_subscribe events;
     BOOLEAN_T error;
+#if defined(__linux__)
+    int       last_opt = offsetof(struct sctp_event_subscribe,
+                                  sctp_adaptation_layer_event) + 1;
+#endif
 
     SSDBG( descP,
            ("SOCKET", "esock_setopt_sctp_events {%d} -> entry with"
@@ -8055,20 +8075,32 @@ ERL_NIF_TERM esock_setopt_sctp_events(ErlNifEnv*       env,
 #if defined(HAVE_STRUCT_SCTP_EVENT_SUBSCRIBE_SCTP_AUTHENTICATION_EVENT)
     events.sctp_authentication_event =
         esock_setopt_sctp_event(env, eVal, atom_authentication, &error);
+#if defined(__linux__)
+    last_opt = offsetof(struct sctp_event_subscribe,
+                        sctp_authentication_event) + 1;
+#endif
 #endif
 
 #if defined(HAVE_STRUCT_SCTP_EVENT_SUBSCRIBE_SCTP_SENDER_DRY_EVENT)
     events.sctp_sender_dry_event =
         esock_setopt_sctp_event(env, eVal, atom_sender_dry, &error);
+#if defined(__linux__)
+    last_opt = offsetof(struct sctp_event_subscribe, sctp_sender_dry_event) + 1;
+#endif
 #endif
 
     if (error) {
         goto invalid;
     } else {
         ERL_NIF_TERM result;
+#if defined(__linux__)
+        int arg_sz = last_opt;
+#else
+        int arg_sz = sizeof(events);
+#endif
 
         result = esock_setopt_level_opt(env, descP, level, opt,
-                                        &events, sizeof(events));
+                                        &events, arg_sz);
         SSDBG( descP,
                ("SOCKET",
                 "esock_setopt_sctp_events {%d} -> set events -> %T\r\n",
@@ -8275,6 +8307,31 @@ ERL_NIF_TERM esock_setopt_int_opt(ErlNifEnv*       env,
     int          val;
 
     if (GET_INT(env, eVal, &val)) {
+        result =
+            esock_setopt_level_opt(env, descP, level, opt,
+                                   &val, sizeof(val));
+    } else {
+        result = esock_make_invalid(env, esock_atom_value);
+    }
+    return result;
+}
+
+
+
+/* esock_setopt_uint_opt - set an option that has an unsigned integer value
+ */
+
+static
+ERL_NIF_TERM esock_setopt_uint_opt(ErlNifEnv*       env,
+                                   ESockDescriptor* descP,
+                                   int              level,
+                                   int              opt,
+                                   ERL_NIF_TERM     eVal)
+{
+    ERL_NIF_TERM result;
+    unsigned int val;
+
+    if (GET_UINT(env, eVal, &val)) {
         result =
             esock_setopt_level_opt(env, descP, level, opt,
                                    &val, sizeof(val));
@@ -9892,6 +9949,24 @@ ERL_NIF_TERM esock_getopt_int_opt(ErlNifEnv*       env,
 
 
 
+/* esock_getopt_uint_opt - get an unsigned integer option
+ */
+static
+ERL_NIF_TERM esock_getopt_uint_opt(ErlNifEnv*       env,
+                                   ESockDescriptor* descP,
+                                   int              level,
+                                   int              opt)
+{
+    unsigned int val;
+
+    if (! esock_getopt_uint(descP->sock, level, opt, &val))
+        return esock_make_error_errno(env, sock_errno());
+
+    return esock_make_ok2(env, MKUI(env, val));
+}
+
+
+
 /* esock_getopt_int - get an integer option
  */
 extern
@@ -9901,6 +9976,30 @@ BOOLEAN_T esock_getopt_int(SOCKET           sock,
                            int*             valP)
 {
     int          val = 0;
+    SOCKOPTLEN_T valSz = sizeof(val);
+
+#ifdef __WIN32__
+    if (sock_getopt(sock, level, opt, (char*) &val, &valSz) != 0)
+#else
+    if (sock_getopt(sock, level, opt, &val, &valSz) != 0)
+#endif
+        return FALSE;
+
+    *valP = val;
+    return TRUE;
+}
+
+
+
+/* esock_getopt_uint - get an unsigned integer option
+ */
+extern
+BOOLEAN_T esock_getopt_uint(SOCKET           sock,
+                            int              level,
+                            int              opt,
+                            unsigned int    *valP)
+{
+    unsigned int val = 0;
     SOCKOPTLEN_T valSz = sizeof(val);
 
 #ifdef __WIN32__

@@ -923,6 +923,10 @@ static size_t my_strnlen(const char *s, size_t maxlen)
 #define TCP_OPT_NOPUSH              48  /* super-Nagle, aka TCP_CORK */
 #define INET_LOPT_TCP_READ_AHEAD    49  /* Read ahead of packet data */
 #define INET_LOPT_NON_BLOCK_SEND    50  /* Non-blocking send, only SCTP */
+#define TCP_OPT_KEEPCNT             51  /* TCP_KEEPCNTK */
+#define TCP_OPT_KEEPIDLE            52  /* TCP_KEEPIDLE */
+#define TCP_OPT_KEEPINTVL           53  /* TCP_KEEPINTVL */
+#define TCP_OPT_USER_TIMEOUT        54  /* TCP_USER_TIMEOUT */
 #define INET_LOPT_DEBUG             99  /* Enable/disable DEBUG for a socket */
 
 /* SCTP options: a separate range, from 100: */
@@ -7493,6 +7497,50 @@ static int inet_set_opts(inet_descriptor* desc, char* ptr, int len)
 	    continue;
 #endif
 
+#if defined(TCP_KEEPCNT)
+	case TCP_OPT_KEEPCNT:
+            DDBG(desc,
+                 ("INET-DRV-DBG[%d][" SOCKET_FSTR ",%T] "
+                  "inet_set_opts(keepcnt) -> %d\r\n",
+                  __LINE__, desc->s, driver_caller(desc->port), ival) );
+	    proto = IPPROTO_TCP;
+	    type = TCP_KEEPCNT;
+	    break;
+#endif
+
+#if defined(TCP_KEEPIDLE)
+	case TCP_OPT_KEEPIDLE:
+            DDBG(desc,
+                 ("INET-DRV-DBG[%d][" SOCKET_FSTR ",%T] "
+                  "inet_set_opts(keepidle) -> %d\r\n",
+                  __LINE__, desc->s, driver_caller(desc->port), ival) );
+	    proto = IPPROTO_TCP;
+	    type = TCP_KEEPIDLE;
+	    break;
+#endif
+
+#if defined(TCP_KEEPINTVL)
+	case TCP_OPT_KEEPINTVL:
+            DDBG(desc,
+                 ("INET-DRV-DBG[%d][" SOCKET_FSTR ",%T] "
+                  "inet_set_opts(keepintvl) -> %d\r\n",
+                  __LINE__, desc->s, driver_caller(desc->port), ival) );
+	    proto = IPPROTO_TCP;
+	    type = TCP_KEEPINTVL;
+	    break;
+#endif
+
+#if defined(TCP_USER_TIMEOUT)
+	case TCP_OPT_USER_TIMEOUT:
+            DDBG(desc,
+                 ("INET-DRV-DBG[%d][" SOCKET_FSTR ",%T] "
+                  "inet_set_opts(user_timeout) -> %d\r\n",
+                  __LINE__, desc->s, driver_caller(desc->port), ival) );
+	    proto = IPPROTO_TCP;
+	    type = TCP_USER_TIMEOUT;
+	    break;
+#endif
+
 #if defined(HAVE_MULTICAST_SUPPORT) && defined(IPPROTO_IP)
 
 	case UDP_OPT_MULTICAST_TTL:
@@ -8839,7 +8887,12 @@ static int sctp_set_opts(inet_descriptor* desc, char* ptr, int len)
 	    proto   = IPPROTO_SCTP;
 	    type    = SCTP_EVENTS;
 	    arg_ptr = (char*) (&arg.es);
+#if defined(__linux__)
+            arg_sz  = offsetof(struct sctp_event_subscribe,
+                               sctp_adaptation_layer_event) + 1;
+#else
 	    arg_sz  = sizeof  ( arg.es);
+#endif
 	    break;
 	}
 	/* The following is not available on
@@ -9379,6 +9432,30 @@ static ErlDrvSSizeT inet_fill_opts(inet_descriptor* desc,
 	    *ptr++ = opt;
 	    put_int32(0, ptr);
 	    continue;
+#endif
+#if defined(TCP_KEEPCNT)
+	case TCP_OPT_KEEPCNT:
+	    proto = IPPROTO_TCP;
+	    type = TCP_KEEPCNT;
+	    break;
+#endif
+#if defined(TCP_KEEPIDLE)
+	case TCP_OPT_KEEPIDLE:
+	    proto = IPPROTO_TCP;
+	    type = TCP_KEEPIDLE;
+	    break;
+#endif
+#if defined(TCP_KEEPINTVL)
+	case TCP_OPT_KEEPINTVL:
+	    proto = IPPROTO_TCP;
+	    type = TCP_KEEPINTVL;
+	    break;
+#endif
+#if defined(TCP_USER_TIMEOUT)
+	case TCP_OPT_USER_TIMEOUT:
+	    proto = IPPROTO_TCP;
+	    type = TCP_USER_TIMEOUT;
+	    break;
 #endif
 
 #if defined(HAVE_MULTICAST_SUPPORT) && defined(IPPROTO_IP)
@@ -13522,7 +13599,7 @@ static int tcp_send_error(tcp_descriptor* desc, int err)
      * show_econnreset socket option enabled to receive {error, econnreset} on
      * both send and recv operations to indicate that an RST has been received.
      */
-#ifdef __WIN_32__
+#ifdef __WIN32__
     if (err == ECONNABORTED)
 	err = ECONNRESET;
 #endif
