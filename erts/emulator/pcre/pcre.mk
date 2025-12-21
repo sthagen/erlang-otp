@@ -56,7 +56,7 @@ PCRE_OBJDIR = $(ERL_TOP)/erts/emulator/pcre/obj/$(TARGET)/$(TYPE)
 
 PCRE_DIR =  $(ERL_TOP)/erts/emulator/pcre
 
-PCRE_CFLAGS = $(filter-out -Wimplicit-fallthrough,$(CFLAGS)) $(VISIBILITY_HIDDEN) -DERLANG_INTEGRATION
+PCRE_CFLAGS = $(filter-out -Wimplicit-fallthrough,$(CFLAGS)) -DERLANG_INTEGRATION
 
 ifeq ($(TARGET), win32)
 $(EPCRE_LIB): $(PCRE_OBJS)
@@ -86,7 +86,12 @@ $(PCRE_YIELD_COV): $(PCRE_DIR)/pcre2_match.c
 	done > $@; \
 	echo "#define ERLANG_YIELD_POINT_CNT $$INDEX" >> $@
 
-depend:
+
+# Target static_depend is currently only ment to be run manually.
+# It works on Ubuntu Linux but not en FreeBSD for example.
+# > make -f pcre.mk static_depend
+# > git add depend.mk
+static_depend:
 	gcc -MM -MG -c -DERLANG_INTEGRATION -DDEBUG *.c \
 		| sed -E 's/\S+\.o:/$$(PCRE_OBJDIR)\/&/' \
 		| sed -E 's/\S+\.[ch]\b/$$(PCRE_DIR)\/&/g' > depend.mk
