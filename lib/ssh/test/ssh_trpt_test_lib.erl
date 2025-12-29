@@ -27,14 +27,15 @@
 	 instantiate/2,
 	 format_msg/1,
 	 server_host_port/1,
-         return_value/1
+         return_value/1,
+         set_timeout/2
 	]
        ).
 
 -include_lib("common_test/include/ct.hrl").
--include_lib("ssh/src/ssh.hrl").		% ?UINT32, ?BYTE, #ssh{} ...
--include_lib("ssh/src/ssh_transport.hrl").
--include_lib("ssh/src/ssh_auth.hrl").
+-include("../src/ssh.hrl").		% ?UINT32, ?BYTE, #ssh{} ...
+-include("../src/ssh_transport.hrl").
+-include("../src/ssh_auth.hrl").
 
 %%%----------------------------------------------------------------
 -record(s, {
@@ -830,3 +831,6 @@ save_prints({Fmt,Args}, S) ->
 
 return_value(#s{return_value = ReturnValue}) ->
     ReturnValue.
+
+set_timeout(S, Timeout) ->
+    S#s{timeout = Timeout}.
