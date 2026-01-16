@@ -209,7 +209,10 @@ only_simulated() ->
      get_space,
      delete_no_body,
      post_with_content_type,
-     stream_fun_server_close
+     stream_fun_server_close,
+     no_content_length_for_bodyless_requests,
+     content_length_for_empty_body_requests,
+     content_length_via_headers_as_is
     ].
 
 server_closing_connection() ->
@@ -1147,9 +1150,9 @@ timeout_redirect(Config) when is_list(Config) ->
 %%-------------------------------------------------------------------------
 
 internal_server_error() ->
-    [{doc, "Test 50X codes"}].
+    [{doc, "Test 50X codes"},
+     {timetrap, timer:minutes(5)}].
 internal_server_error(Config) when is_list(Config) ->
-
     URL500 = url(group_name(Config), "/500.html", Config),
     RequestOpts = proplists:get_value(request_opts, Config, []),
     Profile = ?profile(Config),
@@ -1166,10 +1169,28 @@ internal_server_error(Config) when is_list(Config) ->
     {ok, {{_,200, _}, [_ | _], [_|_]}} =
 	httpc:request(get, {URL503, []}, [?SSL_NO_VERIFY], RequestOpts, Profile),
 
+    ets:insert(unavailable, {503, unavailable}),
+    {ok, {{_,503, _}, [_ | _], [_|_]}} =
+        httpc:request(get, {URL503, []}, [{autoretry, timer:seconds(0)}, ?SSL_NO_VERIFY], RequestOpts , Profile),
+
+    ets:insert(unavailable, {503, unavailable}),
+    %% 503.html returns Retry-After 5, test waiting time limit
+    {ok, {{_,503, _}, [_ | _], [_|_]}} =
+        httpc:request(get, {URL503, []}, [{autoretry, timer:seconds(4)}, ?SSL_NO_VERIFY], RequestOpts , Profile),
+
     ets:insert(unavailable, {503, long_unavailable}),
 
     {ok, {{_,503, _}, [_ | _], [_|_]}} =
-	httpc:request(get, {URL503, []}, [?SSL_NO_VERIFY], RequestOpts, Profile),
+        httpc:request(get, {URL503, []}, [{autoretry, timer:seconds(0)}, ?SSL_NO_VERIFY], RequestOpts, Profile),
+
+    ets:insert(unavailable, {503, long_unavailable}),
+
+    {ok, {{_,200, _}, [_ | _], [_|_]}} =
+        httpc:request(get, {URL503, []}, [?SSL_NO_VERIFY], RequestOpts, Profile),
+
+    ets:insert(unavailable, {503, always_unavailable}),
+    {ok, {{_,503, _}, [_ | _], [_|_]}} =
+        httpc:request(get, {URL503, []}, [?SSL_NO_VERIFY], RequestOpts, Profile),
 
     ets:delete(unavailable).
 
@@ -2115,6 +2136,54 @@ post_with_content_type(Config) when is_list(Config) ->
                       [?SSL_NO_VERIFY], RequestOpts, ?profile(Config)).
 
 %%--------------------------------------------------------------------
+no_content_length_for_bodyless_requests() ->
+    [{doc, "Test that bodyless requests (GET, HEAD, OPTIONS, TRACE, DELETE) "
+           "do not send Content-Length header (RFC 9110)"}].
+no_content_length_for_bodyless_requests(Config) when is_list(Config) ->
+    URL = url(group_name(Config), "/check_no_content_length.html", Config),
+    Profile = ?profile(Config),
+    %% Simulated server replies 500 if Content-Length header is present
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(get, {URL, []}, [?SSL_NO_VERIFY], [], Profile),
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(head, {URL, []}, [?SSL_NO_VERIFY], [], Profile),
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(options, {URL, []}, [?SSL_NO_VERIFY], [], Profile),
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(trace, {URL, []}, [?SSL_NO_VERIFY], [], Profile),
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(delete, {URL, []}, [?SSL_NO_VERIFY], [], Profile).
+
+%%--------------------------------------------------------------------
+content_length_for_empty_body_requests() ->
+    [{doc, "Test that POST/PUT with empty body DOES send Content-Length: 0 (RFC 9110)"}].
+content_length_for_empty_body_requests(Config) when is_list(Config) ->
+    URL = url(group_name(Config), "/check_has_content_length_zero.html", Config),
+    Profile = ?profile(Config),
+    %% Simulated server replies 500 if Content-Length header is NOT present or not "0"
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(post, {URL, [], "text/plain", ""}, [?SSL_NO_VERIFY], [], Profile),
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(put, {URL, [], "text/plain", ""}, [?SSL_NO_VERIFY], [], Profile).
+
+%%--------------------------------------------------------------------
+content_length_via_headers_as_is() ->
+    [{doc, "Test that explicit Content-Length via headers_as_is is respected "
+           "for bodyless requests"}].
+content_length_via_headers_as_is(Config) when is_list(Config) ->
+    URL = url(group_name(Config), "/check_has_content_length_zero.html", Config),
+    URLNoContentLength = url(group_name(Config), "/check_no_content_length.html", Config),
+    %% User explicitly sets Content-Length: 0 via headers_as_is - should be sent
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(get, {URL, [{"Host", "localhost"}, {"Content-Length", "0"}]},
+                      [?SSL_NO_VERIFY], [{headers_as_is, true}], ?profile(Config)),
+    %% User provides custom header but NOT Content-Length, without headers_as_is
+    %% - Content-Length should still be omitted
+    {ok, {{_,200,_}, _, _}} =
+        httpc:request(get, {URLNoContentLength, [{"X-Custom-Header", "value"}]},
+                      [?SSL_NO_VERIFY], [], ?profile(Config)).
+
+%%--------------------------------------------------------------------
 request_options() ->
     [{require, ipv6_hosts},
      {doc, "Test http get request with socket options against local server (IPv6)"}].
@@ -2624,6 +2693,13 @@ content_type_header([{"content-type", Value}|_]) ->
 content_type_header([_|T]) ->
     content_type_header(T).
 
+content_length_header([]) ->
+    not_found;
+content_length_header([{"content-length", Value}|_]) ->
+    {ok, string:strip(Value)};
+content_length_header([_|T]) ->
+    content_length_header(T).
+
 handle_auth("Basic " ++ UserInfo, Challenge, DefaultResponse) ->
     case string:tokens(base64:decode_to_string(UserInfo), ":") of
 	["alladin@example.com", "sesame"] = Auth ->
@@ -2972,8 +3048,28 @@ handle_uri(_,"/503.html",_,_,_,DefaultResponse) ->
 	[{503, available}]   ->
 	    DefaultResponse;
 	[{503, long_unavailable}]  ->
+            %% Available after 120 seconds, in http-date format
+            {MS0, S0, NS0} = erlang:timestamp(),
+            ModifiedTimestamp = {MS0, S0 + 120, NS0},
+            {{Year, Month, Day}, {H, M, S}} = calendar:now_to_datetime(ModifiedTimestamp),
+            HttpYear = integer_to_list(Year),
+            DoW = calendar:day_of_the_week(Year, Month, Day),
+            HttpDay = lists:flatten(string:pad(integer_to_list(Day), 2, leading, $0)),
+            DayName = http_util:convert_day(DoW),
+            MonthName = http_util:convert_month(Month),
+            HttpHour = lists:flatten(string:pad(integer_to_list(H), 2, leading, $0)),
+            HttpMin = lists:flatten(string:pad(integer_to_list(M), 2, leading, $0)),
+            HttpSec = lists:flatten(string:pad(integer_to_list(S), 2, leading, $0)),
+            HttpDate = lists:flatten(io_lib:format("~ts, ~ts ~ts ~ts ~ts:~ts:~ts GMT",
+                                     [DayName, HttpDay, MonthName, HttpYear, HttpHour, HttpMin, HttpSec])),
+            ets:insert(unavailable, {503, available}),
 	    "HTTP/1.1 503 Service Unavailable\r\n" ++
-		"Retry-After:120\r\n" ++
+		"Retry-After:" ++ HttpDate ++ "\r\n" ++
+		"Content-Length:47\r\n\r\n" ++
+		"<HTML><BODY>Internal Server Error</BODY></HTML>";
+        [{503, always_unavailable}] ->
+            "HTTP/1.1 503 Service Unavailable\r\n" ++
+		"Retry-After:5\r\n" ++
 		"Content-Length:47\r\n\r\n" ++
 		"<HTML><BODY>Internal Server Error</BODY></HTML>"
     end;
@@ -3226,6 +3322,24 @@ handle_uri(_,"/delete_no_body.html", _,Headers,_, DefaultResponse) ->
 	    Error;
 	not_found ->
 	    DefaultResponse
+    end;
+handle_uri(_,"/check_no_content_length.html", _,Headers,_, DefaultResponse) ->
+    Error = "HTTP/1.1 500 Internal Server Error\r\n" ++
+        "Content-Length:0\r\n\r\n",
+    case content_length_header(Headers) of
+        {ok, _} ->
+            Error;
+        not_found ->
+            DefaultResponse
+    end;
+handle_uri(_,"/check_has_content_length_zero.html", _,Headers,_, DefaultResponse) ->
+    Error = "HTTP/1.1 500 Internal Server Error\r\n" ++
+        "Content-Length:0\r\n\r\n",
+    case content_length_header(Headers) of
+        {ok, "0"} ->
+            DefaultResponse;
+        _ ->
+            Error
     end;
 handle_uri(_,_,_,_,_,DefaultResponse) ->
     DefaultResponse.
