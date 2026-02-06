@@ -2411,6 +2411,60 @@ printf "%s\n" "$ac_res" >&6; }
 
 } # ac_fn_c_check_member
 
+# ac_fn_check_decl LINENO SYMBOL VAR INCLUDES EXTRA-OPTIONS FLAG-VAR
+# ------------------------------------------------------------------
+# Tests whether SYMBOL is declared in INCLUDES, setting cache variable VAR
+# accordingly. Pass EXTRA-OPTIONS to the compiler, using FLAG-VAR.
+ac_fn_check_decl ()
+{
+  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
+  as_decl_name=`echo $2|sed 's/ *(.*//'`
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether $as_decl_name is declared" >&5
+printf %s "checking whether $as_decl_name is declared... " >&6; }
+if eval test \${$3+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) as_decl_use=`echo $2|sed -e 's/(/((/' -e 's/)/) 0&/' -e 's/,/) 0& (/g'`
+  eval ac_save_FLAGS=\$$6
+  as_fn_append $6 " $5"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+$4
+int
+main (void)
+{
+#ifndef $as_decl_name
+#ifdef __cplusplus
+  (void) $as_decl_use;
+#else
+  (void) $as_decl_name;
+#endif
+#endif
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  eval "$3=yes"
+else case e in #(
+  e) eval "$3=no" ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+  eval $6=\$ac_save_FLAGS
+ ;;
+esac
+fi
+eval ac_res=\$$3
+	       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
+printf "%s\n" "$ac_res" >&6; }
+  eval $as_lineno_stack; ${as_lineno_stack:+:} unset as_lineno
+
+} # ac_fn_check_decl
+
 # ac_fn_c_check_type LINENO TYPE VAR INCLUDES
 # -------------------------------------------
 # Tests whether TYPE exists after having included INCLUDES, setting cache
@@ -2469,60 +2523,6 @@ printf "%s\n" "$ac_res" >&6; }
   eval $as_lineno_stack; ${as_lineno_stack:+:} unset as_lineno
 
 } # ac_fn_c_check_type
-
-# ac_fn_check_decl LINENO SYMBOL VAR INCLUDES EXTRA-OPTIONS FLAG-VAR
-# ------------------------------------------------------------------
-# Tests whether SYMBOL is declared in INCLUDES, setting cache variable VAR
-# accordingly. Pass EXTRA-OPTIONS to the compiler, using FLAG-VAR.
-ac_fn_check_decl ()
-{
-  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
-  as_decl_name=`echo $2|sed 's/ *(.*//'`
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether $as_decl_name is declared" >&5
-printf %s "checking whether $as_decl_name is declared... " >&6; }
-if eval test \${$3+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) as_decl_use=`echo $2|sed -e 's/(/((/' -e 's/)/) 0&/' -e 's/,/) 0& (/g'`
-  eval ac_save_FLAGS=\$$6
-  as_fn_append $6 " $5"
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-$4
-int
-main (void)
-{
-#ifndef $as_decl_name
-#ifdef __cplusplus
-  (void) $as_decl_use;
-#else
-  (void) $as_decl_name;
-#endif
-#endif
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_compile "$LINENO"
-then :
-  eval "$3=yes"
-else case e in #(
-  e) eval "$3=no" ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
-  eval $6=\$ac_save_FLAGS
- ;;
-esac
-fi
-eval ac_res=\$$3
-	       { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
-printf "%s\n" "$ac_res" >&6; }
-  eval $as_lineno_stack; ${as_lineno_stack:+:} unset as_lineno
-
-} # ac_fn_check_decl
 ac_configure_args_raw=
 for ac_arg
 do
@@ -17102,6 +17102,116 @@ printf "%s\n" "#define ESOCK_SDL_LEN /**/" >>confdefs.h
 fi
 
 
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for $CC options needed to detect all undeclared functions" >&5
+printf %s "checking for $CC options needed to detect all undeclared functions... " >&6; }
+if test ${ac_cv_c_undeclared_builtin_options+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_save_CFLAGS=$CFLAGS
+   ac_cv_c_undeclared_builtin_options='cannot detect'
+   for ac_arg in '' -fno-builtin; do
+     CFLAGS="$ac_save_CFLAGS $ac_arg"
+     # This test program should *not* compile successfully.
+     cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main (void)
+{
+(void) strchr;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+
+else case e in #(
+  e) # This test program should compile successfully.
+        # No library function is consistently available on
+        # freestanding implementations, so test against a dummy
+        # declaration.  Include always-available headers on the
+        # off chance that they somehow elicit warnings.
+        cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <float.h>
+#include <limits.h>
+#include <stdarg.h>
+#include <stddef.h>
+extern void ac_decl (int, char *);
+
+int
+main (void)
+{
+(void) ac_decl (0, (char *) 0);
+  (void) ac_decl;
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  if test x"$ac_arg" = x
+then :
+  ac_cv_c_undeclared_builtin_options='none needed'
+else case e in #(
+  e) ac_cv_c_undeclared_builtin_options=$ac_arg ;;
+esac
+fi
+          break
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+    done
+    CFLAGS=$ac_save_CFLAGS
+   ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_c_undeclared_builtin_options" >&5
+printf "%s\n" "$ac_cv_c_undeclared_builtin_options" >&6; }
+  case $ac_cv_c_undeclared_builtin_options in #(
+  'cannot detect') :
+    { { printf "%s\n" "$as_me:${as_lineno-$LINENO}: error: in '$ac_pwd':" >&5
+printf "%s\n" "$as_me: error: in '$ac_pwd':" >&2;}
+as_fn_error $? "cannot make $CC report undeclared builtins
+See 'config.log' for more details" "$LINENO" 5; } ;; #(
+  'none needed') :
+    ac_c_undeclared_builtin_options='' ;; #(
+  *) :
+    ac_c_undeclared_builtin_options=$ac_cv_c_undeclared_builtin_options ;;
+esac
+
+ac_fn_check_decl "$LINENO" "SCTP_DATA_UNSENT" "ac_cv_have_decl_SCTP_DATA_UNSENT" "
+         #if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+" "$ac_c_undeclared_builtin_options" "CFLAGS"
+if test "x$ac_cv_have_decl_SCTP_DATA_UNSENT" = xyes
+then :
+
+printf "%s\n" "#define ESOCK_SCTP_DATA_UNSENT /**/" >>confdefs.h
+
+fi
+ac_fn_check_decl "$LINENO" "SCTP_DATA_SENT" "ac_cv_have_decl_SCTP_DATA_SENT" "
+         #if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+" "$ac_c_undeclared_builtin_options" "CFLAGS"
+if test "x$ac_cv_have_decl_SCTP_DATA_SENT" = xyes
+then :
+
+printf "%s\n" "#define ESOCK_SCTP_DATA_SENT /**/" >>confdefs.h
+
+fi
+
 #--------------------------------------------------------------------
 #	Check for the existence of the -lsocket and -lnsl libraries.
 #	The order here is important, so that they end up in the right
@@ -18376,89 +18486,6 @@ fi
 
 fi
 
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for $CC options needed to detect all undeclared functions" >&5
-printf %s "checking for $CC options needed to detect all undeclared functions... " >&6; }
-if test ${ac_cv_c_undeclared_builtin_options+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_save_CFLAGS=$CFLAGS
-   ac_cv_c_undeclared_builtin_options='cannot detect'
-   for ac_arg in '' -fno-builtin; do
-     CFLAGS="$ac_save_CFLAGS $ac_arg"
-     # This test program should *not* compile successfully.
-     cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-int
-main (void)
-{
-(void) strchr;
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_compile "$LINENO"
-then :
-
-else case e in #(
-  e) # This test program should compile successfully.
-        # No library function is consistently available on
-        # freestanding implementations, so test against a dummy
-        # declaration.  Include always-available headers on the
-        # off chance that they somehow elicit warnings.
-        cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-#include <float.h>
-#include <limits.h>
-#include <stdarg.h>
-#include <stddef.h>
-extern void ac_decl (int, char *);
-
-int
-main (void)
-{
-(void) ac_decl (0, (char *) 0);
-  (void) ac_decl;
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_compile "$LINENO"
-then :
-  if test x"$ac_arg" = x
-then :
-  ac_cv_c_undeclared_builtin_options='none needed'
-else case e in #(
-  e) ac_cv_c_undeclared_builtin_options=$ac_arg ;;
-esac
-fi
-          break
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
-    done
-    CFLAGS=$ac_save_CFLAGS
-   ;;
-esac
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_c_undeclared_builtin_options" >&5
-printf "%s\n" "$ac_cv_c_undeclared_builtin_options" >&6; }
-  case $ac_cv_c_undeclared_builtin_options in #(
-  'cannot detect') :
-    { { printf "%s\n" "$as_me:${as_lineno-$LINENO}: error: in '$ac_pwd':" >&5
-printf "%s\n" "$as_me: error: in '$ac_pwd':" >&2;}
-as_fn_error $? "cannot make $CC report undeclared builtins
-See 'config.log' for more details" "$LINENO" 5; } ;; #(
-  'none needed') :
-    ac_c_undeclared_builtin_options='' ;; #(
-  *) :
-    ac_c_undeclared_builtin_options=$ac_cv_c_undeclared_builtin_options ;;
-esac
-
 ac_fn_c_check_header_compile "$LINENO" "sys/resource.h" "ac_cv_header_sys_resource_h" "$ac_includes_default"
 if test "x$ac_cv_header_sys_resource_h" = xyes
 then :
@@ -18678,16 +18705,16 @@ then :
 
 fi
 
-        ac_fn_c_check_member "$LINENO" "struct sctp_accoc_value" "assoc_id" "ac_cv_member_struct_sctp_accoc_value_assoc_id" "#if HAVE_SYS_SOCKET_H
+        ac_fn_c_check_member "$LINENO" "struct sctp_assoc_value" "assoc_id" "ac_cv_member_struct_sctp_assoc_value_assoc_id" "#if HAVE_SYS_SOCKET_H
          #include <sys/socket.h>
          #endif
          #include <netinet/sctp.h>
 
 "
-if test "x$ac_cv_member_struct_sctp_accoc_value_assoc_id" = xyes
+if test "x$ac_cv_member_struct_sctp_assoc_value_assoc_id" = xyes
 then :
 
-printf "%s\n" "#define HAVE_STRUCT_SCTP_ACCOC_VALUE_ASSOC_ID 1" >>confdefs.h
+printf "%s\n" "#define HAVE_STRUCT_SCTP_ASSOC_VALUE_ASSOC_ID 1" >>confdefs.h
 
 
 fi
@@ -19099,7 +19126,72 @@ esac
 fi
 printf "%s\n" "#define HAVE_DECL_SCTPS_SHUTDOWN_ACK_SENT $ac_have_decl" >>confdefs.h
 
-    ac_fn_c_check_member "$LINENO" "struct sctp_paddrparams" "spp_pathmtu" "ac_cv_member_struct_sctp_paddrparams_spp_pathmtu" "#if HAVE_SYS_SOCKET_H
+    ac_fn_c_check_member "$LINENO" "struct sctp_assoc_stats" "sas_assoc_id" "ac_cv_member_struct_sctp_assoc_stats_sas_assoc_id" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_assoc_stats_sas_assoc_id" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_ASSOC_STATS_SAS_ASSOC_ID 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_assoc_stats" "sas_obs_rto_ipaddr" "ac_cv_member_struct_sctp_assoc_stats_sas_obs_rto_ipaddr" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_assoc_stats_sas_obs_rto_ipaddr" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_ASSOC_STATS_SAS_OBS_RTO_IPADDR 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_assoc_stats" "sas_opackets" "ac_cv_member_struct_sctp_assoc_stats_sas_opackets" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_assoc_stats_sas_opackets" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_ASSOC_STATS_SAS_OPACKETS 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_assoc_stats" "sas_ipackets" "ac_cv_member_struct_sctp_assoc_stats_sas_ipackets" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_assoc_stats_sas_ipackets" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_ASSOC_STATS_SAS_IPACKETS 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_assoc_stats" "sas_outofseqtsns" "ac_cv_member_struct_sctp_assoc_stats_sas_outofseqtsns" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_assoc_stats_sas_outofseqtsns" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_ASSOC_STATS_SAS_OUTOFSEQTSNS 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_paddrparams" "spp_pathmtu" "ac_cv_member_struct_sctp_paddrparams_spp_pathmtu" "#if HAVE_SYS_SOCKET_H
          #include <sys/socket.h>
          #endif
          #include <netinet/sctp.h>
@@ -19138,6 +19230,58 @@ printf "%s\n" "#define HAVE_STRUCT_SCTP_PADDRPARAMS_SPP_FLAGS 1" >>confdefs.h
 
 
 fi
+ac_fn_c_check_member "$LINENO" "struct sctp_paddrparams" "spp_pv6_flowlabel" "ac_cv_member_struct_sctp_paddrparams_spp_pv6_flowlabel" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_paddrparams_spp_pv6_flowlabel" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_PADDRPARAMS_SPP_PV6_FLOWLABEL 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_paddrparams" "spp_dscp" "ac_cv_member_struct_sctp_paddrparams_spp_dscp" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_paddrparams_spp_dscp" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_PADDRPARAMS_SPP_DSCP 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_pdapi_event" "pdapi_stream" "ac_cv_member_struct_sctp_pdapi_event_pdapi_stream" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_pdapi_event_pdapi_stream" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_PDAPI_EVENT_PDAPI_STREAM 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_pdapi_event" "pdapi_seq" "ac_cv_member_struct_sctp_pdapi_event_pdapi_seq" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_pdapi_event_pdapi_seq" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_PDAPI_EVENT_PDAPI_SEQ 1" >>confdefs.h
+
+
+fi
 ac_fn_c_check_member "$LINENO" "struct sctp_remote_error" "sre_data" "ac_cv_member_struct_sctp_remote_error_sre_data" "#if HAVE_SYS_SOCKET_H
          #include <sys/socket.h>
          #endif
@@ -19164,6 +19308,19 @@ printf "%s\n" "#define HAVE_STRUCT_SCTP_SEND_FAILED_SSF_DATA 1" >>confdefs.h
 
 
 fi
+ac_fn_c_check_member "$LINENO" "struct sctp_send_failed_event" "ssfe_data" "ac_cv_member_struct_sctp_send_failed_event_ssfe_data" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_send_failed_event_ssfe_data" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_SEND_FAILED_EVENT_SSFE_DATA 1" >>confdefs.h
+
+
+fi
 ac_fn_c_check_member "$LINENO" "struct sctp_event_subscribe" "sctp_authentication_event" "ac_cv_member_struct_sctp_event_subscribe_sctp_authentication_event" "#if HAVE_SYS_SOCKET_H
          #include <sys/socket.h>
          #endif
@@ -19187,6 +19344,71 @@ if test "x$ac_cv_member_struct_sctp_event_subscribe_sctp_sender_dry_event" = xye
 then :
 
 printf "%s\n" "#define HAVE_STRUCT_SCTP_EVENT_SUBSCRIBE_SCTP_SENDER_DRY_EVENT 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_event_subscribe" "sctp_stream_reset_event" "ac_cv_member_struct_sctp_event_subscribe_sctp_stream_reset_event" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_event_subscribe_sctp_stream_reset_event" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_EVENT_SUBSCRIBE_SCTP_STREAM_RESET_EVENT 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_event_subscribe" "sctp_assoc_reset_event" "ac_cv_member_struct_sctp_event_subscribe_sctp_assoc_reset_event" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_event_subscribe_sctp_assoc_reset_event" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_EVENT_SUBSCRIBE_SCTP_ASSOC_RESET_EVENT 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_event_subscribe" "sctp_stream_change_event" "ac_cv_member_struct_sctp_event_subscribe_sctp_stream_change_event" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_event_subscribe_sctp_stream_change_event" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_EVENT_SUBSCRIBE_SCTP_STREAM_CHANGE_EVENT 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_stream_reset_event" "strreset_stream_list" "ac_cv_member_struct_sctp_stream_reset_event_strreset_stream_list" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_stream_reset_event_strreset_stream_list" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_STREAM_RESET_EVENT_STRRESET_STREAM_LIST 1" >>confdefs.h
+
+
+fi
+ac_fn_c_check_member "$LINENO" "struct sctp_stream_reset_event" "strreset_list" "ac_cv_member_struct_sctp_stream_reset_event_strreset_list" "#if HAVE_SYS_SOCKET_H
+         #include <sys/socket.h>
+         #endif
+         #include <netinet/sctp.h>
+
+"
+if test "x$ac_cv_member_struct_sctp_stream_reset_event_strreset_list" = xyes
+then :
+
+printf "%s\n" "#define HAVE_STRUCT_SCTP_STREAM_RESET_EVENT_STRRESET_LIST 1" >>confdefs.h
 
 
 fi
