@@ -91,8 +91,8 @@
 
 prepare(_Peer, Access, Filename, Mode, SuggestedOptions, Initial) when is_list(Initial) ->
     %% Client side
-    case catch handle_options(Access, Filename, Mode, SuggestedOptions, Initial) of
-	{ok, Filename2, IsNativeAscii, IsNetworkAscii, AcceptedOptions} ->
+    try handle_options(Access, Filename, Mode, SuggestedOptions, Initial) of
+	{Filename2, IsNativeAscii, IsNetworkAscii, AcceptedOptions} ->
 	    State = #state{access           = Access,
 			   filename         = Filename2,
 			   is_native_ascii  = IsNativeAscii,
@@ -101,9 +101,9 @@ prepare(_Peer, Access, Filename, Mode, SuggestedOptions, Initial) when is_list(I
 			   blksize  	    = lookup_blksize(AcceptedOptions),
 			   count    	    = 0,
 			   buffer   	   =  []},
-	    {ok, AcceptedOptions, State};
-	{error, {Code, Text}} ->
-	    {error, {Code, Text}}
+	    {ok, AcceptedOptions, State}
+    catch throw : Error ->
+	    {error, Error}
     end.
 
 %% ---------------------------------------------------------
@@ -149,12 +149,12 @@ open(Peer, Access, Filename, Mode, SuggestedOptions, Initial) when is_list(Initi
     end;
 open(_Peer, Access, Filename, Mode, NegotiatedOptions, State) when is_record(State, state) ->
     %% Both sides
-    case catch handle_options(Access, Filename, Mode, NegotiatedOptions, State) of
-	{ok, _Filename2, _IsNativeAscii, _IsNetworkAscii, Options} 
-	   when Options =:= NegotiatedOptions ->
-	    do_open(State);
-	{error, {Code, Text}} ->
-	    {error, {Code, Text}}
+    try handle_options(Access, Filename, Mode, NegotiatedOptions, State) of
+	{_Filename2, _IsNativeAscii, _IsNetworkAscii, Options}
+          when Options =:= NegotiatedOptions ->
+	    do_open(State)
+    catch throw : Error ->
+            {error, Error}
     end;
 open(Peer, Access, Filename, Mode, NegotiatedOptions, State) ->
     %% Handle upgrade from old releases. Please, remove this clause in next release.
@@ -298,10 +298,10 @@ handle_options(Access, Filename, Mode, Options, Initial) ->
             "octet" ->
                 false;
             _ ->
-                throw({error, {badop, "Illegal mode " ++ Mode}})
+                throw({badop, "Illegal mode " ++ Mode})
         end,
     Options2 = do_handle_options(Access, Filename2, Options),
-    {ok, Filename2, IsNativeAscii, IsNetworkAscii, Options2}.
+    {Filename2, IsNativeAscii, IsNetworkAscii, Options2}.
 
 handle_initial(
   #state{filename = Filename, is_native_ascii = IsNativeAscii}, _FName) ->
@@ -321,7 +321,7 @@ get_initial_opts([Opt | Initial], Opts) ->
     case Opt of
         {root_dir, RootDir} ->
             is_map_key(root_dir, Opts) andalso
-                throw({error, {badop, "Internal error. root_dir already set"}}),
+                throw({badop, "Internal error. root_dir already set"}),
             get_initial_opts(Initial, Opts#{ root_dir => RootDir });
         {native_ascii, Bool} when is_boolean(Bool) ->
             get_initial_opts(Initial, Opts#{ is_native_ascii => Bool })
@@ -329,9 +329,9 @@ get_initial_opts([Opt | Initial], Opts) ->
 
 safe_filename(Filename, RootDir) ->
     absolute =:= filename:pathtype(RootDir) orelse
-        throw({error, {badop, "Internal error. root_dir is not absolute"}}),
+        throw({badop, "Internal error. root_dir is not absolute"}),
     filelib:is_dir(RootDir) orelse
-        throw({error, {badop, "Internal error. root_dir not a directory"}}),
+        throw({badop, "Internal error. root_dir not a directory"}),
     RelFilename =
         case filename:pathtype(Filename) of
             absolute ->
@@ -340,7 +340,7 @@ safe_filename(Filename, RootDir) ->
         end,
     case filelib:safe_relative_path(RelFilename, RootDir) of
         unsafe ->
-	    throw({error, {badop, "Internal error. Filename out of bounds"}});
+	    throw({badop, "Internal error. Filename out of bounds"});
         SafeFilename ->
             filename:join(RootDir, SafeFilename)
     end.
@@ -373,15 +373,15 @@ do_handle_options(_Access, _Filename, []) ->
 
 
 handle_integer(Access, Filename, Key, Val, Options, Min, Max) ->
-    case catch list_to_integer(Val) of
-	{'EXIT', _} ->
-	    do_handle_options(Access, Filename, Options);
+    try list_to_integer(Val) of
 	Int when Int >= Min, Int =< Max ->
 	    [{Key, Val} | do_handle_options(Access, Filename, Options)];
 	Int when Int >= Min, Max =:= infinity ->
 	    [{Key, Val} | do_handle_options(Access, Filename, Options)];
 	_Int ->
-	    throw({error, {badopt, "Illegal " ++ Key ++ " value " ++ Val}})
+	    throw({badopt, "Illegal " ++ Key ++ " value " ++ Val})
+    catch error : _ ->
+	    do_handle_options(Access, Filename, Options)
     end.
 
 lookup_blksize(Options) ->
