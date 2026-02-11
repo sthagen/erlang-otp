@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2004-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1260,6 +1260,8 @@ Experimental options that should not to be used in products.
           recv_ext_info, %% Expect ext-info from peer
 
           kex_strict_negotiated = false,
+
+          ignore_initial_kex_message = false, %% RFC 4253 section 7, if true peer's guess was wrong
 
 	  algorithms,   %% #alg{}
 	  

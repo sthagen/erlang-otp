@@ -2,7 +2,7 @@
 ##
 ## SPDX-License-Identifier: Apache-2.0
 ##
-## Copyright Ericsson AB 2024-2025. All Rights Reserved.
+## Copyright Ericsson AB 2024-2026. All Rights Reserved.
 ##
 ## Licensed under the Apache License, Version 2.0 (the "License");
 ## you may not use this file except in compliance with the License.
@@ -595,7 +595,7 @@ jobs:
                 tar -xzf ./otp_src.tar.gz
                 cd otp
                 export ERL_TOP=`pwd`
-                export MAKEFLAGS=-j$(($(nproc) + 2))
+                export MAKEFLAGS=-j$($(nproc))
                 export ERLC_USE_SERVER=true
                 export ERTS_SKIP_DEPEND=true
                 ./configure
@@ -621,7 +621,7 @@ jobs:
                 tar -xzf ./otp_src.tar.gz
                 cd otp
                 export ERL_TOP=`pwd`
-                export MAKEFLAGS=-j$(($(nproc) + 2))
+                export MAKEFLAGS=-j$($(nproc))
                 export ERLC_USE_SERVER=true
                 export ERTS_SKIP_DEPEND=true
                 ./configure
