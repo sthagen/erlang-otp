@@ -787,11 +787,16 @@ resend_read_server(Host, BlkSize) ->
     Data6Bin = list_to_binary([0, 3, 0, 6 | Block6]),
     ?VERIFY(ok, gen_udp:send(ServerSocket, Host, ClientPort, Data6Bin)),
 
+    %% Recv ACK #6
+    Ack6Bin = <<0, 4, 0, 6>>,
+    ?VERIFY({udp, ServerSocket, Host, ClientPort, Ack6Bin}, recv(Timeout)),
+
     %% Close daemon and server sockets
     ?VERIFY(ok, gen_udp:close(ServerSocket)),
     ?VERIFY(ok, gen_udp:close(DaemonSocket)),
 
-    ?VERIFY({ClientPid, {tftp_client_reply, {ok, Blob}}}, recv(Timeout)),
+    ?VERIFY({ClientPid, {tftp_client_reply, {ok, Blob}}},
+            recv(2 * (Timeout + timer:seconds(1)))),
 
     ?VERIFY(timeout, recv(Timeout)),
     ok.
