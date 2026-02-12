@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>1997</year><year>2023</year>
+      <year>1997</year><year>2026</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -45,10 +45,21 @@
     authentication.</p>
     <p>The <c>tftp</c> application implements the following IETF standards:</p>
     <list type="bulleted">
-      <item>RFC 1350, The TFTP Protocol (revision 2)</item>
-      <item>RFC 2347, TFTP Option Extension</item>
-      <item>RFC 2348, TFTP Blocksize Option</item>
-      <item>RFC 2349, TFTP Timeout Interval and Transfer Size Options</item>
+      <item>
+        <url href="https://datatracker.ietf.org/doc/html/rfc1350">
+          RFC 1350</url>, The TFTP Protocol (revision 2)
+      </item>
+      <item>
+        <url href="https://datatracker.ietf.org/doc/html/rfc2347">
+          RFC 2347</url>, TFTP Option Extension
+      </item>
+      <item>
+        <url href="https://datatracker.ietf.org/doc/html/rfc2348">
+          RFC 2348</url>, TFTP Blocksize Option</item>
+      <item>
+        <url href="https://datatracker.ietf.org/doc/html/rfc2349">
+          RFC 2349</url>, TFTP Timeout Interval and Transfer Size Options
+      </item>
     </list>
     <p>The only feature that not is implemented is the <c>netascii</c> transfer mode.</p>
   </section>
@@ -58,5 +69,37 @@
     <p>It is assumed that the reader is familiar with the Erlang
       programming language, concepts of OTP, and has a basic
       understanding of the TFTP protocol.</p>
+  </section>
+
+  <section>
+    <title>Security Considerations</title>
+    <p>
+      As stated in
+      (<url href="https://datatracker.ietf.org/doc/html/rfc1350">RFC 1350</url>)
+      be aware that "Since TFTP includes no login or access control mechanisms,
+      care must be taken in the rights granted to a TFTP server process so as
+      not to violate the security of the server hosts file system.
+      TFTP is often installed with controls such that only files that have
+      public read access are available via TFTP and writing files via TFTP
+      is disallowed."
+    </p>
+    <p>
+      This essentially means that any machine on the network
+      that can reach the TFTP server is able to read and write,
+      without authentication, any file on the machine that runs
+      the TFTP server, that the user (or group) that runs the TFTP server
+      (in this case the Erlang VM) is allowed to read or write.
+      The machine configuration has to be prepared for that.
+    </p>
+    <warning>
+      <p>
+        The default behavior mentioned above is in general very risky,
+        and as a remedy, this TFTP application's default callback
+        <c>tftp_file</c> implements an initial state option
+        <c>{root_dir,Dir}</c> that restricts the callback's file accesses
+        to <c>Dir</c> and subdirectories.  It is recommended
+        to use that option when starting start this TFTP server.
+      </p>
+    </warning>
   </section>
 </chapter>
