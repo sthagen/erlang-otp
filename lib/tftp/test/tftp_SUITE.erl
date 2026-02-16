@@ -481,6 +481,9 @@ resend_read_client(Host, Port, BlkSize) ->
     Ack5Bin = <<0, 4, 0, 5>>,
     ?VERIFY(ok, gen_udp:send(Socket, Host, NewPort, Ack5Bin)),
 
+    %% Recv ACK #6
+    ?VERIFY({udp, Socket, Host, NewPort, <<0,3,0,6>>}, recv(Timeout)),
+
     %% Close socket
     ?VERIFY(ok, gen_udp:close(Socket)),
 
