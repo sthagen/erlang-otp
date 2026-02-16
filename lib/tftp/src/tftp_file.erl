@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2005-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2026. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -92,7 +92,7 @@
 prepare(_Peer, Access, Filename, Mode, SuggestedOptions, Initial) when is_list(Initial) ->
     %% Client side
     try handle_options(Access, Filename, Mode, SuggestedOptions, Initial) of
-	{Filename2, IsNativeAscii, IsNetworkAscii, AcceptedOptions} ->
+        {Filename2, IsNativeAscii, IsNetworkAscii, AcceptedOptions} ->
 	    State = #state{access           = Access,
 			   filename         = Filename2,
 			   is_native_ascii  = IsNativeAscii,
@@ -101,9 +101,9 @@ prepare(_Peer, Access, Filename, Mode, SuggestedOptions, Initial) when is_list(I
 			   blksize  	    = lookup_blksize(AcceptedOptions),
 			   count    	    = 0,
 			   buffer   	   =  []},
-	    {ok, AcceptedOptions, State}
+            {ok, AcceptedOptions, State}
     catch throw : Error ->
-	    {error, Error}
+            {error, Error}
     end.
 
 %% ---------------------------------------------------------
@@ -150,9 +150,9 @@ open(Peer, Access, Filename, Mode, SuggestedOptions, Initial) when is_list(Initi
 open(_Peer, Access, Filename, Mode, NegotiatedOptions, State) when is_record(State, state) ->
     %% Both sides
     try handle_options(Access, Filename, Mode, NegotiatedOptions, State) of
-	{_Filename2, _IsNativeAscii, _IsNetworkAscii, Options}
+        {_Filename2, _IsNativeAscii, _IsNetworkAscii, Options}
           when Options =:= NegotiatedOptions ->
-	    do_open(State)
+            do_open(State)
     catch throw : Error ->
             {error, Error}
     end;
@@ -340,7 +340,7 @@ safe_filename(Filename, RootDir) ->
         end,
     case filelib:safe_relative_path(RelFilename, RootDir) of
         unsafe ->
-	    throw({badop, "Internal error. Filename out of bounds"});
+            throw({badop, "Internal error. Filename out of bounds"});
         SafeFilename ->
             filename:join(RootDir, SafeFilename)
     end.
@@ -379,9 +379,9 @@ handle_integer(Access, Filename, Key, Val, Options, Min, Max) ->
 	Int when Int >= Min, Max =:= infinity ->
 	    [{Key, Val} | do_handle_options(Access, Filename, Options)];
 	_Int ->
-	    throw({badopt, "Illegal " ++ Key ++ " value " ++ Val})
+            throw({badopt, "Illegal " ++ Key ++ " value " ++ Val})
     catch error : _ ->
-	    do_handle_options(Access, Filename, Options)
+            do_handle_options(Access, Filename, Options)
     end.
 
 lookup_blksize(Options) ->
