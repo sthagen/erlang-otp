@@ -1219,19 +1219,6 @@ void erts_check_for_holes(Process* p);
 # define ERTS_HOLE_CHECK(p)
 #endif
 
-/*
- * The MBUF_GC_FACTOR decides how easily a process is subject to GC 
- * due to message buffers allocated outside the heap.
- * The larger the factor, the easier the process gets GCed.
- * On a small memory system with lots of processes, this makes a significant 
- * difference, especially since the GCs help fragmentation quite a bit too.
- */
-#if defined(SMALL_MEMORY)
-#define MBUF_GC_FACTOR 4
-#else
-#define MBUF_GC_FACTOR 1
-#endif
-
 #define SEQ_TRACE_TOKEN(p)  ((p)->seq_trace_token)
 
 #if ERTS_NO_PROC_PRIO_LEVELS > 4
