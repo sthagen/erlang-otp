@@ -1865,11 +1865,9 @@ gen_dec_choice1(Erule, TopType, CompList, noext=Ext) ->
 gen_dec_choice1(Erule, TopType, CompList, {ext,_,_}=Ext) ->
     emit_getchoice(Erule, CompList, Ext),
     Imm = asn1ct_imm:per_dec_open_type(is_aligned(Erule)),
-    emit(["begin",nl]),
     BytesVar = asn1ct_gen:mk_var(asn1ct_name:curr(bytes)),
     {Dst,DstBuf} = asn1ct_imm:dec_slim_cg(Imm, BytesVar),
-    emit([nl,
-	  "end,",nl,
+    emit([",",nl,
 	  "case Choice of",nl]),
     Pre = {safe,fun(St) ->
 			emit(["{TmpVal,_} = "]),
