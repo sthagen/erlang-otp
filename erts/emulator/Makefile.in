@@ -97,6 +97,7 @@ DEFS=@DEFS@
 THR_DEFS=@EMU_THR_DEFS@
 M4FLAGS=
 CREATE_DIRS=
+IGNORE_CORE_DIRS=
 
 LDFLAGS=@LDFLAGS@
 EMU_LDFLAGS=@EMU_LDFLAGS@
@@ -521,7 +522,7 @@ ifdef VOID_EMULATOR
 all:
 	@echo $(VOID_EMULATOR)' - omitted target all'
 else
-all: $(BINDIR)/$(EMULATOR_EXECUTABLE) $(BINDIR)/$(EMULATOR_LIB) $(UNIX_ONLY_BUILDS)
+all: $(BINDIR)/$(EMULATOR_EXECUTABLE) $(BINDIR)/$(EMULATOR_LIB) $(UNIX_ONLY_BUILDS) ignore_cores
 endif
 
 $(BINDIR)/$(PRIMARY_EXECUTABLE): $(BINDIR)/$(FLAVOR_EXECUTABLE)
@@ -609,7 +610,6 @@ release_docs_spec:
 ifneq ($(strip $(CREATE_DIRS)),)
 _create_dirs := $(shell mkdir -p $(CREATE_DIRS))
 endif
-
 
 # has to be run after _create_dirs
 ifeq ($(TARGET), win32)
@@ -992,6 +992,10 @@ ASMJIT_FLAGS=-DASMJIT_EMBED=1 \
 ASMJIT_CXXFLAGS=$(filter-out -Wformat -Wformat=2, $(CXXFLAGS)) @NO_MAYBE_UNINITIALIZED@
 ASMJIT_PCH_OBJ=$(TTF_DIR)/asmjit/core.h.gch
 ASMJIT_PCH_SRC=$(TTF_DIR)/asmjit/core.h
+
+ifeq ($(JIT_ENABLED),yes)
+IGNORE_CORE_DIRS+=$(TTF_DIR)/asmjit/
+endif
 
 $(OBJDIR)/%.o: beam/jit/%.cpp $(ASMJIT_PCH_OBJ)
 	$(V_CXX) $(ASMJIT_FLAGS) $(INCLUDES)                                  \
@@ -1499,6 +1503,16 @@ ifeq ($(JIT_ENABLED),yes)
 	$(V_at)$(DEP_CXX) $(DEP_CXXFLAGS) $(BEAM_CPP_SRC) > $@.tmp
 	$(V_at)$(SED_DEPEND) $@.tmp > $@
 endif
+
+IGNORE_CORE_FILES=$(foreach IGNORE_DIR,                                       \
+                    $(IGNORE_CORE_DIRS),                                      \
+                    $(IGNORE_DIR)/ignore_core_files)
+
+# Regenerate if Makefile has changed
+ignore_cores: $(IGNORE_CORE_FILES) $(TARGET)/Makefile
+
+$(IGNORE_CORE_FILES): $(dir $@) 
+	$(V_at)echo "" > $@
 
 .PHONY: depend
 ifdef VOID_EMULATOR
