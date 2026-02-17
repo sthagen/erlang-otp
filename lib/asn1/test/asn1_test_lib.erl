@@ -39,7 +39,7 @@ compile(File, Config, Options) -> compile_all([File], Config, Options).
 compile_all(Files, Config, Options0) ->
     DataDir = proplists:get_value(data_dir, Config),
     CaseDir = proplists:get_value(case_dir, Config),
-    Options = [{outdir,CaseDir},debug_info,nowarn_deprecated_catch|Options0],
+    Options = [{outdir,CaseDir},debug_info|Options0],
 
     Comp = fun(F) ->
 		   compile_file(filename:join(DataDir, F), Options)
@@ -91,7 +91,7 @@ module(F0) ->
 %%    filename:join(CaseDir, F ++ ".beam").
 
 compile_file(File, Options0) ->
-    Options = [warnings_as_errors|Options0],
+    Options = [warn_export_vars,warnings_as_errors|Options0],
     try
         ok = asn1ct:compile(File, Options),
         ok = compile_maps(File, Options)

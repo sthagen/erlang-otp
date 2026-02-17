@@ -358,6 +358,7 @@ gen_dec_postponed_decs(DecObj,[{_Cname,{FirstPFN,PFNList},Term,
 				TmpTerm,_Tag,OptOrMand}|Rest]) ->
 
     asn1ct_name:new(tmpterm),
+    asn1ct_name:new(class),
     asn1ct_name:new(reason),
     asn1ct_name:new(tmptlv),
 
@@ -371,15 +372,16 @@ gen_dec_postponed_decs(DecObj,[{_Cname,{FirstPFN,PFNList},Term,
 		emit_opt_or_mand_check(Val,TmpTerm),
 		6
 	end,
-    emit([indent(N+3),"case (catch ",DecObj,"(",{asis,FirstPFN},
-	  ", ",TmpTerm,", ",{asis,PFNList},")) of",nl]),
-    emit([indent(N+6),"{'EXIT', ",{curr,reason},"} ->",nl]),
+    emit([indent(N+3),"try ",DecObj,"(",{asis,FirstPFN},
+	  ", ",TmpTerm,", ",{asis,PFNList},")",nl]),
+    emit([indent(N+3),"catch",nl,
+          indent(N+6),{curr,class},":",{curr,reason},
+          " when ", {curr,class}, " =:= error; ",
+          {curr,class}, " =:= exit ->",nl]),
     emit([indent(N+9),"exit({'Type not compatible with table constraint',",
-	  {curr,reason},"});",nl]),
-    emit([indent(N+6),{curr,tmpterm}," ->",nl]),
-    emit([indent(N+9),{curr,tmpterm},nl]),
-    
-    case OptOrMand of 
+	  {curr,reason},"})",nl]),
+
+    case OptOrMand of
 	mandatory -> emit([indent(N+3),"end,",nl]);
 	_ ->
 	    emit([indent(N+3),"end",nl,
@@ -1250,6 +1252,7 @@ gen_dec_line(Erules,TopType,Cname,CTags,Type,OptOrMand,DecObjInf)  ->
 
 gen_dec_call({typefield,_},_,_,_Cname,Type,BytesVar,Tag,_,_,false,_) ->
     %%  this in case of a choice with typefield components
+    asn1ct_name:new(class),
     asn1ct_name:new(reason),
     asn1ct_name:new(opendec),
     asn1ct_name:new(tmpterm),
@@ -1262,15 +1265,17 @@ gen_dec_call({typefield,_},_,_,_Cname,Type,BytesVar,Tag,_,_,false,_) ->
 	  {call,ber,decode_open_type,
 	   [BytesVar,{asis,Tag}]},com,nl]),
 
-    emit([indent(9),"case (catch ObjFun(",{asis,FirstPFName},
+    emit([indent(9),"try ObjFun(",{asis,FirstPFName},
 	  ", ",{curr,tmptlv},", ",{asis,RestPFName},
-	  ")) of", nl]),%% ??? What about Tag 
-    emit([indent(12),"{'EXIT',",{curr,reason},"} ->",nl]),
+	  ")", nl]),
+    emit(["catch",nl,
+          {curr,class},":",{curr,reason},
+          " when ", {curr,class}, " =:= error; ",
+          {curr,class}, " =:= exit ->",nl]),
     emit([indent(15),"exit({'Type not ",
-	  "compatible with table constraint', ",{curr,reason},"});",nl]),
-    emit([indent(12),{curr,tmpterm}," ->",nl]),
-    emit([indent(15),{curr,tmpterm},nl]),
-    emit([indent(9),"end",nl,indent(6),"end",nl]),
+	  "compatible with table constraint', ",{curr,reason},"})",nl]),
+    emit([indent(9),"end",nl,
+          indent(6),"end",nl]),
     [];
 gen_dec_call({typefield,_},_,_,Cname,Type,BytesVar,Tag,_,_,_DecObjInf,OptOrMandComp) ->
     call(decode_open_type, [BytesVar,{asis,Tag}]),
