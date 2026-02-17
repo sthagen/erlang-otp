@@ -228,7 +228,7 @@ All options most of them common to the client and server.
   > The default callback module configuration allows access to any file
   > on any local filesystem that is readable or writable by the user
   > running the Erlang VM.  This can be a security vulnerability.
-  > It is therefore recommenced to explicitly configure the `tftp_file`
+  > It is therefore recommended to explicitly configure the `tftp_file`
   > callback module to use the `root_dir` option.
 
 - **`{logger, module()}`**
