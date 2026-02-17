@@ -487,8 +487,6 @@ lib/parsetools/include/yeccpre.hrl
 * Kernighan & Pike: The UNIX programming environment, 1984.
 """.
 
--compile(nowarn_obsolete_bool_op).
-
 -export([compile/3, file/1, file/2, format_error/1]).
 
 -export_type([option/0, yecc_ret/0]).
@@ -1489,7 +1487,7 @@ check_expected(St0) ->
           end,
     NStates = NStates0 + 1,
     if
-        (not Done) or (ExpStates =:= []) or (NStates =:= ExpStates) ->
+        not Done; ExpStates =:= []; NStates =:= ExpStates ->
             St1;
         true ->
             add_warning(none, {n_states, ExpStates, NStates}, St1)
