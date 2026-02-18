@@ -32,7 +32,6 @@
 -module(dialyzer_dataflow).
 -moduledoc false.
 
--compile(nowarn_obsolete_bool_op).
 -compile(nowarn_deprecated_catch).
 
 -export([get_fun_types/5, get_warnings/5, format_args/3]).
@@ -3648,7 +3647,7 @@ find_terminals_list(List) ->
 
 find_terminals_list([Tree|Left], Explicit1, Normal1) ->
   {Explicit2, Normal2} = find_terminals(Tree),
-  case {Explicit1 or Explicit2, Normal1 or Normal2} of
+  case {Explicit1 orelse Explicit2, Normal1 orelse Normal2} of
     {true, true} = Ans -> Ans;
     {NewExplicit, NewNormal} ->
       find_terminals_list(Left, NewExplicit, NewNormal)
