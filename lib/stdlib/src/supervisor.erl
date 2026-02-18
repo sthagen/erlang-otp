@@ -184,7 +184,7 @@ but the map is preferred.
 
   The `id` key is mandatory.
 
-  Notice that this identifier on occations has been called "name". As far as
+  Notice that this identifier on occasion has been called "name". As far as
   possible, the terms "identifier" or "id" are now used but to keep backward
   compatibility, some occurences of "name" can still be found, for example in
   error messages.

@@ -1854,7 +1854,15 @@ function_macro(Config) ->
 	     "b(?FUNCTION_ARITY, ?__) -> ok.\n"
 	     "c(?FF) -> ok.\n"
 	     "t() -> a(1, 2), b(3, 1, 2), c(c, 2), ok.\n">>,
-	   ok}
+	   ok},
+
+          {f_5,
+           <<"a([]) -> 1 = ?FUNCTION_ARITY.\n"
+             "b({}) -> 1 = ?FUNCTION_ARITY.\n"
+             "c([], []) -> 2 = ?FUNCTION_ARITY.\n"
+             "d([], _) -> 2 = ?FUNCTION_ARITY.\n"
+             "t() -> a([]), b({}), c([], []), d([], 42), ok.\n">>,
+           ok}
 	 ],
     [] = run(Config, Ts),
 
