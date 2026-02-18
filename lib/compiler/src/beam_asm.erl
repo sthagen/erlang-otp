@@ -90,7 +90,7 @@ module(Code0, ExtraChunks, CompileInfo, CompilerOpts) ->
 reject_unsupported_versions(Dict) ->
     %% Emit an instruction that was added in our lowest supported
     %% version so that it cannot be loaded by earlier releases.
-    Instr = beam_opcodes:opcode(bs_create_bin, 6),  %OTP 25
+    Instr = beam_opcodes:opcode(update_record, 5),  %OTP 26
     beam_dict:opcode(Instr, Dict).
 
 on_load(Fs0, Attr0) ->

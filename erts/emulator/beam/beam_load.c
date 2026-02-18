@@ -208,6 +208,9 @@ erts_prepare_loading(Binary* magic, Process *c_p, Eterm group_leader,
          * OTP 28 artificially sets the highest op code to `bs_create_bin`
          * introduced in OTP 25.
          *
+         * OTP 29 artificially sets the highest op code to `update_record`
+         * introduced in OTP 26.
+         *
          * Old BEAM files produced by OTP R12 and earlier may be
          * incompatible with the current runtime system. We used to
          * reject such BEAM files using transformation rules that
