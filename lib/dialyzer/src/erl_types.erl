@@ -36,8 +36,6 @@
 -module(erl_types).
 -moduledoc false.
 
--compile(nowarn_obsolete_bool_op).
-
 -export([any_none/1,
 	 any_none_or_unit/1,
 	 lookup_record/3,
@@ -3292,7 +3290,7 @@ t_subtract_aux(?int_range(From, To) = T1, ?int_set(Set)) ->
 	    true -> To - 1;
 	    false -> To
 	  end,
-  if (NewFrom =:= From) and (NewTo =:= To) -> T1;
+  if NewFrom =:= From, NewTo =:= To -> T1;
      true -> t_from_range(NewFrom, NewTo)
   end;
 t_subtract_aux(?int_set(Set), ?int_range(From, To)) ->
