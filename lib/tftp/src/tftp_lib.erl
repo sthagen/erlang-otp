@@ -32,8 +32,6 @@
 -module(tftp_lib).
 -moduledoc false.
 
--compile(nowarn_obsolete_bool_op).
-
 %%-------------------------------------------------------------------
 %% Interface
 %%-------------------------------------------------------------------
@@ -228,14 +226,15 @@ do_parse_config([], #config{udp_host     = Host,
     IsInet  = lists:member(inet, UdpOptions),
     Host2 = 
         if
-            (IsInet and not IsInet6); (not IsInet and not IsInet6) -> 
+            IsInet, not IsInet6;
+            not IsInet, not IsInet6 ->
                 case inet:getaddr(Host, inet) of
                     {ok, Addr} ->
                         Addr;
                     {error, Reason} ->
                         exit({badarg, {host, Reason}})
                 end;
-            (IsInet6 and not IsInet)  ->
+            IsInet6, not IsInet  ->
                 case inet:getaddr(Host, inet6) of
                     {ok, Addr} ->
                         Addr;
