@@ -250,8 +250,6 @@ Floats (\+|-)?[0-9]+\.[0-9]+((E|e)(\+|-)?[0-9]+)?
 > current version of `leex` and generates a parse error.
 """.
 
--compile(nowarn_obsolete_bool_op).
-
 -export([compile/3,file/1,file/2,format_error/1]).
 
 -import(lists, [member/2,reverse/1,sort/1,keysort/2,
@@ -2140,10 +2138,10 @@ prep_out_actions(As) ->
             ({A,Code,TokenChars,TokenLen,TokenLine,TokenCol,TokenLoc}) ->
                 Vs = [{TokenChars,"TokenChars"},
                       {TokenLen,"TokenLen"},
-                      {TokenLine or TokenLoc,"TokenLine"},
-                      {TokenCol or TokenLoc,"TokenCol"},
+                      {TokenLine orelse TokenLoc,"TokenLine"},
+                      {TokenCol orelse TokenLoc,"TokenCol"},
                       {TokenChars,"YYtcs"},
-                      {TokenLen or TokenChars,"TokenLen"}],
+                      {TokenLen orelse TokenChars,"TokenLen"}],
                 Vars = [if F -> S; true -> "_" end || {F,S} <- Vs],
                 Name = list_to_atom(lists:concat([yyaction_,A])),
                 [Chars,Len,Line,Col,_,_] = Vars,
