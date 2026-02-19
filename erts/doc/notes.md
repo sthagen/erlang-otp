@@ -21,6 +21,31 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 15.2.7.6
+
+### Fixed Bugs and Malfunctions
+
+- Fixed bug in `ets:update_counter/4` and `ets:update_element/4` accepting and inserting a default tuple smaller than the `keypos` of the table. Such a tuple without a key element would make the table internally inconsistent and might lead to bad behavior at table access, like ERTS runtime crash.
+  
+  Now a call to `ets:update_counter/4` or `ets:update_element/4` will fail with `badarg` if the key does not exist in the table and the default tuple is too small.
+
+  Own Id: OTP-19962 Aux Id: [PR-10616]
+
+- A missing memory barrier when unlocking process locks could cause unexpected behavior on architectures with weak memory ordering such as for example ARM.
+
+  Own Id: OTP-19978 Aux Id: [PR-10664]
+
+- A process could fail to wake from hibernation when a non‑message signal followed by a message signal arrived concurrently as the receiving process hibernated. If the process had a large heap, triggering a dirty GC, the wakeup could be lost.
+  
+  This bug existed since OTP 27.0.
+
+  Own Id: OTP-19983 Aux Id: [GH-10651], [PR-10696]
+
+[PR-10616]: https://github.com/erlang/otp/pull/10616
+[PR-10664]: https://github.com/erlang/otp/pull/10664
+[GH-10651]: https://github.com/erlang/otp/issues/10651
+[PR-10696]: https://github.com/erlang/otp/pull/10696
+
 ## Erts 15.2.7.5
 
 ### Fixed Bugs and Malfunctions
