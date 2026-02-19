@@ -319,8 +319,8 @@ yes
                     # openssl 3.5+
               AS_IF([test -f "$dir/lib/VC/x${arch}/MD/libcrypto_static.lib"],
                     [
-                        static_crypto_lib_name=libcrypto
-                        static_ssl_lib_name="libssl"
+                        static_crypto_lib_name=libcrypto_static
+                        static_ssl_lib_name="libssl_static"
                         static_extra_libs="$static_extra_libs -lCRYPT32 -lWS2_32"
                         static_lib_dir="$dir/lib/VC/x${arch}/MD"
                         found_static_lib=yes
