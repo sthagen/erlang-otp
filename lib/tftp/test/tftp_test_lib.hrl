@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2007-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -26,7 +26,8 @@
 	tftp_test_lib:log(Format, Args, ?MODULE, ?LINE)).
 
 -define(ERROR(Reason),
-	tftp_test_lib:error(Reason, ?MODULE, ?LINE)).
+        erlang:error({?MODULE,?LINE,?FUNCTION_NAME,(Reason)})).
+	%% tftp_test_lib:error(Reason, ?MODULE, ?LINE)).
 
 -define(VERIFY(Expected, Expr),
 	fun() ->
