@@ -31,6 +31,20 @@
   </header>
   <p>This document describes the changes made to the Crypto application.</p>
 
+<section><title>Crypto 5.4.2.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed static linking of OpenSSL 3.5+ on Windows.</p>
+          <p>
+	    Own Id: OTP-19993 Aux Id: PR-10732 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Crypto 5.4.2.3</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>

@@ -27,6 +27,22 @@
   </header>
   <p>This document describes the changes made to the SSL application.</p>
 
+<section><title>SSL 11.1.4.11</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>If two certificate massages are sent to the server
+	    generate an unexpected message alert for the second one.
+	    </p>
+          <p>
+	    Own Id: OTP-19830 Aux Id: PR-10339 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>SSL 11.1.4.10</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>

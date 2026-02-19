@@ -37,7 +37,22 @@
   section is the version number of Megaco.</p>
 
 
-  <section><title>Megaco 4.5</title>
+  <section><title>Megaco 4.5.0.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>The megaco_tcp module had debug unintentionally
+	    enabled.</p>
+          <p>
+	    Own Id: OTP-19896 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Megaco 4.5</title>
 
     <section><title>Improvements and New Features</title>
       <list>
