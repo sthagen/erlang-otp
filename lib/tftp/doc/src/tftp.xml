@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>2006</year><year>2021</year>
+      <year>2006</year><year>2026</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -132,11 +132,11 @@
           mostly useful for the server as it can restrict the use
 	  of certain TFTP options or read/write access.</p>
       </item>
-      <tag><c>{callback, {RegExp, Module, State}}</c></tag>
+      <tag><c>{callback, {RegExp, Module, InitialState}}</c></tag>
       <item>
         <p><c>RegExp = string()</c>          <br></br>
 <c>Module = atom()</c>          <br></br>
-<c>State = term()</c></p>
+<c>InitialState = term()</c></p>
         <p>Registration of a callback module. When a file is to be
           transferred, its local filename is matched to the regular
           expressions of the registered callbacks. The first matching
@@ -144,8 +144,34 @@
           <seemfa marker="#read_file/3">read_file/3</seemfa> and
           <seemfa marker="#write_file/3">write_file/3</seemfa>.
           </p>
-        <p>The callback module must implement the <c>tftp</c> behavior, see
-          <seeerl marker="#tftp_callback">CALLBACK FUNCTIONS</seeerl>.</p>
+          <p>The callback module must implement the <c>tftp</c> behavior, see
+            <seeerl marker="#tftp_callback">CALLBACK FUNCTIONS</seeerl>.</p>
+          <p>
+            At the end of the list of callbacks there are always
+            the default callbacks <c>tftp_file</c> and <c>tftp_binary</c>
+            with the <c>RegExp</c> <c>""</c> and <c>InitialState</c>
+            <c>[]</c>.
+          </p>
+          <p>
+            The <c>InitialState</c> should be an option list, and the
+            empty list should be accepted by any callback module.
+            The <c>tftp_file</c> callback module accepts
+            an <c>InitialState&nbsp;=&nbsp;[{root_dir,&nbsp;Dir}]</c>
+            that restrict local file operations to files in <c>Dir</c>
+            and subdirectories.  All file names received in protocol
+            requests, relative or absolute, are regarded as
+            relative to this directory.
+          </p>
+          <warning>
+            <p>
+              The default callback module configuration allows
+              access to any file on any local filesystem that is
+              readable or writable by the user running the Erlang VM.
+              This can be a security vulnerability.  It is therefore
+              recommended to explicitly configure the <c>tftp_file</c>
+              callback module to use the <c>root_dir</c> option.
+            </p>
+          </warning>
       </item>
 
    <tag><c>{logger, Module}</c></tag>
@@ -297,6 +323,25 @@
 	port. When it receives a request for read or write, it spawns
 	a temporary server process handling the actual transfer
 	of the (virtual) file.</p>
+        <p>
+          The request filename is matched against the regexps
+          of the registered callback modules, and the first match
+          selects the callback to handle the request.
+        </p>
+        <p>
+          If there are no registered callback modules,
+          <c>tftp_file</c> is used, with the initial state <c>[]</c>.
+        </p>
+        <warning>
+          <p>
+            The default callback module configuration allows
+            access to any file on any local filesystem that is
+            readable or writable by the user running the Erlang VM.
+            This can be a security vulnerability.  See the
+            <url href="#options">{callback,_}</url>
+            option at the start of this module reference for a remedy.
+          </p>
+        </warning>
       </desc>
     </func>
 
