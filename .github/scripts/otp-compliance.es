@@ -2298,7 +2298,7 @@ root_vendor_packages() ->
 minimum_vendor_packages() ->
     %% self-contained
     root_vendor_packages() ++
-        [~"tcl", ~"STL", ~"json-test-suite", ~"openssl", ~"Autoconf", ~"wxwidgets", ~"jquery", ~"tablesorter"].
+        [~"tcl", ~"STL", ~"json-test-suite", ~"openssl", ~"Autoconf", ~"wxwidgets", ~"jquery", ~"jquery-migrate", ~"tablesorter"].
 
 test_copyright_not_empty(#{~"packages" := Packages}) ->
     true = lists:all(fun (#{~"copyrightText" := Copyright}) -> Copyright =/= ~"" end, Packages),
@@ -2734,6 +2734,9 @@ test_package_relations(#{~"packages" := Packages}=Spdx) ->
                     #{~"relatedSpdxElement" => ~"SPDXRef-otp-commontest",
                       ~"relationshipType" => ~"PACKAGE_OF",
                       ~"spdxElementId" => ~"SPDXRef-otp-commontest-tablesorter"},
+                    #{~"relatedSpdxElement" => ~"SPDXRef-otp-commontest",
+                      ~"relationshipType" => ~"PACKAGE_OF",
+                      ~"spdxElementId" => ~"SPDXRef-otp-commontest-jquery-migrate"},
                     #{~"relatedSpdxElement" => ~"SPDXRef-otp-commontest",
                       ~"relationshipType" => ~"PACKAGE_OF",
                       ~"spdxElementId" => ~"SPDXRef-otp-commontest-jquery"},
