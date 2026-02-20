@@ -23,6 +23,16 @@ limitations under the License.
 
 This document describes the changes made to the Crypto application.
 
+## Crypto 5.8.1
+
+### Fixed Bugs and Malfunctions
+
+- Fixed static linking of OpenSSL 3.5+ on Windows.
+
+  Own Id: OTP-19993 Aux Id: [PR-10732]
+
+[PR-10732]: https://github.com/erlang/otp/pull/10732
+
 ## Crypto 5.8
 
 ### Fixed Bugs and Malfunctions
