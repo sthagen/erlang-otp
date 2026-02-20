@@ -145,6 +145,14 @@ is the version number of Megaco.
 [PR-7740]: https://github.com/erlang/otp/pull/7740
 [PR-8026]: https://github.com/erlang/otp/pull/8026
 
+## Megaco 4.5.0.1
+
+### Fixed Bugs and Malfunctions
+
+* The megaco_tcp module had debug unintentionally enabled.
+
+  Own Id: OTP-19896
+
 ## Megaco 4.5
 
 ### Improvements and New Features
