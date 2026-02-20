@@ -181,6 +181,17 @@ limitations under the License.
 [PR-9214]: https://github.com/erlang/otp/pull/9214
 [PR-9298]: https://github.com/erlang/otp/pull/9298
 
+## Ssh 5.2.11.5
+
+### Fixed Bugs and Malfunctions
+
+- Fix handling of the SSH "each side may guess" key-exchange mechanism as defined in RFC 4253, Section 7.
+
+  Own Id: OTP-19864 Aux Id: [GH-8676], [PR-10575]
+
+[GH-8676]: https://github.com/erlang/otp/issues/8676
+[PR-10575]: https://github.com/erlang/otp/pull/10575
+
 ## Ssh 5.2.11.4
 
 ### Fixed Bugs and Malfunctions
