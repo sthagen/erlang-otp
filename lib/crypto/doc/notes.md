@@ -285,6 +285,14 @@ This document describes the changes made to the Crypto application.
 [PR-8168]: https://github.com/erlang/otp/pull/8168
 [PR-8233]: https://github.com/erlang/otp/pull/8233
 
+## Crypto 5.4.2.4
+
+### Fixed Bugs and Malfunctions
+
+* Fixed static linking of OpenSSL 3.5+ on Windows.
+
+  Own Id: OTP-19993 Aux Id: PR-10732
+
 ## Crypto 5.4.2.3
 
 ### Fixed Bugs and Malfunctions

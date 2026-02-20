@@ -685,6 +685,14 @@ This document describes the changes made to the SSL application.
 [PR-8250]: https://github.com/erlang/otp/pull/8250
 [PR-8255]: https://github.com/erlang/otp/pull/8255
 
+## SSL 11.1.4.11
+
+### Fixed Bugs and Malfunctions
+
+* If two certificate massages are sent to the server generate an unexpected message alert for the second one.
+
+  Own Id: OTP-19830 Aux Id: PR-10339
+
 ## SSL 11.1.4.10
 
 ### Fixed Bugs and Malfunctions

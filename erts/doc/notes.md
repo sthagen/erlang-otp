@@ -1420,6 +1420,22 @@ This document describes the changes made to the ERTS application.
 [PR-7809]: https://github.com/erlang/otp/pull/7809
 [PR-7977]: https://github.com/erlang/otp/pull/7977
 
+## Erts 14.2.5.13
+
+### Fixed Bugs and Malfunctions
+
+* Fail the windows build properly when nsis is not recognised.
+
+  Own Id: OTP-19926 Aux Id: PR-10547
+* Fixed bug in `ets:update_counter/4` and `ets:update_element/4` accepting and inserting a default tuple smaller than the `keypos` of the table. Such a tuple without a key element would make the table internally inconsistent and might lead to bad behavior at table access, like ERTS runtime crash.
+
+  Now a call to `ets:update_counter/4` or `ets:update_element/4` will fail with `badarg` if the key does not exist in the table and the default tuple is too small.
+
+  Own Id: OTP-19962 Aux Id: PR-10616
+* A missing memory barrier when unlocking process locks could cause unexpected behavior on architectures with weak memory ordering such as for example ARM.
+
+  Own Id: OTP-19978 Aux Id: PR-10664
+
 ## Erts 14.2.5.12
 
 ### Fixed Bugs and Malfunctions

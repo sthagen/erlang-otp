@@ -1430,6 +1430,19 @@ This document describes the changes made to the STDLIB application.
 [PR-8205]: https://github.com/erlang/otp/pull/8205
 [PR-8111]: https://github.com/erlang/otp/pull/8111
 
+## STDLIB 5.2.3.6
+
+### Fixed Bugs and Malfunctions
+
+* Fixed bug in `ets:update_counter/4` and `ets:update_element/4` accepting and inserting a default tuple smaller than the `keypos` of the table. Such a tuple without a key element would make the table internally inconsistent and might lead to bad behavior at table access, like ERTS runtime crash.
+
+  Now a call to `ets:update_counter/4` or `ets:update_element/4` will fail with `badarg` if the key does not exist in the table and the default tuple is too small.
+
+  Own Id: OTP-19962 Aux Id: PR-10616
+* For a function that started with a bracket-only pattern (such as `[]`), the `?FUNCTION_ARITY` macro would evaluate to one less than the actual arity.
+
+  Own Id: OTP-19988 Aux Id: GH-10705, PR-10708
+
 ## STDLIB 5.2.3.5
 
 ### Fixed Bugs and Malfunctions
