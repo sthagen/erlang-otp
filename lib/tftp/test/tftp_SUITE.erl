@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2006-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@
 
 -module(tftp_SUITE).
 
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Includes and defines
@@ -31,18 +31,13 @@
 -include_lib("common_test/include/ct.hrl").
 -include("tftp_test_lib.hrl").
 
--define(START_DAEMON(Port, Options),
+-define(START_DAEMON(Options),
         begin
-            {ok, Pid} = ?VERIFY({ok, _Pid}, tftp:start([{port, Port} | Options])),
-            if
-                Port == 0 ->
-                    {ok, ActualOptions} = ?IGNORE(tftp:info(Pid)),
-                    {value, {port, ActualPort}} =
-                        lists:keysearch(port, 1, ActualOptions),
-                    {ActualPort, Pid};
-                true ->
-                    {Port, Pid}
-            end
+            {ok, Pid} = ?VERIFY({ok, _Pid}, tftp:start([{port, 0} | Options])),
+            {ok, ActualOptions} = ?IGNORE(tftp:info(Pid)),
+            {value, {port, ActualPort}} =
+                lists:keysearch(port, 1, ActualOptions),
+            {ActualPort, Pid}
         end).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -80,6 +75,7 @@ suite() -> [{ct_hooks,[ts_install_cth]}].
 all() ->
     [
      simple,
+     root_dir,
      extra,
      reuse_connection,
      resend_client,
@@ -128,7 +124,7 @@ simple(suite) ->
 simple(Config) when is_list(Config) ->
     ?VERIFY(ok, application:start(tftp)),
 
-    {Port, DaemonPid} = ?IGNORE(?START_DAEMON(0, [{debug, brief}])),
+    {Port, DaemonPid} = ?IGNORE(?START_DAEMON([{debug, brief}])),
 
     %% Read fail
     RemoteFilename = "tftp_temporary_remote_test_file.txt",
@@ -155,6 +151,73 @@ simple(Config) when is_list(Config) ->
     ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% root_dir
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+root_dir(doc) ->
+    ["Start the daemon and check the root_dir option."];
+root_dir(suite) ->
+    [];
+root_dir(Config) when is_list(Config) ->
+    ?VERIFY(ok, application:start(tftp)),
+    PrivDir = get_conf(priv_dir, Config),
+    Root    = hd(filename:split(PrivDir)),
+    Up      = "..",
+    Remote  = "remote.txt",
+    Local   = "tftp_temporary_local_test_file.txt",
+    SideDir = fn_jn(PrivDir,tftp_side),
+    RootDir = fn_jn(PrivDir,tftp_root),
+    ?IGNORE(file:del_dir_r(RootDir)),
+    ?IGNORE(file:del_dir_r(SideDir)),
+    ok = filelib:ensure_path(fn_jn(RootDir,sub)),
+    ok = filelib:ensure_path(SideDir),
+    Blob = binary:copy(<<$1>>, 2000),
+    Size = byte_size(Blob),
+    ok = file:write_file(fn_jn(SideDir,Remote), Blob),
+    {Port, DaemonPid} =
+        ?IGNORE(?START_DAEMON([{debug, brief},
+                               {callback,
+                                {"", tftp_file, [{root_dir, RootDir}]}}])),
+    try
+        %% Outside root_dir
+        ?VERIFY({error, {client_open, badop, _}},
+                 tftp:read_file(
+                   fn_jn([Up,tftp_side,Remote]), binary, [{port, Port}])),
+        ?VERIFY({error, {client_open, badop, _}},
+                tftp:write_file(
+                  fn_jn([Up,tftp_side,Remote]), Blob, [{port, Port}])),
+        %% Nonexistent
+        ?VERIFY({error, {client_open, enoent, _}},
+                 tftp:read_file(
+                   fn_jn(sub,Remote), binary, [{port, Port}])),
+        ?VERIFY({error, {client_open, enoent, _}},
+                tftp:write_file(
+                  fn_jn(nonexistent,Remote), Blob, [{port, Port}])),
+        %% Write and read
+        ?VERIFY({ok, Size},
+                tftp:write_file(
+                  fn_jn(sub,Remote), Blob, [{port, Port}])),
+        ?VERIFY({ok, Blob},
+                tftp:read_file(
+                  fn_jn([Root,sub,Remote]), binary, [{port, Port}])),
+        ?VERIFY({ok, Size},
+                tftp:read_file(
+                  fn_jn(sub,Remote), Local, [{port, Port}])),
+        ?VERIFY({ok, Blob}, file:read_file(Local)),
+        ?VERIFY(ok, file:delete(Local)),
+        ?VERIFY(ok, application:stop(tftp))
+    after
+        %% Cleanup
+        unlink(DaemonPid),
+        exit(DaemonPid, kill),
+        ?IGNORE(file:del_dir_r(SideDir)),
+        ?IGNORE(file:del_dir_r(RootDir)),
+        ?IGNORE(application:stop(tftp))
+    end,
+    ok.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Extra
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -166,7 +229,7 @@ extra(Config) when is_list(Config) ->
     ?VERIFY({'EXIT', {badarg,{fake_key, fake_flag}}},
             tftp:start([{port, 0}, {fake_key, fake_flag}])),
 
-    {Port, DaemonPid} = ?IGNORE(?START_DAEMON(0, [{debug, brief}])),
+    {Port, DaemonPid} = ?IGNORE(?START_DAEMON([{debug, brief}])),
     
     RemoteFilename = "tftp_extra_temporary_remote_test_file.txt",
     LocalFilename = "tftp_extra_temporary_local_test_file.txt",
@@ -300,7 +363,7 @@ resend_client(suite) ->
     [];
 resend_client(Config) when is_list(Config) ->
     Host = {127, 0, 0, 1},
-    {Port, DaemonPid} = ?IGNORE(?START_DAEMON(0, [{debug, all}])),
+    {Port, DaemonPid} = ?IGNORE(?START_DAEMON([{debug, all}])),
 
     ?VERIFY(ok, resend_read_client(Host, Port, 10)),
     ?VERIFY(ok, resend_read_client(Host, Port, 512)),
@@ -419,6 +482,9 @@ resend_read_client(Host, Port, BlkSize) ->
     %% Send ACK #5
     Ack5Bin = <<0, 4, 0, 5>>,
     ?VERIFY(ok, gen_udp:send(Socket, Host, NewPort, Ack5Bin)),
+
+    %% Recv ACK #6
+    ?VERIFY({udp, Socket, Host, NewPort, <<0,3,0,6>>}, recv(Timeout)),
 
     %% Close socket
     ?VERIFY(ok, gen_udp:close(Socket)),
@@ -695,11 +761,16 @@ resend_read_server(Host, BlkSize) ->
     Data6Bin = list_to_binary([0, 3, 0, 6 | Block6]),
     ?VERIFY(ok, gen_udp:send(ServerSocket, Host, ClientPort, Data6Bin)),
 
+    %% Recv ACK #6
+    Ack6Bin = <<0, 4, 0, 6>>,
+    ?VERIFY({udp, ServerSocket, Host, ClientPort, Ack6Bin}, recv(Timeout)),
+
     %% Close daemon and server sockets
     ?VERIFY(ok, gen_udp:close(ServerSocket)),
     ?VERIFY(ok, gen_udp:close(DaemonSocket)),
 
-    ?VERIFY({ClientPid, {tftp_client_reply, {ok, Blob}}}, recv(Timeout)),
+    ?VERIFY({ClientPid, {tftp_client_reply, {ok, Blob}}},
+            recv(2 * (Timeout + timer:seconds(1)))),
 
     ?VERIFY(timeout, recv(Timeout)),
     ok.
@@ -861,7 +932,7 @@ reuse_connection(suite) ->
     [];
 reuse_connection(Config) when is_list(Config) ->
     Host = {127, 0, 0, 1},
-    {Port, DaemonPid} = ?IGNORE(?START_DAEMON(0, [{debug, all}])),
+    {Port, DaemonPid} = ?IGNORE(?START_DAEMON([{debug, all}])),
 
     RemoteFilename = "reuse_connection.tmp",
     BlkSize = 512,
@@ -935,7 +1006,7 @@ large_file(suite) ->
 large_file(Config) when is_list(Config) ->
     ?VERIFY(ok, application:start(tftp)),
 
-    {Port, DaemonPid} = ?IGNORE(?START_DAEMON(0, [{debug, brief}])),
+    {Port, DaemonPid} = ?IGNORE(?START_DAEMON([{debug, brief}])),
 
     %% Read fail
     RemoteFilename = "tftp_temporary_large_file_remote_test_file.txt",
@@ -970,3 +1041,15 @@ recv(Timeout) ->
     after Timeout ->
             timeout
     end.
+
+get_conf(Key, Config) ->
+    Default = make_ref(),
+    case proplists:get_value(Key, Config, Default) of
+        Default ->
+            erlang:error({no_key, Key});
+        Value ->
+            Value
+    end.
+
+fn_jn(A, B) -> filename:join(A, B).
+fn_jn(P) -> filename:join(P).

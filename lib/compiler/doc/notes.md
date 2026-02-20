@@ -832,6 +832,14 @@ This document describes the changes made to the Compiler application.
 [PR-8090]: https://github.com/erlang/otp/pull/8090
 [PR-8205]: https://github.com/erlang/otp/pull/8205
 
+## Compiler 8.4.3.4
+
+### Fixed Bugs and Malfunctions
+
+* Fixed broken type inference for lists:mapfoldl/r.
+
+  Own Id: OTP-19845 Aux Id: GH-10354, PR-10358
+
 ## Compiler 8.4.3.3
 
 ### Fixed Bugs and Malfunctions

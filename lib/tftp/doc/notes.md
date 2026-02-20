@@ -21,6 +21,23 @@ limitations under the License.
 -->
 # TFTP Release Notes
 
+## Tftp 1.2.4
+
+### Fixed Bugs and Malfunctions
+
+- An issue in the undocumented initial state option \[\{root_dir,Dir\}] to the tftp_file module has been fixed. The request file name was just concatenated to Dir so it was possible to traverse above Dir by using "../" file path components. Now the option actually restricts local file operations to the Dir directory and subdirectories.
+  
+  The initial state option and how to use it was previously undocumented, so it is unlikely that anyone would have used it without understanding its peculiarities.
+  
+  The documentation of the TFTP application has also been clarified to make it obvious that the default server configuration allows read and write access to all files that are readable or writable by the user running the Erlang VM, and that the default configuration therefore should be avoided.
+  
+  Thanks to Luigino Camastra at Aisle Research, for finding and reporting this issue.
+
+  Own Id: OTP-19981 Aux Id: [PR-10706], [CVE-2026-21620]
+
+[PR-10706]: https://github.com/erlang/otp/pull/10706
+[CVE-2026-21620]: https://nvd.nist.gov/vuln/detail/2026-21620
+
 ## Tftp 1.2.3
 
 ### Improvements and New Features
@@ -30,6 +47,23 @@ limitations under the License.
   Own Id: OTP-19575 Aux Id: [PR-9670]
 
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## Tftp 1.2.2.1
+
+### Fixed Bugs and Malfunctions
+
+- An issue in the undocumented initial state option \[\{root_dir,Dir\}] to the tftp_file module has been fixed. The request file name was just concatenated to Dir so it was possible to traverse above Dir by using "../" file path components. Now the option actually restricts local file operations to the Dir directory and subdirectories.
+  
+  The initial state option and how to use it was previously undocumented, so it is unlikely that anyone would have used it without understanding its peculiarities.
+  
+  The documentation of the TFTP application has also been clarified to make it obvious that the default server configuration allows read and write access to all files that are readable or writable by the user running the Erlang VM, and that the default configuration therefore should be avoided.
+  
+  Thanks to Luigino Camastra at Aisle Research, for finding and reporting this issue.
+
+  Own Id: OTP-19981 Aux Id: [PR-10706], [CVE-2026-21620]
+
+[PR-10706]: https://github.com/erlang/otp/pull/10706
+[CVE-2026-21620]: https://nvd.nist.gov/vuln/detail/2026-21620
 
 ## Tftp 1.2.2
 
@@ -63,6 +97,20 @@ limitations under the License.
 
 [PR-7700]: https://github.com/erlang/otp/pull/7700
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Tftp 1.1.1.1
+
+### Fixed Bugs and Malfunctions
+
+* An issue in the undocumented initial state option \[\{root_dir,Dir\}] to the tftp_file module has been fixed. The request file name was just concatenated to Dir so it was possible to traverse above Dir by using "../" file path components. Now the option actually restricts local file operations to the Dir directory and subdirectories.
+
+  The initial state option and how to use it was previously undocumented, so it is unlikely that anyone would have used it without understanding its peculiarities.
+
+  The documentation of the TFTP application has also been clarified to make it obvious that the default server configuration allows read and write access to all files that are readable or writable by the user running the Erlang VM, and that the default configuration therefore should be avoided.
+
+  Thanks to Luigino Camastra at Aisle Research, for finding and reporting this issue.
+
+  Own Id: OTP-19981 Aux Id: PR-10706, CVE-2026-21620
 
 ## Tftp 1.1.1
 
