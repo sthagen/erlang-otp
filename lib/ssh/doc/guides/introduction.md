@@ -119,7 +119,7 @@ Channels come in the following three flavors:
   The Erlang `ssh` daemon can be configured to run any Erlang-implemented SSH
   subsystem.
 - _Shell_ \- Interactive shell. By default the Erlang daemon does not expose the Erlang
-  shell. It can be enabled with option `{shell, {shell, start, []}}`
+  shell. It can be enabled with option `{shell, {shell, start, []}}`.
   The shell can be customized by providing your own read-eval-print loop.
   You can also provide your own Command-Line Interface (CLI) implementation, but
   that is much more work.

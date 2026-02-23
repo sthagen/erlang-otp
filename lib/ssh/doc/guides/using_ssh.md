@@ -165,7 +165,7 @@ To collect the channel messages in a program, use `receive...end` instead of
 ```erlang
 5> receive
 5>     {ssh_cm, ConnectionRef, {data, ChannelId, Type, Result}} when Type == 0 ->
-5>         {ok,Result}
+5>         {ok,Result};
 5>     {ssh_cm, ConnectionRef, {data, ChannelId, Type, Result}} when Type == 1 ->
 5>         {error,Result}
 5> end.
@@ -359,7 +359,7 @@ The error return in the Erlang client (The text as data type 1 and exit_status
 {ok,<0.92.0>}
 3> {ok, ChannelId} = ssh_connection:session_channel(ConnectionRef, infinity).
 {ok,0}
-4> success = ssh_connection:exec(ConnectionRef, ChannelId, "1+ 2.").
+4> success = ssh_connection:exec(ConnectionRef, ChannelId, "1+ 2.", infinity).
 success
 5> flush().
 Shell got {ssh_cm,<0.106.0>,{data,0,1,<<"**Error** {bad_input,\"1+ 2.\"}">>}}
@@ -565,7 +565,7 @@ described in Section
 1> ssh:start().
 ok
 2> ssh:daemon(8989, [{system_dir, "/tmp/ssh_daemon"},
-                     {user_dir, "/tmp/otptest_user/.ssh"}
+                     {user_dir, "/tmp/otptest_user/.ssh"},
                      {subsystems, [{"echo_n", {ssh_echo_server, [10]}}]}]).
 {ok,<0.54.0>}
 3>

@@ -2117,14 +2117,17 @@ replace_options_enable_services(Config) when is_list(Config) ->
     ?CT_LOG("Checking SFTP is unavailable before replace", []),
     {error, _} = ssh_sftp:start_channel(C1),
     ?CT_LOG("All services confirmed disabled", []),
-    ssh:close(C1),
 
     %% Enable shell, exec and SFTP
+    %% Keep C1 open during replace — its connection_sup acts as a
+    %% keepalive preventing auto_shutdown of ssh_system_sup while
+    %% the acceptor is being restarted.
     ?CT_LOG("Replacing options: enabling shell, exec and SFTP", []),
     {ok, Pid} = ssh:daemon_replace_options(Pid,
                     [{shell, {shell, start, []}},
                      {exec, erlang_eval},
                      {subsystems, [ssh_sftpd:subsystem_spec([])]}]),
+    ssh:close(C1),
 
     %% Verify all services work after replace
     C2 = ssh_test_lib:connect(Host, Port, ConnOpts),

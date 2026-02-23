@@ -1044,7 +1044,7 @@ supporting ext-info.
        equiv => pwdfun_4/0}).
 -type pwdfun_2() :: fun((User::string(), Password::string()|pubkey) -> boolean()) .
 -doc """
-- **`auth_method_kb_interactive_data`** - Sets the text strings that the daemon
+- **`auth_method_kb_interactive_data`{: #option-auth_method_kb_interactive_data }** - Sets the text strings that the daemon
   sends to the client for presentation to the user when using
   `keyboard-interactive` authentication.
 
