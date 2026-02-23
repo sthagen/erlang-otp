@@ -183,6 +183,7 @@ ERL_COMPILE_FLAGS += -I../include -I../../kernel/include
 
 ifeq ($(ERL_DETERMINISTIC),yes)
 	DETERMINISM_FLAG = +deterministic
+	DEP_SKIP_FILES = erl_parse.erl
 else
 	DETERMINISM_FLAG =
 endif

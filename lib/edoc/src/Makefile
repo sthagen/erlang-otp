@@ -51,6 +51,10 @@ XMERL = ../../xmerl
 ERL_COMPILE_FLAGS += -pa $(XMERL) -I../include -I$(XMERL)/include -I${ERL_TOP}/lib
 ERL_COMPILE_FLAGS += +warn_unused_vars +warn_unused_import +warn_deprecated_guard +no_docs +nowarn_missing_spec_documented +warn_deprecated_catch -Werror
 
+ifeq ($(ERL_DETERMINISTIC),yes)
+	DEP_SKIP_FILES = edoc_parser.erl
+endif
+
 include files.mk
 
 OBJECTS=$(ERL_FILES:%.erl=$(EBIN)/%.$(EMULATOR)) $(APP_TARGET) $(APPUP_TARGET)

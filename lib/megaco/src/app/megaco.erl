@@ -32,8 +32,6 @@ Main API of the Megaco application
 Interface module for the Megaco application
 """.
 
--compile(nowarn_obsolete_bool_op).
-
 %%-----------------------------------------------------------------
 %% Public interface
 %%-----------------------------------------------------------------
@@ -2203,7 +2201,7 @@ token_tag2string(Tag, pretty) ->
     token_tag2string(Tag, megaco_pretty_text_encoder);
 token_tag2string(Tag, compact) ->
     token_tag2string(Tag, megaco_compact_text_encoder);
-token_tag2string(Tag, Mod) when is_atom(Tag) and is_atom(Mod) ->
+token_tag2string(Tag, Mod) when is_atom(Tag), is_atom(Mod) ->
     Mod:token_tag2string(Tag).
 
 -doc """

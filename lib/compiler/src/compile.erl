@@ -156,7 +156,7 @@ See `m:erl_id_trans` for an example and an explanation of the function
 
 ## Recommendations for Language Implementors
 
-Except for Erlang, there are quite a few other languges that can run
+Except for Erlang, there are quite a few other languages that can run
 on the Erlang runtime system. Generally, such compilers produce a file
 or binary that is fed into the Erlang compiler. There are four ways
 to do that using documented functionality:

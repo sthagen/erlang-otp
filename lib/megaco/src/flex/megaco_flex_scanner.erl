@@ -45,8 +45,6 @@ explicitly disable this even when flex support this. Use
 `--disable-megaco-reentrant-flex-scanner` when configuring the application.
 """.
 
--compile(nowarn_obsolete_bool_op).
-
 -export([is_enabled/0, is_reentrant_enabled/0, is_scanner_port/2]).
 -export([start/0, start/1, stop/1, scan/2]).
 
@@ -303,7 +301,7 @@ version([_|T]) ->
     version(T).
 
 
-guess_version([C]) when (48 =< C) and (C =< 57) ->
+guess_version([C]) when 48 =< C, C =< 57 ->
     C-48;
 guess_version(Str) when is_list(Str) ->
     case (catch list_to_integer(Str)) of

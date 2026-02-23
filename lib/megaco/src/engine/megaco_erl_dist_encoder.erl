@@ -28,8 +28,6 @@
 -module(megaco_erl_dist_encoder).
 -moduledoc false.
 
--compile(nowarn_obsolete_bool_op).
-
 -behaviour(megaco_encoder).
 
 -export([encode_message/3, decode_message/3,
@@ -70,7 +68,7 @@ encode_message([megaco_compressed|Config], Vsn, MegaMsg)
   when is_record(MegaMsg, 'MegacoMessage') ->
     {ok, erlang:term_to_binary(?MC_MOD:encode(MegaMsg, Vsn), Config)};
 encode_message([{megaco_compressed, Mod}|Config], Vsn, MegaMsg) 
-  when is_atom(Mod) and is_record(MegaMsg, 'MegacoMessage') ->
+  when is_atom(Mod), is_record(MegaMsg, 'MegacoMessage') ->
     {ok, erlang:term_to_binary(Mod:encode(MegaMsg, Vsn), Config)};
 encode_message(Config, _Vsn, MegaMsg) 
   when is_record(MegaMsg, 'MegacoMessage') ->

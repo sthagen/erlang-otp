@@ -145,6 +145,7 @@ ERL_COMPILE_FLAGS += +inline +warn_unused_import \
 
 ifeq ($(ERL_DETERMINISTIC),yes)
 	DETERMINISM_FLAG = +deterministic
+	DEP_SKIP_FILES = core_parse.erl
 else
 	DETERMINISM_FLAG =
 endif

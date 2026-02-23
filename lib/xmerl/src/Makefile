@@ -133,6 +133,14 @@ ERL_COMPILE_FLAGS += \
 
 ifeq ($(ERL_DETERMINISTIC),yes)
 	DETERMINISM_FLAG = +deterministic
+	DEP_SKIP_FILES = xmerl_b64Bin.erl \
+		xmerl_xpath_parse.erl \
+		xmerl_xsd_re_parse.erl \
+		xmerl_sax_parser_list.erl \
+		xmerl_sax_parser_latin1.erl \
+		xmerl_sax_parser_utf8.erl \
+		xmerl_sax_parser_utf16be.erl \
+		xmerl_sax_parser_utf16le.erl
 else
 	DETERMINISM_FLAG =
 endif

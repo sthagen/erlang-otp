@@ -82,6 +82,10 @@ CSS = $(PRIVDIR)/styles.css
 # ----------------------------------------------------
 ERL_COMPILE_FLAGS += -Werror +nowarn_deprecated_catch
 
+ifeq ($(ERL_DETERMINISTIC),yes)
+	DEP_SKIP_FILES = xref_parser.erl
+endif
+
 # ----------------------------------------------------
 # Targets
 # ----------------------------------------------------
