@@ -62,8 +62,6 @@ processes that terminate as a result of this process terminating.
 `m:logger`
 """.
 
--compile(nowarn_deprecated_catch).
-
 %% This module is used to set some initial information
 %% in each created process. 
 %% Then a process terminates the Reason is checked and
@@ -1168,28 +1166,35 @@ visit(_, {_N, _Vs} = NVs) ->
 -spec adjacents(pid()) -> [pid()].
 
 adjacents(Pid) ->
-  case catch proc_info(Pid, links) of
-    {links, Links} -> no_trap(Links);
-    _              -> []
-  end.
+    try proc_info(Pid, links)
+    of
+        {links, Links} -> no_trap(Links);
+        _              -> []
+    catch
+        _:_            -> []
+    end.
   
 no_trap([P|Ps]) ->
-  case catch proc_info(P, trap_exit) of
-    {trap_exit, false} -> [P|no_trap(Ps)];
-    _                  -> no_trap(Ps)
-  end;
+    try proc_info(P, trap_exit)
+    of
+        {trap_exit, false} -> [P|no_trap(Ps)];
+        _                  -> no_trap(Ps)
+    catch
+        _:_                -> no_trap(Ps)
+    end;
 no_trap([]) ->
-  [].
+    [].
  
 get_process_info(Pid, Tag) ->
-    translate_process_info(Tag, catch proc_info(Pid, Tag)).
-
-translate_process_info({dictionary, '$process_label'} = Tag, {Tag, Value}) ->
-    {process_label, Value};
-translate_process_info(_ , {'EXIT', _}) ->
-    undefined;
-translate_process_info(_, Result) ->
-    Result.
+    try proc_info(Pid, Tag)
+    of
+        {{dictionary, '$process_label'} = Tag, Value} ->
+            {process_label, Value};
+        Result ->
+            Result
+    catch
+        _:_ -> undefined
+    end.
 
 %%% -----------------------------------------------------------
 %%% Misc. functions

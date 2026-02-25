@@ -22491,7 +22491,7 @@ api_opt_ipv6_recvpktinfo_udp(InitState) ->
 
 api_opt_ipv6_flowinfo_udp6(_Config) when is_list(_Config) ->
     ?TT(?SECS(5)),
-    tc_try(api_opt_ipv6_flowinfo_udp6,
+    tc_try(?FUNCTION_NAME,
            fun() ->
                    has_support_ipv6(),
                    has_support_ipv6_flowinfo()
@@ -22610,7 +22610,7 @@ api_opt_ipv6_flowinfo_udp(InitState) ->
            cmd  => fun(#{sock_src := Sock, sa_dst := Dst, send := Send}) ->
                            Send(Sock, ?BASIC_REQ, Dst)
                    end},
-         #{desc => "recv req (from src)",
+         #{desc => "recv req wo flowinfo (from src)",
            cmd  => fun(#{sock_dst := Sock, sa_src := Src, recv := Recv}) ->
                            case Recv(Sock) of
                                {ok, {Src, [], ?BASIC_REQ}} ->
@@ -22659,12 +22659,13 @@ api_opt_ipv6_flowinfo_udp(InitState) ->
            cmd  => fun(#{sock_src := Sock, sa_dst := Dst, send := Send}) ->
                            Send(Sock, ?BASIC_REQ, Dst)
                    end},
-         #{desc => "recv req (from src)",
+         #{desc => "recv req w flowinfo (from src)",
            cmd  => fun(#{sock_dst := Sock, sa_src := Src, recv := Recv}) ->
                            case Recv(Sock) of
                                {ok, {Src, [#{level := ipv6,
                                              type  := flowinfo,
-                                             value := FlowID}], ?BASIC_REQ}} ->
+                                             value := FlowID}],
+                                     ?BASIC_REQ}} when is_integer(FlowID) ->
                                    ?SEV_IPRINT("Got flow info: "
 					       "~n   Flow ID: ~p", [FlowID]),
                                    ok;

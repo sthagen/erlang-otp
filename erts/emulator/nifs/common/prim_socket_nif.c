@@ -15325,6 +15325,12 @@ static ESockCmsgSpec cmsgLevelIPv6[] =
          NULL,
          &esock_atom_recverr},
 #endif
+
+#if defined(IPV6_FLOWINFO)
+        {IPV6_FLOWINFO, esock_cmsg_encode_int, NULL,
+         &esock_atom_flowinfo}
+#endif
+
     };
 #endif // #ifdef HAVE_IPV6
 

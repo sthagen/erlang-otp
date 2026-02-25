@@ -2216,108 +2216,154 @@ customize_defaults(Opts, Role, Host) ->
     end.
 
 -define(OK(EXP, Opts, Role), ?OK(EXP,Opts, Role, [])).
--define(OK(EXP, Opts, Role, ShouldBeMissing),
-        fun() ->
-                Host = net_adm:localhost(),
-                {__DefOpts, __Opts} = customize_defaults(Opts, Role, Host),
-                try ssl_config:handle_options(__Opts, Role, Host) of
-                    {ok, #config{ssl=EXP = __ALL}} ->
-                        check_expected(ShouldBeMissing, ShouldBeMissing -- maps:keys(__ALL)),
-                        check_expected(__ALL, ssl_config:update_options([], Role, __ALL));
-                    Other ->
-                        ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
-                        error({unexpected, Other})
-                catch
-                    throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
-                    C:Other:ST ->
-                        ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
-                        error({unexpected, C, Other,ST})
-                end,
-                try ssl_config:update_options(__Opts, Role, __DefOpts) of
-                    EXP = __ALL2 ->
-                        check_expected(ShouldBeMissing, ShouldBeMissing -- maps:keys(__ALL2));
-                    Other2 ->
-                        ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
-                               "ssl_config:update_options(~w,~w, element(2,Cfg)).",
-                               [Role,Host,__Opts,Role]),
-                        error({unexpected2, Other2})
-                catch
-                    throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
-                    C2:Other2:ST2 ->
-                        ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
-                               "ssl_config:update_options(~p,~p, element(2,Cfg)).",
-                               [Role,Host,__Opts,Role]),
-                        error({unexpected, C2, Other2, ST2})
-                end
-        end()).
+-define(OK(ExpectedPattern, Opts, Role, ShouldBeMissing),
+        check_ok(fun(__Expression) ->
+                         case __Expression of
+                             ExpectedPattern -> true;
+                             _ -> false
+                         end
+                 end, Opts, Role, ShouldBeMissing)).
 
--define(ERR(EXP, Opts, Role),
-        fun() ->
-                Host = net_adm:localhost(),
-                {__DefOpts, __Opts} = customize_defaults(Opts, Role, Host),
-                try ssl_config:handle_options(__Opts, Role, Host) of
-                    Other ->
-                        ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
-                        error({unexpected, Other})
-                catch
-                    throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
-                    throw:{error, {options, EXP}} -> ok;
-                    throw:{error, EXP} -> ok;
-                    C:Other:ST ->
-                        ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
-                        error({unexpected, C, Other,ST})
-                end,
-                try ssl_config:update_options(__Opts, Role, __DefOpts) of
-                    Other2 ->
-                        ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
-                               "ssl_config:update_options(~p,~p, element(2,Cfg)).",
-                               [Role,Host,__Opts,Role]),
-                        error({unexpected, Other2})
-                catch
-                    throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
-                    throw:{error, {options, EXP}} -> ok;
-                    throw:{error, EXP} -> ok;
-                    C2:Other2:ST2 ->
-                        ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
-                               "ssl_config:update_options(~p,~p, element(2,Cfg)).",
-                               [Role,Host,__Opts,Role]),
-                        error({unexpected, C2, Other2,ST2})
-                end
-        end()).
+-define(ERR(ExpectedPattern, Opts, Role),
+        check_error(fun(__Expression) ->
+                            case __Expression of
+                                ExpectedPattern -> true;
+                                {options, ExpectedPattern} -> true;
+                                _ -> false
+                            end
+                    end, Opts, Role)).
+-define(ERR_UPD(ExpectedPattern, Opts, Role),
+        check_error_update(
+          fun(__Expression) ->
+                  case __Expression of
+                      ExpectedPattern -> true;
+                      {options, ExpectedPattern} -> true;
+                      _ -> false
+                  end
+          end, Opts, Role)).
 
--define(ERR_UPD(EXP, Opts, Role),
-        fun() ->
-                Host = net_adm:localhost(),
-                {__DefOpts, __Opts} = customize_defaults(Opts, Role, Host),
-                try ssl_config:handle_options(__Opts, Role, Host) of
-                    {ok, #config{}} ->
-                        ok;
-                    Other ->
-                        ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
-                        error({unexpected, Other})
-                catch
-                    throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
-                    C:Other:ST ->
-                        ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
-                        error({unexpected, C, Other,ST})
-                end,
-                try ssl_config:update_options(__Opts, Role, __DefOpts) of
-                    Other2 ->
-                        ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
-                                "ssl_config:update_options(~p,~p, element(2,Cfg)).",
-                                [Role,Host,__Opts,Role]),
-                        error({unexpected, Other2})
-                catch
-                    throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
-                    throw:{error, {options, EXP}} -> ok;
-                    throw:{error, EXP} -> ok;
+check_ok(Match, Opts, Role, ShouldBeMissing) ->
+    Host = net_adm:localhost(),
+    {__DefOpts, __Opts} = customize_defaults(Opts, Role, Host),
+    try ssl_config:handle_options(__Opts, Role, Host) of
+        {ok, #config{ssl=Config}} ->
+            case Match(Config) of
+                true ->
+                    check_expected(ShouldBeMissing, ShouldBeMissing -- maps:keys(Config)),
+                    check_expected(Config, ssl_config:update_options([], Role, Config));
+                false ->
+                    ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+                    error({unexpected, Config})
+            end;
+        Other ->
+            ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+            error({unexpected, Other})
+    catch
+        throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
+        C:Other:ST ->
+            ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+            error({unexpected, C, Other,ST})
+    end,
+    try ssl_config:update_options(__Opts, Role, __DefOpts) of
+        Res ->
+            case Match(Res) of
+                true ->
+                    check_expected(ShouldBeMissing, ShouldBeMissing -- maps:keys(Res));
+                false ->
+                    ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
+                            "ssl_config:update_options(~w,~w, element(2,Cfg)).",
+                            [Role,Host,__Opts,Role]),
+                    error({unexpected2, Res})
+            end
+    catch
+        throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
                     C2:Other2:ST2 ->
-                        ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
-                                "ssl_config:update_options(~p,~p, element(2,Cfg)).",
-                                [Role,Host,__Opts,Role]),
-                        error({unexpected, C2, Other2,ST2})
-                end
-        end()).
+            ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
+                    "ssl_config:update_options(~p,~p, element(2,Cfg)).",
+                    [Role,Host,__Opts,Role]),
+            error({unexpected, C2, Other2, ST2})
+    end.
+
+check_error(Match, Opts, Role) ->
+    Host = net_adm:localhost(),
+    {__DefOpts, __Opts} = customize_defaults(Opts, Role, Host),
+    try ssl_config:handle_options(__Opts, Role, Host) of
+        Other ->
+            ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+            error({unexpected, Other})
+    catch
+        throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
+        throw:{error, EXP} = Other:ST ->
+            case Match(EXP) of
+                true -> ok;
+                false ->
+                    ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+                    error({unexpected, throw, Other,ST})
+            end;
+        C:Other:ST ->
+            ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+            error({unexpected, C, Other,ST})
+    end,
+    try ssl_config:update_options(__Opts, Role, __DefOpts) of
+        Other2 ->
+            ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
+                    "ssl_config:update_options(~p,~p, element(2,Cfg)).",
+                    [Role,Host,__Opts,Role]),
+            error({unexpected, Other2})
+    catch
+        throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
+        throw:{error, EXP2} = Other2:ST2 ->
+            case Match(EXP2) of
+                true -> ok;
+                false ->
+                    ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
+                            "ssl_config:update_options(~p,~p, element(2,Cfg)).",
+                            [Role,Host,__Opts,Role]),
+                    error({unexpected, throw, Other2,ST2})
+            end;
+        C2:Other2:ST2 ->
+            ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
+                    "ssl_config:update_options(~p,~p, element(2,Cfg)).",
+                    [Role,Host,__Opts,Role]),
+            error({unexpected, C2, Other2,ST2})
+    end.
+
+check_error_update(Match, Opts, Role) ->
+    Host = net_adm:localhost(),
+    {__DefOpts, __Opts} = customize_defaults(Opts, Role, Host),
+    try ssl_config:handle_options(__Opts, Role, Host) of
+        {ok, #config{}} ->
+            ok;
+        Other ->
+            ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+            error({unexpected, Other})
+    catch
+        throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
+        C:Other:ST ->
+            ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+            error({unexpected, C, Other,ST})
+    end,
+    try ssl_config:update_options(__Opts, Role, __DefOpts) of
+        Other2 ->
+            ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
+                    "ssl_config:update_options(~p,~p, element(2,Cfg)).",
+                    [Role,Host,__Opts,Role]),
+            error({unexpected, Other2})
+    catch
+        throw:{error,{options,{insufficient_crypto_support,{'tlsv1.3',_}}}} -> ignored;
+        throw:{error, EXP2} = Other2:ST2 ->
+            case Match(EXP2) of
+                true -> ok;
+                false ->
+                    ?CT_PAL("ssl_config:handle_options(~0p,~0p,~0p).",[__Opts,Role,Host]),
+                    error({unexpected, throw, Other2,ST2})
+            end;
+        C2:Other2:ST2 ->
+            ?CT_PAL("{ok,Cfg} = ssl_config:handle_options([],~p,~p),"
+                    "ssl_config:update_options(~p,~p, element(2,Cfg)).",
+                    [Role,Host,__Opts,Role]),
+            error({unexpected, C2, Other2,ST2})
+    end.
 
 check_expected(A, A) ->
     ok;
@@ -4079,13 +4125,6 @@ tls_close(Socket) ->
         Other ->
             ct:fail(Other)
     end.
-
-run_error_server_close([Pid | Opts]) ->
-    {ok, Listen} = ssl:listen(0, Opts),
-    {ok,{_, Port}} = ssl:sockname(Listen),
-    Pid ! {self(), Port},
-    {ok, Socket} = ssl:transport_accept(Listen),
-    Pid ! ssl:close(Socket).
 
 run_error_server([ Pid | Opts]) ->
     {ok, Listen} = ssl:listen(0, Opts),

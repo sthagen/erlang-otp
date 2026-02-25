@@ -114,6 +114,7 @@
          verify_session_ticket_extension/2,
          update_session_ticket_extension/2,
          check_sane_openssl_version/2,
+         check_openssl_version/2,
          check_ok/1,
          check_result/4,
          check_result/2,
@@ -3465,6 +3466,21 @@ check_sane_openssl_version(Version, Config) ->
 	    end;
 	false ->
 	    false
+    end.
+
+
+check_openssl_version(MinVersion, Config) ->
+    case proplists:get_value(openssl_version, Config) of
+        undefined ->  %% Wrong initialization code run
+            error(unknown_openssl_version);
+        "OpenSSL " ++ CurrentVsn ->
+            VsnNr = fun(Vsn) ->
+                            [Major, Minor| _] = string:lexemes(Vsn, ". "),
+                            {string:to_integer(Major), string:to_integer(Minor)}
+                    end,
+            VsnNr(CurrentVsn) >= VsnNr(MinVersion);
+        _ ->
+            false
     end.
 
 

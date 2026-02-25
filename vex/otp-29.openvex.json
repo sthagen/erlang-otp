@@ -3,8 +3,8 @@
   "@id": "https://openvex.dev/docs/public/otp/vex-otp-29",
   "author": "vexctl",
   "timestamp": "2025-09-19T10:20:20.759995+02:00",
-  "last_updated": "2026-01-30T10:03:00.297723699+01:00",
-  "version": 20,
+  "last_updated": "2026-02-25T10:57:16.696090955+01:00",
+  "version": 22,
   "statements": [
     {
       "vulnerability": {
@@ -248,6 +248,32 @@
       "products": [
         {
           "@id": "pkg:github/openssl/openssl@7b371d80d959ec9ab4139d09d78e83c090de9779"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-27171"
+      },
+      "timestamp": "2026-02-24T14:43:15.318240739+01:00",
+      "products": [
+        {
+          "@id": "pkg:github/madler/zlib@1a8db63788c34a50e39e273d39b7e1033208aea2"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-58249"
+      },
+      "timestamp": "2026-02-25T10:57:16.696091358+01:00",
+      "products": [
+        {
+          "@id": "pkg:github//KhronosGroup/OpenGL-Refpages@dc585039bbd426829e3433002023a93f9bedd0c2"
         }
       ],
       "status": "not_affected",

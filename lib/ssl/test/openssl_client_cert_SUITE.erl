@@ -206,8 +206,13 @@ init_per_group(Group, Config0) when Group == ecdsa;
     end;
 init_per_group(eddsa, Config) ->
     ssl_cert_tests:openssl_eddsa_config(Config);
-init_per_group(mldsa, Config) ->
-    ssl_cert_tests:mldsa_config(Config);
+init_per_group(mldsa = Group, Config) ->
+    case ssl_test_lib:check_openssl_version("3.5", Config) of
+        true ->
+            ssl_cert_tests:mldsa_config(Config);
+        _ ->
+            {skip, {atom_to_list(Group) ++ " not supported by OpenSSL"}}
+    end;
 init_per_group(dsa, Config) ->
     ssl_cert_tests:openssl_dsa_config(Config);
 init_per_group(GroupName, Config) ->
@@ -216,10 +221,6 @@ init_per_group(GroupName, Config) ->
 end_per_group(GroupName, Config) ->
     ssl_test_lib:end_per_group(GroupName, Config).
 
-init_per_testcase(mlkem_groups, Config) ->
-    ssl_cert_tests:support_kems(Config);
-init_per_testcase(mlkem_hybrid_groups, Config) ->
-   ssl_cert_tests:support_kems(Config);
 init_per_testcase(TestCase, Config) when
       TestCase == client_auth_empty_cert_accepted;
       TestCase == client_auth_empty_cert_rejected ->
@@ -236,10 +237,20 @@ init_per_testcase(TestCase, Config) when
             ct:timetrap({seconds, 30}),
             Config
     end;
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
     ssl_test_lib:ct_log_supported_protocol_versions(Config),
     ct:timetrap({seconds, 30}),
-    Config.
+    if TestCase == mlkem_hybrid_groups;
+       TestCase == mlkem_groups ->
+            case ssl_test_lib:check_openssl_version("3.5", Config) of
+                true ->
+                    ssl_cert_tests:support_kems(Config);
+                _ ->
+                    {skip, {atom_to_list(TestCase) ++ " not supported by OpenSSL"}}
+            end;
+       true ->
+            Config
+    end.
 
 end_per_testcase(_TestCase, Config) ->
     Config.

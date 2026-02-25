@@ -81,6 +81,7 @@
 	 log/2,
 	 log/4,
 	 verbose/4,
+         match/4,
 	 default_config/0,
 	 diskless/1,
 	 eval_test_case/3,
@@ -155,6 +156,44 @@ end_per_testcase(_Func, Config) ->
     %% Nodes = select_nodes(all, Config, ?FILE, ?LINE),
     %% rpc:multicall(Nodes, mnesia, lkill, []),
     Config.
+
+
+match(Expr, Match, File, Line) ->
+    try
+        AR_0 = Expr(),
+        case Match(AR_0) of
+            true ->
+                verbose("ok, ~n Result as expected:~p~n",[AR_0], File, Line),
+                {success, AR_0};
+            {false, Pattern} ->
+                error("Expected ~ts Not Matching Actual result was:~n ~p~n",
+                      [Pattern, AR_0], File, Line),
+                {fail, AR_0}
+        end
+    catch
+        exit:{aborted, _ER_1}:Stacktrace when
+              element(1, _ER_1) =:= node_not_running;
+              element(1, _ER_1) =:= bad_commit;
+              element(1, _ER_1) =:= cyclic ->
+            %% Need to re-raise these to restart transaction
+            erlang:raise(exit, {aborted, _ER_1}, Stacktrace);
+        exit:AR_1:Stacktrace ->
+            AR_2 = {'EXIT', AR_1},
+            case Match(AR_2) of
+                true ->
+                    verbose("ok, ~n Result as expected:~p~n",[AR_2], File, Line),
+                    {success, AR_2};
+                {false, Pattern2} ->
+                    error("Expected ~ts Not Matching Actual result was:~n ~p~n ~p~n",
+                          [Pattern2, AR_2, Stacktrace], File, Line),
+                    {fail, AR_2}
+            end;
+        T1:AR_1:Stacktrace ->
+            error("Not Matching Actual result was:~n ~p~n  ~p~n",
+                  [{T1,AR_1}, Stacktrace], File, Line),
+            {fail,{T1,AR_1}}
+    end.
+
 
 %% Use ?log(Format, Args) as wrapper
 log(Format, Args, LongFile, Line) ->

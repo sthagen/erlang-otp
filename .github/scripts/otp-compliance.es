@@ -1815,7 +1815,7 @@ vendor_by_version(_) ->
 %% any vulnerability. The user should still look into possible
 %% issues with wx if they link to it.
 non_vulnerable_vendor_packages() ->
-    [~"wx-wxwidgets"].
+    [~"wx-wxwidgets", ~"wx-opengl"].
 
 ignore_non_vulnerable_vendors(Packages) ->
     lists:filter(fun (#{~"ID" := Id}) -> not lists:member(Id, non_vulnerable_vendor_packages())
@@ -3179,12 +3179,14 @@ calculate_statements(VexStmts, VexTableFile, Branch, VexPath) ->
 exists_cve_in_openvex(VexStmts, CVE, StatusCVE, Purl) ->
     lists:any(fun (#{~"vulnerability" := #{~"name" := VexCVE}}) when VexCVE =/= CVE ->
                       false;
-                  (#{~"vulnerability" := #{~"name" := VexCVE}, ~"status" := Status}) ->
+                  (#{~"vulnerability" := #{~"name" := VexCVE},
+                     ~"status" := Status,
+                     ~"products" := Products}) ->
+                    VexIds = lists:map(fun(M0) -> maps:get(~"@id", M0) end, Products),
                     Ls = fetch_openvex_table_status(StatusCVE),
-                    lists:member(Status, Ls) andalso CVE == VexCVE;
-                  (#{~"products" := Products}) ->
-                      VexIds = lists:map(fun(M0) -> maps:get(~"@id", M0) end, Products),
-                      lists:member(Purl, VexIds)
+                    lists:member(Status, Ls)         andalso
+                          lists:member(Purl, VexIds) andalso
+                          CVE == VexCVE
               end, VexStmts).
 
 fetch_openvex_table_status(#{~"affected" := _}=Status) when is_map(Status) ->
@@ -3294,6 +3296,9 @@ format_vexctl(_VexPath, <<>>, _CVE, _) ->
 format_vexctl(VexPath, Versions, CVE, #{~"not_affected" := ~"vulnerable_code_not_present"}) ->
     io_lib:format("vexctl add --in-place ~ts --product='~ts' --vuln='~ts' --status='~ts' --justification='~ts'~n",
               [VexPath, Versions, CVE, ~"not_affected", ~"vulnerable_code_not_present"]);
+format_vexctl(VexPath, Versions, CVE, #{~"not_affected" := ~"vulnerable_code_not_in_execute_path"}) ->
+    io_lib:format("vexctl add --in-place ~ts --product='~ts' --vuln='~ts' --status='~ts' --justification='~ts'~n",
+              [VexPath, Versions, CVE, ~"not_affected", ~"vulnerable_code_not_in_execute_path"]);
 format_vexctl(VexPath, Versions, CVE, #{~"affected" := Mitigation}) ->
     io_lib:format("vexctl add --in-place ~ts --product='~ts' --vuln='~ts' --status='~ts' --action-statement='~ts'~n",
           [VexPath, Versions, CVE, ~"affected", Mitigation]);

@@ -3,8 +3,8 @@
   "@id": "https://erlang.org/download/vex/otp-28.openvex.json",
   "author": "vexctl",
   "timestamp": "2025-11-28T16:37:17.252127+01:00",
-  "last_updated": "2026-02-02T08:56:25.621451816+01:00",
-  "version": 54,
+  "last_updated": "2026-02-25T10:56:56.784035898+01:00",
+  "version": 60,
   "statements": [
     {
       "vulnerability": {
@@ -1778,6 +1778,216 @@
       "products": [
         {
           "@id": "pkg:github/openssl/openssl@7b371d80d959ec9ab4139d09d78e83c090de9779"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-21620"
+      },
+      "timestamp": "2026-02-21T01:36:57.6971207Z",
+      "products": [
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.2"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.3"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.4"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.1.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.2"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3.1"
+        },
+        {
+          "@id": "pkg:otp/tftp@1.2.3"
+        }
+      ],
+      "status": "affected",
+      "action_statement": "Update to any of the following versions: pkg:otp/tftp@1.2.4",
+      "action_statement_timestamp": "2026-02-21T01:36:57.6971207Z"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-21620"
+      },
+      "timestamp": "2026-02-21T01:36:57.715698031Z",
+      "products": [
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3.2"
+        },
+        {
+          "@id": "pkg:otp/tftp@1.2.4"
+        }
+      ],
+      "status": "fixed"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-27171"
+      },
+      "timestamp": "2026-02-24T14:43:11.788346539+01:00",
+      "products": [
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0"
+        },
+        {
+          "@id": "pkg:otp/erts@16.0"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.1"
+        },
+        {
+          "@id": "pkg:otp/erts@16.0.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.2"
+        },
+        {
+          "@id": "pkg:otp/erts@16.0.2"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.3"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.4"
+        },
+        {
+          "@id": "pkg:otp/erts@16.0.3"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.1"
+        },
+        {
+          "@id": "pkg:otp/erts@16.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.1.1"
+        },
+        {
+          "@id": "pkg:otp/erts@16.1.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.2"
+        },
+        {
+          "@id": "pkg:otp/erts@16.1.2"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3.1"
+        },
+        {
+          "@id": "pkg:otp/erts@16.2"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3.2"
+        },
+        {
+          "@id": "pkg:otp/erts@16.2.1"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-27171"
+      },
+      "timestamp": "2026-02-24T14:43:11.806368454+01:00",
+      "products": [
+        {
+          "@id": "pkg:github/madler/zlib@1a8db63788c34a50e39e273d39b7e1033208aea2"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-58249"
+      },
+      "timestamp": "2026-02-25T10:56:56.768237224+01:00",
+      "products": [
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.1"
+        },
+        {
+          "@id": "pkg:otp/wx@2.5"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.2"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.3"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.0.4"
+        },
+        {
+          "@id": "pkg:otp/wx@2.5.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.1.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.2"
+        },
+        {
+          "@id": "pkg:otp/wx@2.5.2"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3.1"
+        },
+        {
+          "@id": "pkg:github/erlang/otp@OTP-28.3.2"
+        },
+        {
+          "@id": "pkg:otp/wx@2.5.3"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-58249"
+      },
+      "timestamp": "2026-02-25T10:56:56.784036415+01:00",
+      "products": [
+        {
+          "@id": "pkg:github//KhronosGroup/OpenGL-Refpages@dc585039bbd426829e3433002023a93f9bedd0c2"
         }
       ],
       "status": "not_affected",

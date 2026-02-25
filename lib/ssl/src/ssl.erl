@@ -22,7 +22,7 @@
 
 %%
 
-%%% Purpose : Main API module for the SSL application that implements TLS and DTLS 
+%%% Purpose : Main API module for the SSL application that implements TLS and DTLS
 %%% SSL is a legacy name.
 
 -module(ssl).
@@ -66,60 +66,60 @@ Special Erlang node configuration for the application can be found in
 -endif.
 
 %% Application handling
--export([start/0, 
-         start/1, 
-         stop/0, 
+-export([start/0,
+         start/1,
+         stop/0,
          clear_pem_cache/0]).
 
 %% Socket handling
--export([connect/3, 
-         connect/2, 
+-export([connect/3,
+         connect/2,
          connect/4,
-	 listen/2, 
-         transport_accept/1, 
+	 listen/2,
+         transport_accept/1,
          transport_accept/2,
-	 handshake/1, 
-         handshake/2, 
-         handshake/3, 
+	 handshake/1,
+         handshake/2,
+         handshake/3,
          handshake_continue/2,
-         handshake_continue/3, 
+         handshake_continue/3,
          handshake_cancel/1,
-	 controlling_process/2, 
-         peername/1, 
-         peercert/1, 
+	 controlling_process/2,
+         peername/1,
+         peercert/1,
          sockname/1,
-	 close/1, 
-         close/2, 
-         shutdown/2, 
-         recv/2, 
-         recv/3, 
+	 close/1,
+         close/2,
+         shutdown/2,
+         recv/2,
+         recv/3,
          send/2,
-	 getopts/2, 
-         setopts/2, 
-         getstat/1, 
+	 getopts/2,
+         setopts/2,
+         getstat/1,
          getstat/2
 	]).
 
 %% SSL/TLS protocol handling
--export([cipher_suites/2, 
+-export([cipher_suites/2,
          cipher_suites/3,
          filter_cipher_suites/2,
-         prepend_cipher_suites/2, 
+         prepend_cipher_suites/2,
          append_cipher_suites/2,
          signature_algs/2,
-         eccs/0, 
-         eccs/1, 
+         eccs/0,
+         eccs/1,
          versions/0,
-         groups/0, 
+         groups/0,
          groups/1,
-         format_error/1, 
-         renegotiate/1, 
+         format_error/1,
+         renegotiate/1,
          update_keys/2,
          export_key_materials/4,
          export_key_materials/5,
-         prf/5, 
-         negotiated_protocol/1, 
-	 connection_information/1, 
+         prf/5,
+         negotiated_protocol/1,
+	 connection_information/1,
          connection_information/2]).
 %% Misc
 -export([tls_version/1,
@@ -135,11 +135,11 @@ Special Erlang node configuration for the application can be found in
 
 -deprecated_type([{prf_random, 0,"Only used in deprecated function prf/5 and will no longer be needed."}]).
 
--removed({ssl_accept, '_', 
+-removed({ssl_accept, '_',
           "use ssl:handshake/1,2,3 instead"}).
--removed({cipher_suites, 0, 
+-removed({cipher_suites, 0,
           "use ssl:cipher_suites/2,3 instead"}).
--removed({cipher_suites, 1, 
+-removed({cipher_suites, 1,
           "use ssl:cipher_suites/2,3 instead"}).
 -removed([{negotiated_next_protocol,1,
            "use ssl:negotiated_protocol/1 instead"}]).
@@ -277,7 +277,7 @@ protocol, behave as `m:gen_tcp`, and have functions corresponding to
 directly. For DTLS this feature is considered experimental.
 """.
 -type transport_option()         :: {cb_info, {CallbackModule::atom(), DataTag::atom(),
-                                               ClosedTag::atom(), ErrTag::atom()}} |  
+                                               ClosedTag::atom(), ErrTag::atom()}} |
                                     {cb_info, {CallbackModule::atom(), DataTag::atom(),
                                                ClosedTag::atom(), ErrTag::atom(), PassiveTag::atom()}}.
 -doc(#{group => <<"Socket">>}).
@@ -286,7 +286,7 @@ A name or address to a host.
 """.
 -type host()                     :: inet:hostname() | inet:ip_address(). % exported
 
--doc(#{group => 
+-doc(#{group =>
            <<"Socket">>}).
 -doc """
 Identifies a TLS session prior to TLS-1.3.
@@ -499,7 +499,7 @@ exists more reliable cipher suites that can be used instead.
                                     cipher := cipher(),
                                     mac    := hash() | aead,
                                     prf    := hash() | default_prf %% Old cipher suites, version dependent
-                                   }.  
+                                   }.
 
 -doc(#{group => <<"Algorithms Legacy">>}).
 -doc """
@@ -592,22 +592,22 @@ with some further details will be returned.
 -doc """
 TLS Alert Protocol reasons.
 """.
--type tls_alert()             :: close_notify | 
-                                 unexpected_message | 
-                                 bad_record_mac | 
-                                 record_overflow | 
+-type tls_alert()             :: close_notify |
+                                 unexpected_message |
+                                 bad_record_mac |
+                                 record_overflow |
                                  handshake_failure |
-                                 bad_certificate | 
-                                 unsupported_certificate | 
-                                 certificate_revoked | 
-                                 certificate_expired | 
+                                 bad_certificate |
+                                 unsupported_certificate |
+                                 certificate_revoked |
+                                 certificate_expired |
                                  certificate_unknown |
-                                 illegal_parameter | 
-                                 unknown_ca | 
-                                 access_denied | 
-                                 decode_error | 
-                                 decrypt_error | 
-                                 export_restriction| 
+                                 illegal_parameter |
+                                 unknown_ca |
+                                 access_denied |
+                                 decode_error |
+                                 decrypt_error |
+                                 export_restriction|
                                  protocol_version |
                                  insufficient_security |
                                  internal_error |
@@ -1000,11 +1000,11 @@ Common options to both client and server for TLS-1.3.
 - **`{supported_groups, Groups}`** - Key exchange option
 
   TLS 1.3 introduces the "supported_groups" extension, which is used for negotiating
-  the Diffie-Hellman parameters in a TLS 1.3 handshake. Both client and server can
+  the key-exchange parameters in a TLS 1.3 handshake. Both client and server can
   specify a list of parameters that they are willing to use.
 
-  If not specified it will use a default list (`[x25519, x448, secp256r1,
-  secp384r1]`) that is filtered based on the installed crypto library version.
+  If not specified it will use a default list that can be obtained
+  by calling `ssl:groups(default).` that is filtered based on the installed crypto library version.
 
 - **`{key_update_at, KeyUpdateAt}`** - Session key renewal
 
@@ -1183,7 +1183,7 @@ to be actually used, and they may require additional configuration;
 see [`srp_param_type()`](`t:srp_param_type/0`).
 
 """.
--doc(#{group => 
+-doc(#{group =>
            <<"Algorithms">>}).
 -type cipher_suites()             :: ciphers().
 -doc(#{group => <<"Algorithms">>}).
@@ -1204,7 +1204,7 @@ Filter that allows you to customize cipher suite list.
 """.
 -type cipher_filters()            :: list({key_exchange | cipher | mac | prf,
                                            fun((kex_algo()|cipher()|hash()|aead|default_prf) -> true | false)}). % exported
--doc(#{group => 
+-doc(#{group =>
            <<"Certificates">>}).
 -doc """
 Options for using built-in CRL cache support.
@@ -1253,7 +1253,7 @@ There are two implementations available:
 -type crl_cache_opts()           :: {Module :: atom(),
                                      {DbHandle :: internal | term(),
                                       Args :: list()}}.
--doc(#{group => 
+-doc(#{group =>
            <<"Certificates">>}).
 -doc """
 Claim an intermediate CA in the chain as trusted.
@@ -3749,9 +3749,9 @@ supported_suites(exclusive, Version) when ?TLS_1_X(Version) ->
     tls_v1:exclusive_suites(Version);
 supported_suites(exclusive, Version) when ?DTLS_1_X(Version) ->
     dtls_v1:exclusive_suites(Version);
-supported_suites(default, Version) ->  
+supported_suites(default, Version) ->
     ssl_cipher:suites(Version);
-supported_suites(all, Version) ->  
+supported_suites(all, Version) ->
     ssl_cipher:all_suites(Version);
 supported_suites(anonymous, Version) ->
     ssl_cipher:anonymous_suites(Version);

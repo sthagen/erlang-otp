@@ -56,6 +56,7 @@ env:
 permissions:
   contents: read
   pull-requests: read
+  security-events: read
 
 jobs:
 
@@ -249,7 +250,7 @@ jobs:
           tar -xzf ./otp_src.tar.gz
           export PATH=$PWD/wxWidgets/release/bin:$PATH
           cd otp
-          $GITHUB_WORKSPACE/.github/scripts/build-macos.sh build_docs --disable-dynamic-ssl-lib
+          $GITHUB_WORKSPACE/.github/scripts/build-macos.sh build_docs --disable-dynamic-ssl-lib --with-dynamic-trace=dtrace
           tar -czf otp_macos_$(cat OTP_VERSION)_x86-64.tar.gz -C release .
 
       - name: Test Erlang
@@ -273,7 +274,9 @@ jobs:
     name: Build Erlang/OTP (iOS)
     runs-on: macos-15
     needs: pack
-    if: needs.pack.outputs.build-c-code == 'true'
+    # DISABLED. Fails to build erts/emulator/zlib/
+    if: false
+    # if: needs.pack.outputs.build-c-code == 'true'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Download source archive
@@ -568,7 +571,7 @@ jobs:
                 tar -xzf ./otp_src.tar.gz
                 cd otp
                 export ERL_TOP=`pwd`
-                export MAKEFLAGS=-j$(($(nproc) + 2))
+                export MAKEFLAGS=-j$(($(sysctl -n hw.ncpu) + 2))
                 export ERLC_USE_SERVER=true
                 export ERTS_SKIP_DEPEND=true
                 ./configure
@@ -594,7 +597,8 @@ jobs:
                 tar -xzf ./otp_src.tar.gz
                 cd otp
                 export ERL_TOP=`pwd`
-                export MAKEFLAGS=-j$($(nproc))
+                export MAKEFLAGS=-j$(($(sysctl -n hw.ncpuonline) + 2))
+                ulimit -n 65536
                 export ERLC_USE_SERVER=true
                 export ERTS_SKIP_DEPEND=true
                 ./configure
@@ -620,7 +624,7 @@ jobs:
                 tar -xzf ./otp_src.tar.gz
                 cd otp
                 export ERL_TOP=`pwd`
-                export MAKEFLAGS=-j$($(nproc))
+                export MAKEFLAGS=-j$(($(psrinfo | wc -l) + 2))
                 export ERLC_USE_SERVER=true
                 export ERTS_SKIP_DEPEND=true
                 ./configure
@@ -697,7 +701,7 @@ jobs:
       - name: Check OSSF compiler flags
         uses: ./.github/actions/ossf-compiler-flags-scanner
         with:
-          upload: true
+          upload: ${{ github.repository == 'erlang/otp' || github.event_name != 'push' }}
 
   test:
     name: Test Erlang/OTP
