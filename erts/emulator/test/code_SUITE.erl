@@ -149,14 +149,30 @@ new_binary_types(Config) when is_list(Config) ->
 
 %% Ensure that the loader doesn't crash or leak memory when attempting
 %% to load bad BEAM files. We depend on valgrind to notice leaks.
-bad_beam_file(_Config) ->
+bad_beam_file(Config) ->
     Mod = ?FUNCTION_NAME,
 
+    PrivDir = proplists:get_value(priv_dir, Config),
+    SrcName = filename:join(PrivDir, atom_to_list(Mod) ++ ".erl"),
+    ModList = atom_to_list(Mod),
+
     BadBeam1 = bad_beam_file_1(Mod),
-    {error,badfile} = code:load_binary(Mod, atom_to_list(Mod), BadBeam1),
+    {error,badfile} = code:load_binary(Mod, ModList, BadBeam1),
 
     BadBeam2 = bad_beam_file_2(Mod),
-    {error,badfile} = code:load_binary(Mod, atom_to_list(Mod), BadBeam2),
+    {error,badfile} = code:load_binary(Mod, ModList, BadBeam2),
+
+    BadBeam3 = bad_beam_file_3(Mod, SrcName),
+    {ok, Peer, Node} = ?CT_PEER(["+D"]),
+    {error,badfile} =
+        erpc:call(Node,
+                  fun() ->
+                          code:load_binary(Mod, ModList, BadBeam3)
+                  end),
+    peer:stop(Peer),
+
+    BadBeam4 = bad_beam_file_4(Mod, SrcName),
+    {error,badfile} = code:load_binary(Mod, ModList, BadBeam4),
 
     ok.
 
@@ -187,6 +203,38 @@ bad_beam_file_2(Mod) ->
     Chunks = [{"Attr",<<"bad_attribute_chunk">>} | Chunks1],
     {ok,BadBeam} = beam_lib:build_module(Chunks),
     BadBeam.
+
+%% Build a BEAM file with the beam_debug_info option but without a
+%% "DbgB" chunk.
+bad_beam_file_3(Mod, SrcName) ->
+    S = ~"""
+         -module(bad_beam_file).
+          -export([go/0]).
+          go() -> ok.
+         """,
+    compile_remove_chunk(Mod, SrcName, S, "DbgB", [beam_debug_info]).
+
+%% Build a BEAM file that creates a native record but with the "Recs" chunk
+%% missing.
+bad_beam_file_4(Mod, SrcName) ->
+    S = ~"""
+         -module(bad_beam_file).
+          -export([go/0]).
+          -record #empty{}.
+          go() -> #empty{}.
+         """,
+    compile_remove_chunk(Mod, SrcName, S, "Recs", []).
+
+compile_remove_chunk(Mod, SrcName, Src, Tag, Opts) ->
+    ok = file:write_file(SrcName, Src),
+    {ok,Mod,Beam0} = compile:file(SrcName, [report,binary|Opts]),
+    ok = file:delete(SrcName),
+
+    %% Remove the chunk from the BEAM file.
+    {ok,Mod,Chunks0} = beam_lib:all_chunks(Beam0),
+    Chunks = lists:keydelete(Tag, 1, Chunks0),
+    {ok,Beam} = beam_lib:build_module(Chunks),
+    Beam.
 
 %% Ensure that literal areas don't leak when erlang:prepare_loading/2
 %% is not followed by erlang:finish_loading/1.

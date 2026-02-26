@@ -103,11 +103,11 @@ line I
 executable_line _Id _Line => _
 
 debug_line a==am_entry u u u => _
-debug_line _Kind Loc _Index Live | instrumenting_line_breakpoints() =>
-    i_debug_line Loc Live | i_disabled_line_breakpoint Live
+debug_line _Kind Loc Index Live | instrumenting_line_breakpoints() =>
+    i_debug_line Loc Index Live | i_disabled_line_breakpoint Live
 debug_line _Kind _Loc _Index _Live => _
 
-i_debug_line I t
+i_debug_line I I t
 
 # For the JIT, the init_yregs/1 instruction allows generation of better code.
 # For the BEAM interpreter, though, it will probably be more efficient to
@@ -1643,7 +1643,7 @@ put_record p Id n Dst Live Size Updates=* | map_key_sort(Size, Updates) =>
 put_record p _Id Src=xy Dst Live Size Updates=* | map_key_sort(Size, Updates) =>
     i_update_native_record Src Dst Live Size Updates
 
-create_local_native_record Def Dst Live Size New=* |
+create_local_native_record Def=q Dst Live Size New=* |
   map_key_sort(Size, New) =>
     i_create_local_native_record Def Dst Live Size New
 

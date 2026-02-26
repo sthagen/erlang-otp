@@ -150,7 +150,7 @@ build_file(Code, Attr, Anno, Dict0, NumLabels, NumFuncs, ExtraChunks0,
     %% literal tables.
 
     %% Build the BEAM debug information chunk.
-    {ExtraChunks1,Dict1} = build_beam_debug_info(ExtraChunks0, CompilerOpts, Dict0),
+    {BDIChunk,Dict1} = build_beam_debug_info(CompilerOpts, Dict0),
 
     %% Build the native-record record definition chunk.
     {RecordChunk,Dict} = build_record_chunk(Anno, Dict1),
@@ -205,20 +205,20 @@ build_file(Code, Attr, Anno, Dict0, NumLabels, NumFuncs, ExtraChunks0,
                       TypeTab),
 
     %% Create the meta chunk
-    Meta = proplists:get_value(<<"Meta">>, ExtraChunks1, empty),
+    Meta = proplists:get_value(<<"Meta">>, ExtraChunks0, empty),
     MetaChunk = case Meta of
                     empty -> [];
                     Meta -> chunk(<<"Meta">>, Meta)
                 end,
 
     %% Remove Meta chunk from ExtraChunks since it is essential
-    ExtraChunks = ExtraChunks1 -- [{<<"Meta">>, Meta}],
+    ExtraChunks = ExtraChunks0 -- [{<<"Meta">>, Meta}],
 
     %% Create the attributes and compile info chunks.
 
     Essentials0 = [AtomChunk,CodeChunk,StringChunk,ImportChunk,
                    ExpChunk,LambdaChunk,LiteralChunk,MetaChunk,
-                   RecordChunk],
+                   RecordChunk|BDIChunk],
     Essentials1 = [iolist_to_binary(C) || C <- Essentials0],
     MD5 = module_md5(Essentials1),
     Essentials = finalize_fun_table(Essentials1, MD5),
@@ -406,19 +406,24 @@ filter_essentials([]) -> [].
 %%% Build the BEAM debug information chunk.
 %%%
 
-build_beam_debug_info(ExtraChunks, CompilerOpts, Dict) ->
+build_beam_debug_info(CompilerOpts, Dict) ->
     case member(beam_debug_info, CompilerOpts) of
         true ->
-            build_beam_debug_info_1(ExtraChunks, Dict);
+            build_beam_debug_info_1(Dict);
         false ->
-            {ExtraChunks,Dict}
+            {[],Dict}
     end.
 
-build_beam_debug_info_1(ExtraChunks0, Dict0) ->
+build_beam_debug_info_1(Dict0) ->
     DebugTab0 = beam_dict:debug_table(Dict0),
     DebugTab1 = [{Index,Info} ||
                     Index := Info <- maps:iterator(DebugTab0, ordered)],
-    DebugTab = build_bdi_fill_holes(DebugTab1),
+    DebugTab2 = case DebugTab1 of
+                    [{1,_}|_] -> DebugTab1;
+                    [_|_] -> [{1,{none,[]}}|DebugTab1];
+                    [] -> []
+                end,
+    DebugTab = build_bdi_fill_holes(DebugTab2),
     NumVars = lists:sum([length(Vs) || {_,Vs} <- DebugTab]),
     {Contents0,Dict} = build_bdi(DebugTab, Dict0),
     NumItems = length(Contents0),
@@ -431,8 +436,7 @@ build_beam_debug_info_1(ExtraChunks0, Dict0) ->
                  NumItems:32,
                  NumVars:32,
                  Contents1/binary>>,
-    ExtraChunks = [{~"DbgB",Contents}|ExtraChunks0],
-    {ExtraChunks,Dict}.
+    {[chunk(~"DbgB", Contents)],Dict}.
 
 build_bdi_fill_holes([]) ->
     [];

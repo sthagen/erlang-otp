@@ -1544,6 +1544,12 @@ beamfile_read(const byte *data, size_t size, BeamFile *beam) {
             error = BEAMFILE_READ_CORRUPT_DEBUG_TABLE;
             goto error;
         }
+    } else {
+        beam->debug.item_count = 0;
+        beam->debug.term_count = 0;
+        beam->debug.items = NULL;
+        beam->debug.terms = NULL;
+        beam->debug.is_literal = NULL;
     }
 
     if (chunks[RECORD_CHUNK].size > 0) {
@@ -1632,6 +1638,12 @@ beamfile_read(const byte *data, size_t size, BeamFile *beam) {
             MD5Update(&md5,
                       (byte*)chunks[RECORD_CHUNK].data,
                       chunks[RECORD_CHUNK].size);
+        }
+
+        if (chunks[DEBUG_CHUNK].size > 0) {
+            MD5Update(&md5,
+                      (byte*)chunks[DEBUG_CHUNK].data,
+                      chunks[DEBUG_CHUNK].size);
         }
 
         MD5Final(beam->checksum, &md5);

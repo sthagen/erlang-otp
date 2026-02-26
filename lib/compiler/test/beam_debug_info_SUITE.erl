@@ -35,7 +35,9 @@
          init_per_group/2,end_per_group/2,
          smoke_default/1,
          smoke_save_vars/1,
+         slim_option/1,
          fixed_bugs/1,
+         short_bdi_chunk/1,
          empty_module/1,
          call_in_call_args/1,
          missing_vars/1]).
@@ -49,8 +51,10 @@ all() ->
 
 groups() ->
     [{p,test_lib:parallel(),
-      [fixed_bugs,
+      [slim_option,
+       fixed_bugs,
        empty_module,
+       short_bdi_chunk,
        call_in_call_args,
        missing_vars]}].
 
@@ -687,6 +691,17 @@ decode_tag(?tag_z) -> z.
 %%% Other test cases.
 %%%
 
+%% Ensure that the beam_debug_info chunk is included even if
+%% the `slim` option is given.
+slim_option(_Config) ->
+    {ok,{?MODULE,[{abstract_code,{raw_abstract_v1,Abstr}}]}} =
+        beam_lib:chunks(code:which(?MODULE), [abstract_code]),
+    {ok,?MODULE,Beam} = compile:forms(Abstr, [slim,beam_debug_info]),
+    Chunks = proplists:get_value(chunks, beam_lib:info(Beam)),
+    io:format("~p\n", [Chunks]),
+    true = lists:keymember("DbgB", 1, Chunks),
+    ok.
+
 fixed_bugs(_Config) ->
     ok = unassigned_yreg(ok),
     {'EXIT',_} = catch unassigned_yreg(not_ok),
@@ -734,7 +749,6 @@ no_function(X) ->
             id({X, Err})
     end.
 
-
 empty_module(_Config) ->
     Mod = list_to_atom(?MODULE_STRING ++ "_" ++
                            atom_to_list(?FUNCTION_NAME)),
@@ -742,6 +756,31 @@ empty_module(_Config) ->
              {attribute,{1,2},module,Mod},
              {eof,{3,1}}],
     {ok,Mod,_Code} = compile:forms(Empty, [beam_debug_info,report]),
+
+    ok.
+
+short_bdi_chunk(Config) ->
+    M = ?FUNCTION_NAME,
+    PrivDir = proplists:get_value(priv_dir, Config),
+    SrcName = filename:join(PrivDir, atom_to_list(M) ++ ".erl"),
+
+    %% When the first function in a module was unused, the "DbgB"
+    %% chunk would become too short.
+    S = ~"""
+         -module(short_bdi_chunk).
+          -export([go/0]).
+          unused() -> ok.
+          go() -> ok.
+         """,
+
+    ok = file:write_file(SrcName, S),
+    {ok,M,Beam} = compile:file(SrcName, [report,beam_debug_info,binary]),
+
+    {Info,_} = get_debug_info(M, Beam),
+
+    %% The first two entries are dummies corresponding to the removed
+    %% unused/0 function.
+    [{1,{none,[]}},{2,{none,[]}},{3,{entry,[]}},{4,{none,[]}}] = Info,
 
     ok.
 

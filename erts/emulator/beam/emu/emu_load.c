@@ -1527,16 +1527,22 @@ int beam_load_emit_op(LoaderState *stp, BeamOp *tmp_op) {
         }
         break;
 
-    case op_i_debug_line_It:
+    case op_i_debug_line_IIt:
+        if (code[ci-2]-1 >= stp->beam.debug.item_count) {
+            BeamLoadError2(stp,
+                           "debug_line index %u out of range (only %u entries)",
+                           code[ci-2]-1, stp->beam.debug.item_count);
+        }
+
         /* Each i_debug_line is a distinct instrumentation point and we don't
          * want to miss a single one of them (so they all can be selected),
          * so allow duplicates here.
          */
-        if (add_line_entry(stp, ci-3, code[ci-2], 1)) {
+        if (add_line_entry(stp, ci-4, code[ci-3], 1)) {
             goto load_error;
         }
 
-        ci -= 3;                /* Get rid of the instruction */
+        ci -= 4;                /* Get rid of the instruction */
         break;
 
         /* End of code found. */

@@ -716,6 +716,13 @@ int beam_load_emit_op(LoaderState *stp, BeamOp *tmp_op) {
         Uint location_index = tmp_op->a[0].val;
         Sint index = tmp_op->a[1].val - 1;
 
+        if (index >= stp->beam.debug.item_count) {
+            BeamLoadError2(stp,
+                           "debug_line index %u out of range (only %u entries)",
+                           index,
+                           stp->beam.debug.item_count);
+        }
+
         /* Each i_debug_line is a distinct instrumentation point and we don't
          * want to miss a single one of them (so they all can be selected),
          * so allow duplicates here.

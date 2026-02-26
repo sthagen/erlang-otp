@@ -598,6 +598,9 @@ static int load_code(LoaderState* stp)
                  * the instruction is obsolete.
                  */
                 if (num_specific == 0 && gen_opc[tmp_op->op].transform == 0) {
+                    beamopallocator_free_op(&stp->op_allocator,
+                                            stp->genop);
+                    stp->genop = NULL;
                     BeamLoadError0(stp, PLEASE_RECOMPILE);
                 }
 
@@ -634,6 +637,9 @@ static int load_code(LoaderState* stp)
                         }
                     }
                 default:
+                    beamopallocator_free_op(&stp->op_allocator,
+                                            stp->genop);
+                    stp->genop = NULL;
                     BeamLoadError0(stp, "no specific operation found");
                 }
             }
