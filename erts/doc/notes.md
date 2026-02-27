@@ -23,6 +23,20 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 16.2.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed bug in `erlang:monitor_node` for rare reconnect race with multiple node monitoring from the same process.
+
+  Own Id: OTP-19902 Aux Id: [PR-10518]
+
+- Add missing copyrights.
+
+  Own Id: OTP-20008
+
+[PR-10518]: https://github.com/erlang/otp/pull/10518
+
 ## Erts 16.2.1
 
 ### Fixed Bugs and Malfunctions

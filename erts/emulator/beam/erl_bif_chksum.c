@@ -31,7 +31,7 @@
 #include "bif.h"
 #include "erl_binary.h"
 #include "big.h"
-#include "zlib.h"
+#include "erl_zlib.h"
 #include "erl_md5.h"
 
 

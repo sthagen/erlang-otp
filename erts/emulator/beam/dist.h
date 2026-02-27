@@ -25,7 +25,7 @@
 
 #include "erl_process.h"
 #include "erl_node_tables.h"
-#include "zlib.h"
+#include "erl_zlib.h"
 
 #define DFLAG_PUBLISHED                ((Uint64)0x01)
 #define DFLAG_ATOM_CACHE               ((Uint64)0x02)

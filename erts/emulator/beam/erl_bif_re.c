@@ -32,7 +32,7 @@
 #include "erl_binary.h"
 #include "erl_iolist.h"
 #include "big.h"
-#include "zlib.h"
+#include "erl_zlib.h"
 #define ERLANG_INTEGRATION 1
 #define PCRE2_STATIC
 //#include "pcre.h"

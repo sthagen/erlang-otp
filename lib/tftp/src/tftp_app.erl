@@ -51,9 +51,9 @@ stop(_State) ->
 %%====================================================================
 
 get_configuration() ->
-    case (catch application:get_env(tftp, services)) of
+    case application:get_env(tftp, services) of
 	{ok, Services} ->
 	    Services;
-	_ ->
+	undefined ->
 	    []
     end.

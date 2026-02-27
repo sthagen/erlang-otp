@@ -23,7 +23,26 @@
 /* A sparse wrapper interface around zlib with erts memory allocation. 
 */
 
+/* Workaround to make zlib.h compile with -Werror=undef */
+#ifndef HAVE_UNISTD_H
+#  define HAVE_UNISTD_H 0
+#  define HAVE_UNISTD_H__UNDEF
+#endif
+#ifndef HAVE_STDARG_H
+#  define HAVE_STDARG_H 0
+#  define HAVE_STDARG_H__UNDEF
+#endif
+
 #include <zlib.h>
+
+#ifdef HAVE_UNISTD_H__UNDEF
+#  undef HAVE_UNISTD_H
+#  undef HAVE_UNISTD_H__UNDEF
+#endif
+#ifdef HAVE_STDARG_H__UNDEF
+#  undef HAVE_STDARG_H
+#  undef HAVE_STDARG_H__UNDEF
+#endif
 
 
 /* Initialize zalloc, zfree and opaque of a z_stream

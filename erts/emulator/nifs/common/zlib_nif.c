@@ -24,7 +24,8 @@
 #define STATIC_ERLANG_NIF 1
 
 #include <stdio.h>
-#include <zlib.h>
+
+#include "erl_zlib.h"
 
 #include "erl_nif.h"
 #include "config.h"

@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2005-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -305,6 +305,12 @@ code_character(N) ->
 %%-------------------------------------------------------------------
 
 decode_msg(Bin) when is_binary(Bin) ->
+    try do_decode_msg(Bin)
+    catch throw : Text ->
+            #tftp_decode_error{reply = #tftp_msg_error{code = undef, text = Text}}
+    end.
+
+do_decode_msg(Bin) ->
     case Bin of
         <<?TFTP_OPCODE_RRQ:16/integer, Tail/binary>> ->
             case decode_strings(Tail, [keep_case, lower_case]) of
@@ -315,11 +321,9 @@ decode_msg(Bin) when is_binary(Bin) ->
                                   mode = to_lower(Mode),
                                   options = Options};
                 [_Filename | _Strings] ->
-                    exit(#tftp_msg_error{code = undef,
-                                         text = "Missing mode"});
+                    throw("Missing mode");
                 _ ->
-                    exit(#tftp_msg_error{code = undef,
-                                         text = "Missing filename"})
+                    throw("Missing filename")
             end;
         <<?TFTP_OPCODE_WRQ:16/integer, Tail/binary>> ->
             case decode_strings(Tail, [keep_case, lower_case]) of
@@ -330,11 +334,9 @@ decode_msg(Bin) when is_binary(Bin) ->
                                   mode = to_lower(Mode),
                                   options = Options};
                 [_Filename | _Strings] ->
-                    exit(#tftp_msg_error{code = undef,
-                                         text = "Missing mode"});
+                    throw("Missing mode");
                 _ ->
-                    exit(#tftp_msg_error{code = undef,
-                                         text = "Missing filename"})
+                    throw("Missing filename")
             end;
         <<?TFTP_OPCODE_DATA:16/integer, SeqNo:16/integer, Data/binary>> ->
             #tftp_msg_data{block_no = SeqNo, data = Data};
@@ -347,16 +349,14 @@ decode_msg(Bin) when is_binary(Bin) ->
                     #tftp_msg_error{code = ErrorCode2,
                                     text = ErrorText};
                 _ ->
-                    exit(#tftp_msg_error{code = undef,
-                                         text = "Trailing garbage"})
+                    throw("Trailing garbage")
             end;
         <<?TFTP_OPCODE_OACK:16/integer, Tail/binary>> ->
             Strings = decode_strings(Tail, [lower_case]),
             Options = decode_options(Strings),
             #tftp_msg_oack{options = Options};
         _ ->
-            exit(#tftp_msg_error{code = undef,
-                                 text = "Invalid syntax"})
+            throw("Invalid syntax")
     end.
 
 decode_strings(Bin, Cases) when is_binary(Bin), is_list(Cases) ->
@@ -384,7 +384,7 @@ decode_string(<<Char:8/integer, Tail/binary>>, Case, String) ->
             decode_string(Tail, Case, [Char2 | String])
     end;
 decode_string(<<>>, _Case, _String) ->
-    exit(#tftp_msg_error{code = undef, text = "Trailing null missing"}).
+    throw("Trailing null missing").
 
 decode_options([Key, Value | Strings]) ->
     [{to_lower(Key), Value} | decode_options(Strings)];
@@ -403,7 +403,7 @@ decode_error_code(Int) ->
         ?TFTP_ERROR_BADUSER -> baduser;
         ?TFTP_ERROR_BADOPT  -> badopt;
         Int when is_integer(Int), Int >= 0, Int =< 65535 -> Int;
-        _ -> exit(#tftp_msg_error{code = undef, text = "Error code outside range."})
+        _ -> throw("Error code outside range.")
     end.
 
 %%-------------------------------------------------------------------

@@ -23,6 +23,14 @@ limitations under the License.
 
 This document describes the changes made to the Erl_interface application.
 
+## Erl_Interface 5.6.3
+
+### Fixed Bugs and Malfunctions
+
+- Add missing copyrights.
+
+  Own Id: OTP-20008
+
 ## Erl_Interface 5.6.2
 
 ### Improvements and New Features

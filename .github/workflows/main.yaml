@@ -274,9 +274,7 @@ jobs:
     name: Build Erlang/OTP (iOS)
     runs-on: macos-15
     needs: pack
-    # DISABLED. Fails to build erts/emulator/zlib/
-    if: false
-    # if: needs.pack.outputs.build-c-code == 'true'
+    if: needs.pack.outputs.build-c-code == 'true'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Download source archive
