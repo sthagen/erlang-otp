@@ -166,13 +166,14 @@ on_load(Extra) when is_map(Extra) ->
                   Extra_1;
               _ ->
                   Extra_1
-                      #{debug => true,
-                        socket_debug => true,
+                      #{debug          => true,
+                        socket_debug   => true,
                         debug_filename => enc_path(DebugFilename)}
           end,
     %% This will fail if the user has disabled esock support, making all NIFs
     %% fall back to their Erlang implementation which throws `notsup`.
-    _ = erlang:load_nif(atom_to_list(?MODULE), Extra_2),
+    LoadRes = erlang:load_nif(atom_to_list(?MODULE), Extra_2),
+    p_put(load_nif_result, LoadRes),
     init().
 
 init() ->
@@ -248,6 +249,7 @@ options_table(Options, Level, LevelNum, [LevelOpt | LevelOpts]) ->
              {{Level, Opt}, undefined}
      end | options_table(Options, Level, LevelNum, LevelOpts)].
 
+
 %% ===========================================================================
 %% API for 'socket'
 %%
@@ -263,6 +265,7 @@ info(SockRef) ->
         #{} ->
             Info
     end.
+
 
 %% ----------------------------------
 
