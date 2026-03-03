@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1998-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -442,8 +442,8 @@ init_per_group(inet_backend_inet = _GroupName, Config) ->
 init_per_group(inet_backend_socket = _GroupName, Config) ->
     ?P("~w(~w) -> check explicit inet-backend when"
        "~n   Config: ~p", [?FUNCTION_NAME, _GroupName, Config]),
-    case ?EXPLICIT_INET_BACKEND(Config) of
-        undefined ->
+    case {?IS_SOCKET_SUPPORTED(), ?EXPLICIT_INET_BACKEND(Config)} of
+        {true, undefined} ->
             case ?EXPLICIT_INET_BACKEND() of
                 true ->
                     %% The environment trumps us,
@@ -452,10 +452,16 @@ init_per_group(inet_backend_socket = _GroupName, Config) ->
                 false ->
                     [{socket_create_opts, [{inet_backend, socket}]} | Config]
             end;
-        inet ->
+        {false, undefined} ->
+	    ?P("'socket' not supported"),
+	    {skip, "'socket' not supporrted"};
+        {_, inet} ->
             {skip, "explicit inet-backend = inet"};
-        socket ->
-            [{socket_create_opts, [{inet_backend, socket}]} | Config]
+        {true, socket} ->
+            [{socket_create_opts, [{inet_backend, socket}]} | Config];
+        {false, socket} ->
+	    ?P("'socket' not supported"),
+	    {skip, "'socket' not supporrted"}
     end;
 init_per_group(_GroupName, Config) ->
     Config.
@@ -10091,13 +10097,23 @@ is_not_platform(Family, Name, PlatformStr)
 
 is_socket_supported() ->
     try socket:info() of
-        #{} ->
-            ok
+	#{load_nif_result := ok} ->
+            ?P("~s -> we support 'socket'", [?FUNCTION_NAME]),
+            ok;
+	#{load_nif_result := LoadRes} ->
+	    ?P("~s -> 'socket' not supperted"
+	       "~n   (socket) nif load result: ~p", [?FUNCTION_NAME, LoadRes]),
+	    {skip, "esock not supported"};
+	_ ->
+            ?P("~s -> 'socket' not supperted", [?FUNCTION_NAME]),
+	    {skip, "esock not supported"}
     catch
         error : notsup ->
-            skip("esock not supported");
+            ?P("~s(error,notsup) -> 'socket' not supperted", [?FUNCTION_NAME]),
+            {skip, "esock not supported"};
         error : undef ->
-            skip("esock not configured")
+            ?P("~s(error,undef) -> 'socket' not supperted", [?FUNCTION_NAME]),
+            {skip, "esock not configured"}
     end.
 
 has_support_sock_priority() ->

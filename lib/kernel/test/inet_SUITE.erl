@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1997-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1846,20 +1846,8 @@ do_getifaddrs2(Backend) ->
 is_supported_backend(inet = _Backend) ->
     true;
 is_supported_backend(socket = _Backend) ->
-    is_socket_supported().
+    ?IS_SOCKET_SUPPORTED().
 
-is_socket_supported() ->
-    try socket:info() of
-        #{} ->
-            true
-    catch
-        error : notsup ->
-            false;
-        error : undef ->
-            false
-    end.
-
-    
 do_getifaddrs3({ok, IfAddrs}) ->
     io:format("~w(ok) -> IfAddrs: "
               "~n   ~p"
@@ -2566,9 +2554,13 @@ do_socknames_tcp0(_Config, Addr) ->
 
     %% And *maybe* also check the 'new' shiny socket sockets
     try socket:info() of
-        #{} ->
+        #{load_nif_result := ok} ->
             ?P("Test socknames for 'new' socket (=socket nif)"),
-            do_socknames_tcp1([{inet_backend, socket}], Addr)
+            do_socknames_tcp1([{inet_backend, socket}], Addr);
+	_ ->
+	    ?P("Socket nif not loaded =>"
+	       "~n   skip test of socknames for 'new' socket (=socket nif)"),
+	    ok
     catch
         error:notsup ->
             ?P("Skip test of socknames for 'new' socket (=socket nif)"),
@@ -2662,9 +2654,13 @@ do_socknames_udp0(_Config, Addr) ->
 
     %% And *maybe* also check the 'new' shiny socket sockets
     try socket:info() of
-        #{} ->
+        #{load_nif_result := ok} ->
             ?P("Test socknames for 'new' socket (=socket nif)"),
-            do_socknames_udp1([{inet_backend, socket}], Addr)
+            do_socknames_udp1([{inet_backend, socket}], Addr);
+	_ ->
+	    ?P("Socket nif not loaded =>"
+	       "~n   skip test of socknames for 'new' socket (=socket nif)"),
+	    ok
     catch
         error : notsup ->
             ?P("Skip test of socknames for 'new' socket (=socket nif)"),

@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %% 
-%% Copyright Ericsson AB 2024-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2024-2026. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -664,12 +664,13 @@ api_op_with_timeout_cases() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 init_per_suite(Config0) ->
-    ?P("init_per_suite -> entry with"
+    ?P("~s -> entry with"
        "~n      Config: ~p"
-       "~n      Nodes:  ~p", [Config0, erlang:nodes()]),
+       "~n      Nodes:  ~p", [?FUNCTION_NAME, Config0, erlang:nodes()]),
     
     try socket:info() of
-        #{} ->
+        #{load_nif_result := ok} ->
+	    ?P("~s -> socket nif loaded", [?FUNCTION_NAME]),
             case ?KLIB:init_per_suite(Config0) of
                 {skip, _} = SKIP ->
                     SKIP;
@@ -707,11 +708,22 @@ init_per_suite(Config0) ->
                                     {skip, "Failed starting logger"}
                             end
                     end
-            end
+            end;
+
+	#{load_nif_result := LoadRes} ->
+	    ?P("~s -> 'socket' not supperted"
+	       "~n   (socket) nif load result: ~p", [?FUNCTION_NAME, LoadRes]),
+	    {skip, "esock not supported (nif not loaded)"};
+	_ ->
+            ?P("~s -> 'socket' not supperted", [?FUNCTION_NAME]),
+	    {skip, "esock not supported"}
+	
     catch
         error : notsup ->
+            ?P("~s -> 'socket' not supperted (error:notsup)", [?FUNCTION_NAME]),
             {skip, "esock not supported"};
         error : undef ->
+            ?P("~s -> 'socket' not supperted (error:undef)", [?FUNCTION_NAME]),
             {skip, "esock not configured"}
     end.
 

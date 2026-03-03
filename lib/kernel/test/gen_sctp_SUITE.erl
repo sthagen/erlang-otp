@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2007-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -182,9 +182,16 @@ end_per_suite(Config0) ->
 init_per_group(sockaddr = _GroupName, Config) ->
     ?P("init_per_group(sockaddr) -> do we support 'socket'"),
     try socket:info() of
-	_ ->
+	#{load_nif_result := ok} ->
             ?P("init_per_group(sockaddr) -> we support 'socket'"),
-            Config
+            Config;
+	#{load_nif_result := LoadRes} ->
+	    ?P("init_per_group(sockaddr) -> 'socket' not supperted"
+	       "~n   (socket) nif load result: ~p", [LoadRes]),
+	    {skip, "esock not supported"};
+	_ ->
+            ?P("init_per_group(sockaddr) -> 'socket' not supperted"),
+	    {skip, "esock not supported"}
     catch
         error : notsup ->
             ?P("init_per_group(sockaddr) -> we *do not* support 'socket'"),
