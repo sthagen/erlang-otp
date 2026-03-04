@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1998-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -692,7 +692,7 @@ do_shutdown_async(Config, Addr) ->
         is_port(L) ->
             do_shutdown_async2(Config, Addr, L);
         true ->
-            (catch gen_tcp:close(L)),
+            ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
             exit({skip, "inet-only testcase"})
     end.
 
@@ -1554,8 +1554,8 @@ do_simple_sockaddr_send_recv(SockAddr, _) ->
                       receive
                           {die, Self} ->
                               ?P("terminating"),
-                              (catch gen_tcp:close(ASock)),
-                              (catch gen_tcp:close(LSock)),
+                              ?CATCH_AND_IGNORE( gen_tcp:close(ASock) ),
+                              ?CATCH_AND_IGNORE( gen_tcp:close(LSock) ),
                               exit(normal)
                       end
               end,
@@ -1601,7 +1601,7 @@ do_simple_sockaddr_send_recv(SockAddr, _) ->
     end,
     
     ?P("cleanup"),
-    (catch gen_tcp:close(CSock)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(CSock) ),
 
     ?P("done"),
     ok.
