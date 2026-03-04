@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %% 
-%% Copyright Ericsson AB 2018-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2018-2026. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -65,8 +65,6 @@
 %%
 %% Some official info about AF_UNIX
 %% https://devblogs.microsoft.com/commandline/windowswsl-interop-with-af_unix/
-
-
 
 -module(socket_SUITE).
 
@@ -496,7 +494,8 @@ end_per_suite(Config0) ->
     %% Stop the local monitor
     kernel_test_sys_monitor:stop(),
 
-    (catch ?LOGGER:stop()),
+    ?CATCH_AND_IGNORE( ?LOGGER:stop() ),
+    %%(catch ?LOGGER:stop()),
 
     Config1 = ?KLIB:end_per_suite(Config0),
 
@@ -509,9 +508,8 @@ end_per_suite(Config0) ->
 init_per_group(GroupName, Config)
   when (GroupName =:= sc_remote_close) orelse
        (GroupName =:= sc_remote_shutdown) ->
-    io:format("init_per_group(~w) -> entry with"
-              "~n   Config: ~p"
-              "~n", [GroupName, Config]),
+    ?P("~s(~w) -> entry with"
+       "~n   Config: ~p", [?FUNCTION_NAME, GroupName, Config]),
     %% Maybe we should skip the entire suite for this platform,
     %% but for now we just skip these groups, which seem to 
     %% have problems (node start).
@@ -526,17 +524,17 @@ init_per_group(GroupName, Config)
     end;
 init_per_group(GroupName, Config)
   when (GroupName =:= ioctl) ->
-    io:format("init_per_group(~w) -> entry with"
-              "~n   Config:"
-              "~n      ~p"
-              "~nwhen"
-              "~n   Supported IOCtl Requests: "
-              "~n~s"
-              "~n   Supported IOCtl Flags: "
-              "~n~s"
-              "~n", [GroupName, Config,
-                     format_ioctls(socket:supports(ioctl_requests), 6),
-                     format_ioctls(socket:supports(ioctl_flags), 6)]),
+    ?P("~s(~w) -> entry with"
+       "~n   Config:"
+       "~n      ~p"
+       "~nwhen"
+       "~n   Supported IOCtl Requests: "
+       "~n~s"
+       "~n   Supported IOCtl Flags: "
+       "~n~s", [?FUNCTION_NAME,
+		GroupName, Config,
+		format_ioctls(socket:supports(ioctl_requests), 6),
+		format_ioctls(socket:supports(ioctl_flags), 6)]),
     Config;
 init_per_group(_GroupName, Config) ->
     Config.
@@ -629,27 +627,39 @@ reg_s_single_open_and_close_and_count() ->
     %% Make sure we dont count them when we test.
     Existing = socket:which_sockets(),
     N = length(Existing),
-    SupportsIPV6 =
-        case (catch has_support_ipv6()) of
-            ok ->
-                true;
-            _ ->
-                false
-        end,
-    SupportsLOCAL =
-        case (catch has_support_unix_domain_socket()) of
-            ok ->
-                true;
-            _ ->
-                false
-        end,
-    SupportsSCTP =
-        case (catch has_support_sctp()) of
-            ok ->
-                true;
-            _ ->
-                false
-        end,
+    HasSupport =
+	fun(F) when is_function(F, 0) ->
+		try F() of
+		    ok ->
+			true;
+		    _ ->
+			false
+		catch
+		    _:_ ->
+			false
+		end
+	end,
+    SupportsIPV6 = HasSupport(fun has_support_ipv6/0),
+        %% try has_support_ipv6() of
+        %%     ok ->
+        %%         true;
+        %%     _ ->
+        %%         false
+        %% end,
+    SupportsLOCAL = HasSupport(fun has_support_unix_domain_socket/0),
+        %% case (catch has_support_unix_domain_socket()) of
+        %%     ok ->
+        %%         true;
+        %%     _ ->
+        %%         false
+        %% end,
+    SupportsSCTP = HasSupport(fun has_support_sctp/0),
+        %% case (catch has_support_sctp()) of
+        %%     ok ->
+        %%         true;
+        %%     _ ->
+        %%         false
+        %% end,
     InitSockInfos =
         [
          {inet, stream, tcp},
@@ -692,7 +702,8 @@ reg_s_single_open_and_close_and_count() ->
                                  #{use_registry => false}) of
                     {ok, S} ->
                         ?P("test open sctp socket: success"),
-                        (catch socket:close(S)),
+                        ?CATCH_AND_IGNORE( socket:close(S) ),
+                        %% (catch socket:close(S)),
                         [
                          {inet, seqpacket, sctp},
                          {inet, seqpacket, sctp}
@@ -719,7 +730,8 @@ reg_s_single_open_and_close_and_count() ->
                                  #{use_registry => false}) of
                     {ok, S6} ->
                         ?P("test open sctp socket: success"),
-                        (catch socket:close(S6)),
+                        ?CATCH_AND_IGNORE( socket:close(S6) ),
+                        %% (catch socket:close(S6)),
                         [
                          {inet6, seqpacket, sctp},
                          {inet6, seqpacket, sctp}
@@ -5778,7 +5790,8 @@ mon_closed_socket(InitState) ->
            cmd  => fun(#{tester := Tester,
 			 sock   := Sock} = State) ->
                            ?SEV_ANNOUNCE_READY(Tester, init, Sock),
-                           (catch socket:close(Sock)),
+                           ?CATCH_AND_IGNORE( socket:close(Sock) ),
+                           %% (catch socket:close(Sock)),
                            {ok, maps:remove(sock, State)}
                    end},
 
@@ -7060,7 +7073,8 @@ sc_lc_receive_response_udp(InitState) ->
                                {error, eafnosupport = Reason} ->
                                    ?SEV_IPRINT("Failed get socket name: "
                                                "~n   ~p", [Reason]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
+                                   %% (catch socket:close(Sock)),
                                    {skip, Reason};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Failed get socket name: "
@@ -7666,7 +7680,8 @@ sc_lc_acceptor_response_tcp(InitState) ->
                                    ok;
                                {ok, Sock} ->
                                    ?SEV_EPRINT("unexpected success"),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
+                                   %% (catch socket:close(Sock)),
                                    {error, unexpected_success};
                                {error, _} = ERROR ->
                                    ERROR
@@ -11993,35 +12008,41 @@ otp18240_client(ID, Domain, Proto, Addr, PortNo) ->
                 {ok, Data} ->
                     i("[connector ~w] received unexpected data: "
                       "~n   ~p", [ID, Data]),
-                    (catch socket:close(Sock)),
+                    ?CATCH_AND_IGNORE( socket:close(Sock) ),
+                    %% (catch socket:close(Sock)),
                     exit('unexpected data');
                 {error, closed} ->
                     i("[connector ~w] expected socket close", [ID]);
                 {error, Reason} ->
                     i("[connector ~w] unexpected error when reading: "
                       "~n   ~p", [ID, Reason]),
-                    (catch socket:close(Sock))
+                    ?CATCH_AND_IGNORE( socket:close(Sock) )
+		    %% (catch socket:close(Sock))
             end;
         {error, {completion_status, #{info := invalid_netname = R} = Reason}} ->
             i("[connector ~w] failed connecting: "
               "~n   ~p", [ID, Reason]),
-            (catch socket:close(Sock)),
+            ?CATCH_AND_IGNORE( socket:close(Sock) ),
+            %% (catch socket:close(Sock)),
             exit({skip, R});
         {error, {completion_status, invalid_netname = Reason}} ->
             i("[connector ~w] failed connecting: "
               "~n   ~p", [ID, Reason]),
-            (catch socket:close(Sock)),
+            ?CATCH_AND_IGNORE( socket:close(Sock) ),
+            %% (catch socket:close(Sock)),
             exit({skip, Reason});
         {error, enetunreach = Reason} ->
             i("[connector ~w] failed connecting: "
               "~n   ~p", [ID, Reason]),
-            (catch socket:close(Sock)),
+            ?CATCH_AND_IGNORE( socket:close(Sock) ),
+            %% (catch socket:close(Sock)),
             exit({skip, Reason});
 
         {error, Reason} ->
             i("[connector ~w] failed connecting: "
               "~n   ~p", [ID, Reason]),
-            (catch socket:close(Sock))
+            ?CATCH_AND_IGNORE( socket:close(Sock) )
+	    %% (catch socket:close(Sock))
     end,
     i("[connector ~w] done", [ID]),
     ok.
@@ -12138,7 +12159,8 @@ do_otp18635(_) ->
                   receive
                       {Parent, terminate} ->
                           ?P("[connector] terminate - close socket"),
-                          (catch socket:close(CSock)),
+                          ?CATCH_AND_IGNORE( socket:close(CSock) ),
+                          %% (catch socket:close(CSock)),
                           exit(normal)
                   end
           end),
@@ -12276,7 +12298,8 @@ do_otp19063(_) ->
                   receive
                       {Parent, terminate} ->
                           ?P("[connector] terminate - close socket"),
-                          (catch socket:close(CSock1)),
+                          ?CATCH_AND_IGNORE( socket:close(CSock1) ),
+                          %% (catch socket:close(CSock1)),
                           exit(normal)
                   end
           end),
@@ -13032,7 +13055,8 @@ do_otp19482_simple_single(#{n       := N,
                           end,
 
                           ?P("[client] close socket"),
-                          (catch socket:close(CSock)),
+                          ?CATCH_AND_IGNORE( socket:close(CSock) ),
+                          %% (catch socket:close(CSock)),
                           ?P("[client] terminate"),
                           exit(normal)
                   end
@@ -13200,7 +13224,8 @@ otp19482_simple_single_server_exchange(Sock, Verify, Sz, N) ->
 	       "~n   sz(BadData): ~w"
 	       "~n   info(Sock):  ~p",
 	       [N, Sz, byte_size(BadData), socket:info(Sock)]),
-	    (catch Verify(BadData)),
+	    ?CATCH_AND_IGNORE( Verify(BadData) ),
+	    %% (catch Verify(BadData)),
 	    ?FAIL({unexpected_recv_result, timeout});
 	{error, {Reason, Data}} ->
 	    ?P("[server,~w] receive failed with data: "
@@ -13752,7 +13777,8 @@ otp19482_simple_multi_client_init(Parent, ID, LSA, Port, IOV) ->
             end,
 
             ?P("C[~w] -> close socket", [ID]),
-            (catch socket:close(Sock)),
+            ?CATCH_AND_IGNORE( socket:close(Sock) ),
+            %% (catch socket:close(Sock)),
             ?P("C[~w] -> terminate", [ID]),
             exit(normal)
     end.
@@ -13988,7 +14014,8 @@ do_otp19482_async_simple_single(#{iov_max := IOVMax,
                           end,
 
                           ?P("[client] close socket"),
-                          (catch socket:close(CSock)),
+                          ?CATCH_AND_IGNORE( socket:close(CSock) ),
+                          %% (catch socket:close(CSock)),
                           ?P("[client] terminate"),
                           exit(normal)
                   end
