@@ -878,9 +878,11 @@ error_info(_Config) ->
          {exit, 1},
 
          {exit, [a, b]},
-         {exit_signal, [a, b]},
          {exit, [Pid, bye, [blipp]]},
          {exit, [garbage, bye, [priority]]},
+         {exit_signal, [a, b]},
+         {exit_signal, [Pid, bye, [blipp]]},
+         {exit_signal, [garbage, bye, [priority]]},
 
          {external_size, [a], [no_fail]},
          {external_size, [abc, xyz]},
