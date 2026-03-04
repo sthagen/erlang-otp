@@ -1,6 +1,10 @@
 #-*-makefile-*-   ; force emacs to enter makefile-mode
 
-SUB_DIRECTORIES = src c_src doc
+ifeq ($(ODBC_CAN_BUILD_DRIVER), true)
+   SUB_DIRECTORIES = src c_src doc
+else
+  SUB_DIRECTORIES = src doc
+endif
 
 # %CopyrightBegin%
 #
