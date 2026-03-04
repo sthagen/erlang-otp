@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2007-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1028,21 +1028,25 @@ type_errors(Config) when is_list(Config) ->
 	 {linger,banan}
 	],
     lists:foreach(fun(Option) ->
-			  case
-			      catch create_socketpair(Config, [Option], []) of
-			      {'EXIT',badarg} ->
-				  ok;
+			  try create_socketpair(Config, [Option], []) of
 			      Unexpected1 ->
 				  exit({unexpected,
 					Unexpected1})
+			  catch
+			      exit:badarg ->
+				  ?P("~s -> catched expected (exit) badarg",
+				     [?FUNCTION_NAME]),
+				  ok
 			  end,
-			  case
-			      catch create_socketpair(Config, [], [Option]) of
-			      {'EXIT', badarg} ->
-				  ok;
+			  try create_socketpair(Config, [], [Option]) of
 			      Unexpected2 ->
 				  exit({unexpected,
 					Unexpected2})
+			  catch
+			      exit:badarg ->
+				  ?P("~s -> catched expected (exit) badarg",
+				     [?FUNCTION_NAME]),
+				  ok
 			  end,
 			  {Sock1,Sock2} = create_socketpair(Config, [], []),
 			  case inet:setopts(Sock1, [Option]) of
@@ -1237,7 +1241,8 @@ make_check_fun(_Config) ->
                     gen_udp:close(S1),
                     gen_udp:close(S2)
                 end
-            catch Class : Reason : Stacktrace ->
+            catch
+		Class : Reason : Stacktrace ->
                     erlang:raise(Class, {fail,Reason,Spec}, Stacktrace)
             end
     end.
@@ -1414,7 +1419,7 @@ ask_helper(Port,Code) ->
     end.
 
 stop_helper(Port) ->
-    catch ask_helper(Port,?C_QUIT),
+    ?CATCH_AND_IGNORE( ask_helper(Port,?C_QUIT) ),
     receive
 	{Port,eof} ->
 	    Port ! {self(), close},
