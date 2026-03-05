@@ -1258,11 +1258,13 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
                [do not use any alternatives to embedded 3pps]),
 [ case "$enableval" in
     no)
+      enable_builtin_errno_id=yes
       enable_builtin_zlib=yes
       use_embedded_3pp_alts=no
       use_embedded_3pp_alts_val=0
       ;;
     *)
+      enable_builtin_errno_id=no
       enable_builtin_zlib=no
       use_embedded_3pp_alts=yes
       use_embedded_3pp_alts_val=1
@@ -1270,6 +1272,7 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
   esac
 ],
 [
+  enable_builtin_errno_id=yes
   enable_builtin_zlib=no
   use_embedded_3pp_alts=default
   use_embedded_3pp_alts_val=-1
@@ -1277,6 +1280,33 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
 
 AC_DEFINE_UNQUOTED(ERTS_USE_EMBEDDED_3PP_ALTS, $use_embedded_3pp_alts_val,
   [Define to 1 if alternatives to embedded 3pps should be used, 0 if not, and -1 to use the default])
+
+dnl -------------
+dnl errno id
+dnl -------------
+
+AC_ARG_ENABLE(builtin-errno-id,
+AS_HELP_STRING([--enable-builtin-errno-id],
+               [force use of our own built-in errno-id])
+AS_HELP_STRING([--disable-builtin-errno-id],
+               [try to find an alternative on the system to use for errno-id]),
+  [case "$enableval" in
+      no) enable_builtin_errno_id=no ;;
+      *)  enable_builtin_errno_id=yes ;;
+    esac])
+
+AC_CHECK_FUNCS([strerrorname_np])
+
+AS_IF([test "$ac_cv_func_strerrorname_np" != "yes"],
+      [enable_builtin_errno_id=yes])
+
+AS_IF([test $enable_builtin_errno_id = yes],
+      [
+        AC_DEFINE(ERTS_USE_BUILTIN_ERRNO_ID, [1], [Define if builtin errno id should be used])
+      ])
+
+ERTS_USE_BUILTIN_ERRNO_ID=$enable_builtin_errno_id
+AC_SUBST(ERTS_USE_BUILTIN_ERRNO_ID)
 
 dnl -------------
 dnl zlib

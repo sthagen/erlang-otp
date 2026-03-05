@@ -1299,6 +1299,8 @@ create_vendor_relations(NewVendorPackages, #{~"packages" := Packages, ~"relation
                                           create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-asmjit" ->
                                           create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
+                                      ~"SPDXRef-otp-erts-tcl" ->
+                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-autoconf" ->
                                           %% hard-code that erts-autoconf is a build tool of
                                           create_spdx_relation('BUILD_TOOL_OF', ID, RootId);
