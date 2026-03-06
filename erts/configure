@@ -852,6 +852,7 @@ with_libatomic_ops
 with_with_sparc_memory_order
 enable_ppc_lwsync_instruction
 with_threadnames
+enable_use_embedded_3pp_alternatives
 enable_builtin_zlib
 enable_esock
 enable_esock_use_rcvsndtimeo
@@ -1597,7 +1598,13 @@ Optional Features:
                           enable use of powerpc lwsync instruction
   --disable-ppc-lwsync-instruction
                           disable use of powerpc lwsync instruction
+  --enable-use-embedded-3pp-alternatives
+                          use all available alternatives instead of embedded
+                          3pps
+  --disable-use-embedded-3pp-alternatives
+                          do not use any alternatives to embedded 3pps
   --enable-builtin-zlib   force use of our own built-in zlib
+  --disable-builtin-zlib  try to find a zlib on the system to use
   --enable-esock          enable builtin socket (as a nif) support (default)
   --disable-esock         disable builtin socket (as a nif) support
   --enable-esock-rcvsndtimeo
@@ -16647,6 +16654,36 @@ printf "%s\n" "#define HAVE_WCWIDTH 1" >>confdefs.h
 
 fi
 
+# Check whether --enable-use-embedded-3pp-alternatives was given.
+if test ${enable_use_embedded_3pp_alternatives+y}
+then :
+  enableval=$enable_use_embedded_3pp_alternatives;  case "$enableval" in
+    no)
+      enable_builtin_zlib=yes
+      use_embedded_3pp_alts=no
+      use_embedded_3pp_alts_val=0
+      ;;
+    *)
+      enable_builtin_zlib=no
+      use_embedded_3pp_alts=yes
+      use_embedded_3pp_alts_val=1
+      ;;
+  esac
+
+else case e in #(
+  e)
+  enable_builtin_zlib=no
+  use_embedded_3pp_alts=default
+  use_embedded_3pp_alts_val=-1
+ ;;
+esac
+fi
+
+
+
+printf "%s\n" "#define ERTS_USE_EMBEDDED_3PP_ALTS $use_embedded_3pp_alts_val" >>confdefs.h
+
+
 
 # Check whether --enable-builtin-zlib was given.
 if test ${enable_builtin_zlib+y}
@@ -16655,9 +16692,6 @@ then :
       no) enable_builtin_zlib=no ;;
       *)  enable_builtin_zlib=yes ;;
     esac
-else case e in #(
-  e) enable_builtin_zlib=no ;;
-esac
 fi
 
 
@@ -16799,6 +16833,15 @@ LIBS=$zlib_save_LIBS
 
   ;;
 esac
+fi
+
+if test "$Z_LIB" = ""
+then :
+
+
+printf "%s\n" "#define ERTS_USE_BUILTIN_ZLIB 1" >>confdefs.h
+
+
 fi
 
 

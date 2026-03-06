@@ -348,6 +348,7 @@ RC=false
 endif
 endif
 
+DEPLIBS =
 CS_CFLAGS_ = $(TYPE_FLAGS) $(DEFS) $(WFLAGS)
 ifeq ($(GCC),yes)
 CS_CFLAGS = $(subst $(space)-O2$(space), $(GEN_OPT_FLGS) $(UNROLL_FLG) , $(CS_CFLAGS_))
@@ -362,9 +363,8 @@ LIBS	+= @TERMCAP_LIB@ -L../lib/internal/$(TARGET) @ERTS_INTERNAL_X_LIBS@
 ifdef Z_LIB
 # Use shared zlib library
 LIBS += $(Z_LIB)
-DEPLIBS =
 else
-DEPLIBS=$(ZLIB_LIBRARY)
+DEPLIBS += $(ZLIB_LIBRARY)
 ifeq ($(TARGET),win32)
 LIBS    += -L$(ZLIB_OBJDIR) -lz
 else
