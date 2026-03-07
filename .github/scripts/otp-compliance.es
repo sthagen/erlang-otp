@@ -1297,6 +1297,8 @@ create_vendor_relations(NewVendorPackages, #{~"packages" := Packages, ~"relation
                                   case ID of
                                       ~"SPDXRef-otp-erts-zlib" ->
                                           create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
+                                      ~"SPDXRef-otp-erts-zstd" ->
+                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-asmjit" ->
                                           create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-tcl" ->

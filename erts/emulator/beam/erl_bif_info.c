@@ -3589,7 +3589,11 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
         xtra -= 2;
 
         hp = erts_produce_heap(&hfact, 2, xtra);
+#ifdef ERTS_USE_BUILTIN_ZSTD
         included = CONS(hp, AM_zstd, included);
+#else
+        excluded = CONS(hp, AM_zstd, excluded);
+#endif
         xtra -= 2;
 
         hp = erts_produce_heap(&hfact, 2, xtra);

@@ -32,6 +32,7 @@ DTRACE_ENABLED=@DTRACE_ENABLED@
 DTRACE_ENABLED_2STEP=@DTRACE_ENABLED_2STEP@
 USE_VM_PROBES=@USE_VM_PROBES@
 LIBS = @LIBS@
+LIBZSTD=@LIBZSTD@
 Z_LIB=@Z_LIB@
 CROSS_COMPILING = @CROSS_COMPILING@
 NO_INLINE_FUNCTIONS=false
@@ -398,6 +399,10 @@ else
 LIBS += $(OPENSSL_LIB)
 endif
 
+ifdef LIBZSTD
+# Use system libzstd
+LIBS += $(LIBZSTD)
+else
 ZSTD_DIR = $(ERL_TOP)/erts/emulator/zstd/obj/$(TARGET)/$(TYPE)
 ZSTD_LIB = $(ZSTD_DIR)/$(LIB_PREFIX)zstd$(LIB_SUFFIX)
 DEPLIBS += $(ZSTD_LIB)
@@ -407,6 +412,7 @@ LIBS    += -L$(ZSTD_DIR) -lzstd
 else
 # Build on darwin fails if -l$(ZSTD_LIB) is used
 LIBS    += $(ZSTD_LIB)
+endif
 endif
 
 LIBSCTP = @LIBSCTP@
@@ -842,7 +848,10 @@ COMMON_INCLUDES = -Ibeam -Isys/$(ERLANG_OSTYPE) -Isys/common -I$(TARGET)
 ifndef Z_LIB
 COMMON_INCLUDES += -Izlib 
 endif
-COMMON_INCLUDES += -Ipcre -Iryu -Iopenssl/include -Izstd
+ifndef LIBZSTD
+COMMON_INCLUDES += -Izstd
+endif
+COMMON_INCLUDES += -Ipcre -Iryu -Iopenssl/include
 COMMON_INCLUDES += -I../include -I../include/$(TARGET)
 COMMON_INCLUDES += -I../include/internal -I../include/internal/$(TARGET)
 

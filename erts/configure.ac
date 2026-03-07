@@ -1259,12 +1259,14 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
 [ case "$enableval" in
     no)
       enable_builtin_errno_id=yes
+      enable_builtin_zstd=yes
       enable_builtin_zlib=yes
       use_embedded_3pp_alts=no
       use_embedded_3pp_alts_val=0
       ;;
     *)
       enable_builtin_errno_id=no
+      enable_builtin_zstd=no
       enable_builtin_zlib=no
       use_embedded_3pp_alts=yes
       use_embedded_3pp_alts_val=1
@@ -1273,6 +1275,7 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
 ],
 [
   enable_builtin_errno_id=yes
+  enable_builtin_zstd=yes
   enable_builtin_zlib=no
   use_embedded_3pp_alts=default
   use_embedded_3pp_alts_val=-1
@@ -1307,6 +1310,59 @@ AS_IF([test $enable_builtin_errno_id = yes],
 
 ERTS_USE_BUILTIN_ERRNO_ID=$enable_builtin_errno_id
 AC_SUBST(ERTS_USE_BUILTIN_ERRNO_ID)
+
+dnl -------------
+dnl zstd
+dnl -------------
+
+AC_ARG_ENABLE(builtin-zstd,
+AS_HELP_STRING([--enable-builtin-zstd],
+               [force use of our own built-in zstd])
+AS_HELP_STRING([--disable-builtin-zstd],
+               [try to find a static libzstd on the system to use]),
+  [ case "$enableval" in
+      no) enable_builtin_zstd=no ;;
+      *)  enable_builtin_zstd=yes ;;
+    esac ])
+
+LIBZSTD=
+
+AS_IF([test "$enable_builtin_zstd" = "no"],
+ [
+  AC_MSG_CHECKING(for static libzstd of version 1.5.6 or higher)
+  zstd_save_LIBS=$LIBS
+  LIBS="-l:libzstd.a $LIBS"
+  AC_LINK_IFELSE(
+     [AC_LANG_PROGRAM([[
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#include <zdict.h>
+]],[[
+#if ZSTD_VERSION_NUMBER >= 10506
+    (void) ZSTD_createCCtx_advanced(ZSTD_defaultCMem);
+#else
+#error "No libzstd of version 1.5.6 or higher found"
+error
+#endif
+]])
+],
+[
+ LIBZSTD="-l:libzstd.a"
+ AC_MSG_RESULT(yes)
+],[
+ AC_MSG_RESULT([no, using builtin zstd instead])
+])
+
+LIBS="$zstd_save_LIBS"
+
+ ])
+
+AC_SUBST(LIBZSTD)
+
+AS_IF([test "$LIBZSTD" = ""],
+      [
+        AC_DEFINE(ERTS_USE_BUILTIN_ZSTD, [1], [Define if builtin zstd should be used])
+      ])
 
 dnl -------------
 dnl zlib
