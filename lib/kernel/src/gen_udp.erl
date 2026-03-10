@@ -1,8 +1,8 @@
 %%
 %% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 1997-2024. All Rights Reserved.
-%% 
+%%
+%% Copyright Ericsson AB 1997-2026. All Rights Reserved.
+%%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
@@ -141,7 +141,7 @@
 %% -- open ------------------------------------------------------------------
 
 -spec open(Port) -> {ok, Socket} | {error, Reason} when
-      Port   :: inet:port_number(),
+      Port   :: inet:port_number() | -1,
       Socket :: socket(),
       Reason :: system_limit | inet:posix().
 
@@ -149,7 +149,7 @@ open(Port) ->
     open(Port, []).
 
 -spec open(Port, Opts) -> {ok, Socket} | {error, Reason} when
-      Port   :: inet:port_number(),
+      Port   :: inet:port_number() | -1,
       Opts   :: [inet:inet_backend() | open_option()],
       Socket :: socket(),
       Reason :: system_limit | inet:posix().

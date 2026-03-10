@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>2009</year><year>2022</year>
+      <year>2009</year><year>2026</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -41,8 +41,34 @@
       <seeerl marker="kernel:inet"><c>inet</c></seeerl>.</p>
     <p>This DNS client can resolve DNS records even if it
       is not used for normal name resolving in the node.</p>
-    <p>This is not a full-fledged resolver, only a
-      DNS client that relies on asking trusted recursive name servers.</p>
+    <warning>
+      <p>
+        This is not a full-fledged resolver, only a DNS client
+        that relies on being in trusted network shielded from
+        DNS reply spoofing by firewalls, and on asking only trusted
+        recursive name servers.
+      </p>
+      <p>
+        If the Crypto application is loaded, this implementation
+        does its best to not be fooled by spoofed DNS replies.
+        This is nevertheless a meager remedy compared to using
+        encrypted and signed DNS methods like TSIG or DNSSEC,
+        as full fledged resolvers do.
+      </p>
+    </warning>
+    <note>
+      <p>
+        If the Crypto application is loaded, this resolver client uses
+        cryptographically random transaction IDs and port numbers,
+        which should render the probability for a sucessfully brute force
+        spoofed reply to be too low to be a usable exploit.
+        An Erlang node that is installed in an exposed network environment
+        should already have the Crypto application loaded for example
+        to run the SSL application.  If this is not the case,
+        the Crypto application can be explicitly loaded with
+        <c>application:load(crypto)</c>.
+      </p>
+    </note>
   </description>
 
   <section>
@@ -87,6 +113,15 @@
     if the query to all <c>nameservers</c> results in
     <c>{error,nxdomain}</c> or an empty answer, the same
     query is tried for <c>alt_nameservers</c>.</p>
+
+    <p>
+      If randomization of transaction ID:s and port numbers
+      is too costly for an Erlang node in a trusted network
+      shielded from DNS reply spoofing, the legacy behaviour to
+      reuse the UDP socket on retries and use sequential
+      transaction ID:s can be configured by setting
+      the resolver option <c>random</c> to <c>false</c>.
+    </p>
   </section>
 
   <section>

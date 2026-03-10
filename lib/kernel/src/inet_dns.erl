@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2023. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -30,7 +30,8 @@
 %% RFC 7553: The Uniform Resource Identifier (URI) DNS Resource Record
 %% RFC 6762: Multicast DNS
 
--export([decode/1, encode/1]).
+-export([decode/1, decode_reply/2,
+         update_id/2, encode/1]).
 
 -import(lists, [reverse/1]).
 
@@ -151,49 +152,104 @@ decode(Buffer) when is_binary(Buffer) ->
 	    {error,Reason}
     end.
 
-do_decode(<<Id:16,
-	   QR:1,Opcode:4,AA:1,TC:1,RD:1,
-	   RA:1,PR:1,_:2,Rcode:4,
-	   QdCount:16,AnCount:16,NsCount:16,ArCount:16,
-	   QdBuf/binary>>=Buffer) ->
+decode_reply(Buffer, #dns_rec{} = Q) when is_binary(Buffer) ->
+    try do_decode_reply(Buffer, Q) of
+        DnsReq -> {ok, DnsReq}
+    catch
+        Reason ->
+            {error, Reason}
+    end.
+
+do_decode(
+  <<Id:16,
+    QR:1,Opcode:4,AA:1,TC:1,RD:1,
+    RA:1,PR:1,_:2,Rcode:4,
+    QdCount:16,AnCount:16,NsCount:16,ArCount:16,
+    QdBuf/binary>> = Buffer) ->
+    %%
     {AnBuf,QdList,QdTC} = decode_query_section(QdBuf,QdCount,Buffer),
-    {NsBuf,AnList,AnTC} = decode_rr_section(AnBuf,AnCount,Buffer),
-    {ArBuf,NsList,NsTC} = decode_rr_section(NsBuf,NsCount,Buffer),
-    {Rest,ArList,ArTC} = decode_rr_section(ArBuf,ArCount,Buffer),
-    ?MATCH_ELSE_DECODE_ERROR(
-       Rest,
-       <<>>,
-       begin
-           HdrTC = decode_boolean(TC),
-           DnsHdr =
-               #dns_header{id=Id,
-                           qr=decode_boolean(QR),
-                           opcode=decode_opcode(Opcode),
-                           aa=decode_boolean(AA),
-                           tc=HdrTC,
-                           rd=decode_boolean(RD),
-                           ra=decode_boolean(RA),
-                           pr=decode_boolean(PR),
-                           rcode=Rcode},
-           ?MATCH_ELSE_DECODE_ERROR(
-              %% Header marked as truncated, or no section
-              %% marked as truncated.
-              %% The converse; a section marked as truncated,
-              %% but not the header - is a parse error.
-              %%
-              HdrTC or (not (QdTC or AnTC or NsTC or ArTC)),
-              true,
-              begin
-                  #dns_rec{header=DnsHdr,
-                           qdlist=QdList,
-                           anlist=AnList,
-                           nslist=NsList,
-                           arlist=ArList}
-              end)
-       end);
-do_decode(_) ->
-    %% DNS message does not even match header
-    throw(?DECODE_ERROR).
+    H_TC = decode_boolean(TC),
+    QdTC andalso not H_TC
+        andalso throw(?DECODE_ERROR),
+    DnsHdr =
+        #dns_header{
+           id     = Id,
+           qr     = decode_boolean(QR),
+           opcode = decode_opcode(Opcode),
+           aa     = decode_boolean(AA),
+           tc     = H_TC,
+           rd     = decode_boolean(RD),
+           ra     = decode_boolean(RA),
+           pr     = decode_boolean(PR),
+           rcode  = Rcode},
+    do_decode(
+      Buffer, DnsHdr, QdList, AnBuf, AnCount, NsCount, ArCount).
+
+do_decode_reply(
+  <<Id:16, _/binary>> = Buffer,
+  #dns_rec{ header = Q_H, qdlist = [Q_RR] }) ->
+    Id =:= Q_H#dns_header.id orelse throw(badid),
+    do_decode_reply(Buffer, Q_H, Q_RR, Id).
+
+do_decode_reply(
+  <<_:16,
+    QR:1,Opcode:4,AA:1,TC:1,RD:1,
+    RA:1,PR:1,_:2,Rcode:4,
+    QdCount:16,AnCount:16,NsCount:16,ArCount:16,
+    QdBuf/binary>> = Buffer,
+  Q_H, Q_RR, Id) ->
+    %%
+    (H_QR = decode_boolean(QR))
+        orelse throw(unknown),
+    (H_Opcode = decode_opcode(Opcode)) =:= Q_H#dns_header.opcode
+        orelse throw(unknown),
+    (H_RD = decode_boolean(RD)) andalso not Q_H#dns_header.rd
+        andalso throw(unknown),
+    %%
+    QdCount == 1
+        orelse throw(noquery),
+    {AnBuf, [RR], QdTC} = decode_query_section(QdBuf, QdCount, Buffer),
+    RR#dns_query.class    =:= Q_RR#dns_query.class andalso
+        RR#dns_query.type =:= Q_RR#dns_query.type  andalso
+        inet_db:eq_domains(RR#dns_query.domain, Q_RR#dns_query.domain)
+        orelse throw(noquery),
+    H_TC = decode_boolean(TC),
+    QdTC andalso not H_TC
+        andalso throw(?DECODE_ERROR),
+    DnsHdr =
+        #dns_header{
+           id     = Id,
+           qr     = H_QR,
+           opcode = H_Opcode,
+           aa     = decode_boolean(AA),
+           tc     = H_TC,
+           rd     = H_RD,
+           ra     = decode_boolean(RA),
+           pr     = decode_boolean(PR),
+           rcode  = Rcode},
+    do_decode(
+      Buffer, DnsHdr, [RR], AnBuf, AnCount, NsCount, ArCount);
+do_decode_reply(<<_/binary>>, _Q_H, _Q_RR, _Id) ->
+    throw(unknown).
+
+do_decode(Buffer, DnsHdr, QdList, AnBuf, AnCount, NsCount, ArCount) ->
+    {NsBuf,AnList,AnTC} =
+        decode_rr_section(AnBuf, AnCount, Buffer),
+    {ArBuf,NsList,NsTC} =
+        decode_rr_section(NsBuf, NsCount, Buffer),
+    {Rest,ArList,ArTC} =
+        decode_rr_section(ArBuf, ArCount, Buffer),
+    Rest =:= <<>>
+        orelse throw(?DECODE_ERROR),
+    ((AnTC orelse NsTC orelse ArTC) =:= DnsHdr#dns_header.tc)
+        orelse throw(?DECODE_ERROR),
+    #dns_rec{
+       header = DnsHdr,
+       qdlist = QdList,
+       anlist = AnList,
+       nslist = NsList,
+       arlist = ArList}.
+
 
 decode_query_section(Bin, N, Buffer) ->
     decode_query_section(Bin, N, Buffer, []).
@@ -265,6 +321,13 @@ decode_rr_section(Bin, N, Buffer, RRs) ->
 %% Encode a user query
 %%
 
+%% Update the ID field
+update_id(<<_:16, EncMsg/binary>>, Id) ->
+    [<<Id:16>>, EncMsg];
+update_id([<<_:16>> | EncMsg], Id) ->
+    [<<Id:16>> | EncMsg].
+
+
 encode(Q) ->
     QdCount = length(Q#dns_rec.qdlist),
     AnCount = length(Q#dns_rec.anlist),
@@ -277,7 +340,6 @@ encode(Q) ->
     {B3,C3} = encode_res_section(B2, C2, Q#dns_rec.nslist),
     {B,_} = encode_res_section(B3, C3, Q#dns_rec.arlist),
     B.
-
 
 %% RFC 1035: 4.1.1. Header section format
 %%
