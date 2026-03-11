@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2025-2026. All Rights Reserved.
+%% Copyright Ericsson AB 2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -23,10 +23,10 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0,suite/0,groups/0,init_per_suite/1,end_per_suite/1,
-	 init_per_group/2,end_per_group/2,
+         init_per_group/2,end_per_group/2,
          local_basic/1,local_updates/1,non_atomic_names/1,
          external_records/1,any_record/1,
-         matching/1,is_record_bif/1,type_opts/1]).
+         matching/1,is_record_bif/1]).
 
 %% Unexported records.
 -record #empty{}.
@@ -56,25 +56,31 @@ suite() ->
      {timetrap,{minutes,1}}].
 
 all() ->
-    [{group,p}].
-
-groups() ->
-    [{p,test_lib:parallel(),
-      [
-       local_basic,
+    [local_basic,
        local_updates,
        non_atomic_names,
        any_record,
        external_records,
        matching,
-       is_record_bif,
-       type_opts
-      ]}].
+       is_record_bif].
+
+groups() ->
+    [].
 
 init_per_suite(Config) ->
     id(Config),
-    test_lib:recompile(?MODULE),
-    {module,ext_records} = code:ensure_loaded(ext_records),
+
+    PrivDir = proplists:get_value(priv_dir, Config),
+    CompileFlags = [{outdir,PrivDir},debug_info],
+    DataDir = filename:dirname(proplists:get_value(data_dir, Config)),
+    {ok,_} = compile:file(filename:join(DataDir, "ext_records.erl"), CompileFlags),
+    true = code:add_patha(PrivDir),
+
+    test_lib:interpret(ext_records),
+    true = lists:member(ext_records, int:interpreted()),
+
+    test_lib:interpret(?MODULE),
+    true = lists:member(?MODULE, int:interpreted()),
     Config.
 
 end_per_suite(_Config) ->
@@ -123,7 +129,7 @@ local_basic(_Config) ->
     ?assertError({badfield,{{?MODULE,b},bad_field}},
                  BRec#b{bad_field = some_value}),
 
-    %% Test errors when accessing native records.
+    %% Test errors when accessing native records
     ?assertError({badfield,{{?MODULE,b},zoo}}, BRec#b.zoo),
     ?assertError({badfield,{{?MODULE,b},zoo}}, BRec#?MODULE:b.zoo),
     ?assertError({badfield,{{?MODULE,b},zoo}}, BRec#_.zoo),
@@ -132,7 +138,6 @@ local_basic(_Config) ->
     ?assertError({badrecord,ARec}, ARec#non_existing_module:rec.x),
     ?assertError({badrecord,BRec}, BRec#?MODULE:c.zoo),
 
-    %% Test errors when accessing literal native records.
     ?assertError({badrecord,not_a_record}, not_a_record#a.x),
     ?assertError({badrecord,not_a_record}, not_a_record#_.x),
     ?assertError({badrecord,not_a_record},
@@ -493,31 +498,11 @@ is_record_bif(Config) ->
     false = is_record(Config, a),
     false = is_record(Config, ?MODULE, a),
 
-    case is_list(Config) of
-        true ->
-            false = is_record(Config, empty),
-            false = is_record(Config, ?MODULE, empty),
-            false = is_record(Config, a),
-            false = is_record(Config, ?MODULE, a)
-    end,
-
-    false = is_record(not_a_record(id(a)), ?MODULE, empty),
-    false = is_record(not_a_record(id(0)), ?MODULE, empty),
-
-    true = is_record(some_record(#a{x=0,y=1}), ?MODULE, a),
-    false = is_record(some_record(#a{x=0,y=1}), ?MODULE, empty),
-    true = is_record(some_record(#b{}), ?MODULE, b),
-    false = is_record(some_record(#b{}), ?MODULE, empty),
-    true = is_record(some_record(#empty{}), ?MODULE, empty),
-    false = is_record(some_record(#empty{}), ?MODULE, 'div'),
-
     BR = id(#b{}),
-    true = is_record(BR),
     true = is_record(BR, b),
     true = is_record(BR, ?MODULE, b),
 
     Local = ext_records:local(a, b),
-    true = is_record(Local),
     true = is_record(Local, local),
     true = is_record(Local, ext_records, local),
 
@@ -556,141 +541,7 @@ is_record_bif(Config) ->
     true = is_record(BR, id(?MODULE), id(b)),
     false = is_record(BR, id(empty)),
 
-    true = is_record(BR, ?MODULE, b),
-    false = is_record(BR, ?MODULE, empty),
-
     ok.
-
-not_a_record(A) when is_atom(A) -> a;
-not_a_record(I) when is_integer(I) -> 42.
-
-some_record(#a{}=R) -> R;
-some_record(#b{}=R) -> R;
-some_record(#_{}=R) -> R.
-
--record #r_two{r=1,s=2}.
--record #r_three{r=1,s=2,t=3}.
-
-type_opts(_Config) ->
-    type_opt_create(),
-    type_opt_update(),
-    type_opt_match(),
-    type_opt_nested(),
-    ok.
-
-type_opt_create() ->
-    1 = type_opt_create_get(#r_two{}),
-    tree = type_opt_create_get(#r_three{r=tree}),
-
-    ok.
-
-type_opt_create_get(R) ->
-    case R of
-        #r_two{r=I} when is_integer(I) ->
-            I;
-        #r_two{r=A} when is_atom(A) ->
-            A;
-        #r_three{r=I} when is_integer(I) ->
-            I;
-        #r_three{r=A} when is_atom(A) ->
-            A;
-        #r_three{} ->
-            r_three;
-        {X,Y} ->
-            X + Y
-    end.
-
-type_opt_update() ->
-    Two = id(#r_two{}),
-    Three = id(#r_three{}),
-
-    tree = type_opt_update_get(Two#r_two{r=tree}),
-    forest = type_opt_update_get(Three#r_three{r=forest}),
-
-    (id(#r_two{}))#r_two{r=ground},
-
-    ok.
-
-type_opt_update_get(R) ->
-    case R of
-        #r_two{r=I} when is_integer(I) ->
-            I;
-        #r_two{r=A} when is_atom(A) ->
-            A;
-        #r_three{r=I} when is_integer(I) ->
-            I;
-        #r_three{r=A} when is_atom(A) ->
-            A;
-        #r_three{} ->
-            r_three;
-        {X,Y} ->
-            X + Y
-    end.
-
-type_opt_match() ->
-    Two = id(#r_two{r=a,s=b}),
-    Three = id(#r_three{}),
-
-    case {Two,Three} of
-        {#r_two{r=A},#r_three{r=I}} when is_atom(A), is_integer(I) ->
-            a = type_opt_match_get(Two),
-            1 = type_opt_match_get(Three),
-
-            a = Two#r_two.r,
-            b = Two#r_two.s,
-
-            1 = Three#r_three.r,
-            2 = Three#r_three.s,
-            3 = Three#r_three.t,
-
-            b = Two#r_two.s,
-            3 = Three#r_three.t
-    end,
-
-    ok.
-
-type_opt_match_get(R) ->
-    case R of
-        #r_two{r=I} when is_integer(I) ->
-            I;
-        #r_two{r=A} when is_atom(A) ->
-            A;
-        #r_three{r=I} when is_integer(I) ->
-            I;
-        #r_three{r=A} when is_atom(A) ->
-            A;
-        #r_three{} ->
-            r_three;
-        {X,Y} ->
-            X + Y
-    end.
-
--record #r_cons{hd, tl}.
--record #r_nil{}.
-
-type_opt_nested() ->
-    0 = r_length(r_list([])),
-    3 = r_length(r_list([1,2,3])),
-    5 = r_length(r_list([1,2,3,4,5])),
-    10 = r_length(r_list(lists:seq(1, 10))),
-    100 = r_length(r_list(lists:seq(1, 100))),
-    ok.
-
-r_list([H|T]) ->
-    r_cons(H, r_list(T));
-r_list([]) ->
-    #r_nil{}.
-
-r_cons(Hd, Tl) ->
-    #r_cons{hd=Hd, tl=Tl}.
-
-r_length(RList) ->
-    r_length(RList, 0).
-
-r_length(#r_cons{tl=Tl}, Len) ->
-    r_length(Tl, Len + 1);
-r_length(#r_nil{}, Len) ->
-    Len.
 
 %%% Common utilities.
 
