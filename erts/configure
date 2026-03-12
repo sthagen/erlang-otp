@@ -672,6 +672,7 @@ SYSTEMD_DAEMON_LIBS
 SOCKET_LIBS
 Z_LIB
 LIBZSTD
+ERTS_USE_BUILTIN_OPENSSL
 ERTS_USE_BUILTIN_ERRNO_ID
 TERMCAP_LIB
 THR_DEFS
@@ -858,6 +859,7 @@ with_threadnames
 enable_use_embedded_3pp_alternatives
 enable_builtin_errno_id
 enable_builtin_ryu
+enable_builtin_openssl
 enable_builtin_zstd
 enable_builtin_zlib
 enable_esock
@@ -1622,6 +1624,10 @@ Optional Features:
   --enable-builtin-ryu    use our own built-in ryu for float to short string
                           (default)
   --disable-builtin-ryu   use C++17 as an alternative for built-in ryu
+  --enable-builtin-openssl
+                          use our own built-in OpenSSL for MD5 (default)
+  --disable-builtin-openssl
+                          use an alternative for built-in OpenSSL
   --enable-builtin-zstd   force use of our own built-in zstd (default)
   --disable-builtin-zstd  try to find a static libzstd on the system to use
   --enable-builtin-zlib   force use of our own built-in zlib
@@ -16682,12 +16688,14 @@ then :
     no)
       builtin_errno_id=yes
       builtin_ryu=yes
+      builtin_openssl=yes
       builtin_zstd=yes
       builtin_zlib=yes
       ;;
     *)
       builtin_errno_id=no
       builtin_ryu=no
+      builtin_openssl=no
       builtin_zstd=no
       builtin_zlib=no
       ;;
@@ -16746,6 +16754,33 @@ then :
       no) builtin_ryu=no ;;
       *)  builtin_ryu=yes ;;
    esac
+fi
+
+
+
+# Check whether --enable-builtin-openssl was given.
+if test ${enable_builtin_openssl+y}
+then :
+  enableval=$enable_builtin_openssl; case "$enableval" in
+      no) builtin_openssl=no ;;
+      *)  builtin_openssl=yes ;;
+   esac
+fi
+
+
+if test "$builtin_openssl" = "no"
+then :
+
+        ERTS_USE_BUILTIN_OPENSSL=no
+
+else case e in #(
+  e)
+
+printf "%s\n" "#define ERTS_USE_BUILTIN_OPENSSL 1" >>confdefs.h
+
+        ERTS_USE_BUILTIN_OPENSSL=yes
+       ;;
+esac
 fi
 
 

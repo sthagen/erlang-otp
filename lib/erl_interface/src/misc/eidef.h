@@ -78,6 +78,7 @@ typedef signed   short int16;
 typedef signed   int   int32;
 
 #ifdef DEBUG
+#  include <stdlib.h>
 #  define ASSERT(Cnd) ((void) ((Cnd) ? 1 : abort()))
 #else
 #  define ASSERT(Cnd)

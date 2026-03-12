@@ -81,6 +81,9 @@
 /* Define if builtin errno id should be used */
 #undef ERTS_USE_BUILTIN_ERRNO_ID
 
+/* Define if builtin OpenSSL should be used for MD5 */
+#undef ERTS_USE_BUILTIN_OPENSSL
+
 /* Define if builtin ryu should be used */
 #undef ERTS_USE_BUILTIN_RYU
 

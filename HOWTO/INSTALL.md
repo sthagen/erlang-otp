@@ -468,6 +468,8 @@ Some of the available `configure` options are:
 *   `--disable-builtin-zlib` - Find a zlib on the system to use.
 *   `--enable-builtin-errno-id` - Force use of our own built-in errno-id.
 *   `--disable-builtin-errno-id` - Try to find an alternative on the system to use for errno-id
+*   `--enable-builtin-openssl` - Use built-in OpenSSL for MD5.
+*   `--disable-builtin-openssl` - Use alternative for built-in OpenSSL.
 
 If you or your system has special requirements please read the `Makefile` for
 additional configuration information.

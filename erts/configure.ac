@@ -1264,12 +1264,14 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
     no)
       builtin_errno_id=yes
       builtin_ryu=yes
+      builtin_openssl=yes
       builtin_zstd=yes
       builtin_zlib=yes
       ;;
     *)
       builtin_errno_id=no
       builtin_ryu=no
+      builtin_openssl=no
       builtin_zstd=no
       builtin_zlib=no
       ;;
@@ -1320,6 +1322,30 @@ AS_HELP_STRING([--disable-builtin-ryu],
       no) builtin_ryu=no ;;
       *)  builtin_ryu=yes ;;
    esac])
+
+dnl -------------
+dnl openssl (MD5)
+dnl -------------
+
+AC_ARG_ENABLE(builtin-openssl,
+AS_HELP_STRING([--enable-builtin-openssl],
+               [use our own built-in OpenSSL for MD5 (default)])
+AS_HELP_STRING([--disable-builtin-openssl],
+               [use an alternative for built-in OpenSSL]),
+  [case "$enableval" in
+      no) builtin_openssl=no ;;
+      *)  builtin_openssl=yes ;;
+   esac])
+
+AS_IF([test "$builtin_openssl" = "no"],
+      [
+        ERTS_USE_BUILTIN_OPENSSL=no
+      ],
+      [
+        AC_DEFINE(ERTS_USE_BUILTIN_OPENSSL, [1], [Define if builtin OpenSSL should be used for MD5])
+        ERTS_USE_BUILTIN_OPENSSL=yes
+      ])
+AC_SUBST(ERTS_USE_BUILTIN_OPENSSL)
 
 dnl -------------
 dnl zstd

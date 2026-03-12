@@ -688,6 +688,7 @@ CPPFLAGS
 LDFLAGS
 CFLAGS
 CC
+ERTS_USE_BUILTIN_OPENSSL
 DYNAMIC_LIB
 TARGET
 target_os
@@ -747,6 +748,8 @@ enable_option_checking
 enable_threads
 enable_mask_real_errno
 enable_ei_dynamic_lib
+enable_use_embedded_3pp_alternatives
+enable_builtin_openssl
 enable_largefile
 enable_security_hardening_flags
 with_gmp
@@ -1385,6 +1388,20 @@ Optional Features:
   --disable-threads       use to only build single threaded libs
   --disable-mask-real-errno do not mask real 'errno'
   --enable-ei-dynamic-lib  build ei as a dynamic library
+  --enable-use-embedded-3pp-alternatives
+                          use all available alternatives instead of embedded
+                          3pps. Implies all --disable-builtin-* options. Can
+                          be overridden by individual --enable-builtin-*
+                          options.
+  --disable-use-embedded-3pp-alternatives
+                          do not use any alternatives to embedded 3pps.
+                          Implies all --enable-builtin-* options. Can be
+                          overridden by individual --disable-builtin-*
+                          options.
+  --enable-builtin-openssl
+                          use our own built-in OpenSSL for MD5 (default)
+  --disable-builtin-openssl
+                          use an alternative for built-in OpenSSL
   --disable-largefile     omit support for large files
   --disable-security-hardening-flags
                           disable Open Source Security Foundation security
@@ -3203,6 +3220,48 @@ then :
   esac
 else case e in #(
   e)  DYNAMIC_LIB=no  ;;
+esac
+fi
+
+
+
+# Check whether --enable-use-embedded-3pp-alternatives was given.
+if test ${enable_use_embedded_3pp_alternatives+y}
+then :
+  enableval=$enable_use_embedded_3pp_alternatives;  case "$enableval" in
+    no)
+      builtin_openssl=yes
+      ;;
+    *)
+      builtin_openssl=no
+      ;;
+  esac
+
+fi
+
+
+# Check whether --enable-builtin-openssl was given.
+if test ${enable_builtin_openssl+y}
+then :
+  enableval=$enable_builtin_openssl; case "$enableval" in
+      no) builtin_openssl=no ;;
+      *)  builtin_openssl=yes ;;
+   esac
+fi
+
+
+if test "$builtin_openssl" = "no"
+then :
+
+        ERTS_USE_BUILTIN_OPENSSL=no
+
+else case e in #(
+  e)
+
+printf "%s\n" "#define ERTS_USE_BUILTIN_OPENSSL 1" >>confdefs.h
+
+        ERTS_USE_BUILTIN_OPENSSL=yes
+       ;;
 esac
 fi
 

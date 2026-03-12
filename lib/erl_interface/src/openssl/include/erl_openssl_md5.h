@@ -26,11 +26,11 @@
 #undef ERLANG_OPENSSL_INTEGRATION
 #define ERLANG_OPENSSL_INTEGRATION
 
-#define MD5_INIT_FUNCTION_NAME                  ei_MD5Init
-#define MD5_UPDATE_FUNCTION_NAME                ei_MD5Update
-#define MD5_FINAL_FUNCTION_NAME                 ei_MD5Final
-#define MD5_TRANSFORM_FUNCTION_NAME             ei_MD5Transform
-#define MD5_BLOCK_DATA_ORDER_FUNCTION_NAME      ei_MD5BlockDataOrder
+#define MD5_INIT_FUNCTION_NAME                  erts_md5_init
+#define MD5_UPDATE_FUNCTION_NAME                erts_md5_update
+#define MD5_FINAL_FUNCTION_NAME                 erts_md5_finish
+//#define MD5_TRANSFORM_FUNCTION_NAME             ei_MD5Transform
+//#define MD5_BLOCK_DATA_ORDER_FUNCTION_NAME      ei_MD5BlockDataOrder
 
 #include "openssl_local/md5.h"
 

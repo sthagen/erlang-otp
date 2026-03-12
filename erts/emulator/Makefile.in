@@ -39,6 +39,7 @@ NO_INLINE_FUNCTIONS=false
 USING_VC=@MIXED_VC@
 VISIBILITY_HIDDEN=@VISIBILITY_HIDDEN@
 ERTS_USE_BUILTIN_RYU=@ERTS_USE_BUILTIN_RYU@
+ERTS_USE_BUILTIN_OPENSSL=@ERTS_USE_BUILTIN_OPENSSL@
 
 OPCODE_TABLES = \
     $(ERL_TOP)/lib/compiler/src/genop.tab \
@@ -394,12 +395,14 @@ LIBS += $(RYU_LIBRARY)
 endif
 endif
 
+ifeq ($(ERTS_USE_BUILTIN_OPENSSL),yes)
 DEPLIBS += $(OPENSSL_LIB)
 ifeq ($(TARGET),win32)
 LIBS += -L$(OPENSSL_OBJDIR) -l$(OPENSSL_LIB_NAME)
 else
 # Build on darwin fails if -l$(OPENSSL_LIB_NAME) is used
 LIBS += $(OPENSSL_LIB)
+endif
 endif
 
 ifdef LIBZSTD
@@ -542,7 +545,9 @@ include pcre/pcre.mk
 ifeq ($(ERTS_USE_BUILTIN_RYU),yes)
 include ryu/ryu.mk
 endif
+ifeq ($(ERTS_USE_BUILTIN_OPENSSL),yes)
 include openssl/openssl.mk
+endif
 include zstd/zstd.mk
 
 $(ERTS_LIB):
@@ -859,7 +864,10 @@ endif
 ifeq ($(ERTS_USE_BUILTIN_RYU),yes)
 COMMON_INCLUDES += -Iryu
 endif
-COMMON_INCLUDES += -Ipcre -Iopenssl/include
+ifeq ($(ERTS_USE_BUILTIN_OPENSSL),yes)
+COMMON_INCLUDES += -Iopenssl/include
+endif
+COMMON_INCLUDES += -Ipcre
 COMMON_INCLUDES += -I../include -I../include/$(TARGET)
 COMMON_INCLUDES += -I../include/internal -I../include/internal/$(TARGET)
 
@@ -1204,6 +1212,10 @@ RUN_OBJS += \
 	$(OBJDIR)/erl_bif_coverage.o \
 	$(OBJDIR)/erl_iolist.o \
 	$(OBJDIR)/erl_etp.o
+
+ifneq ($(ERTS_USE_BUILTIN_OPENSSL),yes)
+RUN_OBJS += $(OBJDIR)/erl_md5.o
+endif
 
 LTTNG_OBJS = $(OBJDIR)/erlang_lttng.o
 

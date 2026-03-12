@@ -14,7 +14,7 @@
 
 #if defined(ERLANG_OPENSSL_INTEGRATION)
 
-#include "erl_md5.h"
+#include "erl_openssl_md5.h"
 
 #undef OPENSSL_NO_MD5
 #undef OPENSSL_NO_DEPRECATED_3_0
