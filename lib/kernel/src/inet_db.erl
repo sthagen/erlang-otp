@@ -933,6 +933,11 @@ init([]) ->
         _ -> ok
     end,
     Db = ets:new(inet_db, [public, named_table]),
+    TidTables =
+        {tid_tables, times(),
+         ets:new(inet_res_id_red, [public]),
+         ets:new(inet_res_id_red, [public])},
+    ets:insert(Db, TidTables),
     reset_db(Db),
     CacheOpts = [public, bag, {keypos,#dns_rr.bm}, named_table],
     Cache = ets:new(inet_cache, CacheOpts),
@@ -2089,13 +2094,53 @@ handle_take_socket_type(Db, MRef) ->
 generate_next_id() ->
     case ets:lookup_element(inet_db, res_random, 2) of
         true ->
-            case crypto_rand_range(1 bsl 16) of
-                Id when is_integer(Id), 0 =< Id, Id < 1 bsl 16  -> Id;
-                undefined ->
-                    generate_next_id_legacy()
-            end;
+            generate_next_id(crypto_rand_range(1 bsl 16));
         false ->
             generate_next_id_legacy()
+    end.
+
+%% The New and the Old table contain {Id} tuples so they
+%% are simply sets of ID:s without duplicates.
+%%
+%% Generate a random ID.  If the ID is not in the Old
+%% nor in the New table, insert it in the New table.
+%%
+%% If the generated ID is a member of either table;
+%% discard it, generate a new ID, and start over.
+%%
+%% If the timestamp, T (for the Old table), is older than
+%% 60 seconds, or if the New table contains more than 8192 ID:s
+%% (both limits arbitrarily chosen), wipe the Old table
+%% and retire the New by swapping the tables.
+
+generate_next_id(undefined) ->
+    generate_next_id_legacy();
+generate_next_id(Id)
+  when is_integer(Id), 0 =< Id, Id < 1 bsl 16 ->
+    [{tid_tables, T1, New, Old}] = ets:lookup(inet_db, tid_tables),
+    T2 = times(),
+    Size = ets:info(New, size),
+    if  T1 + 60 < T2, Size < 8192 ->
+            generate_next_id(Id, T2, New, Old);
+        true ->
+            ets:delete_all_objects(Old),
+            generate_next_id(Id, T2, Old, New)
+    end.
+
+generate_next_id(Id, T, New, Old) ->
+    case ets:member(Old, Id) of
+        false ->
+            case ets:member(New, Id) of
+                false ->
+                    ets:insert(New, {Id}),
+                    TidTables = {tid_tables, T, New, Old},
+                    ets:insert(inet_db, TidTables),                 Id;
+                true ->
+                    generate_next_id(
+                      crypto_rand_range_1(1 bsl 16))
+            end;
+        true ->
+            generate_next_id(crypto_rand_range_1(1 bsl 16))
     end.
 
 generate_next_id_legacy() ->
@@ -2105,8 +2150,8 @@ generate_random_port() ->
     Min   = 1024,
     Range = (1 bsl 16) - Min,
     case crypto_rand_range(Range) of
-        V when is_integer(V), 0 =< V, V < Range                 -> Min + V;
-        undefined                                               -> 0
+        V when is_integer(V), 0 =< V, V < Range                 ->  Min + V;
+        undefined                                               ->  0
     end.
 
 -compile({nowarn_deprecated_function, {crypto,rand_uniform,2}}).
@@ -2114,10 +2159,13 @@ generate_random_port() ->
 crypto_rand_range(Range) when is_integer(Range), 0 < Range ->
     %% This is how crypto itself checks if it is loaded
     case application:get_env(crypto, fips_mode) of
-        undefined                                               -> undefined;
+        undefined                                               ->  undefined;
         {ok, Fips} when is_boolean(Fips) ->
-            try crypto:rand_uniform(0, Range) of
-                N when is_integer(N), 0 =< N, N < Range         -> N
-            catch error : low_entropy                           -> undefined
-            end
+            crypto_rand_range_1(Range)
+    end.
+
+crypto_rand_range_1(Range) ->
+    try crypto:rand_uniform(0, Range) of
+        N when is_integer(N), 0 =< N, N < Range                 ->  N
+    catch error : low_entropy                                   ->  undefined
     end.
