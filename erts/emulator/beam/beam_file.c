@@ -1262,23 +1262,23 @@ beamfile_read(const byte *data, size_t size, BeamFile *beam) {
 
     /* Compute module checksum. Please keep all parsing above this section */
     {
-        MD5_CTX md5;
+        erts_md5_state md5;
 
-        MD5Init(&md5);
+        erts_md5_init(&md5);
 
-        MD5Update(&md5,
+        erts_md5_update(&md5,
                   (byte*)chunks[UTF8_ATOM_CHUNK].data,
                   chunks[UTF8_ATOM_CHUNK].size);
-        MD5Update(&md5,
+        erts_md5_update(&md5,
                   (byte*)chunks[CODE_CHUNK].data,
                   chunks[CODE_CHUNK].size);
-        MD5Update(&md5,
+        erts_md5_update(&md5,
                   (byte*)chunks[STR_CHUNK].data,
                   chunks[STR_CHUNK].size);
-        MD5Update(&md5,
+        erts_md5_update(&md5,
                   (byte*)chunks[IMP_CHUNK].data,
                   chunks[IMP_CHUNK].size);
-        MD5Update(&md5,
+        erts_md5_update(&md5,
                   (byte*)chunks[EXP_CHUNK].data,
                   chunks[EXP_CHUNK].size);
 
@@ -1290,7 +1290,7 @@ beamfile_read(const byte *data, size_t size, BeamFile *beam) {
             * checksum hash, as it's derived using a (broken and superseded)
             * endian-dependent hash function. */
             if (left >= 4) {
-                MD5Update(&md5, (byte*)start, 4);
+                erts_md5_update(&md5, (byte*)start, 4);
 
                 start += 4;
                 left -= 4;
@@ -1299,9 +1299,9 @@ beamfile_read(const byte *data, size_t size, BeamFile *beam) {
                     static byte zero[4] = {0, 0, 0, 0};
 
                     /* Include: Function Arity Index NumFree */
-                    MD5Update(&md5, (byte*)start, 20);
+                    erts_md5_update(&md5, (byte*)start, 20);
                     /* Set to zero: OldUniq */
-                    MD5Update(&md5, (byte*)zero, 4);
+                    erts_md5_update(&md5, (byte*)zero, 4);
 
                     start += 24;
                     left -= 24;
@@ -1315,18 +1315,18 @@ beamfile_read(const byte *data, size_t size, BeamFile *beam) {
         }
 
         if (chunks[LITERAL_CHUNK].size > 0) {
-            MD5Update(&md5,
+            erts_md5_update(&md5,
                       (byte*)chunks[LITERAL_CHUNK].data,
                       chunks[LITERAL_CHUNK].size);
         }
 
         if (chunks[META_CHUNK].size > 0) {
-            MD5Update(&md5,
+            erts_md5_update(&md5,
                       (byte*)chunks[META_CHUNK].data,
                       chunks[META_CHUNK].size);
         }
 
-        MD5Final(beam->checksum, &md5);
+        erts_md5_finish(beam->checksum, &md5);
     }
 
     return BEAMFILE_READ_SUCCESS;

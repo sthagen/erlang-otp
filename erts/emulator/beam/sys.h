@@ -1251,6 +1251,18 @@ ERTS_GLB_INLINE size_t sys_strlen(const char *s)
                             ((byte*)(s))[7] = (byte)((Sint64)(i))       & 0xff;\
                            } while (0) 
 
+#define put_little_int64(i, s) \
+    do {\
+        ((byte*)(s))[7] = (byte)((Sint64)(i) >> 56); \
+        ((byte*)(s))[6] = (byte)((Sint64)(i) >> 48); \
+        ((byte*)(s))[5] = (byte)((Sint64)(i) >> 40); \
+        ((byte*)(s))[4] = (byte)((Sint64)(i) >> 32); \
+        ((byte*)(s))[3] = (byte)((Sint64)(i) >> 24); \
+        ((byte*)(s))[2] = (byte)((Sint64)(i) >> 16); \
+        ((byte*)(s))[1] = (byte)((Sint64)(i) >> 8);  \
+        ((byte*)(s))[0] = (byte)((Sint64)(i));       \
+      } while (0)
+
 /* Returns a signed int */
 #define get_int32(s) ((((byte*) (s))[0] << 24) | \
                       (((byte*) (s))[1] << 16) | \
@@ -1269,6 +1281,14 @@ ERTS_GLB_INLINE size_t sys_strlen(const char *s)
                             ((byte*)(s))[2] = (byte)((i) >> 8)  & 0xff;  \
                             ((byte*)(s))[3] = (byte)(i)         & 0xff;} \
                         while (0)
+
+#define put_little_int32(i, s) \
+    do {\
+        ((byte*)(s))[3] = (byte)((i) >> 24); \
+        ((byte*)(s))[2] = (byte)((i) >> 16); \
+        ((byte*)(s))[1] = (byte)((i) >> 8);  \
+        ((byte*)(s))[0] = (byte)(i);         \
+      } while (0)
 
 #define get_int24(s) ((((byte*) (s))[0] << 16) | \
                       (((byte*) (s))[1] << 8)  | \
