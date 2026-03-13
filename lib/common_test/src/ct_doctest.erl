@@ -321,18 +321,39 @@ Options for doctest execution.
   parser callback must be a `fun/1` and return a list of Erlang code block binaries.
   The code blocks are then checked to determine whether they should be run as doctests.
   If no parser is provided, a built-in markdown parser will be used.
+
 * `skipped_blocks` - Sets the exact number of Erlang code blocks that are allowed
-  to be skipped because no runnable shell prompts were found. It defaults to `false`.
+  to be skipped because no runnable shell prompts were found. It does not count blocks
+  in any function listed in `missing_tests`. It defaults to `false`.
+
+* `missing_tests` - A list of `{Function, Arity}` pairs that are expected to have
+  documentation but no doctests. When this option is set, `ct_doctest` will fail
+  if any documented function lacks doctests and is not in this list (i.e., a new
+  function was added without doctests), and also fail if a function in this list
+  now has doctests (i.e., the list is stale and should be updated). Defaults to
+  not checking.
+
+* `skip_tests` - A list of doc entries whose doctests should be skipped. Each entry
+  is either `moduledoc` or a `{Kind, Name, Arity}` tuple where `Kind` is
+  `function`, `type`, or `callback`. For example,
+  `[moduledoc, {function, foo, 1}]` skips the moduledoc and the `foo/1` function.
+
 * `verbose` - Print detailed information while running doctests, including each
   block run and skipped block details.
 """.
 -type options() :: [{parser, fun((unicode:unicode_binary()) -> [unicode:unicode_binary()] | {error, term()}) } |
                     {skipped_blocks, non_neg_integer() | false} |
+                    {missing_tests, [{atom(), arity()}]} |
+                    {skip_tests, [moduledoc |
+                                  {function | type | callback, atom(), arity()}]} |
                     {verbose, boolean()}].
 
 -record(options,
         { parser = fun parse_markdown_builtin/1 :: fun((unicode:unicode_binary()) -> term()),
           skipped_blocks = false :: non_neg_integer() | false,
+          missing_tests = false :: [{atom(), arity()}] | false,
+          skip_tests = [] :: [moduledoc |
+                              {function | type | callback, atom(), arity()}],
           verbose = false :: boolean() }).
 
 -doc #{equiv => module(Module, [])}.
@@ -434,36 +455,50 @@ file(File, Bindings, OptionsList) ->
             Error
     end.
 
-run_module_docs(#docs_v1{ docs = Docs, module_doc = MD },
-                Bindings, Options) ->
-    MDRes = parse_and_run(moduledoc, MD, Bindings, Options),
+run_module_docs(#docs_v1{ docs = Docs, module_doc = MD } = DocsV1,
+                Bindings, Options = #options{ skip_tests = SkipTests }) ->
+    
+    MDRes = case lists:member(moduledoc, SkipTests) of
+                true -> [];
+                false -> parse_and_run(moduledoc, MD, Bindings, Options)
+            end,
+    Equiv = sets:from_list([KFA || {KFA, _Anno, _Sig, _EntryDocs, Meta} <- Docs,
+                                   is_map_key(equiv, Meta)]),
     Res =
         lists:append(
           [parse_and_run(KFA, EntryDocs, Bindings, Options) ||
               {KFA, _Anno, _Sig, EntryDocs, _Meta} <- Docs,
-              is_map(EntryDocs)]),
+              is_map(EntryDocs),
+              not lists:member(KFA, SkipTests)]),
     Errors =
         [{{T,F,A},E} || {{T,F,A},[{error,E}],_} <- Res] ++
         [{moduledoc,E} || {moduledoc,[{error,E}],_} <- MDRes],
     _ = [io:put_chars(format_error(E)) || E <- Errors],
     case length(Errors) of
         0 ->
-            Skipped = lists:sum([Count || {_, _, Count} <- MDRes ++ Res]),
+            MissingKFAs = case Options#options.missing_tests of
+                              false -> [];
+                              MTs -> [{function,F,A} || {F,A} <- MTs]
+                          end,
+            Skipped = lists:sum([Count || {KFA, _, Count} <- MDRes ++ Res,
+                                         not lists:member(KFA, MissingKFAs)]),
             verbose_log(Options,
                         "module complete; total skipped blocks: ~p (expected ~p)",
                         [Skipped, Options#options.skipped_blocks]),
             ensure_skipped_blocks(Options#options.skipped_blocks, Skipped),
-            NoTests = lists:sort([io_lib:format("  ~p/~p\n", [F,A]) ||
-                                     {{function,F,A},[],_} <- Res]),
-            case length(NoTests) of
-                0 ->
-                    ok;
-                N ->
-                    io:format("The following functions have no tests:~n~n~ts~n",
-                              [NoTests]),
-                    {comment,
-                     lists:flatten(io_lib:format("~p functions lack tests", [N]))}
-            end;
+
+            ensure_skipped_tests(Options#options.skip_tests, DocsV1),
+
+            NoTests = lists:sort([{F,A} ||
+                                     {{function,F,A},[],_} <- Res,
+                                     not sets:is_element({function,F,A}, Equiv)]),
+            HasTests = lists:sort([{F,A} ||
+                                      {{function,F,A},RunResult,_} <- Res,
+                                      RunResult =/= []]),
+            DocFuns = [{F,A} || {{function,F,A}, _Anno, _Sig, EntryDocs, _Meta} <- Docs,
+                                is_map(EntryDocs)],
+            ensure_missing_tests(Options#options.missing_tests,
+                                 NoTests, HasTests, DocFuns);
         N ->
             error({N,errors})
     end.
@@ -595,6 +630,10 @@ options(OptionsList) ->
                             Acc#options{ parser = proplists:get_value(parser, OptionsList) };
                         (skipped_blocks, Acc)  ->
                             Acc#options{ skipped_blocks = proplists:get_value(skipped_blocks, OptionsList) };
+                        (missing_tests, Acc) ->
+                            Acc#options{ missing_tests = proplists:get_value(missing_tests, OptionsList) };
+                        (skip_tests, Acc) ->
+                            Acc#options{ skip_tests = proplists:get_value(skip_tests, OptionsList) };
                         (verbose, Acc) ->
                             Acc#options{ verbose = proplists:get_value(verbose, OptionsList) };
                         (_Key, Acc) ->
@@ -619,6 +658,64 @@ extract_erlang_code_blocks({_Tag, _Attrs, Content}) ->
     extract_erlang_code_blocks(Content);
 extract_erlang_code_blocks(_Other) ->
     [].
+
+ensure_skipped_tests([moduledoc | T], #docs_v1{ module_doc = MD } = DocsV1) ->
+    case is_map(MD) of
+        true ->
+            ensure_skipped_tests(T, DocsV1);
+        false ->
+            io:format("Module doc entry not found for skip_tests option"),
+            error({skipped_tests_mismatch, moduledoc})
+    end;
+ensure_skipped_tests([KFA | T], #docs_v1{ docs = Docs} = DocsV1) when is_tuple(KFA) ->
+    case lists:keyfind(KFA, 1, Docs) of
+        {_, _, _, Doc, _} when is_map(Doc) ->
+            ensure_skipped_tests(T, DocsV1);
+        _ ->
+            io:format("Doc entry ~p not found for skip_tests option", [KFA]),
+            error({skipped_tests_mismatch, KFA})
+    end;
+ensure_skipped_tests([], _) ->
+    ok.
+
+ensure_missing_tests(false, NoTests, _HasTests, _DocFuns) ->
+    case NoTests of
+        [] ->
+            ok;
+        _ ->
+            NoTestsFmt = lists:sort([io_lib:format("  ~p/~p\n", [F,A]) ||
+                                        {F,A} <- NoTests]),
+            io:format("The following functions have no tests:~n~n~ts~n",
+                      [NoTestsFmt]),
+            {comment,
+             lists:flatten(io_lib:format("~p functions lack tests", [length(NoTests)]))}
+    end;
+ensure_missing_tests(Expected0, NoTests, HasTests, DocFuns)
+  when is_list(Expected0) ->
+    Expected = lists:sort(Expected0),
+    %% Functions that lack tests but aren't in the expected list.
+    NewMissing = NoTests -- Expected,
+    %% Functions in missing_tests that now have doctests (stale entries).
+    Stale = [FA || FA <- Expected, lists:member(FA, HasTests)],
+    %% Functions in missing_tests that aren't documented at all.
+    Invalid = [FA || FA <- Expected, not lists:member(FA, DocFuns)],
+    case {NewMissing, Stale, Invalid} of
+        {[], [], []} ->
+            ok;
+        {_, _, _} ->
+            [io:format("Functions missing doctests "
+                                   "(add doctests or update missing_tests option):~n"
+                                   "  ~p~n", [NewMissing]) || NewMissing =/= []],
+                    [io:format("Functions in missing_tests that now have doctests "
+                                   "(remove from missing_tests):~n"
+                                   "  ~p~n", [Stale]) || Stale =/= []],
+
+                    [io:format("Functions in missing_tests that are not documented "
+                                   "(update missing_tests option):~n"
+                                   "  ~p~n", [Invalid]) || Invalid =/= []],
+            error({missing_tests_mismatch,
+                   [{missing, NewMissing}, {stale, Stale}, {invalid, Invalid}]})
+    end.
 
 ensure_skipped_blocks(false, _Actual) ->
     ok;

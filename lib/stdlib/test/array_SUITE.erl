@@ -1000,7 +1000,26 @@ old_format(_Config) ->
 
 
 doctests(Config) when is_list(Config) ->
-    ct_doctest:module(array, [{skipped_blocks, 8}]).
+    ct_doctest:module(array, [{skipped_blocks, 8},
+                               {missing_tests,
+                                [{foldr, 3},
+                                 {foldr, 5},
+                                 {from, 2},
+                                 {from_list, 1},
+                                 {from_orddict, 1},
+                                 {mapfoldl, 5},
+                                 {mapfoldr, 3},
+                                 {mapfoldr, 5},
+                                 {new, 0},
+                                 {sparse_foldl, 3},
+                                 {sparse_foldl, 5},
+                                 {sparse_foldr, 3},
+                                 {sparse_foldr, 5},
+                                 {sparse_map, 2},
+                                 {sparse_mapfoldl, 3},
+                                 {sparse_mapfoldl, 5},
+                                 {sparse_mapfoldr, 3},
+                                 {sparse_mapfoldr, 5}]}]).
 
 
 %%
