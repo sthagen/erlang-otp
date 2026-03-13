@@ -2,9 +2,9 @@
 %% %CopyrightBegin%
 %%
 %% SPDX-License-Identifier: Apache-2.0
-%% 
-%% Copyright Ericsson AB 1997-2025. All Rights Reserved.
-%% 
+%%
+%% Copyright Ericsson AB 1997-2026. All Rights Reserved.
+%%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
@@ -262,12 +262,16 @@ handle_info({Proto, Socket, Data},
 	    httpd_response:send_status(NewModData, ErrCode, ErrStr, {max_size, MaxSize}),
 	    {stop, normal, State#state{response_sent = true,
 				       mod = NewModData}};
-
-    {error, {version_error, ErrCode, ErrStr}, Version} ->
+        {error, {version_error, ErrCode, ErrStr}, Version} ->
         NewModData =  ModData#mod{http_version = Version},
 	    httpd_response:send_status(NewModData, ErrCode, ErrStr),
 	    {stop, normal, State#state{response_sent = true,
-				                   mod = NewModData}};
+				       mod = NewModData}};
+        {error, {bad_request, ErrCode, ErrStr}, Version} ->
+            NewModData =  ModData#mod{http_version = Version},
+            httpd_response:send_status(NewModData, ErrCode, ErrStr),
+            {stop, normal, State#state{response_sent = true,
+                                       mod = NewModData}};
 
     {http_chunk = Module, Function, Args} when ChunkState =/= undefined ->
         NewState = handle_chunk(Module, Function, Args, State),

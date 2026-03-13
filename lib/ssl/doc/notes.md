@@ -23,6 +23,25 @@ limitations under the License.
 
 This document describes the changes made to the SSL application.
 
+## SSL 11.5.3
+
+### Fixed Bugs and Malfunctions
+
+- TLS-1.3 certificate request now preserves the order of signature algorithms in certificate request extension to be in the servers preferred order, which might affect the choice made by some TLS clients.
+
+  Own Id: OTP-20022 Aux Id: [GH-10694], [PR-10707], ERIERL-1305
+
+[GH-10694]: https://github.com/erlang/otp/issues/10694
+[PR-10707]: https://github.com/erlang/otp/pull/10707
+
+### Improvements and New Features
+
+- Document that setting transport protocol specific socket options is not generally expected to work for TLS and if it happens to work it comes with consequences that should be understood an accepted by the user. Also retain some backwards compatibility with such an option that happened to work to buy time for people to come up with better solutions.
+
+  Own Id: OTP-20018 Aux Id: [PR-10809], ERIERL-1303
+
+[PR-10809]: https://github.com/erlang/otp/pull/10809
+
 ## SSL 11.5.2
 
 ### Fixed Bugs and Malfunctions
@@ -304,6 +323,23 @@ This document describes the changes made to the SSL application.
 [PR-9563]: https://github.com/erlang/otp/pull/9563
 [PR-9511]: https://github.com/erlang/otp/pull/9511
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## SSL 11.2.12.6
+
+### Fixed Bugs and Malfunctions
+
+- The NSS Keylogging refactoring mixed up of Read and Write connection states, could cause wrong NSS keylog labels, or `{error, closed}` returned without keylog.
+
+  Own Id: OTP-19990 Aux Id: [PR-10723], [GH-10698]
+
+- TLS-1.3 certificate request now preserves the order of signature algorithms in certificate request extension to be in the servers preferred order, which might affect the choice made by some TLS clients.
+
+  Own Id: OTP-20022 Aux Id: [GH-10694], [PR-10707], ERIERL-1305
+
+[PR-10723]: https://github.com/erlang/otp/pull/10723
+[GH-10698]: https://github.com/erlang/otp/issues/10698
+[GH-10694]: https://github.com/erlang/otp/issues/10694
+[PR-10707]: https://github.com/erlang/otp/pull/10707
 
 ## SSL 11.2.12.5
 
@@ -736,6 +772,17 @@ This document describes the changes made to the SSL application.
 [PR-8026]: https://github.com/erlang/otp/pull/8026
 [PR-8250]: https://github.com/erlang/otp/pull/8250
 [PR-8255]: https://github.com/erlang/otp/pull/8255
+
+## SSL 11.1.4.12
+
+### Fixed Bugs and Malfunctions
+
+* Correct TLS-1.3 alert handling so server will always send the alert with the encryption keys that the client is expecting, that is if for instance if client certification fails the alert will be sent using application traffic encryption keys.
+
+  Own Id: OTP-19795 Aux Id: PR-10465
+* TLS-1.3 certificate request now preserves the order of signature algorithms in certificate request extension to be in the servers preferred order, which might affect the choice made by some TLS clients.
+
+  Own Id: OTP-20022 Aux Id: GH-10694, PR-10707, ERIERL-1305
 
 ## SSL 11.1.4.11
 

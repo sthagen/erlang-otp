@@ -52,4 +52,4 @@ end_per_testcase(_Case, _Config) ->
     ok.
 
 doctests(_Config) ->
-   shell_docs:test(records, []).
+   ct_doctest:module(records).

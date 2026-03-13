@@ -3,7 +3,7 @@
 
 SPDX-License-Identifier: Apache-2.0
 
-Copyright Ericsson AB 2023-2025. All Rights Reserved.
+Copyright Ericsson AB 2023-2026. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -99,6 +99,26 @@ increase the resilence. The options to use are:
 A figure clarifies when a timeout is started and when it triggers:
 
 ![SSH server timeouts](assets/ssh_timeouts.jpg "SSH server timeouts")
+
+### Resilience to compression-based attacks
+
+SSH supports compression of the data stream.
+
+Reasonable finite [max_sessions](`m:ssh#hardening_daemon_options-max_sessions`)
+option is highly recommended if compression is used to prevent excessive resource
+usage by the compression library.
+See [Counters and parallelism](#counters-and-parallelism).
+
+The `'zlib@openssh.com'` algorithm is recommended because it only activates
+after successful authentication.
+
+The `'zlib'` algorithm is not recommended because it activates before
+authentication completes, allowing unauthenticated clients to expose potential
+vulnerabilities in compression libraries, and increases attack surface of
+compression-based side-channel and traffic-analysis attacks.
+
+In both algorithms decompression is protected by a size limit that prevents
+excessive memory consumption.
 
 ## Verifying the remote daemon (server) in an SSH client
 
@@ -248,3 +268,28 @@ is in milliseconds, and the initial value is infinity.
 The negotiation (session setup time) time can be limited with the _parameter_
 `NegotiationTimeout` in a call establishing an ssh session, for example
 `ssh:connect/3`.
+
+## SFTP Security
+
+### Root Directory Isolation
+
+The `root` option (see `m:ssh_sftpd`) restricts SFTP users to a
+specific directory tree, preventing access to files outside that directory.
+
+**Example:**
+
+```erlang
+ssh:daemon(Port, [
+    {subsystems, [ssh_sftpd:subsystem_spec([{root, "/home/sftpuser"}])]},
+    ...
+]).
+```
+
+**Important:** The `root` option is configured per daemon, not per user. All
+users connecting to the same daemon share the same root directory. For per-user
+isolation, consider running separate daemon instances on different ports or
+using OS-level mechanisms (PAM chroot, containers, file permissions).
+
+**Defense-in-depth:** For high-security deployments, combine the `root` option
+with OS-level isolation mechanisms such as chroot jails, containers, or
+mandatory access control (SELinux, AppArmor).

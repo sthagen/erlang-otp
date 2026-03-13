@@ -21,6 +21,17 @@ limitations under the License.
 -->
 # Inets Release Notes
 
+## Inets 9.6.1
+
+### Fixed Bugs and Malfunctions
+
+- The httpd server now rejects HTTP requests containing multiple Content-Length headers with different values, returning a 400 Bad Request response. This prevents potential HTTP request smuggling attacks. Thanks Luigino Camastra at Aisle Research for responsibly disclosing this vulnerability
+
+  Own Id: OTP-20007 Aux Id: [PR-10833], [CVE-2026-23941]
+
+[PR-10833]: https://github.com/erlang/otp/pull/10833
+[CVE-2026-23941]: https://nvd.nist.gov/vuln/detail/2026-23941
+
 ## Inets 9.6
 
 ### Improvements and New Features
@@ -158,6 +169,17 @@ limitations under the License.
 [PR-9472]: https://github.com/erlang/otp/pull/9472
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9101]: https://github.com/erlang/otp/pull/9101
+
+## Inets 9.3.2.3
+
+### Fixed Bugs and Malfunctions
+
+- The httpd server now rejects HTTP requests containing multiple Content-Length headers with different values, returning a 400 Bad Request response. This prevents potential HTTP request smuggling attacks. Thanks Luigino Camastra at Aisle Research for responsibly disclosing this vulnerability
+
+  Own Id: OTP-20007 Aux Id: [PR-10833], [CVE-2026-23941]
+
+[PR-10833]: https://github.com/erlang/otp/pull/10833
+[CVE-2026-23941]: https://nvd.nist.gov/vuln/detail/2026-23941
 
 ## Inets 9.3.2.2
 
@@ -299,6 +321,14 @@ limitations under the License.
 [PR-7678]: https://github.com/erlang/otp/pull/7678
 [PR-8029]: https://github.com/erlang/otp/pull/8029
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Inets 9.1.0.5
+
+### Fixed Bugs and Malfunctions
+
+* The httpd server now rejects HTTP requests containing multiple Content-Length headers with different values, returning a 400 Bad Request response. This prevents potential HTTP request smuggling attacks. Thanks Luigino Camastra at Aisle Research for responsibly disclosing this vulnerability
+
+  Own Id: OTP-20007 Aux Id: PR-10833, CVE-2026-23941
 
 ## Inets 9.1.0.4
 
