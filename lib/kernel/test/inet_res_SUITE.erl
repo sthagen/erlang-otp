@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2024. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -150,6 +150,8 @@ zone_dir(TC) ->
     end.
 
 init_per_testcase(Func, Config) ->
+    _ = application:load(crypto),  % Enable DNS request ID and port randomness
+    %% inet_db:res_option(random, false), % Disable the above
 
     ?P("init_per_testcase -> entry with"
        "~n      Func:   ~p"

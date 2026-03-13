@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2024. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -3910,7 +3910,7 @@ gethostbyaddr_tm_native(Addr, Timer, Opts) ->
 	      {ip6_address() | 'any' | 'loopback',
 	       port_number()}} |
 	     undefined, % Internal - no bind()
-	   BPort :: port_number(),
+	   BPort :: port_number() | -1,
 	   Opts :: [socket_setopt()],
 	   Protocol :: socket_protocol(),
 	   Family :: address_family(),
@@ -3919,13 +3919,14 @@ gethostbyaddr_tm_native(Addr, Timer, Opts) ->
 	{'ok', port()} | {'error', posix()}.
 
 open(Fd, BAddr, BPort, Opts, Protocol, Family, Type, Module)
-  when is_integer(Fd), 0 =< Fd ->
+  when is_integer(Fd), 0 =< Fd, is_integer(BPort) ->
     open_fd(Fd, BAddr, BPort, Opts, Protocol, Family, Type, Module);
-open(Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module) ->
+open(Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module)
+  when is_integer(BPort) ->
     open_opts(
       Fd_or_OpenOpts,
       if
-          BAddr =:= undefined, BPort =/= 0 ->
+          BAddr =:= undefined, BPort > 0 ->
               translate_ip(any, Family);
           true ->
               BAddr
@@ -3965,7 +3966,7 @@ open(Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module) ->
                    {ip6_address() | 'any' | 'loopback',
                     port_number()}} |
                   undefined, % Internal - translated to 'any'
-                BPort :: port_number(),
+                BPort :: port_number() | -1,
                 Opts :: [socket_setopt()],
                 Protocol :: socket_protocol(),
                 Family :: address_family(),
@@ -3974,14 +3975,15 @@ open(Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module) ->
                        {'ok', port()} | {'error', posix()}.
 
 open_bind(Fd, BAddr, BPort, Opts, Protocol, Family, Type, Module)
-  when is_integer(Fd), 0 =< Fd ->
+  when is_integer(Fd), 0 =< Fd, is_integer(BPort) ->
     %% ?DBG([{fd, Fd},
     %%       {baddr, BAddr}, {bport, BPort},
     %%       {opts, Opts}, {proto, Protocol}, {fam, Family},
     %%       {type, Type}, {mod, Module}]),
     open_fd(Fd, BAddr, BPort, Opts, Protocol, Family, Type, Module);
 open_bind(
-  Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module) ->
+  Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module)
+  when is_integer(BPort) ->
     %% ?DBG([{fd_or_openopts, Fd_or_OpenOpts},
     %%       {baddr, BAddr}, {bport, BPort},
     %%       {opts, Opts}, {proto, Protocol}, {fam, Family},
@@ -4067,11 +4069,25 @@ open_setopts(S, BAddr, BPort, Opts, Module) ->
 
 
 
-bind(S, Addr, Port) when is_list(Addr) ->
+bind(S, Addr, Port) when is_list(Addr), ?port(Port) ->
     bindx(S, Addr, Port);
-bind(S, Addr, Port) ->
+bind(S, Addr, -1) ->
+    bind_random(S, Addr, 5);
+bind(S, Addr, Port) when ?port(Port) ->
     %% ?DBG([{s, S}, {addr, Addr}, {port, Port}]),
     prim_inet:bind(S, Addr, Port).
+
+bind_random(S, Addr, Cnt) when is_integer(Cnt) ->
+    Port = inet_db:res_option(random_port),
+    %% ?DBG([{s, S}, {addr, Addr}, {port, Port}]),
+    case prim_inet:bind(S, Addr, Port) of
+        {ok, _} = OK                -> OK;
+        {error, _} = Error ->
+            if  Port =:= 0          -> Error;
+                0 < Cnt             -> bind_random(S, Addr, Cnt - 1);
+                true                -> Error
+            end
+    end.
 
 bindx(S, [Addr], Port0) ->
     {IP, Port} = set_bindx_port(Addr, Port0),
