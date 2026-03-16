@@ -2122,19 +2122,13 @@ generate_random_port() ->
         undefined                                               -> 0
     end.
 
-%% We use `crypto:rand_uniform/2` here, which is the simplest to use,
-%% but it is deprecated, for outdated reasons.  In really old, now obsolete,
-%% libcrypto versions the function was not cryptographically strong,
-%% but since OpenSSL 1.1.0 that is no longer the case.
--compile({nowarn_deprecated_function, {crypto,rand_uniform,2}}).
-
 crypto_rand_range(Range) when is_integer(Range), 0 < Range ->
     %% This is how crypto itself checks if it is loaded
     case application:get_env(crypto, fips_mode) of
         undefined                                               -> undefined;
         {ok, Fips} when is_boolean(Fips) ->
-            try crypto:rand_uniform(0, Range) of
-                N when is_integer(N), 0 =< N, N < Range         -> N
+            try crypto:strong_rand_range(Range) of
+                N when is_integer(N, 0, Range-1)                -> N
             catch error : low_entropy                           -> undefined
             end
     end.
