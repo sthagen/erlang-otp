@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %% 
-%% Copyright Ericsson AB 2020-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2020-2026. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -56,6 +56,7 @@
          ensure_not_dog_slow/2,
 
          %% Generic 'has support' test function(s)
+         is_net_supported/0,
          is_socket_supported/0,
          has_support_ipv4/0,
          has_support_ipv6/0,
@@ -2848,10 +2849,25 @@ has_support_ipv6() ->
             skip("IPv6 Not Supported")
     end.
 
+is_net_supported() ->
+    try net:info() of
+        #{load_nif_result := ok} ->
+            true;
+	_ ->
+	    false
+    catch
+        error : notsup ->
+            false;
+        error : undef ->
+            false
+    end.
+
 is_socket_supported() ->
     try socket:info() of
-        #{} ->
-            true
+        #{load_nif_result := ok} ->
+            true;
+	_ ->
+	    false
     catch
         error : notsup ->
             false;

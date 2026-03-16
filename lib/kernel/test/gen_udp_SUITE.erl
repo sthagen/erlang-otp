@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1998-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -380,17 +380,11 @@ init_per_group(local, Config) ->
     end;
 init_per_group(sockaddr = _GroupName, Config) ->
     ?P("init_per_group(sockaddr) -> do we support 'socket'"),
-    try socket:info() of
-	_ ->
-            ?P("init_per_group(sockaddr) -> we support 'socket'"),
-            Config
-    catch
-        error : notsup ->
-            ?P("init_per_group(sockaddr) -> we *do not* support 'socket'"),
-            {skip, "esock not supported"};
-        error : undef ->
-            ?P("init_per_group(sockaddr) -> 'socket' not configured"),
-            {skip, "esock not configured"}
+    case is_socket_supported() of
+        ok ->
+            Config;
+        {skip, _} = SKIP ->
+            SKIP
     end;
 init_per_group(otp18323 = _GroupName, Config) ->
     ?P("init_per_group(otp18323) -> inet-drv specific bug(s)"),
@@ -3853,6 +3847,28 @@ get_localaddr([Localhost|Ls]) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+is_socket_supported() ->
+    try socket:info() of
+	#{load_nif_result := ok} ->
+            ?P("~s -> we support 'socket'", [?FUNCTION_NAME]),
+            ok;
+	#{load_nif_result := LoadRes} ->
+	    ?P("~s -> 'socket' not supperted"
+	       "~n   (socket) nif load result: ~p", [?FUNCTION_NAME, LoadRes]),
+	    {skip, "esock not supported"};
+	_ ->
+            ?P("~s -> 'socket' not supperted", [?FUNCTION_NAME]),
+	    {skip, "esock not supported"}
+    catch
+        error : notsup ->
+            ?P("~s(error,notsup) -> 'socket' not supperted", [?FUNCTION_NAME]),
+            {skip, "esock not supported"};
+        error : undef ->
+            ?P("~s(error,undef) -> 'socket' not supperted", [?FUNCTION_NAME]),
+            {skip, "esock not configured"}
+    end.
+
 
 is_docker(Config) ->
     case which_label(Config) of

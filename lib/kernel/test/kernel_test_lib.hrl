@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2020-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2020-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -59,6 +59,9 @@
 -define(TEST_INET_BACKENDS(),     ?LIB:test_inet_backends()).
 -define(WHICH_INET_BACKEND(C),    ?LIB:which_inet_backend(C)).
 -define(IS_SOCKET_BACKEND(C),     ?LIB:is_socket_backend(C)).
+
+-define(IS_NET_SUPPORTED(),       ?LIB:is_net_supported()).
+-define(IS_SOCKET_SUPPORTED(),    ?LIB:is_socket_supported()).
 
 -define(ENSURE_NOT_DOG_SLOW(C, L), ?LIB:ensure_not_dog_slow((C), (L))).
 
