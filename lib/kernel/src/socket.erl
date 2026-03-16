@@ -450,10 +450,11 @@ About the `use_registry` key, see `use_registry/1`
 and the `t:otp_socket_option/0` with the same name.
 """.
 -type info() ::
-        #{counters     := #{atom() := non_neg_integer()},
-          iov_max      := non_neg_integer(),
-          use_registry := boolean(),
-          io_backend   := #{name := atom()}}.
+        #{counters        := #{atom() := non_neg_integer()},
+          iov_max         := non_neg_integer(),
+          use_registry    := boolean(),
+          io_backend      := #{name := atom()},
+	  load_nif_result := undefined | ok | {error, term()}}.
 
 -doc "A `t:map/0` of `Name := Counter` associations.".
 -type socket_counters() :: #{read_byte        := non_neg_integer(),
@@ -2815,8 +2816,6 @@ fmt_service(#{port := Port} = SockAddr) ->
 %% info - Get miscellaneous information about a socket
 %% or about the socket library.
 %%
-%% Generates a list of various info about the socket, such as counter values.
-%%
 %% Do *not* call this function often.
 %%
 %% ===========================================================================
@@ -2835,25 +2834,36 @@ The function returns a map with each information item as a key-value pair.
 -spec info() -> info().
 %%
 info() ->
-    try
-        prim_socket:info()
+    try prim_socket:info() of
+	Info ->
+	    Info#{load_nif_result => load_nif_result()}
     catch error:undef:ST ->
             case ST of
                 %% We rewrite errors coming from prim_socket not existing
-                %% to enotsup.
+                %% to notsup.
                 [{prim_socket,info,[],_}|_] ->
                     erlang:raise(error,notsup,ST);
                 _ ->
                     erlang:raise(error,undef,ST)
-            end
+            end;
+	  _:_ ->
+	    #{load_nif_result => load_nif_result()}
     end.
+
+load_nif_result() ->
+    try prim_socket:p_get(load_nif_result)
+    catch
+	_:_ ->
+	    undefined
+    end.
+
 
 -doc(#{since => <<"OTP 22.1">>}).
 -doc """
 Get miscellaneous info about a socket.
 
 The function returns a map with each information item as a key-value pair
-reflecting the "current" state of the socket.
+reflecting the "current" state of the socket (such as counter values).
 
 > #### Note {: .info }
 >

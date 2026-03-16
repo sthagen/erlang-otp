@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1998-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -380,17 +380,11 @@ init_per_group(local, Config) ->
     end;
 init_per_group(sockaddr = _GroupName, Config) ->
     ?P("init_per_group(sockaddr) -> do we support 'socket'"),
-    try socket:info() of
-	_ ->
-            ?P("init_per_group(sockaddr) -> we support 'socket'"),
-            Config
-    catch
-        error : notsup ->
-            ?P("init_per_group(sockaddr) -> we *do not* support 'socket'"),
-            {skip, "esock not supported"};
-        error : undef ->
-            ?P("init_per_group(sockaddr) -> 'socket' not configured"),
-            {skip, "esock not configured"}
+    case is_socket_supported() of
+        ok ->
+            Config;
+        {skip, _} = SKIP ->
+            SKIP
     end;
 init_per_group(otp18323 = _GroupName, Config) ->
     ?P("init_per_group(otp18323) -> inet-drv specific bug(s)"),
@@ -476,13 +470,13 @@ send_to_closed(Config) when is_list(Config) ->
                        {error, LReason} ->
                            ?P("Failed get local address: "
                               "~n   Reason: ~p", [LReason]),
-                           (catch gen_udp:close(Sock)),
+                           ?CATCH_AND_IGNORE( gen_udp:close(Sock) ),
                            ?SKIPT(?F("Failed get local address: ~w", [LReason]))
                    end
            end,
     TC   = fun(State) -> do_send_to_closed(State) end,
     Post = fun(#{socket := Socket}) ->
-                   (catch gen_udp:close(Socket))
+                   ?CATCH_AND_IGNORE( gen_udp:close(Socket) )
            end,
     ?TC_TRY(?FUNCTION_NAME, Pre, TC, Post).
 
@@ -855,7 +849,7 @@ do_max_buffer_size(Config) when is_list(Config) ->
         {error, Reason} ->
             ?P("failed extracting buffers"
                "~n   ~p", [Reason]),
-            (catch gen_udp:close(Socket)),
+            ?CATCH_AND_IGNORE( gen_udp:close(Socket) ),
             ct:fail({unexpected_getopts_error, Reason})
     end,
     ?P("done"),
@@ -921,23 +915,27 @@ do_bad_address(Config) when is_list(Config) ->
     {ok, _SP} = inet:port(S),
 
     ?P("try send to invalid address 1 - expect failure"),
-    case (catch gen_udp:send(S, {127,0,0,1,0}, RP, "void")) of
-        {'EXIT', badarg} ->
-            ok;
+    try gen_udp:send(S, {127,0,0,1,0}, RP, "void") of
         Any1 ->
             ?P("<ERROR> unexpected result: "
                "~n   ~p", [Any1]),
-            ct:fail({unexpected_result, 1, Any1})                
+            ct:fail({unexpected_result, 1, Any1})
+    catch
+        C1:badarg ->
+	    ?P("~s -> expected (~w) catch 1", [?FUNCTION_NAME, C1]),
+            ok
     end,
 
     ?P("try send to invalid address 2 - expect failure"),
-    case (catch gen_udp:send(S, {127,0,0,256}, RP, "void")) of
-        {'EXIT', badarg} ->
-            ok;
+    try gen_udp:send(S, {127,0,0,256}, RP, "void") of
         Any2 ->
             ?P("<ERROR> unexpected result: "
                "~n   ~p", [Any2]),
             ct:fail({unexpected_result, 2, Any2})
+    catch
+        C2:badarg ->
+	    ?P("~s -> expected (~w) catch 2", [?FUNCTION_NAME, C2]),
+            ok
     end,
 
     ?P("cleanup"),
@@ -1139,7 +1137,8 @@ read_packets_send(S, RA, RP, Msgs, LastWouldBlock, NoWouldBlock) ->
                "~n   NumberOf WouldBlock: ~p"
                "~n   info(Sock):          ~p",
                [?FUNCTION_NAME,
-                Reason, Msgs, NoWouldBlock+1, (catch inet:info(S))]),
+                Reason, Msgs, NoWouldBlock+1,
+		?CATCH_AND_RETURN( inet:info(S) )]),
             exit({send_failed, Reason, Msgs, NoWouldBlock+1});
         {error, Reason} ->
             ?P("~w -> send failure: "
@@ -1148,7 +1147,8 @@ read_packets_send(S, RA, RP, Msgs, LastWouldBlock, NoWouldBlock) ->
                "~n   NumberOf WouldBlock: ~p"
                "~n   info(Sock):          ~p",
                [?FUNCTION_NAME,
-                Reason, Msgs, NoWouldBlock, (catch inet:info(S))]),
+                Reason, Msgs, NoWouldBlock,
+		?CATCH_AND_RETURN( inet:info(S) )]),
             exit({send_failed, Reason, Msgs, NoWouldBlock})
     end.
 
@@ -1268,14 +1268,14 @@ do_open_fd(Config) when is_list(Config) ->
         {ok, Socket} when (OS =:= darwin) ->
             ?P("unexpected success: "
                "~n   ~p", [inet:info(Socket)]),
-            (catch gen_udp:close(Socket)),
-            (catch gen_udp:close(S1)),
+            ?CATCH_AND_IGNORE( gen_udp:close(Socket) ),
+            ?CATCH_AND_IGNORE( gen_udp:close(S1) ),
             skip(unexpected_succes);
         {ok, Socket} ->
             ?P("unexpected success: "
                "~n   ~p", [inet:info(Socket)]),
-            (catch gen_udp:close(Socket)),
-            (catch gen_udp:close(S1)),
+            ?CATCH_AND_IGNORE( gen_udp:close(Socket) ),
+            ?CATCH_AND_IGNORE( gen_udp:close(S1) ),
             case ((OS =:= darwin) andalso ?IS_SOCKET_BACKEND(Config)) of
                 true ->
                     %% This should not work, but on (some) Darwin
@@ -1315,9 +1315,9 @@ do_open_fd(Config) when is_list(Config) ->
 	    ct:fail(io_lib:format("~w", [flush()]))
     end,
     ?P("cleanup"),
-    (catch gen_udp:close(S3)),
-    (catch gen_udp:close(S2)),
-    (catch gen_udp:close(S1)),
+    ?CATCH_AND_IGNORE( gen_udp:close(S3) ),
+    ?CATCH_AND_IGNORE( gen_udp:close(S2) ),
+    ?CATCH_AND_IGNORE( gen_udp:close(S1) ),
     ?P("done"),
     ok.
 
@@ -1722,6 +1722,7 @@ test_recv_opts(Config, Family, Spec, TestSend, OSFilter) ->
             {skip,{not_supported_for_os_version,{OSType,OSVer}}}
     end.
 %%
+
 test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
     Timeout = 5000,
     RecvOpts = [RecvOpt || {RecvOpt,_,_} <- Spec],
@@ -1745,10 +1746,18 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
     {ok, TrueRecvOpts} = inet:getopts(S1, RecvOpts),
     ?P("try set (false) socket (1) opts"),
     ok = inet:setopts(S1, FalseRecvOpts),
-    ?P("verify (false) socket (1) opts"),
-    {ok, FalseRecvOpts} = inet:getopts(S1, RecvOpts),
+    %% ?P("verify (false) socket (1) opts"),
+    %% {ok, FalseRecvOpts} = inet:getopts(S1, RecvOpts),
+    expect("(false) socket (1) opts",
+	   {ok, FalseRecvOpts},
+	   inet:getopts(S1, RecvOpts)),
+    ?P("try set (true) socket (1) opts"),
     ok = inet:setopts(S1, TrueRecvOpts_OptsVals),
-    {ok,TrueRecvOpts_OptsVals} = inet:getopts(S1, RecvOpts ++ Opts),
+    %% ?P("verify (true) socket (1) opts"),
+    %% {ok, TrueRecvOpts_OptsVals} = inet:getopts(S1, RecvOpts ++ Opts),
+    expect("(true) socket (1) opts",
+	   {ok, TrueRecvOpts_OptsVals},
+	   inet:getopts(S1, RecvOpts ++ Opts)),
     %%
     %% S1 now has true receive options and set option values
     %%
@@ -1757,7 +1766,15 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
         ?OPEN(Config, 0, [Family, binary, {active,true} | FalseRecvOpts]),
     {ok, P2} = inet:port(S2),
     ?P("try get (false) socket (2) opts"),
-    {ok, FalseRecvOpts_OptsVals2} = inet:getopts(S2, RecvOpts ++ Opts),
+    FalseRecvOpts_OptsVals2 =
+	case inet:getopts(S2, RecvOpts ++ Opts) of
+	    {ok, RecvOpts_03} ->
+		RecvOpts_03;
+	    {error, Reason} ->
+		?P("Failed get options: "
+		   "~n   Reason: ~p", [Reason]),
+		exit({failed_get_opts, Reason})
+	end,
     OptsVals2 = FalseRecvOpts_OptsVals2 -- FalseRecvOpts,
     ?P("info: "
        "~n   Socket 1:    ~p"
@@ -2195,17 +2212,17 @@ do_connect(Config) when is_list(Config) ->
                  ok;
              {error, timeout      = R} when (OS =:= darwin) ->
                  ?P("expected failure (~w) on darwin => SKIP", [R]),
-                 (catch gen_udp:close(S2)),
+                 ?CATCH_AND_IGNORE( gen_udp:close(S2) ),
                  skip(R);
 	     Other -> 
                  ?P("UNEXPECTED failure: ~p:"
                     "~n   ~p", [Other, inet:info(S2)]),
-                 (catch gen_udp:close(S2)),
+                 ?CATCH_AND_IGNORE( gen_udp:close(S2) ),
                  Other
 	 end,
 
     ?P("cleanup"),
-    (catch gen_udp:close(S2)),
+    ?CATCH_AND_IGNORE( gen_udp:close(S2) ),
 
     ?P("done"),
     ok.
@@ -2935,7 +2952,7 @@ do_otp_17492(Config) ->
 	    ?P("(created) socket info: ~p", [Info]);
 	OBadInfo ->
 	    ?P("(created) socket info: ~p", [OBadInfo]),
-	    (catch gen_udp:close(L)),
+	    ?CATCH_AND_IGNORE( gen_udp:close(L) ),
 	    ct:fail({invalid_created_info, OBadInfo})
     catch
 	OC:OE:OS ->
@@ -2943,7 +2960,7 @@ do_otp_17492(Config) ->
 	       "~n   Class: ~p"
 	       "~n   Error: ~p"
 	       "~n   Stack: ~p", [OC, OE, OS]),
-	    (catch gen_udp:close(L)),
+	    ?CATCH_AND_IGNORE( gen_udp:close(L) ),
 	    ct:fail({unexpected_created_info_result, {OC, OE, OS}})
     end,
 
@@ -2967,7 +2984,7 @@ do_otp_17492(Config) ->
 	       "~n   Class: ~p"
 	       "~n   Error: ~p"
 	       "~n   Stack: ~p", [CC, CE, CS]),
-	    (catch gen_udp:close(L)),
+	    ?CATCH_AND_IGNORE( gen_udp:close(L) ),
 	    ct:fail({unexpected_closed_info_result, {CC, CE, CS}})
     end,
 
@@ -3214,7 +3231,7 @@ do_simple_sockaddr_send_recv(#{family := _Fam} = SockAddr, _) ->
                       receive
                           {die, Self} ->
                               ?P("[server] terminating"),
-                              (catch gen_udp:close(Sock)),
+                              ?CATCH_AND_IGNORE( gen_udp:close(Sock) ),
                               exit(normal)
                       end
               end,
@@ -3379,8 +3396,8 @@ do_simple_sockaddr_send_recv(#{family := _Fam} = SockAddr, _) ->
     end,
     
     ?P("cleanup"),
-    (catch gen_udp:close(CSock1)),
-    (catch gen_udp:close(CSock2)),
+    ?CATCH_AND_IGNORE( gen_udp:close(CSock1) ),
+    ?CATCH_AND_IGNORE( gen_udp:close(CSock2) ),
 
     ?P("done"),
     ok.
@@ -3416,7 +3433,7 @@ do_kernel_options(Config) ->
             case rpc:call(Node, ?MODULE, do_kernel_options_remote, [Config]) of
                 {ok, Expected} ->
                     ?P("options verified"),
-                    (catch ?STOP_NODE(Node)),
+                    ?CATCH_AND_IGNORE( ?STOP_NODE(Node) ),
                     ok;
                 {ok, [{buffer, ActualBSz},
                       {recbuf, ActualRBSz}] = Actual} 
@@ -3430,12 +3447,12 @@ do_kernel_options(Config) ->
                     ?P("unexpected success:"
                        "~n   Expected: ~p"
                        "~n   Actual:   ~p", [Expected, Actual]),
-                    (catch ?STOP_NODE(Node)),
+                    ?CATCH_AND_IGNORE( ?STOP_NODE(Node) ),
                     exit({unexpected_success, Expected, Actual});
                 {error, Reason} ->
                     ?P("unexpected failure:"
                        "~n   ~p", [Reason]),
-                    (catch ?STOP_NODE(Node)),
+                    ?CATCH_AND_IGNORE( ?STOP_NODE(Node) ),
                     exit({unexpected_failure, Reason})
             end;
         {error, Reason} ->
@@ -3575,7 +3592,7 @@ otp_19332(Config) when is_list(Config) ->
            end,
     Case = fun(State) -> do_otp_19332(State) end,
     Post = fun(#{sock := Sock}) ->
-                   (catch gen_udp:close(Sock))
+                   ?CATCH_AND_IGNORE( gen_udp:close(Sock) )
            end,
     ?TC_TRY(?FUNCTION_NAME, Cond, Pre, Case, Post).
 
@@ -3647,7 +3664,7 @@ do_otp_19357_open_with_ipv6_option(#{local_addr := Addr}) ->
                       try gen_udp:open(0, Opts) of
                           {ok, Sock} ->
                               ?P("success ~w", [No]),
-                              (catch gen_udp:close(Sock));
+                              ?CATCH_AND_IGNORE( gen_udp:close(Sock) );
                           {error, Reason} ->
                               ?P("FAILED open socket ~w: "
                                  "~n   ~p", [No, Reason]),
@@ -3812,6 +3829,20 @@ do_t_module_await_notification(Module, Func, Arity, FailureAction) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+expect(Slogan,
+       Expect, Expect) ->
+    ?P("Verified: ~s", [Slogan]),
+    ok;
+expect(Slogan,
+       Expect, Unexpected) ->
+    ?P("Verification failed: ~s"
+       "~n   Expected: ~p"
+       "~n   Actual:   ~p", [Slogan, Expect, Unexpected]),
+    exit({unexpected, Slogan}).
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 ok({ok,V}) -> V;
 ok(NotOk) ->
     try throw(not_ok)
@@ -3853,6 +3884,28 @@ get_localaddr([Localhost|Ls]) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+is_socket_supported() ->
+    try socket:info() of
+	#{load_nif_result := ok} ->
+            ?P("~s -> we support 'socket'", [?FUNCTION_NAME]),
+            ok;
+	#{load_nif_result := LoadRes} ->
+	    ?P("~s -> 'socket' not supperted"
+	       "~n   (socket) nif load result: ~p", [?FUNCTION_NAME, LoadRes]),
+	    {skip, "esock not supported"};
+	_ ->
+            ?P("~s -> 'socket' not supperted", [?FUNCTION_NAME]),
+	    {skip, "esock not supported"}
+    catch
+        error : notsup ->
+            ?P("~s(error,notsup) -> 'socket' not supperted", [?FUNCTION_NAME]),
+            {skip, "esock not supported"};
+        error : undef ->
+            ?P("~s(error,undef) -> 'socket' not supperted", [?FUNCTION_NAME]),
+            {skip, "esock not configured"}
+    end.
+
 
 is_docker(Config) ->
     case which_label(Config) of

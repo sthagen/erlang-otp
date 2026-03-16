@@ -2,9 +2,9 @@
 %% %CopyrightBegin%
 %%
 %% SPDX-License-Identifier: Apache-2.0
-%%
+%% 
 %% Copyright Ericsson AB 2024-2026. All Rights Reserved.
-%%
+%% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
@@ -664,12 +664,13 @@ api_op_with_timeout_cases() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 init_per_suite(Config0) ->
-    ?P("init_per_suite -> entry with"
+    ?P("~s -> entry with"
        "~n      Config: ~p"
-       "~n      Nodes:  ~p", [Config0, erlang:nodes()]),
+       "~n      Nodes:  ~p", [?FUNCTION_NAME, Config0, erlang:nodes()]),
     
     try socket:info() of
-        #{} ->
+        #{load_nif_result := ok} ->
+	    ?P("~s -> socket nif loaded", [?FUNCTION_NAME]),
             case ?KLIB:init_per_suite(Config0) of
                 {skip, _} = SKIP ->
                     SKIP;
@@ -707,11 +708,22 @@ init_per_suite(Config0) ->
                                     {skip, "Failed starting logger"}
                             end
                     end
-            end
+            end;
+
+	#{load_nif_result := LoadRes} ->
+	    ?P("~s -> 'socket' not supperted"
+	       "~n   (socket) nif load result: ~p", [?FUNCTION_NAME, LoadRes]),
+	    {skip, "esock not supported (nif not loaded)"};
+	_ ->
+            ?P("~s -> 'socket' not supperted", [?FUNCTION_NAME]),
+	    {skip, "esock not supported"}
+	
     catch
         error : notsup ->
+            ?P("~s -> 'socket' not supperted (error:notsup)", [?FUNCTION_NAME]),
             {skip, "esock not supported"};
         error : undef ->
+            ?P("~s -> 'socket' not supperted (error:undef)", [?FUNCTION_NAME]),
             {skip, "esock not configured"}
     end.
 
@@ -724,7 +736,7 @@ end_per_suite(Config0) ->
     %% Stop the local monitor
     kernel_test_sys_monitor:stop(),
 
-    (catch ?LOGGER:stop()),
+    ?CATCH_AND_IGNORE( ?LOGGER:stop() ),
 
     Config1 = ?KLIB:end_per_suite(Config0),
 
@@ -2273,7 +2285,7 @@ api_b_send_and_recv_conn(InitState) ->
                                       "~n   Expected: (~w bytes) ~p",
                                       [byte_size(BadReq), BadReq,
                                        byte_size(?BASIC_REQ), ?BASIC_REQ]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    ?FAIL({unexpected_request, BadReq});
                                {error, _} = ERROR ->
                                    ERROR
@@ -12309,7 +12321,7 @@ api_opt_sock_acceptconn_udp() ->
                                    %% for UDP, so skip this part (UDP).
                                    ?SEV_EPRINT("Expected Failure: "
                                                "~p => SKIP", [Reason]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {skip, Reason};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Unexpected Failure: ~p",
@@ -12452,7 +12464,7 @@ api_opt_sock_acceptconn_tcp() ->
                                {error, enoprotoopt = Reason} ->
                                    ?SEV_EPRINT("Expected Failure: "
                                                "~p => SKIP", [Reason]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {skip, Reason};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Unexpected Failure: ~p",
@@ -12897,7 +12909,7 @@ api_opt_sock_bindtodevice() ->
                                    ok;
                                {error, eperm = Reason} ->
                                    ?SEV_IPRINT("Expected Failure: ~p", [Reason]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {ok, State#{usock1 => skip}};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Unexpected Failure: ~p", [Reason]),
@@ -12927,7 +12939,7 @@ api_opt_sock_bindtodevice() ->
                                    {skip, Reason};
                                {error, eperm = Reason} ->
                                    ?SEV_IPRINT("Expected Failure: ~p", [Reason]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {ok, State#{tsock1 => skip}};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Unexpected Failure: ~p", [Reason]),
@@ -20895,8 +20907,8 @@ api_opt_ip_recvttl_udp(InitState) ->
                                    %% IF we can't send it the test will not work
                                    ?SEV_EPRINT("Cannot send TTL: "
                                                "~p => SKIP", [Reason]),
-                                   (catch socket:close(SSock)),
-                                   (catch socket:close(DSock)),
+                                   ?CATCH_AND_IGNORE( socket:close(SSock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(DSock) ),
                                    {skip,
 				    ?F("Cannot send with TTL: ~p", [Reason])};
                                {error, enoprotoopt = Reason} ->
@@ -20904,8 +20916,8 @@ api_opt_ip_recvttl_udp(InitState) ->
                                    %% accepted (FreeBSD), so skip.
                                    ?SEV_EPRINT("Expected Failure: "
                                                "~p => SKIP", [Reason]),
-                                   (catch socket:close(SSock)),
-                                   (catch socket:close(DSock)),
+                                   ?CATCH_AND_IGNORE( socket:close(SSock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(DSock) ),
                                    {skip, Reason};
 
                                {error,
@@ -20925,8 +20937,8 @@ api_opt_ip_recvttl_udp(InitState) ->
                                                [Info,
                                                 File, Function, Line,
                                                 RawInfo]),
-                                   (catch socket:close(SSock)),
-                                   (catch socket:close(DSock)),
+                                   ?CATCH_AND_IGNORE( socket:close(SSock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(DSock) ),
                                    {skip,
                                     ?F("Cannot send with TTL: ~p", [Info])};
                                {error, {get_overlapped_result,
@@ -20934,8 +20946,8 @@ api_opt_ip_recvttl_udp(InitState) ->
                                    %% IF we can't send it the test will not work
                                    ?SEV_EPRINT("Cannot send TTL: "
                                                "~p => SKIP", [Info]),
-                                   (catch socket:close(SSock)),
-                                   (catch socket:close(DSock)),
+                                   ?CATCH_AND_IGNORE( socket:close(SSock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(DSock) ),
                                    {skip,
                                     ?F("Cannot send with TTL: ~p", [Info])};
 
@@ -20956,8 +20968,8 @@ api_opt_ip_recvttl_udp(InitState) ->
                                                [Info,
                                                 File, Function, Line,
                                                 RawInfo]),
-                                   (catch socket:close(SSock)),
-                                   (catch socket:close(DSock)),
+                                   ?CATCH_AND_IGNORE( socket:close(SSock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(DSock) ),
                                    {skip,
                                     ?F("Cannot send with TTL: ~p", [Info])};
                                {error, {completion_status,
@@ -20965,8 +20977,8 @@ api_opt_ip_recvttl_udp(InitState) ->
                                    %% IF we can't send it the test will not work
                                    ?SEV_EPRINT("Cannot send TTL: "
                                                "~p => SKIP", [Info]),
-                                   (catch socket:close(SSock)),
-                                   (catch socket:close(DSock)),
+                                   ?CATCH_AND_IGNORE( socket:close(SSock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(DSock) ),
                                    {skip,
                                     ?F("Cannot send with TTL: ~p", [Info])};
 
@@ -22120,8 +22132,8 @@ api_opt_ip_mopts_udp(InitState) ->
                                                            "Failure: "
                                                            "~p => SKIP",
                                                            [Reason]),
-                                               (catch socket:close(DSock)),
-                                               (catch socket:close(SSock)),
+                                               ?CATCH_AND_IGNORE( socket:close(DSock) ),
+                                               ?CATCH_AND_IGNORE( socket:close(SSock) ),
                                                {skip, Reason};
                                            {error, Reason} = ERROR ->
                                                ?SEV_EPRINT("Failed "
@@ -22870,9 +22882,9 @@ api_opt_ipv6_hoplimit_udp(InitState) ->
                                    %% for UDP, so skip this part (UDP).
                                    ?SEV_EPRINT("Expected Failure: "
                                                "~p => SKIP", [Reason]),
-                                   (catch socket:close(Sock)),
-                                   (catch socket:close(maps:get_value(sock_src,
-								      State))),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(maps:get_value(sock_src,
+										  State)) ),
                                    {skip, Reason};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Failed getting (default) hoplimit:"
@@ -22928,9 +22940,9 @@ api_opt_ipv6_hoplimit_udp(InitState) ->
                                    %% for UDP, so skip this part (UDP).
                                    ?SEV_EPRINT("Expected Failure: "
                                                "~p => SKIP", [Reason]),
-                                   (catch socket:close(Sock)),
-                                   (catch socket:close(maps:get_value(sock_src,
-								      State))),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(maps:get_value(sock_src,
+										  State)) ),
                                    {skip, Reason};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Failed setting hoplimit:"
@@ -23164,9 +23176,9 @@ api_opt_ipv6_tclass_udp(InitState) ->
                                    %% for UDP, so skip this part (UDP).
                                    ?SEV_EPRINT("Expected Failure: "
                                                "~p => SKIP", [Reason]),
-                                   (catch socket:close(Sock)),
-                                   (catch socket:close(maps:get_value(sock_src,
-								      State))),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(maps:get_value(sock_src,
+										  State)) ),
                                    {skip, Reason};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Failed getting (default) tclass:"
@@ -23222,9 +23234,9 @@ api_opt_ipv6_tclass_udp(InitState) ->
                                    %% for UDP, so skip this part (UDP).
                                    ?SEV_EPRINT("Expected Failure: "
                                                "~p => SKIP", [Reason]),
-                                   (catch socket:close(Sock)),
-                                   (catch socket:close(maps:get_value(sock_src,
-								      State))),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
+                                   ?CATCH_AND_IGNORE( socket:close(maps:get_value(sock_src,
+										  State)) ),
                                    {skip, Reason};
                                {error, Reason} = ERROR ->
                                    ?SEV_EPRINT("Failed setting tclass:"
@@ -23300,7 +23312,7 @@ api_opt_ipv6_tclass_udp(InitState) ->
                                                [Info,
                                                 File, Function, Line,
                                                 RawInfo]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {skip,
                                     ?F("Cannot send with TClass: ~p", [Info])};
                                {error, {get_overlapped_result,
@@ -23308,7 +23320,7 @@ api_opt_ipv6_tclass_udp(InitState) ->
                                    %% IF we can't send it the test will not work
                                    ?SEV_EPRINT("Cannot send TClass: "
                                                "~p => SKIP", [Info]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {skip,
                                     ?F("Cannot send with TClass: ~p", [Info])};
 
@@ -23329,7 +23341,7 @@ api_opt_ipv6_tclass_udp(InitState) ->
                                                [Info,
                                                 File, Function, Line,
                                                 RawInfo]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {skip,
                                     ?F("Cannot send with TClass: ~p", [Info])};
                                {error, {completion_status,
@@ -23337,7 +23349,7 @@ api_opt_ipv6_tclass_udp(InitState) ->
                                    %% IF we can't send it the test will not work
                                    ?SEV_EPRINT("Cannot send TClass: "
                                                "~p => SKIP", [Info]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {skip,
                                     ?F("Cannot send with TClass: ~p", [Info])};
 
@@ -23651,8 +23663,8 @@ api_opt_ipv6_mopts_udp(InitState) ->
                                                            "Failure: "
                                                            "~p => SKIP",
                                                            [Reason]),
-                                               (catch socket:close(DSock)),
-                                               (catch socket:close(SSock)),
+                                               ?CATCH_AND_IGNORE( socket:close(DSock) ),
+                                               ?CATCH_AND_IGNORE( socket:close(SSock) ),
                                                {skip, Reason};
                                            {error, Reason} = ERROR ->
                                                ?SEV_EPRINT("Failed "
@@ -25789,17 +25801,17 @@ api_to_connect_tcp_await_timeout2(_ID, To, ServerSA, NewSock) ->
             TDiff = Stop - Start,
             if
                 (TDiff >= To) ->
-                    (catch socket:close(Sock)),
+                    ?CATCH_AND_IGNORE( socket:close(Sock) ),
                     ok;
                 true ->
-                    (catch socket:close(Sock)),
+                    ?CATCH_AND_IGNORE( socket:close(Sock) ),
                     ?FAIL({unexpected_timeout, TDiff, To})
             end;
         {error, econnreset = _Reason} ->
-            (catch socket:close(Sock)),
+            ?CATCH_AND_IGNORE( socket:close(Sock) ),
             ok;
         {error, Reason} ->
-            (catch socket:close(Sock)),
+            ?CATCH_AND_IGNORE( socket:close(Sock) ),
             ?FAIL({connect, Reason});
         ok ->
             {ok, Sock}
@@ -25808,7 +25820,7 @@ api_to_connect_tcp_await_timeout2(_ID, To, ServerSA, NewSock) ->
 api_to_connect_tcp_await_timeout3([]) ->
     ok;
 api_to_connect_tcp_await_timeout3([Sock|Socka]) ->
-    (catch socket:close(Sock)),
+    ?CATCH_AND_IGNORE( socket:close(Sock) ),
     api_to_connect_tcp_await_timeout3(Socka).
 
 
@@ -25882,7 +25894,7 @@ api_to_accept_tcp(InitState) ->
                                {error, timeout} ->
                                    {ok, State#{start => Start, stop => ?TS()}};
                                {ok, Sock} ->
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {error, unexpected_success};
                                {error, _} = ERROR ->
                                    ERROR
@@ -26010,7 +26022,7 @@ api_to_maccept_tcp(InitState) ->
                                {ok, Sock} ->
                                    ?SEV_EPRINT("Unexpected accept success: "
                                                "~n   ~p", [Sock]),
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {error, unexpected_success};
                                {error, _} = ERROR ->
                                    ERROR
@@ -26083,7 +26095,7 @@ api_to_maccept_tcp(InitState) ->
                                {error, timeout} ->
                                    {ok, State#{start => Start, stop => ?TS()}};
                                {ok, Sock} ->
-                                   (catch socket:close(Sock)),
+                                   ?CATCH_AND_IGNORE( socket:close(Sock) ),
                                    {error, unexpected_success};
                                {error, _} = ERROR ->
                                    ERROR

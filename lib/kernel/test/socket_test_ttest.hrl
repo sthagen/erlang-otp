@@ -31,4 +31,9 @@
 
 -define(SLEEP(T), receive after T -> ok end).
 
+-define(CATCH_AND_IGNORE(_X_),
+	try _X_ catch _:_ -> ignore end).
+-define(CATCH_AND_RETURN(_X_),
+	try _X_ catch __C__:__E__ -> {error, {catched, __C__, __E__}} end).
+
 -endif. % -ifdef(socket_test_ttest).

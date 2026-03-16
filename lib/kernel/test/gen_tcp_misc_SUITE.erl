@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1998-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -442,8 +442,8 @@ init_per_group(inet_backend_inet = _GroupName, Config) ->
 init_per_group(inet_backend_socket = _GroupName, Config) ->
     ?P("~w(~w) -> check explicit inet-backend when"
        "~n   Config: ~p", [?FUNCTION_NAME, _GroupName, Config]),
-    case ?EXPLICIT_INET_BACKEND(Config) of
-        undefined ->
+    case {?IS_SOCKET_SUPPORTED(), ?EXPLICIT_INET_BACKEND(Config)} of
+        {true, undefined} ->
             case ?EXPLICIT_INET_BACKEND() of
                 true ->
                     %% The environment trumps us,
@@ -452,10 +452,16 @@ init_per_group(inet_backend_socket = _GroupName, Config) ->
                 false ->
                     [{socket_create_opts, [{inet_backend, socket}]} | Config]
             end;
-        inet ->
+        {false, undefined} ->
+	    ?P("'socket' not supported"),
+	    {skip, "'socket' not supporrted"};
+        {_, inet} ->
             {skip, "explicit inet-backend = inet"};
-        socket ->
-            [{socket_create_opts, [{inet_backend, socket}]} | Config]
+        {true, socket} ->
+            [{socket_create_opts, [{inet_backend, socket}]} | Config];
+        {false, socket} ->
+	    ?P("'socket' not supported"),
+	    {skip, "'socket' not supporrted"}
     end;
 init_per_group(_GroupName, Config) ->
     Config.
@@ -880,8 +886,8 @@ do_close_with_pending_output(Node, Config) ->
 				  "~n      Error: ~p", [?FUNCTION_NAME, Error]),
 			       ok = inet:setopts(A, [{debug, false}]),    
 			       Self ! {self(), ?P("read failed - ~p - close socket(s)", [Error])},
-			       (catch gen_tcp:close(A)),
-			       (catch gen_tcp:close(L)),
+			       ?CATCH_AND_IGNORE( gen_tcp:close(A) ),
+			       ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
 			       ?P("~w -> [ERROR] done", [?FUNCTION_NAME]),
 			       ct:fail({unexpected, Error})
 		       end
@@ -957,7 +963,8 @@ send_loop(Sock, Data, Left) ->
             ?P("[send_loop] failed send data when:"
 	       "~n   Left:        ~p"
 	       "~n   Reason:      ~p"
-	       "~n   Socket Info: ~p", [Left, Reason, (catch inet:info(Sock))]),
+	       "~n   Socket Info: ~p", [Left, Reason,
+					?CATCH_AND_RETURN( inet:info(Sock) )]),
             exit({failed_send, Left, Reason})
     end,
     send_loop(Sock, Data, Left-1).
@@ -1181,18 +1188,23 @@ otp_3924_receive_data(LSock, Sender, MaxDelay, Len, N) ->
     OP = process_flag(priority, max),
     OTE = process_flag(trap_exit, true),
     TimeoutRef = make_ref(),
-    Data = (catch begin
-                      Sender ! start,
-                      {ok, Sock} = gen_tcp:accept(LSock),
-                      D = otp_3924_receive_data(Sock,
-                                                TimeoutRef,
-                                                MaxDelay,
-                                                Len,
-                                                [],
-                                                0),
-                      ok = gen_tcp:close(Sock),
-                      D
-                  end),
+    Data = try
+	       begin
+		   Sender ! start,
+		   {ok, Sock} = gen_tcp:accept(LSock),
+		   D = otp_3924_receive_data(Sock,
+					     TimeoutRef,
+					     MaxDelay,
+					     Len,
+					     [],
+					     0),
+		   ok = gen_tcp:close(Sock),
+		   D			    
+	       end
+	   catch
+	       C:E ->
+		   {error, {catched, C, E}}
+	   end,
     unlink(Sender),
     process_flag(trap_exit, OTE),
     process_flag(priority, OP),
@@ -2462,7 +2474,7 @@ craasa_populate_sender(_, _, _, _) ->
     exit(failed_sending_payload).
 
 craasa_cleanup(Client, Sender) ->
-    (catch gen_tcp:close(Client)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(Client) ),
     craasa_cleanup(Sender).
 
 craasa_cleanup(Sender) when is_pid(Sender) ->
@@ -2741,7 +2753,7 @@ craasao_verify_sender(_) ->
     ok.
 
 craasao_cleanup(Client) ->
-    (catch gen_tcp:close(Client)).
+    ?CATCH_AND_IGNORE( gen_tcp:close(Client) ).
 
 
 %% --------------------------------------------------------------------------
@@ -2955,7 +2967,7 @@ craasp_verify(win32 = _OS, true = _ISB,
     end.
 
 craasp_cleanup(Client, Sender) ->
-    (catch gen_tcp:close(Client)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(Client) ),
     craasp_cleanup(Sender).
 
 craasp_cleanup(Sender) when is_pid(Sender) ->
@@ -3020,7 +3032,7 @@ do_linger_zero(Config, Addr) ->
     lz_verify(Client, Server, PayloadSize),
 
     ?P("[ctrl] cleanup"), % Just in case
-    (catch gen_tcp:close(Server)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(Server) ),
     if is_pid(Sender) -> exit(Sender, kill);
        true           -> ok
     end,
@@ -3171,7 +3183,7 @@ do_linger_zero_sndbuf(Config, Addr) ->
     lzs_verify(Client, Server, PayloadSize),
 
     ?P("cleanup"), % Just in case
-    (catch gen_tcp:close(Server)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(Server) ),
     if is_pid(Sender) -> exit(Sender, kill);
        true           -> ok
     end,
@@ -4323,7 +4335,7 @@ test_prio_accept_async(Config, Addr) ->
     ?P("test_prio_accept_async -> getopts prio and tos for connected socket"),
     {ok,[{priority,4},{tos,Tos2}]} = inet:getopts(Sock2, [priority,tos]),
     ?P("test_prio_accept_async -> close connected socket"),
-    catch gen_tcp:close(Sock2),
+    ?CATCH_AND_IGNORE( gen_tcp:close(Sock2) ),
     ?P("test_prio_accept_async -> done"),
     ok.
 
@@ -4707,11 +4719,20 @@ test_pktoptions(Config, Family, Spec, CheckConnect) ->
     OptsVals2 = VerifyRemOpts(S2, orig),
     %% {ok,[{pktoptions,OptsVals1}]} = inet:getopts(S1, [pktoptions]),
     %% {ok,[{pktoptions,OptsVals2}]} = inet:getopts(S2, [pktoptions]),
-    (Result1 = sets_eq(OptsVals1, OptsVals))
-        orelse ?P("Accept differs: ~p neq ~p", [OptsVals1,OptsVals]),
-    (Result2 = sets_eq(OptsVals2, OptsValsDefault))
-        orelse ?P("Connect differs: ~p neq ~p",
-                  [OptsVals2, OptsValsDefault]),
+    Result1 = sets_eq(OptsVals1, OptsVals),
+    case Result1 of
+	false ->
+	    ?P("Accept differs: ~p neq ~p", [OptsVals1,OptsVals]);
+	_ ->
+	    ignore
+    end,
+    Result2 = sets_eq(OptsVals2, OptsValsDefault),
+    case Result2 of
+	false ->
+	    ?P("Connect differs: ~p neq ~p", [OptsVals2, OptsValsDefault]);
+	_ ->
+	    ignore
+    end,
     %%
     ?P("close connect socket"),
     ok = gen_tcp:close(S2),
@@ -4756,8 +4777,13 @@ test_pktoptions(Config, Family, Spec, CheckConnect) ->
     ?P("verify pktoptions on connect socket"),
     {ok,[{pktoptions,OptsVals4}]} = inet:getopts(S4, [pktoptions]),
     ?P("verify options set"),
-    (Result3 = sets_eq(OptsVals4, OptsVals))
-        orelse ?P("Accept2 differs: ~p neq ~p", [OptsVals4, OptsVals]),
+    Result3 = sets_eq(OptsVals4, OptsVals),
+    case Result3 of
+	false ->
+	    ?P("Accept2 differs: ~p neq ~p", [OptsVals4, OptsVals]);
+	_ ->
+	    ignore
+    end,
     %%
     ?P("close connect socket"),
     ok = gen_tcp:close(S4),
@@ -4888,7 +4914,7 @@ mktmofun(Tmo,Parent,LS) ->
             TS0 = millis(),
             ?P("[acceptor] mktmofun:fun -> try accept"),
             TS1 = millis(),
-            AcceptResult = catch gen_tcp:accept(LS, Tmo),
+            AcceptResult = ?CATCH_AND_RETURN( gen_tcp:accept(LS, Tmo) ),
             TS2 = millis(),
             ?P("[acceptor] mktmofun:fun -> accept result: "
                "~n   ~p"
@@ -5447,7 +5473,7 @@ do_killing_acceptor_inet(LS) ->
     validate_acceptor_state(LS, [listen], [accepting]),
 
     ?P("cleanup"),
-    (catch gen_tcp:close(LS)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
     ok.
 
 do_killing_acceptor_socket(LS) ->
@@ -5474,7 +5500,7 @@ do_killing_acceptor_socket(LS) ->
     validate_acceptor_state(LS, 0, [listening], [accepting]),
 
     ?P("cleanup"),
-    (catch gen_tcp:close(LS)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
     ok.
     
 validate_acceptor_state(LS, ExpStates, ExpNotStates) when is_port(LS) ->
@@ -5656,7 +5682,7 @@ do_killing_multi_acceptors_inet(LS) ->
     validate_acceptor_state(LS, [listen], [accepting]),
 
     ?P("cleanup"),
-    (catch gen_tcp:close(LS)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
     ok.
 
 do_killing_multi_acceptors_socket(LS) ->
@@ -5692,7 +5718,7 @@ do_killing_multi_acceptors_socket(LS) ->
     validate_acceptor_state(LS, 0, [listening], [accepting]),
 
     ?P("cleanup"),
-    (catch gen_tcp:close(LS)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
     ok.
 
 
@@ -5786,7 +5812,7 @@ do_killing_multi_acceptors2_inet(Config, LS) ->
     validate_acceptor_state(LS, [listen], [accepting]),
 
     ?P("cleanup"),
-    (catch gen_tcp:close(LS)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
     ok.
 
 do_killing_multi_acceptors2_socket(Config, LS) ->
@@ -5849,7 +5875,7 @@ do_killing_multi_acceptors2_socket(Config, LS) ->
     validate_acceptor_state(LS, 0, [listening], [accepting]),
 
     ?P("cleanup"),
-    (catch gen_tcp:close(LS)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
     ok.
 
 
@@ -5954,7 +5980,7 @@ accept_system_limit(Config) when is_list(Config) ->
 		   end
 	   end,
     TC   = fun() -> do_accept_system_limit(Config) end,
-    ?TC_TRY(accept_system_limit, Cond, TC).
+    ?TC_TRY(?FUNCTION_NAME, Cond, TC).
 
 do_accept_system_limit(Config) ->
     ?P("create listen socket"),
@@ -6013,7 +6039,7 @@ connector(Config, AccPort, Tester) ->
     ?P("[connector] begin connecting"),
     ConnF =
         fun(Port) ->
-                case (catch ?CONNECT(Config, {127,0,0,1}, AccPort)) of
+                try ?CONNECT(Config, {127,0,0,1}, AccPort) of
                     {ok, Sock} ->
                         ?P("[connector] success: "
                            "~n      ~p", [Sock]),
@@ -6022,7 +6048,13 @@ connector(Config, AccPort, Tester) ->
                         ?SKIPE(connect_failed_str(Reason));
                     _Error ->
                         ?P("[connector] failure: "
-                           "~n      ~p", [_Error]),
+                           "~n      Error: ~p", [_Error]),
+                        port_close(Port)
+		catch
+		    _C:_E ->
+                        ?P("[connector] failure: "
+                           "~n      Class: ~p"
+                           "~n      Error: ~p", [_C, _E]),
                         port_close(Port)
                 end
         end,
@@ -6031,12 +6063,18 @@ connector(Config, AccPort, Tester) ->
     receive stop -> ?P("[connector] stop (~w)", [length(R)]), R end.
 
 open_ports(L) ->
-    case catch open_port({spawn_driver, "ram_file_drv"}, []) of
+    try open_port({spawn_driver, "ram_file_drv"}, []) of
 	Port when is_port(Port) ->
-	    open_ports([Port|L]);
-	{'EXIT', {system_limit, _}} ->
+	    open_ports([Port|L])
+    catch
+	error:system_limit:_ ->
+	    ?P("~s -> system limit reached (length(L) = ~w) - close some ports",
+	       [?FUNCTION_NAME, length(L)]),
 	    {L1, L2} = lists:split(5, L),
-	    [port_close(Port) || Port <- L1],
+	    [begin
+		 ?P("~s -> close port ~p", [?FUNCTION_NAME, Port]),
+		 port_close(Port)
+	     end || Port <- L1],
 	    L2
     end.
 
@@ -6265,7 +6303,7 @@ anc_await_closed_and_down(S, Pid, MRef, Size, Closed, Down) ->
             ?P("Received UNEXPECTED down message regarding client:"
                "~n   Reason:    ~p"
                "~n   Port Info: ~p",
-               [Reason, (catch erlang:port_info(S))]),
+               [Reason, ?CATCH_AND_RETURN( erlang:port_info(S) )]),
             ct:fail({unexpected_client_down, Reason}); 
 
        Msg ->
@@ -6355,14 +6393,14 @@ send_timeout_basic(Config, Addr, BinData, SndBuf, TslTimeout, SndTimeout,
 	{error, Reason} ->
 	    ?P("[basic] (expected) send failure"),
 	    after_send_timeout(AutoClose, Reason),
-	    (catch gen_tcp:close(A)),
+	    ?CATCH_AND_IGNORE( gen_tcp:close(A) ),
 	    exit(Pid, kill),
 	    ok;
 	ok ->
             %% Note that there is no active reader on the other end,
             %% so a 'channel' has been filled, should remain filled.
 	    ?P("[basic] UNEXPECTED send success"),
-	    (catch gen_tcp:close(A)),
+	    ?CATCH_AND_IGNORE( gen_tcp:close(A) ),
 	    exit(Pid, kill),
 	    ct:fail("Unexpected send success")
     end.
@@ -6548,7 +6586,7 @@ send_timeout_para(Config, Addr, BinData, BufSz, TslTimeout, SndTimeout,
     ?P("[para] spawn sender process 2"),
     Snd2 = spawn_link(SenderFun),
 
-    SockInfo    = fun() -> (catch inet:info(A)) end,
+    SockInfo    = fun() -> ?CATCH_AND_RETURN( inet:info(A) ) end,
     SockTimeout = fun() ->
                           try inet:getopts(A, [send_timeout]) of
                               {ok, [V2]} ->
@@ -6622,8 +6660,8 @@ send_timeout_para(Config, Addr, BinData, BufSz, TslTimeout, SndTimeout,
                    "~n   Send Timeout:  ~p"
                    "~n   Message Queue: ~p",
                    [AutoClose,
-                    (catch process_info(Snd1)),
-                    (catch process_info(Snd2)),
+                    ?CATCH_AND_RETURN( process_info(Snd1) ),
+                    ?CATCH_AND_RETURN( process_info(Snd2) ),
                     SockInfo1, SockTo1,
                     flush([])]),
                 Snd1 ! {info_and_die, SockInfo, SockTimeout},
@@ -6653,7 +6691,8 @@ send_timeout_para(Config, Addr, BinData, BufSz, TslTimeout, SndTimeout,
                        "~n   Send Timeout:  ~p"
                        "~n   Message Queue: ~p",
                        [AutoClose,
-                        (catch process_info(Snd1)),
+                        try process_info(Snd1)
+			catch C21:E21 -> {error, {catched, C21, E21}} end,
                         SockInfo21, SockTo21,
                         flush([])]),
                 Snd1 ! {info_and_die, SockInfo, SockTimeout};
@@ -6666,7 +6705,8 @@ send_timeout_para(Config, Addr, BinData, BufSz, TslTimeout, SndTimeout,
                        "~n   Send Timeout:  ~p"
                        "~n   Message Queue: ~p",
                        [AutoClose,
-                        (catch process_info(Snd2)),
+                        try process_info(Snd2)
+			catch C22:E22 -> {error, {catched, C22, E22}} end,
                         SockInfo22, SockTo22,
                         flush([])]),
                     Snd2 ! {info_and_die, SockInfo, SockTimeout}
@@ -6694,7 +6734,7 @@ send_timeout_close(Sock) ->
     F = fun() ->
                 receive
                     {close, S} ->
-                        (catch gen_tcp:close(S)),
+                        ?CATCH_AND_RETURN( gen_tcp:close(S) ),
                         exit(normal)
                 end
         end,
@@ -6707,7 +6747,7 @@ send_timeout_close(Sock) ->
             ?P("failed transfering ownership to closer process: "
                "~n   ~p", [Reason]),
             exit(Pid, kill),
-            (catch gen_tcp:close(Sock))
+            ?CATCH_AND_IGNORE( gen_tcp:close(Sock) )
     end.
     
 st_await_sender_termination(undefined, undefined) ->
@@ -6896,7 +6936,7 @@ setup_closed_ao(Config, Addr) ->
             {ok, LSock} ->
                 LSock;
             {error, eaddrnotavail = LReason} ->
-                (catch ?STOP_NODE(R)),
+                ?CATCH_AND_IGNORE( ?STOP_NODE(R) ),
                 ?SKIPT(listen_failed_str(LReason))
         end,
     {ok, Port} = inet:port(L),
@@ -6924,7 +6964,7 @@ setup_closed_ao(Config, Addr) ->
             {ok, CSock} ->
                 CSock;
             {error, eaddrnotavail = CReason} ->
-                (catch ?STOP_NODE(R)),
+                ?CATCH_AND_IGNORE( ?STOP_NODE(R) ),
                 ?SKIPT(connect_failed_str(CReason))
         end,
     ?P("[setup] accept (local) connection"),
@@ -6932,7 +6972,7 @@ setup_closed_ao(Config, Addr) ->
             {ok, ASock} ->
                 ASock;
             {error, eaddrnotavail = AReason} ->
-                (catch ?STOP_NODE(R)),
+                ?CATCH_AND_IGNORE( ?STOP_NODE(R) ),
                 ?SKIPT(accept_failed_str(AReason))
         end,
     ?P("[setup] send (local) and receive (remote) message"),
@@ -7008,7 +7048,7 @@ setup_timeout_sink(Config, RNode, Addr, Timeout, AutoClose, BufSz) ->
        "recv 'test' message on remote node (~p)", [RNode]),
     {ok, "Hello"} = Remote(fun() -> gen_tcp:recv(C,0) end),
     ?P("[sink setup] cleanup - close listen socket"),
-    (catch gen_tcp:close(L)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
 
     ?P("[sink setup] done when: "
        "~n   Accepted socket: ~p"
@@ -7317,7 +7357,8 @@ send_timeout_repeat(S, Server, Tag, N, Bin, RetryTimeout, Timeouts) ->
             ?P("send_timeout_repeat -> success => done when"
                "~n      N:           ~p"
                "~n      Timeouts:    ~p"
-               "~n      Socket Info: ~p", [N, Timeouts, (catch inet:info(S))]),
+               "~n      Socket Info: ~p", [N, Timeouts,
+					   ?CATCH_AND_RETURN( inet:info(S) )]),
             Timeouts;
         {error, Reason} ->
             case Reason of
@@ -7327,7 +7368,7 @@ send_timeout_repeat(S, Server, Tag, N, Bin, RetryTimeout, Timeouts) ->
                        "~n      N:           ~p"
                        "~n      Timeouts:    ~p"
                        "~n      Socket Info: ~p",
-                       [S, N, Timeouts, (catch inet:info(S))]),
+                       [S, N, Timeouts, ?CATCH_AND_RETURN( inet:info(S) )]),
                     Server ! {Tag, rec},
                     receive after RetryTimeout -> ok end,
                     send_timeout_repeat(
@@ -7338,7 +7379,7 @@ send_timeout_repeat(S, Server, Tag, N, Bin, RetryTimeout, Timeouts) ->
                        "~n      N:           ~p"
                        "~n      Timeouts:    ~p"
                        "~n      Socket Info: ~p",
-                       [S, N, Timeouts, (catch inet:info(S))]),
+                       [S, N, Timeouts, ?CATCH_AND_RETURN( inet:info(S) )]),
                     Server ! {Tag, rec},
                     receive after RetryTimeout -> ok end,
                     send_timeout_repeat(
@@ -7350,7 +7391,8 @@ send_timeout_repeat(S, Server, Tag, N, Bin, RetryTimeout, Timeouts) ->
                        "~n      N:           ~p"
                        "~n      Timeouts:    ~p"
                        "~n      Socket Info: ~p",
-                       [Reason, N, Timeouts, (catch inet:info(S))]),
+                       [Reason, N, Timeouts,
+			?CATCH_AND_RETURN( inet:info(S) )]),
                     error({Reason, N, Timeouts})
             end
     end.
@@ -7463,7 +7505,7 @@ do_otp_7731(Config, Addr) ->
 	    ok
     end,
     ?P("[ctrl] no leaking messages - cleanup"),
-    (catch gen_tcp:close(Socket)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(Socket) ),
     ServerPid ! {self(), die},
     ?P("[ctrl] done."),
     ok.
@@ -8140,7 +8182,7 @@ oct_datapump(Ctrl, Config, Addr, Port, N) ->
 
 oct_pump(S, N, _, _, _Sent) when N =< 0 ->
     ?P("[pump] done"),
-    (catch gen_tcp:close(S)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(S) ),
     exit(ok);
 oct_pump(S, N, Bin, Last, Sent) ->
     put(action, send),
@@ -8159,7 +8201,7 @@ oct_pump(S, N, Bin, Last, Sent) ->
 		    case (R < Last) of
 			true ->
 			    ?P("[pump] send counter error ~p < ~p", [R, Last]),
-                            (catch gen_tcp:close(S)),
+                            ?CATCH_AND_IGNORE( gen_tcp:close(S) ),
 			    exit({error, {output_counter, R, Last, N}});
 			false ->
                             put(rem_bytes, N - byte_size(Bin)),
@@ -8171,7 +8213,7 @@ oct_pump(S, N, Bin, Last, Sent) ->
 		       "~n   when"
 		       "~n      Remaining: ~p"
 		       "~n      Last:      ~p", [StatReason, N, Last]),
-		    (catch gen_tcp:close(S)),
+		    ?CATCH_AND_IGNORE( gen_tcp:close(S) ),
 		    exit({error, {stat_failure, StatReason, N, Last}})
 	    end;
 	{error, SendReason} ->
@@ -8180,7 +8222,7 @@ oct_pump(S, N, Bin, Last, Sent) ->
 	       "~n   when"
 	       "~n      Remaining: ~p"
 	       "~n      Last:      ~p", [SendReason, N, Last]),
-	    (catch gen_tcp:close(S)),
+	    ?CATCH_AND_IGNORE( gen_tcp:close(S) ),
 	    exit({error, {send_failure, SendReason, N, Last}})
     end.
     
@@ -8219,7 +8261,7 @@ oct_aloop(S, LastInfo, Received, Times) ->
                        "~n      Info:      ~p"
                        "~n      Last Info: ~p",
                        [R, Received, Times, Info, LastInfo]),
-                    (catch gen_tcp:close(S)),
+                    ?CATCH_AND_IGNORE( gen_tcp:close(S) ),
                     {error, {output_counter, R, Received, Times}};
                 false ->
                     case Times rem 16#FFFFF of
@@ -8240,7 +8282,7 @@ oct_aloop(S, LastInfo, Received, Times) ->
 	       "~n   when"
 	       "~n      Received: ~p"
 	       "~n      Times:    ~p", [RecvReason, Received, Times]),
-	    (catch gen_tcp:close(S)),
+	    ?CATCH_AND_IGNORE( gen_tcp:close(S) ),
             ct:sleep(1000), % Just give the 'pump' a chance to get there first
 	    exit(closed)
     end.
@@ -8656,7 +8698,7 @@ bidirectional_traffic(Config) when is_list(Config) ->
     Case = fun(Info) -> do_bidirectional_traffic(Config, Info) end,
     Post = fun(#{lsock := LSock}) ->
                    ?P("post -> close listen socket"),
-                   (catch gen_tcp:close(LSock))
+                   ?CATCH_AND_IGNORE( gen_tcp:close(LSock) )
            end,
     ?TC_TRY(?FUNCTION_NAME,
             Cond, Pre, Case, Post).
@@ -8846,10 +8888,10 @@ recv(ClientPid, SenderPid,
                "~n      Socket Info:       ~p",
                [?FUNCTION_NAME, get(role),
                 Total, TotIter, TotAct,
-                Socket, (catch inet:info(Socket))]),
+                Socket, ?CATCH_AND_RETURN( inet:info(Socket) )]),
             maybe_stop_client(ClientPid),
             ?P("~w(~w,recv) -> close socket", [?FUNCTION_NAME, get(role)]),
-            (catch gen_tcp:close(Socket)),
+            ?CATCH_AND_IGNORE( gen_tcp:close(Socket) ),
             await_sender_exit(SenderPid),
             exit(normal);
 
@@ -8869,7 +8911,8 @@ recv(ClientPid, SenderPid,
                "~n      Total activations: ~w"
                "~n      Socket Info:       ~p",
 	       [?FUNCTION_NAME, get(role),
-                Total, TotIter, TotAct, (catch inet:info(Socket))]),
+                Total, TotIter, TotAct,
+		?CATCH_AND_RETURN( inet:info(Socket) )]),
 	    ok;
 
         %% It is a race if this message is received before the tcp_closed
@@ -8887,7 +8930,7 @@ recv(ClientPid, SenderPid,
                [?FUNCTION_NAME, get(role),
                 Total, TotIter, TotAct,
                 Socket, oki(inet:peername(Socket)), oki(inet:sockname(Socket)),
-                (catch inet:info(Socket))]),
+                ?CATCH_AND_RETURN( inet:info(Socket) )]),
             recv(undefined, SenderPid,
                  Socket,
                  Total, TotIter, TotAct,
@@ -8908,8 +8951,8 @@ recv(ClientPid, SenderPid,
                 Reason,
                 Total, TotIter, TotAct,
                 Socket, oki(inet:peername(Socket)), oki(inet:sockname(Socket)),
-                (catch inet:info(Socket))]),
-            (catch gen_tcp:close(Socket)),
+                ?CATCH_AND_RETURN( inet:info(Socket) )]),
+            ?CATCH_AND_IGNORE( gen_tcp:close(Socket) ),
             await_sender_exit(SenderPid),
             Control ! {error, Socket, Reason};
 
@@ -8931,9 +8974,9 @@ recv(ClientPid, SenderPid,
                 ClientPid, SenderPid,
                 Total, TotIter, TotAct,
                 Socket, oki(inet:peername(Socket)), oki(inet:sockname(Socket)),
-                (catch inet:info(Socket))]),
+                ?CATCH_AND_RETURN( inet:info(Socket) )]),
             maybe_stop_client(ClientPid),
-            (catch gen_tcp:close(Socket)),
+            ?CATCH_AND_IGNORE( gen_tcp:close(Socket) ),
             await_sender_exit(SenderPid),
             Control ! {error, Socket, Other}
 
@@ -8950,9 +8993,9 @@ recv(ClientPid, SenderPid,
                [?FUNCTION_NAME, get(role),
                 Total, TotIter, TotAct,
                 Socket, oki(inet:peername(Socket)), oki(inet:sockname(Socket)),
-                (catch inet:info(Socket))]),
+                ?CATCH_AND_RETURN( inet:info(Socket) )]),
             maybe_stop_client(ClientPid),
-            (catch gen_tcp:close(Socket)),
+            ?CATCH_AND_IGNORE( gen_tcp:close(Socket) ),
             await_sender_exit(SenderPid),
             Control ! {timeout, Socket, Total}
     end.
@@ -9544,7 +9587,7 @@ do_otp_17492(Config, Addr) ->
 	    ?P("(created) Listen socket info: ~p", [Info]);
 	OBadInfo ->
 	    ?P("(created) listen socket info: ~p", [OBadInfo]),
-	    (catch gen_tcp:close(L)),
+	    ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
 	    ct:fail({invalid_created_info, OBadInfo})
     catch
 	OC:OE:OS ->
@@ -9552,7 +9595,7 @@ do_otp_17492(Config, Addr) ->
 	       "~n   Class: ~p"
 	       "~n   Error: ~p"
 	       "~n   Stack: ~p", [OC, OE, OS]),
-	    (catch gen_tcp:close(L)),
+	    ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
 	    ct:fail({unexpected_created_info_result, {OC, OE, OS}})
     end,
 
@@ -9576,7 +9619,7 @@ do_otp_17492(Config, Addr) ->
 	       "~n   Class: ~p"
 	       "~n   Error: ~p"
 	       "~n   Stack: ~p", [CC, CE, CS]),
-	    (catch gen_tcp:close(L)),
+	    ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
 	    ct:fail({unexpected_closed_info_result, {CC, CE, CS}})
     end,
 
@@ -9633,11 +9676,11 @@ do_otp_18357(#{name := Name, addr := Addr}) ->
                 %% This is a failure to set the bind_to_device option
                 %% (usually...)
                 ?P("Failed connecting (on ~w), ~p, skipping", [OS, Reason]),
-                (catch gen_tcp:close(L)),
+                ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
                 skip(Reason);
             {error, eperm = Reason} ->
                 ?P("Failed connecting, ~p, skipping", [Reason]),
-                (catch gen_tcp:close(L)),
+                ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
                 skip(Reason)
         end,
 
@@ -9645,9 +9688,9 @@ do_otp_18357(#{name := Name, addr := Addr}) ->
     {ok, A} = gen_tcp:accept(L),
 
     ?P("cleanup"),
-    (catch gen_tcp:close(C)),
-    (catch gen_tcp:close(A)),
-    (catch gen_tcp:close(L)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(C) ),
+    ?CATCH_AND_IGNORE( gen_tcp:close(A) ),
+    ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
 
     ?P("done"),
     ok.
@@ -9682,8 +9725,8 @@ do_otp_18883() ->
     {ok, L2}   = gen_tcp:listen(Port, Opts),
 
     ?P("success - cleanup"),
-    (catch gen_tcp:close(L1)),
-    (catch gen_tcp:close(L2)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(L1) ),
+    ?CATCH_AND_IGNORE( gen_tcp:close(L2) ),
 
     ?P("done"),
     ok.
@@ -9796,9 +9839,9 @@ do_otp_19560(Family) ->
        "~n   Accept SockAddr:  ~p", [LSA, CSA, ASA]),
 
     ?P("cleanup"),
-    (catch gen_tcp:close(A)),
-    (catch gen_tcp:close(C)),
-    (catch gen_tcp:close(L)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(A) ),
+    ?CATCH_AND_IGNORE( gen_tcp:close(C) ),
+    ?CATCH_AND_IGNORE( gen_tcp:close(L) ),
 
     ?P("done"),
     ok.
@@ -9999,13 +10042,13 @@ do_kernel_options(Config, Addr) ->
                        "~n   connect: ~p (>= ~p)"
                        "~n   accept:  ~p (>= ~p)",
                        [RB1, LRBSz, RB2, CRBSz, RB3, LRBSz]),
-                    (catch ?STOP_NODE(Node)),
+                    ?CATCH_AND_IGNORE( ?STOP_NODE(Node) ),
                     ok;
                 Actual ->
                     ?P("unexpected:"
                        "~n   Expected: ~p"
                        "~n   Actual:   ~p", [Expected, Actual]),
-                    (catch ?STOP_NODE(Node)),
+                    ?CATCH_AND_IGNORE( ?STOP_NODE(Node) ),
                     exit({unexpected, Expected, Actual})
             end;
         {error, Reason} ->
@@ -10091,13 +10134,23 @@ is_not_platform(Family, Name, PlatformStr)
 
 is_socket_supported() ->
     try socket:info() of
-        #{} ->
-            ok
+	#{load_nif_result := ok} ->
+            ?P("~s -> we support 'socket'", [?FUNCTION_NAME]),
+            ok;
+	#{load_nif_result := LoadRes} ->
+	    ?P("~s -> 'socket' not supperted"
+	       "~n   (socket) nif load result: ~p", [?FUNCTION_NAME, LoadRes]),
+	    {skip, "esock not supported"};
+	_ ->
+            ?P("~s -> 'socket' not supperted", [?FUNCTION_NAME]),
+	    {skip, "esock not supported"}
     catch
         error : notsup ->
-            skip("esock not supported");
+            ?P("~s(error,notsup) -> 'socket' not supperted", [?FUNCTION_NAME]),
+            {skip, "esock not supported"};
         error : undef ->
-            skip("esock not configured")
+            ?P("~s(error,undef) -> 'socket' not supperted", [?FUNCTION_NAME]),
+            {skip, "esock not configured"}
     end.
 
 has_support_sock_priority() ->
