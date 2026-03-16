@@ -6431,6 +6431,8 @@ basic_open_and_connect(ServerAddresses, ConnectToAddress, Verify)
     LSock = case socket:open(ServerFamily, seqpacket, sctp) of
                 {ok, LS} ->
                     LS;
+                {error, eprotonosupport = SkipReason} ->
+                    skip(SkipReason);
                 {error, SOReason} ->
                     throw({sopen, SOReason})
             end,
