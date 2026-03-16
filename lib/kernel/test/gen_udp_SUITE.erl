@@ -1722,6 +1722,7 @@ test_recv_opts(Config, Family, Spec, TestSend, OSFilter) ->
             {skip,{not_supported_for_os_version,{OSType,OSVer}}}
     end.
 %%
+
 test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
     Timeout = 5000,
     RecvOpts = [RecvOpt || {RecvOpt,_,_} <- Spec],
@@ -1745,10 +1746,18 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
     {ok, TrueRecvOpts} = inet:getopts(S1, RecvOpts),
     ?P("try set (false) socket (1) opts"),
     ok = inet:setopts(S1, FalseRecvOpts),
-    ?P("verify (false) socket (1) opts"),
-    {ok, FalseRecvOpts} = inet:getopts(S1, RecvOpts),
+    %% ?P("verify (false) socket (1) opts"),
+    %% {ok, FalseRecvOpts} = inet:getopts(S1, RecvOpts),
+    expect("(false) socket (1) opts",
+	   {ok, FalseRecvOpts},
+	   inet:getopts(S1, RecvOpts)),
+    ?P("try set (true) socket (1) opts"),
     ok = inet:setopts(S1, TrueRecvOpts_OptsVals),
-    {ok,TrueRecvOpts_OptsVals} = inet:getopts(S1, RecvOpts ++ Opts),
+    %% ?P("verify (true) socket (1) opts"),
+    %% {ok, TrueRecvOpts_OptsVals} = inet:getopts(S1, RecvOpts ++ Opts),
+    expect("(true) socket (1) opts",
+	   {ok, TrueRecvOpts_OptsVals},
+	   inet:getopts(S1, RecvOpts ++ Opts)),
     %%
     %% S1 now has true receive options and set option values
     %%
@@ -1757,7 +1766,15 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
         ?OPEN(Config, 0, [Family, binary, {active,true} | FalseRecvOpts]),
     {ok, P2} = inet:port(S2),
     ?P("try get (false) socket (2) opts"),
-    {ok, FalseRecvOpts_OptsVals2} = inet:getopts(S2, RecvOpts ++ Opts),
+    FalseRecvOpts_OptsVals2 =
+	case inet:getopts(S2, RecvOpts ++ Opts) of
+	    {ok, RecvOpts_03} ->
+		RecvOpts_03;
+	    {error, Reason} ->
+		?P("Failed get options: "
+		   "~n   Reason: ~p", [Reason]),
+		exit({failed_get_opts, Reason})
+	end,
     OptsVals2 = FalseRecvOpts_OptsVals2 -- FalseRecvOpts,
     ?P("info: "
        "~n   Socket 1:    ~p"
@@ -3809,6 +3826,20 @@ do_t_module_await_notification(Module, Func, Arity, FailureAction) ->
             end
     end.
             
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+expect(Slogan,
+       Expect, Expect) ->
+    ?P("Verified: ~s", [Slogan]),
+    ok;
+expect(Slogan,
+       Expect, Unexpected) ->
+    ?P("Verification failed: ~s"
+       "~n   Expected: ~p"
+       "~n   Actual:   ~p", [Slogan, Expect, Unexpected]),
+    exit({unexpected, Slogan}).
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
