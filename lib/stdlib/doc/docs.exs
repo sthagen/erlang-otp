@@ -61,6 +61,7 @@
     ],
     IO: [
       :io,
+      :io_ansi,
       :io_lib,
       :filelib,
       :filename,
