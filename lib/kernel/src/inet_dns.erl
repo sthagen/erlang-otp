@@ -26,6 +26,7 @@
 %% RFC 6891: Extension Mechanisms for DNS (EDNS0)
 %% RFC 2782: A DNS RR for specifying the location of services (DNS SRV)
 %% RFC 2915: The Naming Authority Pointer (NAPTR) DNS Resource Rec
+%% RFC 5452: Measures for Making DNS More Resilient against Forged Answers
 %% RFC 6488: DNS Certification Authority Authorization (CAA) Resource Record
 %% RFC 7553: The Uniform Resource Identifier (URI) DNS Resource Record
 %% RFC 6762: Multicast DNS

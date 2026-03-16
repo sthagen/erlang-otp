@@ -141,7 +141,7 @@
 %% -- open ------------------------------------------------------------------
 
 -spec open(Port) -> {ok, Socket} | {error, Reason} when
-      Port   :: inet:port_number() | -1,
+      Port   :: inet:port_number(),
       Socket :: socket(),
       Reason :: system_limit | inet:posix().
 
@@ -149,7 +149,7 @@ open(Port) ->
     open(Port, []).
 
 -spec open(Port, Opts) -> {ok, Socket} | {error, Reason} when
-      Port   :: inet:port_number() | -1,
+      Port   :: inet:port_number(),
       Opts   :: [inet:inet_backend() | open_option()],
       Socket :: socket(),
       Reason :: system_limit | inet:posix().
