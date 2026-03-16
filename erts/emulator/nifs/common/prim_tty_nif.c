@@ -766,13 +766,19 @@ static ERL_NIF_TERM setlocale_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     return atom_false;
 #endif
 }
-
+#ifdef HAVE_TERMCAP
+static TERMINAL *saved_term = NULL;
+#endif
 static ERL_NIF_TERM tty_setupterm_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 #ifdef HAVE_TERMCAP
     int errret;
     if (setupterm(NULL, -1, &errret) < 0) {
         return make_errno_error(env, "setupterm");
     }
+    if (saved_term) {
+        del_curterm(saved_term);
+    }
+    saved_term = cur_term;
     return atom_ok;
 #else
     return make_enotsup(env);
@@ -1257,7 +1263,12 @@ static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 
 static void unload(ErlNifEnv* env, void* priv_data)
 {
-
+#ifdef HAVE_TERMCAP
+    if (saved_term) {
+        del_curterm(saved_term);
+        saved_term = NULL;
+    }
+#endif
 }
 
 static int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,

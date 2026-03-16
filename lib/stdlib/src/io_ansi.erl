@@ -2506,7 +2506,9 @@ init_mappings() ->
                                                        9 -> fun(A, B, C, D, E, F, G, H, I) -> {ok, S} = prim_tty:tputs(TermInfoStr, [A, B , C, D, E, F, G, H, I]), S end
                                                    end,
                                                { Arity, #{ terminfo => TermInfoFun, ansi => AnsiFun }};
-                                           false -> Fun({undefined, AnsiFun})
+                                           false -> Fun({undefined, AnsiFun});
+                                           {error, enotsup} ->
+                                               Fun({undefined, AnsiFun})
                                        catch error:badarg ->
                                                Fun({undefined, AnsiFun})
                                        end;
@@ -2517,7 +2519,9 @@ init_mappings() ->
                                                {0, #{ terminfo => fun() -> TermInfoStr end,
                                                       ansi => fun() -> AnsiString end } };
                                            false ->
-                                               Fun({undefined, AnsiString})
+                                               Fun({undefined, AnsiString});
+                                            {error, enotsup} ->
+                                                Fun({undefined, AnsiString})
                                        catch error:badarg ->
                                                Fun({undefined, AnsiString})
                                        end;
