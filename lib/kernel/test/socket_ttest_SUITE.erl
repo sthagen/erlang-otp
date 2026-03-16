@@ -2785,7 +2785,7 @@ end_per_suite(Config0) ->
     %% Stop the local monitor
     kernel_test_sys_monitor:stop(),
 
-    (catch ?LOGGER:stop()),
+    ?CATCH_AND_IGNORE( ?LOGGER:stop() ),
 
     Config1 = ?KLIB:end_per_suite(Config0),
 
@@ -12561,7 +12561,7 @@ ttest_report(Domain,
     %% If we run just one test case, the group init has never been run
     %% and therefore the ttest manager is not running (we also don't actually
     %% care about collecting reports in that case).
-    (catch global:send(?TTEST_MANAGER, Report)),
+    ?CATCH_AND_IGNORE( global:send(?TTEST_MANAGER, Report) ),
     ok.
 
 ttest_msg_id_num_to_name(1) ->

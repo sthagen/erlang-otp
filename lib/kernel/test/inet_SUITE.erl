@@ -1133,11 +1133,14 @@ spawn_gethosters(Hostname, N) ->
     [spawn(fun() ->
 		   receive 
 		       go ->
-			   case (catch inet:gethostbyname(Hostname)) of
+			   try inet:gethostbyname(Hostname) of
 			       {ok,_} ->
 				   Collector ! ok;
 			       Else ->
-				   Collector ! {error,Else}
+				   Collector ! {error, Else}
+			   catch
+			       C:E ->
+				   Collector ! {error, {catched, C, E}}
 			   end
 		   end 
 	   end) | 
@@ -1190,7 +1193,7 @@ wait_for_gethost(0) ->
     exit(gethost_not_found);
 wait_for_gethost(N) ->
     {ok,Hostname} = inet:gethostname(),
-    case (catch inet:gethostbyname(Hostname)) of
+    case ?CATCH_AND_RETURN( inet:gethostbyname(Hostname) ) of
 	{ok,_} ->
 	    ok;
 	Otherwise ->
@@ -2627,9 +2630,9 @@ do_socknames_tcp1(Conf, Addr) ->
 	    exit({skip, {accepted_socket, Reason3}})
     end,
     ?P("close socket(s)"),
-    (catch gen_tcp:close(S3)),
-    (catch gen_tcp:close(S2)),
-    (catch gen_tcp:close(S1)),
+    ?CATCH_AND_IGNORE( gen_tcp:close(S3) ),
+    ?CATCH_AND_IGNORE( gen_tcp:close(S2) ),
+    ?CATCH_AND_IGNORE( gen_tcp:close(S1) ),
     ?P("done"),
     ok.
 
@@ -2697,7 +2700,7 @@ do_socknames_udp1(Conf, Addr) ->
     ?P("enable debug"),
     inet:setopts(S1, [{debug, true}]),
     ?P("close socket"),
-    (catch gen_udp:close(S1)),
+    ?CATCH_AND_IGNORE( gen_udp:close(S1) ),
     ?P("done"),
     ok.
 

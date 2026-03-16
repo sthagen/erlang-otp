@@ -2268,8 +2268,8 @@ recv_close(Config) when is_list(Config) ->
             %% Make sure it does not die for some other reason...
             ?P("unexpected reader termination:"
                "~n   ~p", [PreReason]),
-            (catch gen_sctp:close(S)),
-            (catch gen_sctp:close(C)),
+            ?CATCH_AND_IGNORE( gen_sctp:close(S) ),
+            ?CATCH_AND_IGNORE( gen_sctp:close(C) ),
             ct:fail("Unexpected pre close from reader (~p): ~p",
                           [Pid, PreReason]);
         {Pid, ready} ->
@@ -2280,8 +2280,8 @@ recv_close(Config) when is_list(Config) ->
             %% how long it will take to iterate through all the
             %% addresses of a host...
             ?P("reader ready timeout"),
-            (catch gen_sctp:close(S)),
-            (catch gen_sctp:close(C)),
+            ?CATCH_AND_IGNORE( gen_sctp:close(S) ),
+            ?CATCH_AND_IGNORE( gen_sctp:close(C) ),
             ct:fail("Unexpected pre close timeout (~p)", [Pid])
     end,
 
@@ -2290,8 +2290,8 @@ recv_close(Config) when is_list(Config) ->
         Any ->
             ?P("Received unexpected message: "
                "~n   ~p", [Any]),
-            (catch gen_sctp:close(S)),
-            (catch gen_sctp:close(C)),
+            ?CATCH_AND_IGNORE( gen_sctp:close(S) ),
+            ?CATCH_AND_IGNORE( gen_sctp:close(C) ),
             ct:fail("Unexpected message: ~p", [Any])
     after 5000 ->
             ok
@@ -2303,23 +2303,23 @@ recv_close(Config) when is_list(Config) ->
     receive
         {'DOWN', MRef, process, Pid, {error, closed}} ->
             ?P("expected reader termination result"),
-            (catch gen_sctp:close(C)),
+            ?CATCH_AND_IGNORE( gen_sctp:close(C) ),
             ok;
         {'DOWN', MRef, process, Pid, PostReason} ->
             ?P("unexpected reader termination: "
                "~n   ~p", [PostReason]),
-            (catch gen_sctp:close(C)),
+            ?CATCH_AND_IGNORE( gen_sctp:close(C) ),
             ct:fail("Unexpected post close from reader (~p): ~p",
                           [Pid, PostReason])
     after 5000 ->
             ?P("unexpected reader termination timeout"),
             demonitor(MRef, [flush]),
-            (catch gen_sctp:close(C)),
+            ?CATCH_AND_IGNORE( gen_sctp:close(C) ),
             exit(Pid, kill),
             ct:fail("Reader (~p) termination timeout", [Pid])
     end,
     ?P("close client socket"),
-    (catch gen_sctp:close(C)),
+    ?CATCH_AND_IGNORE( gen_sctp:close(C) ),
     ?P("done"),
     ok.
 
@@ -2557,7 +2557,7 @@ do_simple_sockaddr_send_recv(#{family := _Fam} = SockAddr, _) ->
                       receive
                           {die, Self} ->
                               ?P("[server] terminating"),
-                              (catch gen_tcp:close(Sock)),
+                              ?CATCH_AND_IGNORE( gen_tcp:close(Sock) ),
                               exit(normal)
                       end
               end,
@@ -2682,8 +2682,8 @@ do_simple_sockaddr_send_recv(#{family := _Fam} = SockAddr, _) ->
     end,
     
     ?P("cleanup"),
-    (catch gen_sctp:close(CSock1)),
-    (catch gen_sctp:close(CSock2)),
+    ?CATCH_AND_IGNORE( gen_sctp:close(CSock1) ),
+    ?CATCH_AND_IGNORE( gen_sctp:close(CSock2) ),
 
     ?P("done"),
     ok.

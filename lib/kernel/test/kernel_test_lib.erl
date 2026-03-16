@@ -556,7 +556,7 @@ analyze_and_print_linux_host_info(Version) ->
     %% 'VirtFactor' will be 0 unless virtual
     VirtFactor = linux_virt_factor(),
     Factor =
-        case (catch linux_which_cpuinfo(Distro)) of
+        try linux_which_cpuinfo(Distro) of
             {ok, {CPU, BogoMIPS}} ->
                 io:format("CPU: "
                           "~n   Model:                 ~s"
@@ -609,6 +609,9 @@ analyze_and_print_linux_host_info(Version) ->
                 num_schedulers_to_factor();
             _ ->
                 5
+	catch
+	    _:_ ->
+		5
         end,
     AddLabelFactor = label2factor(Label),
     %% Check if we need to adjust the factor because of the memory
@@ -2488,7 +2491,7 @@ tc_try(Case, TCCond, Pre, TC, Post)
                             TCRes = TC(State),
                             ?SLEEP(?SECS(1)),
                             tc_print("test case done: try post"),
-                            (catch Post(State)),
+                            ?CATCH_AND_IGNORE( Post(State) ),
                             tc_end("ok"),
                             TCRes
                         end
@@ -2496,7 +2499,7 @@ tc_try(Case, TCCond, Pre, TC, Post)
                         C:{skip, _} = SKIP when (C =:= throw) orelse
                                                 (C =:= exit) ->
                             tc_print("test case (~w) skip: try post", [C]),
-                            (catch Post(State)),
+                            ?CATCH_AND_IGNORE( Post(State) ),
                             tc_end( f("skipping(catched,~w,tc)", [C]) ),
                             SKIP;
                         C:E:S ->
@@ -2508,7 +2511,7 @@ tc_try(Case, TCCond, Pre, TC, Post)
                             case kernel_test_global_sys_monitor:events() of
                                 [] ->
                                     tc_print("test case failed: try post"),
-                                    (catch Post(State)),
+                                    ?CATCH_AND_IGNORE( Post(State) ),
                                     tc_end( f("failed(caught,~w,tc)", [C]) ),
                                     erlang:raise(C, E, S);
                                 SysEvs ->
@@ -2520,7 +2523,7 @@ tc_try(Case, TCCond, Pre, TC, Post)
                                       "~n   E: ~p"
                                       "~n   S: ~p",
                                       [SysEvs, C, E, S]),
-                                    (catch Post(State)),
+                                    ?CATCH_AND_IGNORE( Post(State) ),
                                     tc_end( f("skipping(catched-sysevs,~w,tc)",
                                               [C]) ),
                                     SKIP = {skip,
@@ -2634,11 +2637,12 @@ stop_node(Node) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 timetrap_scale_factor() ->
-    case (catch test_server:timetrap_scale_factor()) of
-        {'EXIT', _} ->
-            1;
+    try test_server:timetrap_scale_factor() of
         N ->
             N
+    catch
+	_:_ ->
+	    1
     end.
 
 

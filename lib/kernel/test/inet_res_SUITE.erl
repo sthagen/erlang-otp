@@ -1695,11 +1695,11 @@ tsig_server(_Config, DigDrill) ->
                         gen_tcp:close(Sock)
                 catch
                     Class : Reason : Stacktrace ->
-                        _ = catch gen_tcp:close(Sock),
+                        _ = ?CATCH_AND_IGNORE( gen_tcp:close(Sock) ),
                         {Class,Reason,Stacktrace}
                 end;
             Error ->
-                _ = catch gen_tcp:close(LSock),
+                _ = ?CATCH_AND_IGNORE( gen_tcp:close(LSock) ),
                 Error
         end,
 
