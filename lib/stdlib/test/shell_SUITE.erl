@@ -419,7 +419,11 @@ shell_attribute_test(Config) ->
          {expect, ~S"\Q#shell_default:native{i = 42,j = 99}\E"},
          {putline, ~S"Rec#native.i."},
          {expect, ~S"\Q42\E"},
+         {putline, ~S"Rec#_.i."},
+         {expect, ~S"\Q42\E"},
          {putline, ~S"Rec#native{j=100}."},
+         {expect, ~S"\Q#shell_default:native{i = 42,j = 100}\E"},
+         {putline, ~S"Rec#_{j=100}."},
          {expect, ~S"\Q#shell_default:native{i = 42,j = 100}\E"},
          {putline, ~S"#native{z=99}."},
          {expect, ~S"\Q* 1:9: field z undefined in record native\E"}

@@ -465,10 +465,10 @@ expr({record_field,Anno,{var,_,Src0},{M,N},{atom,_,K}}, Bs, _Lf, Ef, RBs, _FUVs)
             end;
         _ -> apply_error({unbound,Src0}, ?STACKTRACE, Anno, Bs, Ef, RBs)
     end;
-expr({record_field,Anno,{var,_,Src0},N,{atom,_,K}}, Bs, _Lf, Ef, RBs, _FUVs) ->
+expr({record_field,Anno,{var,_,Src0},[],{atom,_,K}}, Bs, _Lf, Ef, RBs, _FUVs) ->
     case binding(Src0, Bs) of
         {value, Src1} ->
-            case is_record(Src1, N) of
+            case is_record(Src1) of
                 true ->
                     Val = records:get(K, Src1),
                     ret_expr(Val, Bs, RBs);
@@ -477,10 +477,10 @@ expr({record_field,Anno,{var,_,Src0},N,{atom,_,K}}, Bs, _Lf, Ef, RBs, _FUVs) ->
             end;
         _ -> apply_error({unbound,Src0}, ?STACKTRACE, Anno, Bs, Ef, RBs)
     end;
-expr({record_field,Anno,{var,_,Src0},[],{atom,_,K}}, Bs, _Lf, Ef, RBs, _FUVs) ->
+expr({record_field,Anno,{var,_,Src0},N,{atom,_,K}}, Bs, _Lf, Ef, RBs, _FUVs) ->
     case binding(Src0, Bs) of
         {value, Src1} ->
-            case is_record(Src1) of
+            case is_record(Src1, N) of
                 true ->
                     Val = records:get(K, Src1),
                     ret_expr(Val, Bs, RBs);
