@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %% 
-%% Copyright Ericsson AB 2025-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2025-2026. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -185,27 +185,35 @@ init_per_group(GroupName, Config) ->
        "~n      Config: ~p", [?FUNCTION_NAME, GroupName, Config]),
 
     WhereAreWe = filename:dirname(code:which(?MODULE)),
-    LibDir  = code:lib_dir(kernel),
-    ExDir   = filename:join([LibDir, "examples", "socket_sctp"]),
-    SrcDir  = filename:join([ExDir, "src"]),
-    ok      = filelib:ensure_dir(SrcDir),
+    %% During tests, the examples structure is installed in the
+    %% (kernel) test directory.
+    ExDir     = filename:join([WhereAreWe, "examples"]),
+    SctpExDir = filename:join([ExDir,      "socket_sctp"]),
+    SrcDir    = filename:join([SctpExDir,  "src"]),
+    ok        = filelib:ensure_dir(SrcDir),
 
     ?P("~s(~w) -> find files when"
        "~n   WhereAreWe: ~p"
-       "~n   LibDir:  ~p"
-       "~n   ExDir:   ~p"
-       "~n   SrcDir:  ~p", [?FUNCTION_NAME, GroupName,
-                            WhereAreWe,
-                            LibDir, ExDir, SrcDir]),
+       "~n   ExDir:      ~p"
+       "~n   SctpExDir:  ~p"
+       "~n   SrcDir:     ~p", [?FUNCTION_NAME, GroupName,
+			       WhereAreWe,
+			       ExDir, SctpExDir, SrcDir]),
     
-    Files   = find_files(SrcDir, ".*\\.erl$"),
+    case find_files(SrcDir, ".*\\.erl$") of
+	[] ->
+	    ?P("~s(~w) -> no example source found!",
+	       [?FUNCTION_NAME, GroupName]),
+	    ct:fail(no_sctp_example_source_found);
 
-    ?P("~s(~w) -> compile files:"
-       "~n   ~p", [?FUNCTION_NAME, GroupName, Files]),
-    ok      = compile_files(Files, SrcDir, WhereAreWe),
+	Files ->
+	    ?P("~s(~w) -> compile files:"
+	       "~n   ~p", [?FUNCTION_NAME, GroupName, Files]),
+	    ok      = compile_files(Files, SrcDir, WhereAreWe),
 
-    ?P("~s(~w) -> done", [?FUNCTION_NAME, GroupName]),
-    [{dir, WhereAreWe} | Config].
+	    ?P("~s(~w) -> done", [?FUNCTION_NAME, GroupName]),
+	    [{dir, WhereAreWe} | Config]
+    end.
 
 end_per_group(GroupName, Config) ->
     ?P("~s(~w) -> entry with"
