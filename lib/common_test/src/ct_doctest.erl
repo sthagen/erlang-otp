@@ -293,7 +293,7 @@ should not be tested
 1> 
 ```
 """".
--moduledoc(#{since => ~"OTP @OTP-20034@"}).
+-moduledoc(#{since => ~"OTP 29.0"}).
 
 -include_lib("kernel/include/eep48.hrl").
 

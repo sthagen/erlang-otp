@@ -734,7 +734,7 @@ values outside the range get pruned.
 5
 ```
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec shift(Steps :: integer(), Array :: array(Type)) -> array(Type).
 shift(0, A=#array{}) ->
     A;
@@ -798,7 +798,7 @@ values outside the range get pruned.
 [2,3,4]
 ```
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec slice(I :: array_indx(), Length :: non_neg_integer(), Array :: array(Type)) -> array(Type).
 slice(I, Length, #array{size = N}=A)
   when is_integer(I), I >= 0, is_integer(N), N >= 0, I + Length =< N ->
@@ -824,7 +824,7 @@ last
 
 See also `prepend/2`, `concat/2`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec append(Value :: any(), Array :: array(Type)) -> array(Type).
 append(Value, #array{size = N, zero = Z, cache = C, cache_index = CI,
                      default = D, elements = E, bits = S}=A)
@@ -873,7 +873,7 @@ first
 
 See also `append/2`, `concat/2`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec prepend(Value :: Type, Array :: array(Type)) -> array(Type).
 prepend(Value, #array{}=A) ->
     %% eqwalizer:ignore ambiguous_union
@@ -1007,7 +1007,7 @@ Adds the elements of `B` onto `A`.
 
 See also `concat/1`, `append/2`, `prepend/2`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec concat(A :: array(Type), B :: array(Type)) -> AB :: array(Type).
 
 concat(#array{size = LeftN, fix = Fix, default = DefA}=Left,
@@ -1036,7 +1036,7 @@ Concatenates a nonempty list of arrays.
 
 See also `concat/2`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec concat(Arrays :: [array(Type)]) -> array(Type).
 
 concat([A0|As]) ->
@@ -1557,7 +1557,7 @@ If `Function` is not a function, the call fails with reason `badarg`.
 
 See also `foldl/3`, `sparse_foldl/5`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec foldl(Low, High, Function, InitialAcc :: A, Array) -> A when
       Low :: array_indx(),
       High :: array_indx(),
@@ -1667,7 +1667,7 @@ If `Function` is not a function, the call fails with reason `badarg`.
 
 See also `sparse_foldl/3`, `foldl/5`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec sparse_foldl(Low :: array_indx(), High :: array_indx(), Function,
                    InitialAcc :: A, Array :: array(Type)) -> A when
       Function :: fun((Index :: array_indx(), Value :: Type, Acc :: A) -> A).
@@ -1715,7 +1715,7 @@ If `Function` is not a function, the call fails with reason `badarg`.
 
 See also `foldr/3`, `foldl/5`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec foldr(Low, High, Function, InitialAcc :: A, Array :: array(Type)) -> A when
       Low :: array_indx(),
       High :: array_indx(),
@@ -1818,7 +1818,7 @@ If `Function` is not a function, the call fails with reason `badarg`.
 
 See also `sparse_foldr/3`, `foldr/5`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec sparse_foldr(Low :: array_indx(), High :: array_indx(), Function,
                    InitialAcc :: A, Array :: array(Type)) -> A when
       Function :: fun((Index :: array_indx(), Value :: Type, Acc :: A) -> A).
@@ -1887,7 +1887,7 @@ If `Function` is not a function, the call fails with reason `badarg`.
 
 See also `mapfoldl/5`, `foldl/3`, `map/2`, `sparse_mapfoldl/3`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec mapfoldl(Function, InitialAcc :: A, Array :: array(Type)) -> {array(Type), A} when
       Function :: fun((Index :: array_indx(), Value :: Type, Acc :: A) -> {Type, A}).
 
@@ -1907,7 +1907,7 @@ If `Function` is not a function, the call fails with reason `badarg`.
 
 See also `mapfoldl/3`, `sparse_mapfoldl/5`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec mapfoldl(Low, High, Function, InitialAcc :: A, Array :: array(Type)) -> {array(Type), A} when
       Low :: array_indx(),
       High :: array_indx(),
@@ -1981,7 +1981,7 @@ Like `mapfoldl/3` but skips default-valued entries.
 
 See also `sparse_mapfoldl/5`, `sparse_mapfoldr/3`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec sparse_mapfoldl(Function, InitialAcc :: A, Array) -> {ArrayRes, A} when
       Array :: array(Type1),
       Function :: fun((Index :: array_indx(), Value :: Type1, Acc :: A) -> {Type2, A}),
@@ -1998,7 +1998,7 @@ Like `mapfoldl/5` but skips default-valued entries.
 
 See also `sparse_mapfoldl/3`, `sparse_mapfoldr/5`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec sparse_mapfoldl(Low, High, Function, InitialAcc :: A, Array) -> {ArrayRes, A} when
       Low :: array_indx(),
       High :: array_indx(),
@@ -2079,7 +2079,7 @@ If `Function` is not a function, the call fails with reason `badarg`.
 
 See also `mapfoldr/5`, `foldr/3`, `map/2`, `sparse_mapfoldr/3`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec mapfoldr(Function, InitialAcc :: A, Array :: array(Type)) -> {array(Type), A} when
       Function :: fun((Index :: array_indx(), Value :: Type, Acc :: A) -> {Type, A}).
 
@@ -2098,7 +2098,7 @@ If `Function` is not a function, the call fails with reason `badarg`.
 
 See also `mapfoldr/3`, `mapfoldl/5`, `sparse_mapfoldr/5`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec mapfoldr(Low, High, Function, InitialAcc :: A, Array :: array(Type)) -> {array(Type), A} when
       Low :: array_indx(),
       High :: array_indx(),
@@ -2167,7 +2167,7 @@ Like `mapfoldr/3` but skips default-valued entries.
 
 See also `sparse_mapfoldr/5`, `sparse_mapfoldl/3`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec sparse_mapfoldr(Function, InitialAcc :: A, Array) -> {ArrayRes, A} when
       Array :: array(Type1),
       Function :: fun((Index :: array_indx(), Value :: Type1, Acc :: A) -> {Type2, A}),
@@ -2183,7 +2183,7 @@ Like `mapfoldr/5` but skips default-valued entries.
 
 See also `sparse_mapfoldr/3`, `sparse_mapfoldl/5`.
 """.
--doc #{ since => ~"OTP @OTP-20004@" }.
+-doc #{ since => ~"OTP 29.0" }.
 -spec sparse_mapfoldr(Low, High, Function, InitialAcc :: A, Array) -> {ArrayRes, A} when
       Low :: array_indx(),
       High :: array_indx(),

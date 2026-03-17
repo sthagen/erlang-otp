@@ -21,6 +21,72 @@ limitations under the License.
 -->
 # SSH Release Notes
 
+## Ssh 5.6
+
+### Fixed Bugs and Malfunctions
+
+- Password-based authentication updated to follow current security
+  best practices. Key-based authentication remains recommended for production systems.
+
+  Own Id: OTP-19982 Aux Id: [PR-10571]
+
+- Added explicit size validation guards for pre-authentication SSH messages to improve defense-in-depth against DoS attacks. Messages now have per-field size limits based on RFC specifications:
+    - Transport layer messages (DISCONNECT, IGNORE, DEBUG)
+    - Key exchange messages (DH, ECDH, DH-GEX)
+    - Service request messages (SERVICE_REQUEST, SERVICE_ACCEPT, EXT_INFO)
+  
+  This change enhances the existing 256KB global packet size limit with granular per-message validation. Compliant implementations are not affected.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-19995 Aux Id: [PR-10739]
+
+- The SFTP subsystem `root` option now properly rejects relative paths at daemon startup. Previously, relative paths would cause unpredictable behavior as file operations resolved relative to the Erlang VM's current working directory. The option now requires an absolute path or empty string.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20019 Aux Id: [PR-10820]
+
+[PR-10571]: https://github.com/erlang/otp/pull/10571
+[PR-10739]: https://github.com/erlang/otp/pull/10739
+[PR-10820]: https://github.com/erlang/otp/pull/10820
+
+### Improvements and New Features
+
+- Using KEX strict extension names as specified in draft-ietf-sshm-strict-kex-00. Pre standard names are still supported.
+
+  Own Id: OTP-19709 Aux Id: [PR-10115]
+
+- Added an 'alive' option to detect and terminate dead SSH connections. Functionally equivalent to OpenSSH's ClientAlive*/ServerAlive* settings.
+
+  Own Id: OTP-19750 Aux Id: [PR-9125], [PR-10372]
+
+- `ssh:stop_deamon` now uses `supervisor:stop` for shutting down daemons. With this change, the scenario when `ssh:stop_daemon` is called for a non-existing process results in calling process exiting. Previously an error tuple was returned (which was not documented).
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-19801 Aux Id: [PR-10253]
+
+- The default key exchange algorithm is now mlkem768x25519-sha256, a hybrid quantum-resistant algorithm combining ML-KEM-768 with X25519. This
+  provides protection against both classical and quantum computer attacks while maintaining backward compatibility through automatic fallback to
+  other algorithms when peers don't support it.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-19965 Aux Id: [PR-10656]
+
+- Added SFTP resource limits
+  section to hardening guide covering max_handles, max_path, and max_files with deployment recommendations.
+
+  Own Id: OTP-20031 Aux Id: [PR-10838]
+
+[PR-10115]: https://github.com/erlang/otp/pull/10115
+[PR-9125]: https://github.com/erlang/otp/pull/9125
+[PR-10372]: https://github.com/erlang/otp/pull/10372
+[PR-10253]: https://github.com/erlang/otp/pull/10253
+[PR-10656]: https://github.com/erlang/otp/pull/10656
+[PR-10838]: https://github.com/erlang/otp/pull/10838
+
 ## Ssh 5.5.1
 
 ### Fixed Bugs and Malfunctions
