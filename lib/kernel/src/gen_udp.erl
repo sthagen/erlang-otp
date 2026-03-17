@@ -183,7 +183,7 @@ The 3-tuple form _isn't_ supported on all platforms.
 
 -doc(#{equiv => open(Port, [])}).
 -spec open(Port) -> {ok, Socket} | {error, Reason} when
-      Port   :: inet:port_number() | -1,
+      Port   :: inet:port_number(),
       Socket :: socket(),
       Reason :: system_limit | inet:posix().
 
@@ -297,7 +297,7 @@ can be truncated without warning.
 The default value for the receive buffer option is `{recbuf, 8192}`.
 """.
 -spec open(Port, Opts) -> {ok, Socket} | {error, Reason} when
-      Port   :: inet:port_number() | -1,
+      Port   :: inet:port_number(),
       Opts   :: [inet:inet_backend() | open_option()],
       Socket :: socket(),
       Reason :: system_limit | inet:posix().

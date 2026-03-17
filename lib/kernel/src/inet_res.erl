@@ -1073,6 +1073,11 @@ udp_connect(#sock{inet=I}, {A,B,C,D}=IP, Port, Verbose)
   when ?ip(A,B,C,D), ?port(Port), is_boolean(Verbose) ->
     udp_connect_socket(I, IP, Port, Verbose).
 
+%% Port number -1 is an internal feature that randomizes
+%% the bind port more than an ephemeral port, but it is not allowed
+%% by the type spec for gen_udp:open/2, so we have to suppress
+%% the Dialyzer warnings that that causes here...
+-dialyzer({[no_return, no_fail_call], udp_connect_fam/4}).
 udp_connect_fam(Fam, IP, Port, Verbose) ->
     case gen_udp:open(-1, [{active,false},binary,Fam]) of
         {ok, Socket} = OK ->
@@ -1395,7 +1400,12 @@ query_ns(S0, {Msg, Buffer}, IP, Port, Timer, Retry, I,
 	    end
     end.
 
-
+%% See udp_connect_fam/4 above.  The use of port number -1 causes
+%% a secondary Dialyzer warning here since Dialyzer concludes
+%% that S cannot be 'undefined' because that would cause udp_connect/4
+%% to crash here, so `S =:= undefined` can never be `true`.
+%% This is a suppression for that.
+-dialyzer({no_match, query_udp/7}).
 query_udp(_S, _Msg0, _Buffer, IP, Port, 0, Verbose) ->
     ?verbose(Verbose, "No try UDP server : ~p:~p (overdue)\n",
 	     [IP,Port]),
