@@ -2122,6 +2122,10 @@ generate_random_port() ->
         undefined                                               -> 0
     end.
 
+%% We use `crypto:rand_uniform/2` here, which is the simplest to use,
+%% but it is deprecated, for outdated reasons.  In really old, now obsolete,
+%% libcrypto versions the function was not cryptographically strong,
+%% but since OpenSSL 1.1.0 that is no longer the case.
 -compile({nowarn_deprecated_function, {crypto,rand_uniform,2}}).
 
 crypto_rand_range(Range) when is_integer(Range), 0 < Range ->

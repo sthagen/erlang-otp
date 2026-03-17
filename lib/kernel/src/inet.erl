@@ -3960,7 +3960,7 @@ gethostbyaddr_tm_native(Addr, Timer, Opts) ->
 	      {ip6_address() | 'any' | 'loopback',
 	       port_number()}} |
 	     undefined, % Internal - no bind()
-	   BPort :: port_number() | -1,
+	   BPort :: port_number(),
 	   Opts :: [socket_setopt()],
 	   Protocol :: socket_protocol() | 'mptcp',
 	   Family :: address_family(),
@@ -4016,7 +4016,7 @@ open(Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module)
                    {ip6_address() | 'any' | 'loopback',
                     port_number()}} |
                   undefined, % Internal - translated to 'any'
-                BPort :: port_number() | -1,
+                BPort :: port_number(),
                 Opts :: [socket_setopt()],
                 Protocol :: socket_protocol() | 'mptcp',
                 Family :: address_family(),
@@ -4119,24 +4119,38 @@ open_setopts(S, BAddr, BPort, Opts, Module) ->
 
 
 
-bind(S, Addr, Port) when is_list(Addr), ?port(Port) ->
+bind(S, Addr, Port) when is_list(Addr), is_integer(Port) ->
     bindx(S, Addr, Port);
 bind(S, Addr, -1) ->
-    bind_random(S, Addr, 5);
-bind(S, Addr, Port) when ?port(Port) ->
-    %% ?DBG([{s, S}, {addr, Addr}, {port, Port}]),
-    prim_inet:bind(S, Addr, Port).
+    bind_random(S, Addr);
+bind(S, Addr, Port) when is_integer(Port) ->
+    do_bind(S, Addr, Port).
 
-bind_random(S, Addr, Cnt) when is_integer(Cnt) ->
+do_bind(S, Addr, Port) ->
+    Result = prim_inet:bind(S, Addr, Port),
+    %% ?DBG([{s, S}, {addr, Addr}, {port, Port}, Result]),
+    Result.
+
+bind_random(S, Addr) ->
+    Cnt = 3,
+    bind_random(S, Addr, Cnt).
+%%
+bind_random(S, Addr, 0 = _Cnt) ->
+    Port = 0,
+    do_bind(S, Addr, Port);
+bind_random(S, Addr, Cnt) when is_integer(Cnt), 0 < Cnt ->
     Port = inet_db:res_option(random_port),
-    %% ?DBG([{s, S}, {addr, Addr}, {port, Port}]),
+    bind_random(S, Addr, Cnt, Port).
+%%
+bind_random(S, Addr, _Cnt, 0 = Port) ->
+    do_bind(S, Addr, Port);
+bind_random(S, Addr, Cnt, Port) when ?port(Port) ->
     case prim_inet:bind(S, Addr, Port) of
-        {ok, _} = OK                -> OK;
-        {error, _} = Error ->
-            if  Port =:= 0          -> Error;
-                0 < Cnt             -> bind_random(S, Addr, Cnt - 1);
-                true                -> Error
-            end
+        {ok, _} = OK ->
+            %% ?DBG([{s, S}, {addr, Addr}, {port, Port}, OK]),
+            OK;
+        {error, _} ->
+            bind_random(S, Addr, Cnt - 1)
     end.
 
 bindx(S, [Addr], Port0) ->
