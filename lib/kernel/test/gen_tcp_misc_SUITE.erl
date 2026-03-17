@@ -10140,17 +10140,17 @@ is_socket_supported() ->
 	#{load_nif_result := LoadRes} ->
 	    ?P("~s -> 'socket' not supperted"
 	       "~n   (socket) nif load result: ~p", [?FUNCTION_NAME, LoadRes]),
-	    {skip, "esock not supported"};
+	    skip("esock not supported");
 	_ ->
             ?P("~s -> 'socket' not supperted", [?FUNCTION_NAME]),
-	    {skip, "esock not supported"}
+	    skip("esock not supported")
     catch
         error : notsup ->
             ?P("~s(error,notsup) -> 'socket' not supperted", [?FUNCTION_NAME]),
-            {skip, "esock not supported"};
+            skip("esock not supported");
         error : undef ->
             ?P("~s(error,undef) -> 'socket' not supperted", [?FUNCTION_NAME]),
-            {skip, "esock not configured"}
+            skip("esock not configured")
     end.
 
 has_support_sock_priority() ->
