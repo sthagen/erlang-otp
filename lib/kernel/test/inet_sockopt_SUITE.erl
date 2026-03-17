@@ -366,14 +366,19 @@ loop_all(Config) when is_list(Config) ->
     ?TC_TRY(?FUNCTION_NAME, Cond, Pre, Case, Post).
 
 do_loop_all(Config, _) ->
+    ?P("~s -> try all (TCP) listen options", [?FUNCTION_NAME]),
     ListenFailures =
 	lists:foldr(make_check_fun(Config, listen),[],all_listen_options()),
+    ?P("~s -> try all (TCP) accept options", [?FUNCTION_NAME]),
     AcceptFailures =
 	lists:foldr(make_check_fun(Config, accept),[],all_accept_options()),
+    ?P("~s -> try all (TCP) connect options", [?FUNCTION_NAME]),
     ConnectFailures =
 	lists:foldr(make_check_fun(Config, connect),[],all_connect_options()),
+    ?P("~s -> try all UDP options", [?FUNCTION_NAME]),
     UdpFailures =
 	lists:foldr(make_check_fun(Config),[],all_udp_options()),
+    ?P("~s -> done - check results", [?FUNCTION_NAME]),
     case ListenFailures++AcceptFailures++ConnectFailures++UdpFailures of
 	[] ->
 	    ok;
@@ -1138,6 +1143,13 @@ all_ok(_) ->
 
 make_check_fun(Config, Type) ->
     fun({Name,V1,V2,Mand,Chang},Acc) ->
+            ?P("~s:fun -> entry with"
+               "~n   Name:  ~p"
+               "~n   V1:    ~p"
+               "~n   V2:    ~p"
+               "~n   Mand:  ~p"
+               "~n   Chang: ~p",
+               [?FUNCTION_NAME, Name, V1, V2, Mand, Chang]),
             {LO1,CO1} = case Type of
                             connect -> {[],[{Name,V1}]};
                             _ -> {[{Name,V1}],[]}
@@ -1389,11 +1401,36 @@ mandatory_exclusiveaddruse(_OsType, _OsVersion) ->
     false.
 
 create_socketpair_init(Config, ListenOptions, ConnectOptions) ->
-    {ok,LS}   = ?LISTEN(Config, 0, ListenOptions),
+    LS = case ?LISTEN(Config, 0, ListenOptions) of
+             {ok, LSock} ->
+                 LSock;
+             {error, enotsup = LReason} ->
+                 ?P("~s -> failed create listen socket with: "
+                    "~n   Options: ~p"
+                    "~n   Reason:  ~p", [ListenOptions, LReason]),
+                 throw({skip, {LReason, listen}});
+             {error, LReason} = LError ->
+                 ?P("~s -> failed create listen socket with: "
+                    "~n   Options: ~p"
+                    "~n   Reason:  ~p", [ListenOptions, LReason]),
+                 exit(LError)
+         end,
     {ok,Port} = inet:port(LS),
-    {ok,CS}   = ?CONNECT(Config, localhost, Port, ConnectOptions),
-    {ok,AS}   = gen_tcp:accept(LS),
-    {LS,AS,CS}.
+    case ?CONNECT(Config, localhost, Port, ConnectOptions) of
+        {ok, CS} ->
+            {ok, AS} = gen_tcp:accept(LS),
+            {LS,AS,CS};
+        {error, enotsup = CReason} ->
+            ?P("~s -> failed create connect socket with: "
+               "~n   Options: ~p"
+               "~n   Reason:  ~p", [ConnectOptions, CReason]),
+            throw({skip, {CReason, listen}});
+        {error, CReason} = CError ->
+            ?P("~s -> failed create connect socket with: "
+               "~n   Options: ~p"
+               "~n   Reason:  ~p", [ConnectOptions, CReason]),
+            exit(CError)
+    end.
 
 create_socketpair(Config, ListenOptions, ConnectOptions) ->
     {LS,AS,CS} = create_socketpair_init(Config, ListenOptions, ConnectOptions),
