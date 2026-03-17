@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1997-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@
 %% RFC 2181: Clarifications to the DNS Specification
 %% RFC 2782: A DNS RR for specifying the location of services (DNS SRV)
 %% RFC 2915: The Naming Authority Pointer (NAPTR) DNS Resource Rec
+%% RFC 5452: Measures for Making DNS More Resilient against Forged Answers
 %% RFC 5936: DNS Zone Transfer Protocol (AXFR)
 %% RFC 6488: DNS Certification Authority Authorization (CAA) Resource Record
 %% RFC 6762: Multicast DNS
@@ -38,7 +39,8 @@
 %% RFC 7553: The Uniform Resource Identifier (URI) DNS Resource Record
 %% RFC 8945: Secret Key Transaction Authentication for DNS (TSIG)
 
--export([decode/1, decode/2, encode/1, encode/2]).
+-export([decode/1, decode/2, decode_reply/3,
+         update_id/2, encode/1, encode/2]).
 -export([decode_algname/1, encode_algname/1]).
 
 -import(lists, [reverse/1]).
@@ -162,52 +164,107 @@ decode(Buffer, Mdns) when is_binary(Buffer), is_boolean(Mdns) ->
 	    {error,Reason}
     end.
 
-do_decode(<<Id:16,
-	   QR:1,Opcode:4,AA:1,TC:1,RD:1,
-	   RA:1,PR:1,_:2,Rcode:4,
-	   QdCount:16,AnCount:16,NsCount:16,ArCount:16,
-	   QdBuf/binary>>=Buffer, Mdns) ->
+decode_reply(Buffer, #dns_rec{} = Q, Mdns)
+  when is_binary(Buffer), is_boolean(Mdns) ->
+    try do_decode_reply(Buffer, Q, Mdns) of
+        DnsReq -> {ok, DnsReq}
+    catch
+        Reason ->
+            {error, Reason}
+    end.
+
+do_decode(
+  <<Id:16,
+    QR:1,Opcode:4,AA:1,TC:1,RD:1,
+    RA:1,PR:1,_:2,Rcode:4,
+    QdCount:16,AnCount:16,NsCount:16,ArCount:16,
+    QdBuf/binary>> = Buffer, Mdns) ->
+    %%
     {AnBuf,QdList,QdTC} = decode_query_section(QdBuf,QdCount,Buffer,Mdns),
+    H_TC = decode_boolean(TC),
+    QdTC andalso not H_TC
+        andalso throw(?DECODE_ERROR),
+    DnsHdr =
+        #dns_header{
+           id     = Id,
+           qr     = decode_boolean(QR),
+           opcode = decode_opcode(Opcode),
+           aa     = decode_boolean(AA),
+           tc     = H_TC,
+           rd     = decode_boolean(RD),
+           ra     = decode_boolean(RA),
+           pr     = decode_boolean(PR),
+           rcode  = Rcode},
+    do_decode(
+      Buffer, DnsHdr, QdList, AnBuf, AnCount, NsCount, ArCount, {Opcode,Mdns}).
+
+do_decode_reply(
+  <<Id:16, _/binary>> = Buffer,
+  #dns_rec{ header = Q_H, qdlist = [Q_RR] },
+  Mdns) ->
+    Id =:= Q_H#dns_header.id orelse throw(badid),
+    do_decode_reply(Buffer, Q_H, Q_RR, Id, Mdns).
+
+do_decode_reply(
+  <<_:16,
+    QR:1,Opcode:4,AA:1,TC:1,RD:1,
+    RA:1,PR:1,_:2,Rcode:4,
+    QdCount:16,AnCount:16,NsCount:16,ArCount:16,
+    QdBuf/binary>> = Buffer,
+  Q_H, Q_RR, Id, Mdns) ->
+    %%
+    H_QR = decode_boolean(QR),
+    H_QR orelse throw(unknown),
+    H_Opcode = decode_opcode(Opcode),
+    H_Opcode =:= Q_H#dns_header.opcode
+        orelse throw(unknown),
+    H_RD = decode_boolean(RD),
+    H_RD andalso not Q_H#dns_header.rd andalso throw(unknown),
+    %%
+    QdCount == 1
+        orelse throw(noquery),
+    {AnBuf, [RR], QdTC} = decode_query_section(QdBuf, QdCount, Buffer, Mdns),
+    RR#dns_query.class    =:= Q_RR#dns_query.class andalso
+        RR#dns_query.type =:= Q_RR#dns_query.type  andalso
+        inet_db:eq_domains(RR#dns_query.domain, Q_RR#dns_query.domain)
+        orelse throw(noquery),
+    H_TC = decode_boolean(TC),
+    QdTC andalso not H_TC
+        andalso throw(?DECODE_ERROR),
+    DnsHdr =
+        #dns_header{
+           id     = Id,
+           qr     = H_QR,
+           opcode = H_Opcode,
+           aa     = decode_boolean(AA),
+           tc     = H_TC,
+           rd     = H_RD,
+           ra     = decode_boolean(RA),
+           pr     = decode_boolean(PR),
+           rcode  = Rcode},
+    do_decode(
+      Buffer, DnsHdr, [RR], AnBuf, AnCount, NsCount, ArCount, {Opcode,Mdns});
+do_decode_reply(<<_/binary>>, _Q_H, _Q_RR, _Id, _Mdns) ->
+    throw(unknown).
+
+do_decode(Buffer, DnsHdr, QdList, AnBuf, AnCount, NsCount, ArCount, Opts) ->
     {NsBuf,AnList,AnTC} =
-        decode_rr_section(AnBuf,AnCount,Buffer,{Opcode,Mdns}),
+        decode_rr_section(AnBuf, AnCount, Buffer, Opts),
     {ArBuf,NsList,NsTC} =
-        decode_rr_section(NsBuf,NsCount,Buffer,{Opcode,Mdns}),
+        decode_rr_section(NsBuf, NsCount, Buffer, Opts),
     {Rest,ArList,ArTC} =
-        decode_rr_section(ArBuf,ArCount,Buffer,{Opcode,Mdns}),
-    ?MATCH_ELSE_DECODE_ERROR(
-       Rest,
-       <<>>,
-       begin
-           HdrTC = decode_boolean(TC),
-           DnsHdr =
-               #dns_header{id=Id,
-                           qr=decode_boolean(QR),
-                           opcode=decode_opcode(Opcode),
-                           aa=decode_boolean(AA),
-                           tc=HdrTC,
-                           rd=decode_boolean(RD),
-                           ra=decode_boolean(RA),
-                           pr=decode_boolean(PR),
-                           rcode=Rcode},
-           ?MATCH_ELSE_DECODE_ERROR(
-              %% Header marked as truncated, or no section
-              %% marked as truncated.
-              %% The converse; a section marked as truncated,
-              %% but not the header - is a parse error.
-              %%
-              HdrTC orelse not (QdTC orelse AnTC orelse NsTC orelse ArTC),
-              true,
-              begin
-                  #dns_rec{header=DnsHdr,
-                           qdlist=QdList,
-                           anlist=AnList,
-                           nslist=NsList,
-                           arlist=ArList}
-              end)
-       end);
-do_decode(_, _) ->
-    %% DNS message does not even match header
-    throw(?DECODE_ERROR).
+        decode_rr_section(ArBuf, ArCount, Buffer, Opts),
+    Rest =:= <<>>
+        orelse throw(?DECODE_ERROR),
+    ((AnTC orelse NsTC orelse ArTC) =:= DnsHdr#dns_header.tc)
+        orelse throw(?DECODE_ERROR),
+    #dns_rec{
+       header = DnsHdr,
+       qdlist = QdList,
+       anlist = AnList,
+       nslist = NsList,
+       arlist = ArList}.
+
 
 decode_query_section(Bin, N, Buffer, Mdns) ->
     decode_query_section(Bin, N, Buffer, Mdns, []).
@@ -304,26 +361,33 @@ decode_rr_section(Bin, N, Buffer, {Opcode,Mdns} = Opts, RRs) ->
 %% Encode a user query
 %%
 
+%% Update the ID field
+update_id(<<_:16, EncMsg/binary>>, Id) ->
+    [<<Id:16>>, EncMsg];
+update_id([<<_:16>> | EncMsg], Id) ->
+    [<<Id:16>> | EncMsg].
+
+
 encode(Q) -> encode(Q, true). % Backwards compatible
 %%
 encode(
   #dns_rec{
-     header = Header,
-     qdlist = QdList, anlist = AnList, nslist = NsList, arlist = ArList },
-  Mdns)
-  when is_boolean(Mdns) ->
-    B0 =
-        encode_header(
-          Header,
-          length(QdList), length(AnList), length(NsList), length(ArList)),
-    Opcode = Header#dns_header.opcode,
+     header = Header = #dns_header{ opcode = Opcode },
+     qdlist = QdList,
+     anlist = AnList,
+     nslist = NsList,
+     arlist = ArList },
+  Mdns) when is_boolean(Mdns) ->
+    B0 = encode_header(
+           Header,
+           length(QdList), length(AnList), length(NsList), length(ArList)),
+    Opts = {Opcode,Mdns},
     C0 = gb_trees:empty(),
     {B1,C1} = encode_query_section(B0, Mdns, C0, QdList),
-    {B2,C2} = encode_res_section(B1, {Opcode,Mdns}, C1, AnList),
-    {B3,C3} = encode_res_section(B2, {Opcode,Mdns}, C2, NsList),
-    {B,_} = encode_res_section(B3, {Opcode,Mdns}, C3, ArList),
+    {B2,C2} = encode_res_section(B1, Opts, C1, AnList),
+    {B3,C3} = encode_res_section(B2, Opts, C2, NsList),
+    {B,_}   = encode_res_section(B3, Opts, C3, ArList),
     B.
-
 
 %% RFC 1035: 4.1.1. Header section format
 %%
