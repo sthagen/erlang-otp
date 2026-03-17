@@ -464,7 +464,7 @@ see more details [above](`m:supervisor#sup_flags`).
 		modules = []    :: modules()}).
 -type child_rec() :: #child{}.
 
--record(state, {name,
+-record(state, {name                   :: sup_name() | {pid(), module()},
 		strategy = one_for_one :: strategy(),
 		children = {[],#{}}    :: children(), % Ids in start order
                 dynamics               :: {'maps', #{pid() => list()}}
@@ -1302,7 +1302,7 @@ handle_info(Msg, State) ->
 %% Terminate this server.
 %%
 -doc false.
--spec terminate(term(), state()) -> 'ok'.
+-spec terminate(term(), state()) -> term().
 
 terminate(_Reason, State) when ?is_simple(State) ->
     terminate_dynamic_children(State);
@@ -1568,13 +1568,9 @@ restarting(RPid) -> RPid.
 try_again_restart(TryAgainId, Tag) ->
     gen_server:cast(self(), {try_again_restart, Tag, TryAgainId}).
 
-%%-----------------------------------------------------------------
-%% Func: terminate_children/2
-%% Args: Children = children() % Ids in termination order
-%%       SupName = {local, atom()} | {global, term()} | {pid(),Mod}
-%% Returns: NChildren = children() % Ids in startup order
-%%                                 % (reversed termination order)
-%%-----------------------------------------------------------------
+%% Children  :: children() % Ids in termination order
+%% NChildren :: children() % Ids in startup order, i.e. reversed termination order
+-spec terminate_children(children(), sup_name() | {pid(), module()}) -> children().
 terminate_children(Children, SupName) ->
     Terminate =
         fun(_Id,Child) when ?is_temporary(Child) ->
@@ -2104,6 +2100,10 @@ default_hibernate_after(simple_one_for_one) ->
 default_hibernate_after(_) ->
     1000.
 
+-spec supname('self', Mod) -> {pid(), Mod} when
+      Mod :: module();
+             (Name, module()) -> Name when
+      Name :: sup_name().
 supname(self, Mod) -> {self(), Mod};
 supname(N, _)      -> N.
 
