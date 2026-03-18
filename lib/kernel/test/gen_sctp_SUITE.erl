@@ -1955,7 +1955,7 @@ send_block(Config) when is_list(Config) ->
 
 %% Test opening a multihoming ipv4 socket.
 open_multihoming_ipv4_socket(Config) when is_list(Config) ->
-    ?P("get addrs by family (inet)"),
+    ?P("~s -> get addrs by family (inet, 2)", [?FUNCTION_NAME]),
     case get_addrs_by_family(inet, 2) of
 	{ok, [Addr1, Addr2]} ->
             ?P("got addrs: "
@@ -1972,8 +1972,11 @@ open_multihoming_ipv4_socket(Config) when is_list(Config) ->
 %% non-working ipv6 setup.  Test opening a unihoming (non-multihoming)
 %% ipv6 socket.
 open_unihoming_ipv6_socket(Config) when is_list(Config) ->
+    ?P("~s -> get addrs by family (inet6, 1)", [?FUNCTION_NAME]),
     case get_addrs_by_family(inet6, 1) of
 	{ok, [Addr]} ->
+            ?P("got addr: "
+               "~n      Addr: ~p", [Addr]),
 	    do_open_and_connect([Addr], Addr);
 	{error, Reason} ->
 	    {skip, Reason}
@@ -2183,14 +2186,21 @@ do_open_and_connect(ServerAddresses, AddressToConnectTo) ->
     do_open_and_connect(ServerAddresses, AddressToConnectTo, Fun).
 %%
 do_open_and_connect(ServerAddresses, AddressToConnectTo, Fun) ->
+    ?P("~s -> entry with"
+       "~n   ServerAddresses:    ~p"
+       "~n   AddressToConnectTo: ~p",
+       [?FUNCTION_NAME, ServerAddresses, AddressToConnectTo]),
     {ServerFamily, ServerOpts} = get_family_by_addrs(ServerAddresses),
-    io:format("Serving ~p addresses: ~p~n",
-	      [ServerFamily, ServerAddresses]),
+    ?P("~s -> Serving ~p addresses: ~p~n",
+       [?FUNCTION_NAME, ServerFamily, ServerAddresses]),
     S1 = ok(gen_sctp:open(0, [{ip,Addr} || Addr <- ServerAddresses] ++
 			      [ServerFamily|ServerOpts])),
     ok = gen_sctp:listen(S1, true),
     P1 = ok(inet:port(S1)),
-    ?P("S1: ~p", [inet:sockname(S1)]),
+    ?P("~s -> "
+       "~n   S1:          ~p"
+       "~n   port of S1:  ~p"
+       "~n   sockname S1: ~p", [?FUNCTION_NAME, S1, P1, inet:sockname(S1)]),
     ClientFamily = get_family_by_addr(AddressToConnectTo),
     ClientOpts =
 	[ClientFamily |
@@ -2201,19 +2211,26 @@ do_open_and_connect(ServerAddresses, AddressToConnectTo, Fun) ->
 		 []
 	 end],
     S2 = ok(gen_sctp:open(0, ClientOpts)),
-    ?P("S2: ~p", [inet:sockname(S2)]),
+    ?P("~s -> "
+       "~n   S2:          ~p"
+       "~n   sockname S2: ~p", [?FUNCTION_NAME, S2, inet:sockname(S2)]),
     log(open),
-    io:format("Connecting to ~p ~p~n",
-	      [ClientFamily, AddressToConnectTo]),
+    ?P("~s -> [~w] try connect to ~p",
+       [?FUNCTION_NAME, ClientFamily, AddressToConnectTo]),
     %% Verify client can connect
     #sctp_assoc_change{state=comm_up} = S2Assoc =
 	ok(gen_sctp:connect(S2, AddressToConnectTo, P1, [])),
     log(comm_up),
     %% verify server side also receives comm_up from client
+    ?P("~s -> await (server side) comm-up (eventually)", [?FUNCTION_NAME]),
     S1Assoc = recv_comm_up_eventually(S1),
+    ?P("~s -> verify", [?FUNCTION_NAME]),
     Result = Fun(S1, ServerFamily, S1Assoc, S2, ClientFamily, S2Assoc),
+    ?P("~s -> cleanup", [?FUNCTION_NAME]),
     ok = gen_sctp:close(S2),
     ok = gen_sctp:close(S1),
+    ?P("~s -> done when"
+       "~n   Result: ~p", [?FUNCTION_NAME, Result]),
     Result.
 
 %% If at least one of the addresses is an ipv6 address, return inet6, else inet.
