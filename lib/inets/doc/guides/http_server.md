@@ -482,7 +482,7 @@ Uses the following Erlang Web Server API interaction data:
 
 - `real_name` \- from `m:mod_alias`
 
-### mod_response_control - Requests with If\* Headers
+### mod_responsecontrol - Requests with If\* Headers
 
 This module controls that the conditions in the requests are fulfilled. For
 example, a request can specify that the answer only is of interest if the
