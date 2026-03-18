@@ -27,16 +27,6 @@ as all enhancements and bugfixes for every release of Reltool. Each release of
 Reltool thus constitutes one section in this document. The title of each section
 is the version number of Reltool.
 
-## Reltool 1.1
-
-### Improvements and New Features
-
-- Removed the undocumented `dyn_erl` utility.
-
-  Own Id: OTP-19933 Aux Id: [PR-10573]
-
-[PR-10573]: https://github.com/erlang/otp/pull/10573
-
 ## Reltool 1.0.3
 
 ### Improvements and New Features

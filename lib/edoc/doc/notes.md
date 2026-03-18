@@ -23,20 +23,6 @@ limitations under the License.
 
 This document describes the changes made to the EDoc application.
 
-## Edoc 1.5
-
-### Improvements and New Features
-
-- Only minor internal changes.
-
-  Own Id: OTP-19964
-
-- Changed behavior of EDoc so that when a module defines a private type and a private function spec uses it, that type no longer gets included in the EDoc chunk.
-
-  Own Id: OTP-20030 Aux Id: [PR-10770]
-
-[PR-10770]: https://github.com/erlang/otp/pull/10770
-
 ## Edoc 1.4.1
 
 ### Fixed Bugs and Malfunctions

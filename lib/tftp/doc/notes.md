@@ -21,34 +21,6 @@ limitations under the License.
 -->
 # TFTP Release Notes
 
-## Tftp 1.3
-
-### Improvements and New Features
-
-- The legacy `and` and `or` operators have been replaced with other language constructs.
-
-  Own Id: OTP-19744 Aux Id: [PR-10114], [PR-10554], [PR-10568], [PR-10579], [PR-10585], [PR-10598], [PR-10710], [PR-10718], [PR-10580], [PR-10730]
-
-- All use of legacy `catch` in the TFTP application has been rewritten.
-  
-  In the process, deep return using `exit/1` or `throw/1` from callbacks has been changed to only work with `throw/1`, as customary.  This was considered a misfeature.
-  
-  Explicit loading of callback module or logger module has been removed, since that was against what one would expect for embedded mode.
-
-  Own Id: OTP-19996 Aux Id: [PR-10753]
-
-[PR-10114]: https://github.com/erlang/otp/pull/10114
-[PR-10554]: https://github.com/erlang/otp/pull/10554
-[PR-10568]: https://github.com/erlang/otp/pull/10568
-[PR-10579]: https://github.com/erlang/otp/pull/10579
-[PR-10585]: https://github.com/erlang/otp/pull/10585
-[PR-10598]: https://github.com/erlang/otp/pull/10598
-[PR-10710]: https://github.com/erlang/otp/pull/10710
-[PR-10718]: https://github.com/erlang/otp/pull/10718
-[PR-10580]: https://github.com/erlang/otp/pull/10580
-[PR-10730]: https://github.com/erlang/otp/pull/10730
-[PR-10753]: https://github.com/erlang/otp/pull/10753
-
 ## Tftp 1.2.4
 
 ### Fixed Bugs and Malfunctions

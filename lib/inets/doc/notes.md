@@ -21,40 +21,6 @@ limitations under the License.
 -->
 # Inets Release Notes
 
-## Inets 9.7
-
-### Improvements and New Features
-
-- A new option max_connections_open has been added to the httpc HTTP client profile configuration. It limits the maximum number of concurrent HTTP handler processes that can be open simultaneously.
-  When the limit is reached, new requests are queued internally and started automatically as existing handlers complete. This prevents bandwidth exhaustion in high-load scenarios where too many parallel connections cause remote servers to close sockets
-  before transfers finish (the socket_closed_remotely error).
-  The option can be set via
-  `httpc:set_options([{max_connections_open, 10}], Profile).`
-  The default value is infinity (unlimited), preserving backward compatibility. The value must be a positive integer or infinity, and must be greater than or equal to max_sessions.
-
-  Own Id: OTP-19587 Aux Id: [GH-8841], [PR-9712]
-
-- The legacy `and` and `or` operators have been replaced with other language constructs.
-
-  Own Id: OTP-19744 Aux Id: [PR-10114], [PR-10554], [PR-10568], [PR-10579], [PR-10585], [PR-10598], [PR-10710], [PR-10718], [PR-10580], [PR-10730]
-
-- Only minor internal changes.
-
-  Own Id: OTP-19964
-
-[GH-8841]: https://github.com/erlang/otp/issues/8841
-[PR-9712]: https://github.com/erlang/otp/pull/9712
-[PR-10114]: https://github.com/erlang/otp/pull/10114
-[PR-10554]: https://github.com/erlang/otp/pull/10554
-[PR-10568]: https://github.com/erlang/otp/pull/10568
-[PR-10579]: https://github.com/erlang/otp/pull/10579
-[PR-10585]: https://github.com/erlang/otp/pull/10585
-[PR-10598]: https://github.com/erlang/otp/pull/10598
-[PR-10710]: https://github.com/erlang/otp/pull/10710
-[PR-10718]: https://github.com/erlang/otp/pull/10718
-[PR-10580]: https://github.com/erlang/otp/pull/10580
-[PR-10730]: https://github.com/erlang/otp/pull/10730
-
 ## Inets 9.6.1
 
 ### Fixed Bugs and Malfunctions

@@ -23,16 +23,6 @@ limitations under the License.
 
 This document describes the changes made to the EUnit application.
 
-## Eunit 2.11
-
-### Improvements and New Features
-
-- Added `randomDelay` macro.
-
-  Own Id: OTP-19997 Aux Id: [PR-10614]
-
-[PR-10614]: https://github.com/erlang/otp/pull/10614
-
 ## Eunit 2.10.2
 
 ### Improvements and New Features
