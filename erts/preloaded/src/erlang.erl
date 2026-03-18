@@ -4173,8 +4173,8 @@ identifier.
 ## Examples
 
 ```erlang
-1> list_to_pid("<0.4.1>").
-<0.4.1>
+1> list_to_pid("<0.1.0>").
+<0.1.0>
 ```
 """.
 -doc #{ category => terms }.
@@ -4197,8 +4197,8 @@ identifier.
 ## Examples
 
 ```erlang
-1> list_to_port("#Port<0.4>").
-#Port<0.4>
+1> list_to_port("#Port<0.0>").
+#Port<0.0>
 ```
 
 """.
@@ -4222,8 +4222,8 @@ Failure: `badarg` if `String` contains a bad representation of a reference.
 ## Examples
 
 ```erlang
-1> list_to_ref("#Ref<0.4192537678.4073193475.71181>").
-#Ref<0.4192537678.4073193475.71181>
+1> list_to_ref("#Ref<0.0.0.0>").
+#Ref<0.0.0.0>
 ```
 """.
 -doc(#{since => <<"OTP 20.0">>}).
@@ -5023,8 +5023,8 @@ Returns a string corresponding to the text representation of `Pid`.
 ## Examples
 
 ```erlang
-1> erlang:pid_to_list(<0.85.0>).
-"<0.85.0>"
+1> erlang:pid_to_list(<0.1.0>).
+"<0.1.0>"
 ```
 """.
 -doc #{ category => terms }.
@@ -5040,8 +5040,8 @@ Returns a string corresponding to the text representation of the port identifier
 ## Examples
 
 ```erlang
-1> erlang:port_to_list(#Port<0.85>).
-"#Port<0.85>"
+1> erlang:port_to_list(#Port<0.0>).
+"#Port<0.0>"
 ```
 """.
 -doc #{ category => terms }.
@@ -5836,8 +5836,8 @@ Returns a string corresponding to the text representation of `Ref`.
 ## Examples
 
 ```erlang
-1> ref_to_list(#Ref<0.4192537678.4073193475.71181>).
-"#Ref<0.4192537678.4073193475.71181>"
+1> ref_to_list(#Ref<0.0.0.0>).
+"#Ref<0.0.0.0>"
 ```
 """.
 -doc #{ category => terms }.
