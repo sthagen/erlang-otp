@@ -207,9 +207,9 @@ of one set is also a member of the other set; otherwise, returns `false`.
 ```erlang
 1> Empty = gb_sets:new().
 2> S = gb_sets:from_list([a,b]).
-3> gb_sets:is_equal(S, S)
+3> gb_sets:is_equal(S, S).
 true
-4> gb_sets:is_equal(S, Empty)
+4> gb_sets:is_equal(S, Empty).
 false
 ```
 """.
@@ -460,7 +460,7 @@ contain duplicates.
 ## Examples
 
 ```erlang
-1> Unordered = [x,y,a,x,y,b,b,z]
+1> Unordered = [x,y,a,x,y,b,b,z].
 2> gb_sets:to_list(gb_sets:from_list(Unordered)).
 [a,b,x,y,z]
 ```
@@ -1092,7 +1092,7 @@ all sets, without duplicates.
 ```erlang
 1> S0 = gb_sets:from_list([a,b,c,d]).
 2> S1 = gb_sets:from_list([d,e,f]).
-3> S2 = gb_sets:from_list([q,r])
+3> S2 = gb_sets:from_list([q,r]).
 4> Sets = [S0, S1, S2].
 5> Union = gb_sets:union(Sets).
 6> gb_sets:to_list(Union).
@@ -1194,7 +1194,7 @@ elements that are present in all sets.
 ```erlang
 1> S0 = gb_sets:from_list([a,b,c,d]).
 2> S1 = gb_sets:from_list([d,e,f]).
-3> S2 = gb_sets:from_list([q,r])
+3> S2 = gb_sets:from_list([q,r]).
 4> Sets = [S0, S1, S2].
 5> gb_sets:to_list(gb_sets:intersection([S0, S1, S2])).
 []
@@ -1229,7 +1229,7 @@ but faster.
 ```erlang
 1> S0 = gb_sets:from_list([a,b,c,d]).
 2> S1 = gb_sets:from_list([d,e,f]).
-3> S2 = gb_sets:from_list([q,r])
+3> S2 = gb_sets:from_list([q,r]).
 4> gb_sets:is_disjoint(S0, S1).
 false
 5> gb_sets:is_disjoint(S1, S2).
@@ -1499,7 +1499,7 @@ filtermap(Fun, Set1) ->
 ## Examples
 
 ```erlang
-1> S = gb_sets:from_list([2,4,5,6,8,9])
+1> S = gb_sets:from_list([2,4,5,6,8,9]).
 2> F = fun(X) ->
            case X rem 2 of
                0 -> {true, X div 2};

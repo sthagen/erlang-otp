@@ -178,7 +178,7 @@ Returns the number of elements in dictionary `Dict`.
 
 ```erlang
 1> Dict = dict:from_list([{2,b},{1,a}]).
-2> dict:size(Dict)
+2> dict:size(Dict).
 2
 ```
 """.
@@ -321,7 +321,7 @@ Returns `error` if the key is not present in the dictionary.
 ```erlang
 1> Dict0 = dict:from_list([{2,b},{1,a}]).
 2> {V, Dict2} = dict:take(1, Dict0).
-3> V
+3> V.
 a
 4> dict:to_list(Dict2).
 [{2,b}]

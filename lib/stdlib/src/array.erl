@@ -254,19 +254,19 @@ changed once the array has been created.
 ## Examples
 
 ```erlang
-1> array:new(100)
+1> array:new(100).
 ```
 
 creates a fixed-size array of size 100.
 
 ```
-1> array:new({default,0})
+1> array:new({default,0}).
 ```
 
 creates an empty, extendible array whose default value is `0`.
 
 ```
-1> array:new([{size,10},{fixed,false},{default,-1}])
+1> array:new([{size,10},{fixed,false},{default,-1}]).
 ```
 
 creates an extendible array with initial size 10 whose default value is `-1`.
@@ -293,7 +293,7 @@ directly is more efficient.
 ## Examples
 
 ```erlang
-1> array:new(100, {default,0})
+1> array:new(100, {default,0}).
 ```
 
 Creates a fixed-size array of size 100, whose default value is `0`.

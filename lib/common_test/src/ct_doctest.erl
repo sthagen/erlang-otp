@@ -728,7 +728,7 @@ parse_match(Rest, Acc) ->
 
 run_tests({test, _Index, Test0, Match0}, Bindings, Verbose) ->
     Test1 = unicode:characters_to_list(Test0),
-    Test = string:trim(string:trim(Test1), trailing, "."),
+    Test = string:trim(Test1),
     case Match0 of
         [<<"** ", _/binary>> | _] ->
             Match = unicode:characters_to_list(Match0),
@@ -771,10 +771,15 @@ run_failing(Test, Match, Bindings, Verbose) ->
 %% if the match actually is a valid pattern. So we parse and
 %% evaluate it first, and if that fails we convert it to a literal
 %% and try again.
-parse_exprs(Test, Match0) ->
-    try {parse_exprs(Match0 ++ " = 1."),
-         parse_exprs("1 = begin " ++ Test ++ " end.")} of
-        {MatchAst, _TestAst} ->
+parse_exprs(Test0, Match0) ->
+
+    %% First we check that we can parse the test correctly.
+    %% This will throw if we fail.
+    TestExprs = try_parse_exprs(Test0),
+
+    %% Now we know that the test is parseable, we try to parse the match.
+    try try_parse_match_exprs(Match0 ++ "\n = 1.") of
+        MatchAst ->
             Match =
                 try erl_eval:exprs(MatchAst, #{}) of
                     {value, _Res, _} ->
@@ -783,18 +788,24 @@ parse_exprs(Test, Match0) ->
                     error:_ ->
                         maybe_convert_to_literal(Match0)
                 end,
-            parse_exprs(Match ++ " = begin " ++ Test ++ " end.")
+            
+            %% Both the test and the match can end in a comment,
+            %% so we parse each independently and then combine them
+            [{match,Anno,LHS,_}|MaybeLiteral] = lists:reverse(try_parse_match_exprs(Match ++ "\n = 1.")),
+            MaybeLiteral ++ [{match,Anno,LHS,{block,Anno,TestExprs}}]
     catch throw:_ ->
-            parse_exprs(Match0 ++ " = " ++ Test ++ ".")
+            try_parse_match_exprs(Match0 ++ "\n = 1.")
     end.
 
-parse_exprs(Str) ->
+try_parse_match_exprs(Str) ->
+    rewrite_match_ast(try_parse_exprs(Str)).
+try_parse_exprs(Str) ->
     Cmd = lists:flatten(unicode:characters_to_list(Str)),
     maybe
         {ok, T, _} ?= erl_scan:string(Cmd, 0, [text]),
         RewrittenToks = rewrite_tokens(T),
         {ok, Ast} ?= inspect(erl_eval:extended_parse_exprs(RewrittenToks)),
-        rewrite_match_ast(Ast)
+        Ast
     else
         {error, {Line,Mod,Reason}, _} ->
             Message = Mod:format_error(Reason),
