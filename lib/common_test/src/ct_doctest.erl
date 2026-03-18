@@ -802,17 +802,17 @@ try_parse_match_exprs(Str) ->
 try_parse_exprs(Str) ->
     Cmd = lists:flatten(unicode:characters_to_list(Str)),
     maybe
-        {ok, T, _} ?= erl_scan:string(Cmd, 0, [text]),
+        {ok, T, _} ?= erl_scan:string(Cmd, {1,1}, [text]),
         RewrittenToks = rewrite_tokens(T),
         {ok, Ast} ?= inspect(erl_eval:extended_parse_exprs(RewrittenToks)),
         Ast
     else
-        {error, {Line,Mod,Reason}, _} ->
-            Message = Mod:format_error(Reason),
-            throw({error,#{ message => Message, line => Line}});
-        {error, {Line,Mod,Reason}} ->
-            Message = Mod:format_error(Reason),
-            throw({error,#{ message => Message, line => Line}})
+        {error, {{Line, _},_Mod,_Reason} = Err, _} ->
+            [{_, Message}] = sys_messages:format_messages("", "", [Err], []),
+            throw({error,#{ message => string:trim(Message, leading, ":"), line => Line}});
+        {error, {{Line,_},_Mod,_Reason} = Err} ->
+            [{_, Message}] = sys_messages:format_messages("", "", [Err], []),
+            throw({error,#{ message => string:trim(Message, leading, ":"), line => Line}})
     end.
 
 %% We rewrite ...>> to _/binary>> to match shell syntax better
