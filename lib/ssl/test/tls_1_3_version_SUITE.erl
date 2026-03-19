@@ -240,7 +240,8 @@ tls12_client_tls13_server(Config) when is_list(Config) ->
     ClientOpts = [{versions, ['tlsv1.1', 'tlsv1.2']} |
                   ssl_test_lib:ssl_options(client_cert_opts, Config)],
     ServerOpts =  [{versions, ['tlsv1.3', 'tlsv1.2']},
-                   {verify, verify_peer}, {fail_if_no_peer_cert, true}
+                   {verify, verify_peer}, {fail_if_no_peer_cert, true},
+                   {signature_algs, sig_algs_1_3_all()}
                   | ssl_test_lib:ssl_options(server_cert_opts, Config)],
     ssl_test_lib:basic_test(ClientOpts, ServerOpts, Config).
 
@@ -871,3 +872,12 @@ rsa_pss_rsae_algs() ->
 
 rsa_pss_pss_algs() ->
     [rsa_pss_pss_sha512,rsa_pss_pss_sha384,rsa_pss_pss_sha256].
+
+sig_algs_1_3_all() ->
+    Supports = crypto:supports(public_keys),
+    case lists:member(slh_dsa_shake_256f, Supports) of
+        true ->
+            ssl:signature_algs(all, 'tlsv1.3');
+        false ->
+            ssl:signature_algs(default, 'tlsv1.3')
+    end.
