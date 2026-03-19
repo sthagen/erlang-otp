@@ -1516,7 +1516,7 @@ Example:
 ```erlang
 1> io_ansi:alternate_character_set_mode().
 <<"\e(0">>
-2> io_ansi:fwrite(["%%", alternate_character_set_mode, " tqqu\n"]).
+2> io_ansi:fwrite(["%%", alternate_character_set_mode, " tqqu\n", alternate_character_set_mode_off]).
 %% ├──┤
 ok
 ```
@@ -1752,8 +1752,8 @@ Move the cursor down one line and then returns it to home.
 
 Example:
 ```erlang
-1> io_ansi:cursor_next_line().
-<<"\eE">>
+> io_ansi:cursor_next_line().
+<<"\e[E">>
 ```
 """.
 ?SPEC(cursor_next_line).
