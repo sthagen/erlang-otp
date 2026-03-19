@@ -61,6 +61,8 @@
 ** 2.16: 24.0 enif_init_resource_type, enif_dynamic_resource_call
 ** 2.17: 26.0 enif_set_option, enif_get_string_length, enif_make_new_atom,
 **            enif_make_new_atom_len, ERL_NIF_UTF8
+** 2.18: 29.0 enif_term_size, enif_get_atom_cache_index,
+**            enif_max_atom_cache_index
 */
 #define ERL_NIF_MAJOR_VERSION 2
 #define ERL_NIF_MINOR_VERSION 18
@@ -454,4 +456,3 @@ ERL_NIF_API_FUNC_DECL(ERL_NIF_TERM,erl_nif_user_trace_n,(ErlNifEnv* env, int arg
 #undef ERL_NIF_API_FUNC_DECL
 
 #endif /* __ERL_NIF_H__ */
-
