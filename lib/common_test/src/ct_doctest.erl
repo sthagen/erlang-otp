@@ -213,7 +213,7 @@ If you don't want to include the entire exception message, use only the start of
 
 Comments can be inserted anywhere in the code block. For example:
 
-```
+```erlang
 %% A comment before the first prompt
 1> [1,
 %% A comment between prompts
@@ -227,6 +227,14 @@ Comments can be inserted anywhere in the code block. For example:
 [1,
  %% Indented comment in a match
  2]
+3> """
+  %% A comment in a string is not a comment
+  
+  """.
+"""
+%% A comment in a string is not a comment
+
+"""
 ```
 
 ### Matching of maps
@@ -620,16 +628,15 @@ ensure_skipped_blocks(Expected, Actual) when is_integer(Expected), Expected >= 0
 
 run_test(Code, InitialBindings, Verbose) ->
     Lines = string:split(Code, "\n", all),
-    CollapsedComments = [re:replace(Line, ~B"^\s*%.*$", <<"">>, [global, unicode]) || Line <- Lines],
-    case lists:search(fun(Line) ->
-                           re:run(Line, ~B"^\s*$", [unicode]) =:= nomatch
-                       end, CollapsedComments) of
-        false ->
+    case lists:dropwhile(fun(Line) ->
+                           re:run(Line, ~B"^\s*(%.*)?$", [unicode]) =/= nomatch
+                       end, Lines) of
+        [] ->
             [];
-        {value, FirstLine} ->
+        [FirstLine | _] = LinesAfterIntro ->
             case re:run(FirstLine, ?RE_CAPTURE, ?RE_OPTIONS) of
                 {match, [_Line_Number, _Prefix = <<"> ">>, _Code]} ->
-                    ReLines = [re:run(Line, ?RE_CAPTURE, ?RE_OPTIONS) || Line <- CollapsedComments],
+                    ReLines = [re:run(Line, ?RE_CAPTURE, ?RE_OPTIONS) || Line <- LinesAfterIntro],
                     Tests = inspect(parse_tests(ReLines, [], 1)),
                     check_prompt_numbers(Tests),
                     _ = lists:foldl(fun(Test, Bindings) ->
@@ -706,22 +713,25 @@ parse_tests([], [], _) ->
     [];
 parse_tests([], Cmd, No) ->
     [{test, No, lists:join($\n, lists:reverse(Cmd)), "_"}];
+parse_tests([{match, [<<>>, <<>>, <<>>]}], Cmd, No) ->
+    parse_tests([], Cmd, No);
 parse_tests([{match, [<<>>, <<>>, <<>>]} | T], Cmd, No) ->
-    parse_tests(T, Cmd, No);
+    parse_tests(T, [<<>> | Cmd], No);
 parse_tests([{match, [PromptNo, <<"> ">>, NewCmd]} | T], [], _) ->
     parse_tests(T, [NewCmd], PromptNo);
 parse_tests([{match, [PromptNo, <<"> ">>, NewCmd]} | T], Cmd, No) ->
     [{test, No, lists:join($\n, lists:reverse(Cmd)), "_"} | parse_tests(T, [NewCmd], PromptNo)];
-parse_tests([{match, [<<>>, <<>>, <<" ", _/binary>> = More]} | T], Acc, No) ->
+parse_tests([{match, [<<>>, <<>>, <<FirstChar, _/binary>> = More]} | T], Acc, No)
+        when FirstChar =:= $\s; FirstChar =:= $% ->
     parse_tests(T, [More | Acc], No);
 parse_tests([{match, [<<>>, <<>>, NewMatch]} | T], Cmd, No) ->
     {Match, Rest} = parse_match(T, [NewMatch]),
     [{test, No, lists:join($\n, lists:reverse(Cmd)),
       lists:join($\n, lists:reverse(Match))} | parse_tests(Rest, [], No)].
 
-parse_match([{match, [<<>>, <<>>, <<>>]} | T], Acc) ->
-    parse_match(T, Acc);
-parse_match([{match, [<<>>, <<>>, <<" ", _/binary>> = More]} | T], Acc) ->
+parse_match([{match, [<<>>, <<>>, <<>>]}], Acc) ->
+    parse_match([], Acc);
+parse_match([{match, [<<>>, <<>>, More]} | T], Acc) ->
     parse_match(T, [More | Acc]);
 parse_match(Rest, Acc) ->
     {Acc, Rest}.
