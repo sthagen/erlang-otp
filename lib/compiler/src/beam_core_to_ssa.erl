@@ -1877,10 +1877,14 @@ group_keeping_order_fun(C1) ->
                         {{S,U,T1,_,Next}, {S,U,_T2,_,Next}}
                           when T1 =:= integer; T1 =:= binary ->
                             %% The patterns in clauses `C1` and `C`
-                            %% match the same number of bits, meaning
-                            %% that clause `C` clause will not be
-                            %% reached if clause `C1` succeeds.
-                            true;
+                            %% match the same number of bits. If the
+                            %% value for clause `C1` is a variable,
+                            %% clause `C1` will always be reached and
+                            %% clause `C` will never be reached.
+                            case arg_arg(clause_arg(C1)) of
+                                #cg_bin_seg{seg=#b_var{}} -> true;
+                                _ -> false
+                            end;
                         {_, _} ->
                             false
                     end
