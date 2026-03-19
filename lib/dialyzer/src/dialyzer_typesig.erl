@@ -1418,8 +1418,8 @@ get_bif_constr({erlang, is_reference, 1}, Dst, [Arg], State) ->
 get_bif_constr({erlang, is_record, 2}, Dst, [Var, Tag] = Args, _State) ->
   ArgFun = fun(Map) ->
 	       case t_is_any_atom(true, lookup_type(Dst, Map)) of
-		 true -> t_tuple();
-		 false -> t_any()
+                 true -> t_sup(t_tuple(), t_record());
+                 false -> t_any()
 	       end
 	   end,
   ArgV = ?mk_fun_var(ArgFun, [Dst]),

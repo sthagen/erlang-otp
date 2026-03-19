@@ -2217,11 +2217,11 @@ t_sup_aux(?record(N1, _)=A, ?record(N2, _)=B) ->
     false ->
       ?record_set([B, A])
   end;
-t_sup_aux(?record(_,_)=Record, ?record_set(Records)) ->
+t_sup_aux(?record(_,_)=Record, ?record_set([_,_|_]=Records)) ->
   record_set_merge(Records, [Record], []);
-t_sup_aux(?record_set(Records), ?record(_,_)=Record) ->
+t_sup_aux(?record_set([_,_|_]=Records), ?record(_,_)=Record) ->
   record_set_merge(Records, [Record], []);
-t_sup_aux(?record_set(RecordsA), ?record_set(RecordsB)) ->
+t_sup_aux(?record_set([_,_|_]=RecordsA), ?record_set([_,_|_]=RecordsB)) ->
   record_set_merge(RecordsA, RecordsB, []);
 t_sup_aux(?tuple(?any, ?any, ?any) = T, ?tuple(_, _, _)) -> T;
 t_sup_aux(?tuple(_, _, _), ?tuple(?any, ?any, ?any) = T) -> T;
@@ -2376,32 +2376,19 @@ set_record_field(_Index, none, Es) ->
 set_record_field(Index, Type, Es) ->
   Es#{ Index => {present, Type} }.
 
-record_set_merge([], [], [Record]) ->
-  Record;
-record_set_merge([], [], Acc) ->
-  ?record_set(lists:reverse(Acc));
-record_set_merge([?record(N1,_)=A | _]=RsA, [?record(N2,_)=B | _]=RsB, [?record(nil,_)=Acc]) ->
-  case N1 < N2 of
-    true ->
-      ?record(_,_) = t_sup_aux(A, Acc), %Assertion.
-      record_set_merge(tl(RsA), RsB, [t_sup_aux(A, Acc)]);
-    false ->
-      ?record(_,_) = t_sup_aux(B, Acc), %Assertion.
-      record_set_merge(RsA, tl(RsB), [t_sup_aux(B, Acc)])
-  end;
 record_set_merge([?record(N1,_)=A | TsA]=RsA, [?record(N2,_)=B | TsB]=RsB, Acc) ->
   case {N1, N2} of
     {nil, _} ->
       T = t_sup_aux(A, B),
-      ?record(_,_) = T, %Assertion.
-      record_set_merge(Acc ++ TsA, TsB, [T]);
+      ?record(nil,_) = T, %Assertion.
+      record_set_merge([], TsB, [T]);
     {_, nil} ->
       T = t_sup_aux(B, A),
-      ?record(_,_) = T, %Assertion.
-      record_set_merge(Acc ++ TsA, TsB, [T]);
+      ?record(nil,_) = T, %Assertion.
+      record_set_merge(TsA, [], [T]);
     {Same, Same} ->
       T = t_sup_aux(A, B),
-      ?record(_,_) = T, %Assertion.
+      ?record(Same,_) = T, %Assertion.
       record_set_merge(TsA, TsB, [T | Acc]);
     _ ->
       case N1 < N2 of
@@ -2413,16 +2400,16 @@ record_set_merge([?record(N1,_)=A | TsA]=RsA, [?record(N2,_)=B | TsB]=RsB, Acc) 
   end;
 record_set_merge([A | RsA], [], [?record(nil,_)=Acc]) ->
   record_set_merge(RsA, [], [t_sup_aux(A, Acc)]);
-record_set_merge([?record(nil,_)=A], [], Acc) ->
-  record_set_merge(Acc, [], [A]);
 record_set_merge([A | RsA], [], Acc) ->
   record_set_merge(RsA, [], [A | Acc]);
 record_set_merge([], [B | RsB], [?record(nil,_)=Acc]) ->
   record_set_merge([], RsB, [t_sup_aux(B, Acc)]);
-record_set_merge([], [?record(nil,_)=B], Acc) ->
-  record_set_merge(Acc, [], [B]);
 record_set_merge([], [B | RsB], Acc) ->
-  record_set_merge([], RsB, [B | Acc]).
+  record_set_merge([], RsB, [B | Acc]);
+record_set_merge([], [], [Record]) ->
+  Record;
+record_set_merge([], [], [_,_|_]=Acc) ->
+  ?record_set(lists:reverse(Acc)).
 
 %% Adds the new nominal `Sup` into the set of nominals `Ns0`. Note that it does
 %% not handle structurals; the caller is expected to normalize the result
@@ -2891,9 +2878,9 @@ t_inf_aux(?record(N1, Es1), ?record(N2, Es2)) ->
     _ -> ?none
   end;
 t_inf_aux(?record(_, _)=Record, ?record_set(Records)) ->
-    inf_record_sets(Records, [Record], []);
-t_inf_aux(?record_set(_)=Records, ?record(_, _)=Record) ->
-    inf_record_sets(Records, [Record], []);
+    inf_record_sets([Record], Records, []);
+t_inf_aux(?record_set(Records), ?record(_, _)=Record) ->
+    inf_record_sets([Record], Records, []);
 t_inf_aux(?record_set(RecordsA), ?record_set(RecordsB)) ->
     inf_record_sets(RecordsA, RecordsB, []);
 t_inf_aux(?tuple(?any, ?any, ?any), ?tuple(_, _, _) = T) ->
@@ -2974,30 +2961,36 @@ inf_record_elements([], _Es1, _Es2, Acc) ->
 
 inf_record_sets([?record(N1, _) | _]=RsA,
                 [?record(N2, _) | _]=RsB, Acc) when N1 =/= N2 andalso N1 =/= nil andalso N2 =/= nil ->
+  %% Drop the name that doesn't occur in the other set.
   case N1 < N2 of
     true ->
       inf_record_sets(tl(RsA), RsB, Acc);
     false ->
       inf_record_sets(RsA, tl(RsB), Acc)
   end;
-inf_record_sets([A | RsA], [B | RsB], Acc) ->
-  maybe
-    ?record(_,_)=T ?= t_inf_aux(A, B),
-    case T of
-      ?record(nil, _) -> T; 
-      _ -> inf_record_sets(RsA, RsB, [T | Acc])
-    end
-  else
-    _ -> ?none
+inf_record_sets([?record(nil,_)=A], [B|RsB], Acc) ->
+  %% None of the elements of RsB can have the name nil.
+  case t_inf_aux(A, B) of
+    ?record(_,_)=T ->
+      inf_record_sets([A], RsB, [T | Acc]);
+    _ ->
+      inf_record_sets([A], RsB, Acc)
   end;
-inf_record_sets(_RsA, [], [_,_|_]=Acc) ->
-  ?record_set(lists:reverse(Acc));
-inf_record_sets([], _RsB, [_,_|_]=Acc) ->
-  ?record_set(lists:reverse(Acc));
-inf_record_sets(_RsA, _RsB, [Record]) ->
-  Record;
-inf_record_sets(_RsA, _RsB, []) ->
-  ?none.
+inf_record_sets([A | RsA], [B | RsB], Acc) ->
+  %% None of sets can have an element with the name nil.
+  case t_inf_aux(A, B) of
+    ?record(_, _)=T ->
+      inf_record_sets(RsA, RsB, [T | Acc]); 
+    _ ->
+      inf_record_sets(RsA, RsB, Acc)
+  end;
+inf_record_sets(_RsA, _RsB, Acc) ->
+  %% At least one of the sets is empty.
+  case Acc of
+    [_,_|_] -> lists:reverse(Acc);
+    [Record] -> Record;
+    [] -> none
+  end.
 
 inf_nominal_sets([_|_]=LHS, [_|_]=RHS) ->
   %% Because a nominal in LHS_Ns can be a subtype of another in RHS_Ns or of
