@@ -3195,7 +3195,7 @@ fetch_openvex_table_status(#{~"fixed" := _}=Status) when is_map(Status) ->
     [~"fixed" | fetch_openvex_table_status(maps:without([~"fixed"], Status))];
 fetch_openvex_table_status(#{~"not_affected" := _}=Status) when is_map(Status) ->
     [~"not_affected" | fetch_openvex_table_status(maps:without([~"not_affected"], Status))];
-fetch_openvex_table_status(Status) when Status == ~"under_investigation" ->
+fetch_openvex_table_status(Status) when Status == ~"under_investigation"; Status == ~"affected" ->
     [Status];
 fetch_openvex_table_status(_) ->
     [].
@@ -3299,6 +3299,9 @@ format_vexctl(VexPath, Versions, CVE, #{~"not_affected" := ~"vulnerable_code_not
 format_vexctl(VexPath, Versions, CVE, #{~"not_affected" := ~"vulnerable_code_not_in_execute_path"}) ->
     io_lib:format("vexctl add --in-place ~ts --product='~ts' --vuln='~ts' --status='~ts' --justification='~ts'~n",
               [VexPath, Versions, CVE, ~"not_affected", ~"vulnerable_code_not_in_execute_path"]);
+format_vexctl(VexPath, Versions, CVE, #{~"not_affected" := ~"component_not_present"}) ->
+    io_lib:format("vexctl add --in-place ~ts --product='~ts' --vuln='~ts' --status='~ts' --justification='~ts'~n",
+              [VexPath, Versions, CVE, ~"not_affected", ~"component_not_present"]);
 format_vexctl(VexPath, Versions, CVE, #{~"affected" := Mitigation}) ->
     io_lib:format("vexctl add --in-place ~ts --product='~ts' --vuln='~ts' --status='~ts' --action-statement='~ts'~n",
           [VexPath, Versions, CVE, ~"affected", Mitigation]);
@@ -3612,7 +3615,7 @@ fixup_openvex_branched_otp_tree() ->
 
 fixup_openvex_branched_otp_tree_stmts() ->
     [#{ ~"vulnerability"=>
-            #{"name"=> ~"CVE-2025-26618"},
+            #{~"name"=> ~"CVE-2025-26618"},
         ~"products"=>
             [
              #{~"@id"=> ~"pkg:github/erlang/otp@OTP-23.2.2"},
@@ -3748,7 +3751,7 @@ fixup_openvex_branched_otp_tree_stmts() ->
         ~"status" => ~"not_affected",
         ~"justification" => ~"vulnerable_code_not_present" },
 
-     #{ ~"vulnerability"=> #{"name"=> ~"F00"},
+     #{ ~"vulnerability"=> #{~"name"=> ~"F00"},
         ~"products"=>
             [
              #{~"@id"=> ~"pkg:github/erlang/otp@OTP-23.2.2"},
@@ -3756,7 +3759,7 @@ fixup_openvex_branched_otp_tree_stmts() ->
             ],
         ~"status"=> ~"under_investigation"
       },
-     #{ ~"vulnerability"=> #{"name"=> ~"CVE-2025-58050"},
+     #{ ~"vulnerability"=> #{~"name"=> ~"CVE-2025-58050"},
         ~"products"=>
             [
              #{~"@id"=> ~"pkg:github/PCRE2Project/pcre2@2dce7761b1831fd3f82a9c2bd5476259d945da4d"}
