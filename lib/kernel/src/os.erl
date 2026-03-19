@@ -742,8 +742,8 @@ get_data(Port, MonRef, Eot, Sofar, Size, Max, ExitStatus) ->
             flush_exit(Port), 
             {Sofar, N};
         {'DOWN', MonRef, _, _, _} ->
-            %% We get 'DOWN' if someone does exit/2 on the port... we treat this
-            %% as if a SIGKILL was sent to the command
+            %% We get 'DOWN' if someone does exit_signal/2 on the port... we
+            %% treat this as if a SIGKILL was sent to the command
 	    flush_exit(Port),
 	    {Sofar, 128 + 9}
     end.
