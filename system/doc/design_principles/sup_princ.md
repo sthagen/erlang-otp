@@ -513,7 +513,7 @@ child_spec() = #{id => child_id(),             % mandatory
   `M` comes from the child's start `{M,F,A}`.
 
 _Example:_ The child specification to start the server `ch3` in the previous
-example look as follows:
+example looks as follows:
 
 ```erlang
 #{id => ch3,
