@@ -82,11 +82,6 @@
 (require 'tempo)
 (require 'cl-lib)
 
-;;; `caddr' is builtin since Emacs 26.
-(eval-and-compile
-  (or (fboundp 'caddr)
-      (defun caddr (x) (car (cdr (cdr x))))))
-
 ;; Variables:
 
 (defgroup erlang nil
