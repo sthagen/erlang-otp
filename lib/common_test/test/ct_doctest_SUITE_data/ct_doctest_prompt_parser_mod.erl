@@ -43,7 +43,9 @@
   2].
 [1,
  2]
-5> 1 + 2.
+5> 1 + 2. %% Comment after prompt with .
+3 %% Comment after match
+%% Comment after last prompt
 ```
 """.
 

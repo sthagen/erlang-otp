@@ -2765,7 +2765,7 @@ decimal point formatting.
 <<"7.12">>
 5> float_to_binary(0.1+0.2, [short]).
 <<"0.30000000000000004">>
-6> float_to_binary(0.1+0.2)
+6> float_to_binary(0.1+0.2).
 <<"3.00000000000000044409e-01">>
 ```
 """.
@@ -2823,7 +2823,7 @@ Available options:
 "7.12"
 5> float_to_list(0.1+0.2, [short]).
 "0.30000000000000004"
-6> float_to_list(0.1+0.2)
+6> float_to_list(0.1+0.2).
 "3.00000000000000044409e-01"
 ```
 

@@ -25,6 +25,6 @@
 -export([parse_doc/1]).
 
 %% Custom documentation format
--doc "1> 1 + 2\n3".
+-doc "1> 1 + 2.\n3".
 parse_doc(Content) ->
     [Content].

@@ -521,7 +521,7 @@ all sets, without duplicates.
 ```erlang
 1> S0 = sets:from_list([a,b,c,d]).
 2> S1 = sets:from_list([d,e,f]).
-3> S2 = sets:from_list([q,r])
+3> S2 = sets:from_list([q,r]).
 4> Sets = [S0, S1, S2].
 5> Union = sets:union(Sets).
 6> lists:sort(sets:to_list(Union)).
@@ -624,7 +624,7 @@ elements that are present in all sets.
 ```erlang
 1> S0 = sets:from_list([a,b,c,d]).
 2> S1 = sets:from_list([d,e,f]).
-3> S2 = sets:from_list([q,r])
+3> S2 = sets:from_list([q,r]).
 4> Sets = [S0, S1, S2].
 5> sets:to_list(sets:intersection([S0, S1, S2])).
 []
@@ -660,7 +660,7 @@ but faster.
 ```erlang
 1> S0 = sets:from_list([a,b,c,d]).
 2> S1 = sets:from_list([d,e,f]).
-3> S2 = sets:from_list([q,r])
+3> S2 = sets:from_list([q,r]).
 4> sets:is_disjoint(S0, S1).
 false
 5> sets:is_disjoint(S1, S2).
@@ -917,7 +917,7 @@ filtermap(Fun, Set1) ->
 ## Examples
 
 ```erlang
-1> S = sets:from_list([2,4,5,6,8,9])
+1> S = sets:from_list([2,4,5,6,8,9]).
 2> F = fun(X) ->
            case X rem 2 of
                0 -> {true, X div 2};

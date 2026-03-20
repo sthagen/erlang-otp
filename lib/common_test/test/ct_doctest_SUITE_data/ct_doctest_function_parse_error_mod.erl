@@ -22,7 +22,7 @@
 
 -module(ct_doctest_function_parse_error_mod).
 -moduledoc false.
--export([f/0]).
+-export([f/0, g/0, h/0, i/0, j/0]).
 
 -doc """
 ```
@@ -32,3 +32,45 @@ ok
 """.
 f() ->
     ok.
+
+-doc """
+```
+%% Missing fullstop
+1> 1 + 2
+3
+```
+""".
+g() ->
+    ok.
+
+
+-doc """
+```
+1> 1 + 2, .
+4
+```
+""".
+h() ->
+    ok.
+
+-doc """
+```
+1> 1 + 2, 
+4
+```
+""".
+i() ->
+    ok.
+
+-doc """
+```
+1> 1 + 2.
+3
+2> 1 + 2,
+  1 + 3
+4
+```
+""".
+j() ->
+    ok.
+

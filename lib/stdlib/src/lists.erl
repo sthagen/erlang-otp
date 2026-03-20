@@ -682,9 +682,9 @@ case the whole list is returned.
 ## Examples
 
 ```erlang
-1> lists:sublist([1,2,3,4,5], 2)
+1> lists:sublist([1,2,3,4,5], 2).
 [1,2]
-2> lists:sublist([1,2,3,4,5], 99)
+2> lists:sublist([1,2,3,4,5], 99).
 [1,2,3,4,5]
 ```
 """.

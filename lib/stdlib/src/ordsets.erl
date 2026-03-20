@@ -398,7 +398,7 @@ This function is equivalent to `ordsets:is_empty(ordsets:intersection(Ordset1, O
 ```erlang
 1> S0 = ordsets:from_list([a,b,c,d]).
 2> S1 = ordsets:from_list([d,e,f]).
-3> S2 = ordsets:from_list([q,r])
+3> S2 = ordsets:from_list([q,r]).
 4> ordsets:is_disjoint(S0, S1).
 false
 5> ordsets:is_disjoint(S1, S2).

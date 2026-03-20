@@ -213,7 +213,7 @@ If you don't want to include the entire exception message, use only the start of
 
 Comments can be inserted anywhere in the code block. For example:
 
-```
+```erlang
 %% A comment before the first prompt
 1> [1,
 %% A comment between prompts
@@ -227,6 +227,14 @@ Comments can be inserted anywhere in the code block. For example:
 [1,
  %% Indented comment in a match
  2]
+3> """
+  %% A comment in a string is not a comment
+  
+  """.
+"""
+%% A comment in a string is not a comment
+
+"""
 ```
 
 ### Matching of maps
@@ -620,16 +628,15 @@ ensure_skipped_blocks(Expected, Actual) when is_integer(Expected), Expected >= 0
 
 run_test(Code, InitialBindings, Verbose) ->
     Lines = string:split(Code, "\n", all),
-    CollapsedComments = [re:replace(Line, ~B"^\s*%.*$", <<"">>, [global, unicode]) || Line <- Lines],
-    case lists:search(fun(Line) ->
-                           re:run(Line, ~B"^\s*$", [unicode]) =:= nomatch
-                       end, CollapsedComments) of
-        false ->
+    case lists:dropwhile(fun(Line) ->
+                           re:run(Line, ~B"^\s*(%.*)?$", [unicode]) =/= nomatch
+                       end, Lines) of
+        [] ->
             [];
-        {value, FirstLine} ->
+        [FirstLine | _] = LinesAfterIntro ->
             case re:run(FirstLine, ?RE_CAPTURE, ?RE_OPTIONS) of
                 {match, [_Line_Number, _Prefix = <<"> ">>, _Code]} ->
-                    ReLines = [re:run(Line, ?RE_CAPTURE, ?RE_OPTIONS) || Line <- CollapsedComments],
+                    ReLines = [re:run(Line, ?RE_CAPTURE, ?RE_OPTIONS) || Line <- LinesAfterIntro],
                     Tests = inspect(parse_tests(ReLines, [], 1)),
                     check_prompt_numbers(Tests),
                     _ = lists:foldl(fun(Test, Bindings) ->
@@ -706,29 +713,32 @@ parse_tests([], [], _) ->
     [];
 parse_tests([], Cmd, No) ->
     [{test, No, lists:join($\n, lists:reverse(Cmd)), "_"}];
+parse_tests([{match, [<<>>, <<>>, <<>>]}], Cmd, No) ->
+    parse_tests([], Cmd, No);
 parse_tests([{match, [<<>>, <<>>, <<>>]} | T], Cmd, No) ->
-    parse_tests(T, Cmd, No);
+    parse_tests(T, [<<>> | Cmd], No);
 parse_tests([{match, [PromptNo, <<"> ">>, NewCmd]} | T], [], _) ->
     parse_tests(T, [NewCmd], PromptNo);
 parse_tests([{match, [PromptNo, <<"> ">>, NewCmd]} | T], Cmd, No) ->
     [{test, No, lists:join($\n, lists:reverse(Cmd)), "_"} | parse_tests(T, [NewCmd], PromptNo)];
-parse_tests([{match, [<<>>, <<>>, <<" ", _/binary>> = More]} | T], Acc, No) ->
+parse_tests([{match, [<<>>, <<>>, <<FirstChar, _/binary>> = More]} | T], Acc, No)
+        when FirstChar =:= $\s; FirstChar =:= $% ->
     parse_tests(T, [More | Acc], No);
 parse_tests([{match, [<<>>, <<>>, NewMatch]} | T], Cmd, No) ->
     {Match, Rest} = parse_match(T, [NewMatch]),
     [{test, No, lists:join($\n, lists:reverse(Cmd)),
       lists:join($\n, lists:reverse(Match))} | parse_tests(Rest, [], No)].
 
-parse_match([{match, [<<>>, <<>>, <<>>]} | T], Acc) ->
-    parse_match(T, Acc);
-parse_match([{match, [<<>>, <<>>, <<" ", _/binary>> = More]} | T], Acc) ->
+parse_match([{match, [<<>>, <<>>, <<>>]}], Acc) ->
+    parse_match([], Acc);
+parse_match([{match, [<<>>, <<>>, More]} | T], Acc) ->
     parse_match(T, [More | Acc]);
 parse_match(Rest, Acc) ->
     {Acc, Rest}.
 
 run_tests({test, _Index, Test0, Match0}, Bindings, Verbose) ->
     Test1 = unicode:characters_to_list(Test0),
-    Test = string:trim(string:trim(Test1), trailing, "."),
+    Test = string:trim(Test1),
     case Match0 of
         [<<"** ", _/binary>> | _] ->
             Match = unicode:characters_to_list(Match0),
@@ -771,10 +781,15 @@ run_failing(Test, Match, Bindings, Verbose) ->
 %% if the match actually is a valid pattern. So we parse and
 %% evaluate it first, and if that fails we convert it to a literal
 %% and try again.
-parse_exprs(Test, Match0) ->
-    try {parse_exprs(Match0 ++ " = 1."),
-         parse_exprs("1 = begin " ++ Test ++ " end.")} of
-        {MatchAst, _TestAst} ->
+parse_exprs(Test0, Match0) ->
+
+    %% First we check that we can parse the test correctly.
+    %% This will throw if we fail.
+    TestExprs = try_parse_exprs(Test0),
+
+    %% Now we know that the test is parseable, we try to parse the match.
+    try try_parse_match_exprs(Match0 ++ "\n = 1.") of
+        MatchAst ->
             Match =
                 try erl_eval:exprs(MatchAst, #{}) of
                     {value, _Res, _} ->
@@ -783,25 +798,31 @@ parse_exprs(Test, Match0) ->
                     error:_ ->
                         maybe_convert_to_literal(Match0)
                 end,
-            parse_exprs(Match ++ " = begin " ++ Test ++ " end.")
+            
+            %% Both the test and the match can end in a comment,
+            %% so we parse each independently and then combine them
+            [{match,Anno,LHS,_}|MaybeLiteral] = lists:reverse(try_parse_match_exprs(Match ++ "\n = 1.")),
+            MaybeLiteral ++ [{match,Anno,LHS,{block,Anno,TestExprs}}]
     catch throw:_ ->
-            parse_exprs(Match0 ++ " = " ++ Test ++ ".")
+            try_parse_match_exprs(Match0 ++ "\n = 1.")
     end.
 
-parse_exprs(Str) ->
+try_parse_match_exprs(Str) ->
+    rewrite_match_ast(try_parse_exprs(Str)).
+try_parse_exprs(Str) ->
     Cmd = lists:flatten(unicode:characters_to_list(Str)),
     maybe
-        {ok, T, _} ?= erl_scan:string(Cmd, 0, [text]),
+        {ok, T, _} ?= erl_scan:string(Cmd, {1,1}, [text]),
         RewrittenToks = rewrite_tokens(T),
         {ok, Ast} ?= inspect(erl_eval:extended_parse_exprs(RewrittenToks)),
-        rewrite_match_ast(Ast)
+        Ast
     else
-        {error, {Line,Mod,Reason}, _} ->
-            Message = Mod:format_error(Reason),
-            throw({error,#{ message => Message, line => Line}});
-        {error, {Line,Mod,Reason}} ->
-            Message = Mod:format_error(Reason),
-            throw({error,#{ message => Message, line => Line}})
+        {error, {{Line, _},_Mod,_Reason} = Err, _} ->
+            [{_, Message}] = sys_messages:format_messages("", "", [Err], []),
+            throw({error,#{ message => string:trim(Message, leading, ":"), line => Line}});
+        {error, {{Line,_},_Mod,_Reason} = Err} ->
+            [{_, Message}] = sys_messages:format_messages("", "", [Err], []),
+            throw({error,#{ message => string:trim(Message, leading, ":"), line => Line}})
     end.
 
 %% We rewrite ...>> to _/binary>> to match shell syntax better
