@@ -5183,15 +5183,8 @@ about Erlang modules."
 
 
 
-;; Emacs 25 expects this function to return a list (and it is ok for
-;; it to include duplicates).  Older emacsen expects an obarray.
 (defun erlang-etags-tags-completion-table ()
-  (if (>= emacs-major-version 25)
-      (erlang-etags-tags-completion-table-list)
-    (let ((obarray (make-vector 511 0)))
-      (dolist (tag (erlang-etags-tags-completion-table-list))
-        (intern tag obarray))
-      obarray)))
+  (erlang-etags-tags-completion-table-list))
 
 ;; Based on `etags-tags-completion-table'.  The difference is that we
 ;; add three strings to the list, the tag, module: and module:tag.
