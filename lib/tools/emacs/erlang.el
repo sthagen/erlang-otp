@@ -81,7 +81,6 @@
 (require 'comint)
 (require 'tempo)
 (require 'cl-lib)
-(require 'advice)
 
 ;;; `caddr' is builtin since Emacs 26.
 (eval-and-compile
