@@ -5645,6 +5645,10 @@ return XREFS as is."
     (and file
          (file-truename file))))
 
+(declare-function xref-item-location "xref" (item))
+(declare-function xref-location-group "xref" (location))
+(declare-function xref-location-origin "xref" (location))
+
 (defun erlang-xref-file (xref)
   (let ((location (xref-item-location xref)))
     (cond ((fboundp 'xref-location-origin)  ; Emacs 30+
