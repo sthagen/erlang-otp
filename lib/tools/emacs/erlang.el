@@ -4762,11 +4762,8 @@ In the completion list, `module:tag' and `module:' shows up."
   (require 'etags)
   (set (make-local-variable 'find-tag-default-function)
        'erlang-find-tag-for-completion)
-  (if (>= emacs-major-version 25)
-      (add-hook 'xref-backend-functions
-                #'erlang-etags--xref-backend nil t)
-    (erlang-tags-define-keys (current-local-map))
-    (setq erlang-tags-installed t)))
+  (add-hook 'xref-backend-functions
+            #'erlang-etags--xref-backend nil t))
 
 
 
