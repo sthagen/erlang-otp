@@ -1437,7 +1437,7 @@ Other commands:
   (erlang-font-lock-init)
   (erlang-skel-init)
   (tempo-use-tag-list 'erlang-tempo-tags)
-  (when (and (fboundp 'add-function) (fboundp 'erldoc-eldoc-function))
+  (when (fboundp 'erldoc-eldoc-function)
     (or eldoc-documentation-function
         (setq-local eldoc-documentation-function #'ignore))
     (add-function :before-until (local 'eldoc-documentation-function)
