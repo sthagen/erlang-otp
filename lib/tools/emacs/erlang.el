@@ -5649,9 +5649,11 @@ return XREFS as is."
          (file-truename file))))
 
 (defun erlang-xref-file (xref)
-  (and (fboundp 'xref-location-group)
-       (fboundp 'xref-item-location)
-       (xref-location-group (xref-item-location xref))))
+  (let ((location (xref-item-location xref)))
+    (cond ((fboundp 'xref-location-origin)  ; Emacs 30+
+           (xref-location-origin location))
+          ((fboundp 'xref-location-group)
+           (xref-location-group location)))))
 
 (defun erlang-visit-tags-table-buffer (cont cbuf)
   (visit-tags-table-buffer cont cbuf))
