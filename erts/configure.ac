@@ -1275,8 +1275,8 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
   esac
 ],
 [
-  enable_builtin_errno_id=yes
-  enable_builtin_zstd=yes
+  enable_builtin_errno_id=no
+  enable_builtin_zstd=no
   enable_builtin_zlib=no
   use_embedded_3pp_alts=default
   use_embedded_3pp_alts_val=-1
