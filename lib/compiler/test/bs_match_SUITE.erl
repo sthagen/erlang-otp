@@ -58,7 +58,8 @@
          gh_6410/1,bs_match/1,
          binary_aliases/1,gh_6923/1,
          bs_test_tail/1,
-         otp_19019/1]).
+         otp_19019/1,
+         gh_10878/1]).
 
 -export([coverage_id/1,coverage_external_ignore/2]).
 
@@ -104,7 +105,8 @@ groups() ->
        gh_6410,bs_match,binary_aliases,
        gh_6923,
        bs_test_tail,
-       otp_19019]}].
+       otp_19019,
+       gh_10878]}].
 
 init_per_suite(Config) ->
     test_lib:recompile(?MODULE),
@@ -3354,6 +3356,35 @@ do_otp_19019(A) ->
         ok
     end.
 
+gh_10878(_Config) ->
+    {~"M", ~"Z"} = gh_10878_decode(id(~"MZ")),
+    ~"X" = gh_10878_decode(id(~"X=")),
+
+    0 = count_newlines(~""),
+    1 = count_newlines(~"\n"),
+    1 = count_newlines(~"abc\n"),
+    2 = count_newlines(~"abc\n\n"),
+    2 = count_newlines(~"abc\nxyz\n"),
+
+    ok.
+
+gh_10878_decode(Encoded) ->
+    case Encoded of
+        <<A:1/binary, "=">> -> A;
+        <<A:1/binary, B:1/binary>> -> {A,B}
+    end.
+
+count_newlines(Bin) ->
+    count_newlines(id(Bin), 0).
+
+count_newlines(<<$\n,B/binary>>, Count) ->
+    count_newlines(B, Count + 1);
+count_newlines(<<_:1/unit:8,B/binary>>, Count) ->
+    %% The pattern in this clause is supposed to be combined with the
+    %% pattern in the previous clause.
+    count_newlines(B, Count);
+count_newlines(<<>>, Count) ->
+    Count.
 
 %%% Utilities.
 
