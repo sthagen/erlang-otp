@@ -25,7 +25,7 @@
 ;; Keywords: erlang, languages, processes
 ;; Date:     2011-12-11
 ;; Version:  2.8.6
-;; Package-Requires: ((emacs "24.3"))
+;; Package-Requires: ((emacs "27.1"))
 
 ;; Lars Thorsén's modifications of 2000-06-07 included.
 ;; The original version of this package was written by Robert Virding.
