@@ -4850,9 +4850,7 @@ Tags can be given on the forms `tag', `module:', `module:tag'."
   "Find next tag, like \\[find-tag] with prefix arg."
   (interactive)
   (let ((current-prefix-arg '(4)))
-    (if erlang-tags-installed
-        (call-interactively 'erlang-find-tag)
-      (call-interactively 'find-tag))))
+    (call-interactively 'erlang-find-tag)))
 
 
 ;; Mimics `find-tag-noselect' found in `etags.el', but uses `find-tag' to
