@@ -5654,12 +5654,7 @@ return XREFS as is."
        (xref-location-group (xref-item-location xref))))
 
 (defun erlang-visit-tags-table-buffer (cont cbuf)
-  (if (< emacs-major-version 26)
-      (visit-tags-table-buffer cont)
-    ;; Remove this with-no-warnings when Emacs 26 is the required
-    ;; version minimum.
-    (with-no-warnings
-      (visit-tags-table-buffer cont cbuf))))
+  (visit-tags-table-buffer cont cbuf))
 
 ;;;
 ;;; Prepare for other methods to run an Erlang slave process.
