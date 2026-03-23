@@ -235,6 +235,13 @@ Comments can be inserted anywhere in the code block. For example:
 %% A comment in a string is not a comment
 
 """
+4> 1 + a.
+** exception error: an error occurred when evaluating an arithmetic expression
+%% Comments
+     in operator  +/2
+     %% in exceptions
+        called as 1 + a
+%% are ignored
 ```
 
 ### Matching of maps
@@ -767,15 +774,22 @@ run_failing(Test, Match, Bindings, Verbose) ->
             throw({error,#{ message => Message, context => Match}})
     catch C:R:ST ->
             Actual = format_exception(C, R, ST),
-            case string:prefix(Actual,  Match) of
+            FailMatch = strip_comments(Match),
+            case string:prefix(Actual,  FailMatch) of
                 nomatch ->
-                    Message = io_lib:format("Failure did not match:~n~ts~n",
-                                            [Actual]),
-                    throw({error,#{ message => Message, context => Match}});
+                    Message = io_lib:format("Failure did not match:~n~w~n~n~w~n",
+                                            [Actual, FailMatch]),
+                    throw({error,#{ message => Message, context => FailMatch}});
                 _ ->
                     Bindings
             end
     end.
+
+strip_comments(Match) ->
+    Lines = string:split(Match, "\n", all),
+    NonCommentLines = [Line || Line <- Lines,
+                        re:run(Line, ~B"^\s*%.*$", [unicode]) =:= nomatch],
+    lists:join($\n, NonCommentLines).
 
 %% As we allow <0.1.0> style matches we first need to check
 %% if the match actually is a valid pattern. So we parse and
