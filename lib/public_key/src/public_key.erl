@@ -1095,9 +1095,11 @@ the plain format this function directly calls
 %%--------------------------------------------------------------------
 pkix_encode(Asn1Type, Term, plain) when is_atom(Asn1Type) ->
     der_encode(Asn1Type, Term);
+pkix_encode('OTPSubjectPublicKeyInfo', Term0, otp) ->
+    SubjectPublicKeyInfo = pubkey_cert_records:encode_supportedPublicKey(Term0),
+    der_encode('SubjectPublicKeyInfo', SubjectPublicKeyInfo);
 pkix_encode(Type, Term0, otp)
-  when Type =:= 'OTPCertificate'; Type =:= 'OTPTBSCertificate';
-       Type =:= 'OTPSubjectPublicKeyInfo' ->
+  when Type =:= 'OTPCertificate'; Type =:= 'OTPTBSCertificate' ->
     Term = pubkey_cert_records:transform(Term0, encode),
     try
 	{ok, Encoded} = 'OTP-PKIX':encode(Type, Term),

@@ -123,6 +123,8 @@
          pkix_decode_cert/1,
 	 pkix_decode_cert_empty_rdns/0,
 	 pkix_decode_cert_empty_rdns/1,
+         pkix_encode/0,
+         pkix_encode/1,
          pkix_path_validation/0,
          pkix_path_validation/1,
          pkix_path_validation_root_expired/0,
@@ -215,6 +217,7 @@ all() ->
      pkix_long_commonname,
      pkix_decode_cert,
      pkix_decode_cert_empty_rdns,
+     pkix_encode,
      pkix_path_validation,
      pkix_path_validation_root_expired,
      pkix_ext_key_usage,
@@ -1195,6 +1198,24 @@ pkix_decode_cert(Config) when is_list(Config) ->
             <<"MIICXDCCAgKgAwIBAgIBATAKBggqhkjOPQQDAjApMRkwFwYDVQQFExBjOTY4NDI4OTMyNzUwOGRiMQwwCgYDVQQMDANURUUwHhcNMjIxMDI5MTczMTA3WhcNMjkwNDE2MjAzNDUzWjAfMR0wGwYDVQQDExRBbmRyb2lkIEtleXN0b3JlIEtleTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABFmIQDus/jIZ0cPnRCITCzUUuCjQBw8MetO6154mmTL8O/fFlGgYkZ6C8jSSntKC/lMwaZHxAgW1AGgoCrPuX5ejggEjMIIBHzALBgNVHQ8EBAMCB4AwCAYDVR0fBAEAMIIBBAYKKwYBBAHWeQIBEQSB9TCB8gIBAgoBAQIBAwoBAQQgyvsSa116xqleaXs6xA84wqpAPWFgaaTjCWBnZpHslmoEADBEv4VFQAQ+MDwxFjAUBAxjb20ud2hhdHNhcHACBA0+oAQxIgQgOYfQQ9EK769ahxCzZxQY/lfg4ZtlPJ34JVj+tf/OXUQweqEFMQMCAQKiAwIBA6MEAgIBAKUIMQYCAQYCAQSqAwIBAb+DdwIFAL+FPQgCBgGEJMweob+FPgMCAQC/hUAqMCgEIFNB5rJkaXmnDldlMAeh8xAWlCHsm92fGlZI91reAFrxAQH/CgEAv4VBBQIDAV+Qv4VCBQIDAxUYMAoGCCqGSM49BAMCA0gAMEUCIF0BwvRQipVoaz5SIhsYbIeK+FHbAjWPgOxWgQ6Juq64AiEA83ZLsK37DjZ/tZNRi271VHQqIU8mdqUIMboVUiy3DaM=">>),
 
     #'OTPCertificate'{} = public_key:pkix_decode_cert(Der, otp).
+
+
+%%--------------------------------------------------------------------
+
+pkix_encode() ->
+    [{doc, "Test pkix_encode/3"}].
+pkix_encode(Config) when is_list(Config) ->
+    Cert = entity_cert(),
+    #'OTPCertificate'{tbsCertificate =
+                          #'OTPTBSCertificate'{subjectPublicKeyInfo = OTPSPKI}} =
+        OTPCert = public_key:pkix_decode_cert(Cert, otp),
+    #'Certificate'{tbsCertificate =
+                       #'TBSCertificate'{subjectPublicKeyInfo = PlainSPKI}} =
+        PlainCert = public_key:pkix_decode_cert(Cert, plain),
+    Cert = public_key:pkix_encode('Certificate', PlainCert, plain),
+    Cert = public_key:pkix_encode('OTPCertificate', OTPCert, otp),
+    SPKI = public_key:pkix_encode('SubjectPublicKeyInfo', PlainSPKI, plain),
+    SPKI = public_key:pkix_encode('OTPSubjectPublicKeyInfo', OTPSPKI, otp).
 
 %%--------------------------------------------------------------------
 pkix_decode_cert_empty_rdns() ->
