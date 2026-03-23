@@ -2477,14 +2477,7 @@ cg_bs_skip(Fail, [{atom,Type}|Ss0], Set) ->
                  %% Utf8/16/32.
                  [Ctx,Live,field_flags(Flags, Set)]
          end,
-    case {Type,Ss} of
-        {binary,[_,{atom,all},1,_]} ->
-            [];
-        {binary,[R,{atom,all},U,_]} ->
-            [{test,bs_test_unit,Fail,[R,U]}];
-        {_,_} ->
-            [{test,Op,Fail,Ss}]
-    end.
+    [{test,Op,Fail,Ss}].
 
 field_flags(Flags, #cg_set{anno=#{location:={File,Line}}}) ->
     {field_flags,[{anno,[Line,{file,File}]}|Flags]};
