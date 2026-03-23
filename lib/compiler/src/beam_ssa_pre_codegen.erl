@@ -2946,7 +2946,6 @@ use_zreg(recv_marker_bind) -> yes;
 use_zreg(recv_marker_clear) -> yes;
 use_zreg(remove_message) -> yes;
 use_zreg(require_stack) -> yes;
-use_zreg(set_tuple_element) -> yes;
 use_zreg(succeeded) -> yes;
 use_zreg(wait_timeout) -> yes;
 %% There's no way we can combine these into a test instruction, so we must
