@@ -169,7 +169,7 @@ Returns the cosine of `X` in radians.
 ## Examples
 
 ```erlang
-1> math:cos(0.0)
+1> math:cos(0.0).
 1.0
 ```
 """.
@@ -184,7 +184,7 @@ Returns the hyperbolic cosine of `X`.
 ## Examples
 
 ```erlang
-1> math:cosh(0.0)
+1> math:cosh(0.0).
 1.0
 ```
 """.
@@ -255,7 +255,7 @@ Returns the floor of `X`.
 9.0
 2> math:floor(-1.5).
 -2.0
-3> math:floor(1.0)
+3> math:floor(1.0).
 1.0
 ```
 """.
@@ -361,7 +361,7 @@ Returns the sine of `X` in radians.
 ## Examples
 
 ```erlang
-1> math:sin(0.0)
+1> math:sin(0.0).
 0.0
 ```
 """.
@@ -376,7 +376,7 @@ Returns the hyperbolic sine of `X`.
 ## Examples
 
 ```erlang
-1> math:sinh(0.0)
+1> math:sinh(0.0).
 0.0
 ```
 """.
@@ -408,7 +408,7 @@ Returns the tangent of `X` in radians.
 ## Examples
 
 ```erlang
-1> math:tan(0.0)
+1> math:tan(0.0).
 0.0
 ```
 """.
@@ -423,7 +423,7 @@ Returns the hyperbolic tangent of `X`.
 ## Examples
 
 ```erlang
-1> math:tan(0.0)
+1> math:tan(0.0).
 0.0
 ```
 """.

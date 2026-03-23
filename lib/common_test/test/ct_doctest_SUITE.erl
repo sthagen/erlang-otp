@@ -75,16 +75,25 @@ module_result_modes(_Config) ->
     ok = ct_doctest:module(ct_doctest_none_mod),
     {comment, _} = ct_doctest:module(ct_doctest_no_tests_mod),
     expect_error_count(ct_doctest_module_doc_parse_error_mod, [], 1,
-                       ["A test failed in moduledoc on line 0",
+                       ["A test failed in moduledoc on line 1",
                         "syntax error before: ')'"]).
 
 docs_filtering_and_error_formatting(_Config) ->
     expect_error_count(ct_doctest_module_doc_value_error_mod, [], 1,
                        ["A test failed in moduledoc",
                         "no match of right hand side value 2"]),
-    expect_error_count(ct_doctest_function_parse_error_mod, [], 1,
-                       ["A test failed in function f/0 on line 0",
-                        "syntax error before: ')'"]),
+    expect_error_count(ct_doctest_function_parse_error_mod, [], 5,
+                       ["A test failed in function f/0 on line 1",
+                        "1:1: syntax error before: ')'",
+                        "A test failed in function g/0 on line 1",
+                        "1:5: syntax error before:\n",
+                        "A test failed in function h/0 on line 1",
+                        "1:8: syntax error before: '.'",
+                        "A test failed in function i/0 on line 1",
+                        "1:6: syntax error before:\n",
+                        "A test failed in function j/0 on line 2",
+                        "2:7: syntax error before:\n"
+                        ]),
     expect_error_count(ct_doctest_function_value_error_mod, [], 1,
                        ["A test failed in function f/0",
                         "no match of right hand side value 4"]),
@@ -114,8 +123,8 @@ parse_rewrite_helpers(_Config) ->
                         "A test failed in function g/0",
                         "illegal_pattern"]),
     expect_error_count(ct_doctest_scan_error_mod, [], 1,
-                       ["A test failed in function f/0 on line 0",
-                        "unterminated string"]).
+                       ["A test failed in function f/0 on line 1",
+                        "1:2: unterminated string"]).
 
 file_support(Config) ->
     DataDir = ?config(data_dir, Config),

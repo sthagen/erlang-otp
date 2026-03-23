@@ -20,67 +20,18 @@
 %% %CopyrightEnd%
 %%
 
--module(ct_doctest_prompt_parser_mod).
--moduledoc """
-```
-%% Comment before first prompt
-1> A = 1,
-  A + 2.
-3
-2> [1, 2].
-[
- 1
- ,
- 2
- ]
-3> [1,
-  %% Comment between prompts
-  2].
-[1,
- %% Comment in match
- 2]
-4> [1,
-  2].
-[1,
- 2]
-5> 1 + 2. %% Comment after prompt with .
-3 %% Comment after match
-%% Comment after last prompt
-```
-""".
-
--export([f/0, g/0, h/0]).
-
--doc """
-Incorrect first prompt number
-
-```
-2> 1+2.
-```
-""".
-f() ->
-    ok.
-
--doc """
-Incorrect first prompt number with comment
-
-```
-%% Comment before prompt
-2> 1+2.
-```
-""".
-g() ->
-    ok.
-
--doc """
-Incorrect second prompt number
-
-```
-1> 1+2.
-3
-3> 1+2.
-```
-
-""".
-h() ->
-    ok.
+-define(AssertErrorStack(Error, Stack, Expr),
+        test_lib:assert_error_stack(
+          fun(__Error__) ->
+                  case __Error__ of
+                      Error -> ok;
+                      (_) -> ??Error
+                  end
+          end,
+          fun(__Stack__) ->
+                  case __Stack__ of
+                      Stack -> ok;
+                      (_) -> ??Stack
+                  end
+          end,
+          fun() -> Expr end)).

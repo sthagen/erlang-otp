@@ -290,6 +290,15 @@
           "pkg:otp/ssl@11.1.4.6"
         ]
       }
+    },
+    {
+      "pkg:github/madler/zlib@04f42ceca40f73e2978b50e93806c2a18c1281fc": "CVE-2026-3381",
+      "status": {
+        "apps": [
+          "pkg:otp/erts@14.0"
+        ],
+        "not_affected": "component_not_present"
+      }
     }
   ],
   "otp-27": [
@@ -573,6 +582,15 @@
           "pkg:otp/erts@15.0"
         ],
         "not_affected": "vulnerable_code_not_present"
+      }
+    },
+    {
+      "pkg:github/madler/zlib@04f42ceca40f73e2978b50e93806c2a18c1281fc": "CVE-2026-3381",
+      "status": {
+        "apps": [
+          "pkg:otp/erts@15.0"
+        ],
+        "not_affected": "component_not_present"
       }
     }
   ],
@@ -873,6 +891,16 @@
     },
     {
       "pkg:github/openssl/openssl@7b371d80d959ec9ab4139d09d78e83c090de9779": "CVE-2026-22796",
+      "status": {
+        "apps": [
+          "pkg:otp/erts@16.0",
+          "pkg:otp/erl_interface@5.6"
+        ],
+        "not_affected": "vulnerable_code_not_present"
+      }
+    },
+    {
+      "pkg:github/openssl/openssl@c9a9e5b10105ad850b6e4d1122c645c67767c341": "CVE-2026-2673",
       "status": {
         "apps": [
           "pkg:otp/erts@16.0",

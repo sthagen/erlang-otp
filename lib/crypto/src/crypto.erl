@@ -3600,7 +3600,7 @@ evp_compute_key_nif(_Curve, _OthersBin, _MyBin) -> ?nif_stub.
 -doc """
 Perform bit-wise XOR (exclusive or) on the data supplied.
 
-The two byte sequences mus be of equal length.
+The two byte sequences must be of equal length.
 """.
 -spec exor(iodata(), iodata()) -> binary().
 

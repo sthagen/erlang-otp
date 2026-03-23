@@ -280,8 +280,8 @@ true
 %% with a cryptographically unpredictable algorithm:
 18> Deck0 = [{Rank,Suit} ||
      Rank <- lists:seq(2, 14),
-     Suit <- [clubs,diamonds,hearts,spades]]
-19> S5 = crypto:rand_seed_alg(crypto_aes, "Nothing up my sleeve")
+     Suit <- [clubs,diamonds,hearts,spades]].
+19> S5 = crypto:rand_seed_alg(crypto_aes, "Nothing up my sleeve").
 20> {Deck, S6} = rand:shuffle_s(Deck0, S5).
 21> Deck.
 [{2,spades},    {12,spades},   {14,diamonds}, {11,clubs},
