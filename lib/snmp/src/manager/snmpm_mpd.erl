@@ -602,18 +602,20 @@ check_sec_module_result({error, Reason, ErrorInfo}, V3Hdr, Data, true, Log) ->
 	    "~n   Reason:    ~p"
 	    "~n   ErrorInfo: ~p", [Reason, ErrorInfo]),
     #v3_hdr{msgID = MsgID, msgSecurityModel = MsgSecModel} = V3Hdr,
+    {_, _, Opts} = ErrorInfo,
     Pdu = get_scoped_pdu(Data),
     case generate_v3_report_msg(MsgID, MsgSecModel, Pdu, ErrorInfo, Log) of
 	{ok, Report} ->
-	    discard({securityError, Reason}, Report);
+            discard({securityError, Reason, Opts}, Report);
 	{discarded, _SomeOtherReason} ->
-	    discard({securityError, Reason})
+            discard({securityError, Reason, Opts})
     end;
-check_sec_module_result({error, Reason, _ErrorInfo}, _, _, _, _) ->
+check_sec_module_result({error, Reason, ErrorInfo}, _, _, _, _) ->
     ?vtrace("security module result:"
-	    "~n   Reason:     ~p"
-	    "~n   _ErrorInfo: ~p", [Reason, _ErrorInfo]),
-    discard({securityError, Reason});
+            "~n   Reason:     ~p"
+            "~n   ErrorInfo: ~p", [Reason, ErrorInfo]),
+    {_, _, Opts} = ErrorInfo,
+    discard({securityError, Reason, Opts});
 check_sec_module_result(Res, _, _, _, _) ->
     ?vtrace("security module result:"
 	    "~n   Res: ~p", [Res]),
