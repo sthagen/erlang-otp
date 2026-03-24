@@ -93,17 +93,9 @@ Options to customize the behaviour of the XPath scanner.
 
 Possible options are:
 
-<dl>
- <dt><code>{namespace, #xmlNamespace}</code></dt>
-   <dd>Set namespace nodes, from XmlNamspace, in xmlContext</dd>
- <dt><code>{namespace, Nodes}</code></dt>
-   <dd>Set namespace nodes in xmlContext.</dd>
-</dl>
+ - **`{namespace, #xmlNamespace}`** - Set namespace nodes, from XmlNamspace, in xmlContext
+ - **`{namespace, Nodes}`** - Set namespace nodes in xmlContext.
 """.
-%% <dt><code>{bindings, Bs}</code></dt>
-%%  <dd></dd>
-%% <dt><code>{functions, Fs}</code></dt>
-%% <dd></dd>
 -type option_list() :: [{atom(),term()}].
 
 
