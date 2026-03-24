@@ -6835,7 +6835,7 @@ otp_6674(Config) when is_list(Config) ->
                 false = lookup_keys(Q)
          end, [{{1}}, {{2}}])">>,
 
-    <<"T = gb_trees:from_orddict([{foo,{1}}, {bar,{2}}]),
+    <<"T = gb_trees:from_orddict([{bar,{2}}, {foo,{1}}]),
        Q = qlc:q([{X,Y} || {_,X} <- gb_table:table(T), 
                        {Y} <- [{{1}},{{2}},{{1.0}},{{2.0}}],
                          (X =:= {1}) or (X == {2}), 
