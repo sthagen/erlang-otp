@@ -55,7 +55,7 @@
          Symb =:= $( orelse Symb =:= $) orelse
          Symb =:= $: orelse Symb =:= $;)).
 
--type options() :: #{ }.
+-type options() :: #{ allow_html => boolean() }.
 
 -spec parse_md(Doc0 :: binary()) -> Doc1 :: shell_docs:chunk_elements().
 parse_md(Doc) when is_binary(Doc) ->
@@ -401,8 +401,39 @@ process_kind_block([<<$|, _/binary>> | _]=Lines, Block, Opts) ->
             process_paragraph(Lines, Block, Opts)
     end;
 
-process_kind_block([P | Rest], Block, Opts) ->
-    process_paragraph([P | Rest], Block, Opts).
+
+%%
+%% Inline HTML
+%%
+process_kind_block([Line | Rest], Block, Opts) ->
+    case not maps:get(allow_html, Opts, false) andalso is_html(Line) of
+        true ->
+            exit({html_not_supported, {"Inline HTML is not supported in shell_docs markdown parsing", Line}});
+        false ->
+            process_paragraph([Line | Rest], Block, Opts)
+    end.
+
+is_html(Line) ->
+    case re:run(Line, "^</?([^>]+)>", [{capture, all_but_first, list}]) of
+        {match, [TagName]} ->
+            %% A subset of the html5 tags that we are most likely to encounter in the shell docs.
+            HtmlTags = ["header","footer","main","section","article","nav","aside",
+                        "h1","h2","h3","h4","h5","h6",
+                        "p","hr","pre","blockquote",
+                        "ol","ul","li","dl","dt","dd",
+                        "figure","figcaption","div",
+                        "a","em","strong","small","cite","code",
+                        "sub","sup","i","b","u","mark","span","br",
+                        "img","iframe","video","audio","source","canvas","svg",
+                        "table","thead","tbody","tr","td","th",
+                        "form","label","input","button","select","option","textarea","fieldset","legend",
+                        "progress",
+                        "details","summary",
+                        "script","noscript"],
+            lists:member(TagName, HtmlTags);
+        nomatch ->
+            false
+    end.
 
 process_paragraph([P | Rest], Block, Opts) ->
     case process_p([P | Rest], Block) of
