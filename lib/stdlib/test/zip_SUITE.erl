@@ -1309,8 +1309,11 @@ mode(Config) ->
        zip:list_dir(Archive)),
 
     ok = file:make_dir(ExtractDir),
-    ?assertMatch(
-       {ok, ["dir/","dir/nested","exec"]}, unzip(Config, Archive, [{cwd,ExtractDir}])),
+    case unzip(Config, Archive, [{cwd,ExtractDir}]) of
+        {ok, ["dir/","dir/nested","exec"]} -> ok;
+        {ok, ["dir","dir/nested","exec"]} -> ok; %macOS, old unzip
+        UnzipError -> error({unexpected,UnzipError})
+    end,
 
     case un_z64(get_value(unzip, Config)) =/= unemzip of
         true ->
