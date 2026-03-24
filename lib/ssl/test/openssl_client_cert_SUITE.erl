@@ -71,7 +71,9 @@
          hello_retry_client_auth_empty_cert_accepted/0,
          hello_retry_client_auth_empty_cert_accepted/1,
          hello_retry_client_auth_empty_cert_rejected/0,
-         hello_retry_client_auth_empty_cert_rejected/1
+         hello_retry_client_auth_empty_cert_rejected/1,
+         certs_keys_signature_algs_selection/0,
+         certs_keys_signature_algs_selection/1
         ]).
 
 %%--------------------------------------------------------------------
@@ -150,7 +152,8 @@ tls_1_3_tests() ->
      mlkem_hybrid_groups,
      hello_retry_client_auth,
      hello_retry_client_auth_empty_cert_accepted,
-     hello_retry_client_auth_empty_cert_rejected
+     hello_retry_client_auth_empty_cert_rejected,
+     certs_keys_signature_algs_selection
     ].
 
 all_version_tests() ->
@@ -426,6 +429,63 @@ hello_retry_client_auth_empty_cert_rejected() ->
     ssl_cert_tests:hello_retry_client_auth_empty_cert_rejected().
 hello_retry_client_auth_empty_cert_rejected(Config) ->
    ssl_cert_tests:hello_retry_client_auth_empty_cert_rejected(Config).
+
+certs_keys_signature_algs_selection() ->
+    [{doc,"TLS 1.3: Test that an OpenSSL client connecting with specific "
+      "signature_algorithms triggers correct certs_keys selection on the Erlang server"}].
+certs_keys_signature_algs_selection(Config) when is_list(Config) ->
+    PrivDir = proplists:get_value(priv_dir, Config),
+
+    RSARootKey = ssl_test_lib:hardcode_rsa_key(1),
+    RSARoot = public_key:pkix_test_root_cert("RSA Test CA",
+                                              [{key, RSARootKey},
+                                               {digest, sha256}]),
+    #{cert := RsaCACertDER} = RSARoot,
+
+    ClientChain = #{root => RSARoot,
+                    intermediates => [],
+                    peer => [{key, ssl_test_lib:hardcode_rsa_key(3)},
+                             {digest, sha256}]},
+
+    #{server_config := ECDSAServerConf} =
+        public_key:pkix_test_data(
+          #{server_chain =>
+                #{root => RSARoot,
+                  intermediates => [],
+                  peer => [{key, {namedCurve, secp256r1}},
+                           {digest, sha256}]},
+            client_chain => ClientChain}),
+
+    #{server_config := RSAServerConf} =
+        public_key:pkix_test_data(
+          #{server_chain =>
+                #{root => RSARoot,
+                  intermediates => [],
+                  peer => [{key, ssl_test_lib:hardcode_rsa_key(2)},
+                           {digest, sha256}]},
+            client_chain => ClientChain}),
+
+    CACertFile = filename:join(PrivDir, "certs_keys_ca.pem"),
+    ssl_test_lib:der_to_pem(CACertFile,
+                            [{'Certificate', RsaCACertDER, not_encrypted}]),
+
+    ServerOpts = [{versions, ['tlsv1.3']},
+                  {verify, verify_none},
+                  {certs_keys, [#{cert => proplists:get_value(cert, ECDSAServerConf),
+                                  key => proplists:get_value(key, ECDSAServerConf)},
+                                #{cert => proplists:get_value(cert, RSAServerConf),
+                                  key => proplists:get_value(key, RSAServerConf)}]}],
+
+    TestConfig = [{client_type, openssl}, {server_type, erlang},
+                  {version, 'tlsv1.3'} | Config],
+
+    RSAClientOpts = [{sigalgs, "rsa_pss_rsae_sha256"},
+                     {cacertfile, CACertFile}],
+    ssl_test_lib:basic_test(RSAClientOpts, ServerOpts, TestConfig),
+
+    ECDSAClientOpts = [{sigalgs, "ecdsa_secp256r1_sha256"},
+                       {cacertfile, CACertFile}],
+    ssl_test_lib:basic_test(ECDSAClientOpts, ServerOpts, TestConfig).
 
 rsa_alg(rsa_pss_rsae_1_3) ->
     rsa_pss_rsae;
