@@ -24,7 +24,7 @@
 ;; Author:   Anders Lindgren
 ;; Keywords: erlang, languages, processes
 ;; Date:     2011-12-11
-;; Version:  2.8.6
+;; Version:  29.0
 ;; Package-Requires: ((emacs "27.1"))
 
 ;; Lars Thorsén's modifications of 2000-06-07 included.
@@ -88,8 +88,9 @@
   "The Erlang programming language."
   :group 'languages)
 
-(defconst erlang-version "2.8.6"
-  "The version number of Erlang mode.")
+(defconst erlang-version "29.0"
+  "The version number of Erlang mode.
+This tracks the Erlang/OTP release version.")
 
 (defcustom erlang-root-dir nil
   "The directory where the Erlang man pages are installed. The
