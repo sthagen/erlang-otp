@@ -22,7 +22,45 @@
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
 #endif
-#include "sys.h"
+
+#ifdef ERL_INTERFACE
+/*
+ * Built by erl_interface with no sys.h
+ * Include and define the stuff we need.
+ */
+#  include <stdint.h>
+#  include <stddef.h>
+#  include <string.h>
+#  define sys_memcpy memcpy
+#  define sys_memzero(PTR, N) memset(PTR, 0, N)
+#  define put_little_int32(i, s) do {              \
+        ((uint8_t*)(s))[3] = (uint8_t)((i) >> 24); \
+        ((uint8_t*)(s))[2] = (uint8_t)((i) >> 16); \
+        ((uint8_t*)(s))[1] = (uint8_t)((i) >> 8);  \
+        ((uint8_t*)(s))[0] = (uint8_t)(i);         \
+    } while (0)
+
+#  define get_little_int32(s)                      \
+    ((((uint8_t*) (s))[3] << 24) |                 \
+     (((uint8_t*) (s))[2] << 16) |                 \
+     (((uint8_t*) (s))[1] << 8) |                  \
+     (((uint8_t*) (s))[0]))
+
+#  define put_little_int64(i, s) do {                        \
+        ((uint8_t*)(s))[7] = (uint8_t)((uint64_t)(i) >> 56); \
+        ((uint8_t*)(s))[6] = (uint8_t)((uint64_t)(i) >> 48); \
+        ((uint8_t*)(s))[5] = (uint8_t)((uint64_t)(i) >> 40); \
+        ((uint8_t*)(s))[4] = (uint8_t)((uint64_t)(i) >> 32); \
+        ((uint8_t*)(s))[3] = (uint8_t)((uint64_t)(i) >> 24); \
+        ((uint8_t*)(s))[2] = (uint8_t)((uint64_t)(i) >> 16); \
+        ((uint8_t*)(s))[1] = (uint8_t)((uint64_t)(i) >> 8);  \
+        ((uint8_t*)(s))[0] = (uint8_t)((uint64_t)(i));       \
+    } while (0)
+
+#  include "eidef.h"
+#else
+#  include "sys.h"
+#endif
 
 #include "erl_md5.h"
 
