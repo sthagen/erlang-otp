@@ -321,14 +321,40 @@ Options for doctest execution.
   parser callback must be a `fun/1` and return a list of Erlang code block binaries.
   The code blocks are then checked to determine whether they should be run as doctests.
   If no parser is provided, a built-in markdown parser will be used.
+
 * `skipped_blocks` - Sets the exact number of Erlang code blocks that are allowed
-  to be skipped because no runnable shell prompts were found. It defaults to `false`.
+  to be skipped because no runnable shell prompts were found. It does not count blocks
+  in any function listed in `missing_tests`. It defaults to `false`.
+
+* `missing_tests` - A list of `{Function, Arity}` pairs that are expected to have
+  documentation but no doctests. When this option is set, `ct_doctest` will fail
+  if any documented function lacks doctests and is not in this list (i.e., a new
+  function was added without doctests), and also fail if a function in this list
+  now has doctests (i.e., the list is stale and should be updated). Defaults to
+  not checking.
+
+* `skip_tests` - A list of doc entries whose doctests should be skipped. Each entry
+  is either `moduledoc` or a `{Kind, Name, Arity}` tuple where `Kind` is
+  `function`, `type`, or `callback`. For example,
+  `[moduledoc, {function, foo, 1}]` skips the moduledoc and the `foo/1` function.
+
 * `verbose` - Print detailed information while running doctests, including each
   block run and skipped block details.
 """.
 -type options() :: [{parser, fun((unicode:unicode_binary()) -> [unicode:unicode_binary()] | {error, term()}) } |
                     {skipped_blocks, non_neg_integer() | false} |
+                    {missing_tests, [{atom(), arity()}]} |
+                    {skip_tests, [moduledoc |
+                                  {function | type | callback, atom(), arity()}]} |
                     {verbose, boolean()}].
+
+-record(options,
+        { parser = fun parse_markdown_builtin/1 :: fun((unicode:unicode_binary()) -> term()),
+          skipped_blocks = false :: non_neg_integer() | false,
+          missing_tests = false :: [{atom(), arity()}] | false,
+          skip_tests = [] :: [moduledoc |
+                              {function | type | callback, atom(), arity()}],
+          verbose = false :: boolean() }).
 
 -doc #{equiv => module(Module, [])}.
 -spec module(module()) ->
@@ -359,21 +385,19 @@ Use `Bindings` to provide prebound variables for a specific doc entry. Use
 
 See `t:options/0` for available options.
 """.
--spec module(module(), Bindings, options()) ->
+-spec module(Module :: module(), Bindings, Options :: options()) ->
           ok | {comment, string()} | {error, term()} | no_return()
           when 
             KFA :: {Kind :: function | type | callback, atom(), arity()},
             Bindings :: [{KFA | moduledoc, erl_eval:binding_struct()}].
-module(Module, Bindings, Options) ->
-    HasParserKey = proplists:is_defined(parser, Options),
-    ParserFun = options_parser(Options),
-    ExpectedSkipped = options_skipped_blocks(Options),
-    Verbose = options_verbose(Options),
+module(Module, Bindings, OptionsList) ->
+    Options = options(OptionsList),
+    HasParserKey = proplists:is_defined(parser, OptionsList),
     case code:get_doc(Module) of
         {ok, #docs_v1{ format = ~"text/markdown" } = Docs} when not HasParserKey ->
-            run_module_docs(Docs, Bindings, ParserFun, ExpectedSkipped, Verbose);
+            run_module_docs(Docs, Bindings, Options);
         {ok, #docs_v1{} = Docs} when HasParserKey ->
-            run_module_docs(Docs, Bindings, ParserFun, ExpectedSkipped, Verbose);
+            run_module_docs(Docs, Bindings, Options);
         {ok, _} ->
             {error, unsupported_format};
         Else ->
@@ -407,19 +431,17 @@ code blocks to be tested.
 
 See `t:options/0` for available options.
 """.
--spec file(file:filename(), Bindings :: [{atom(), term()}], options()) ->
+-spec file(File :: file:filename(), Bindings :: [{atom(), term()}], Options :: options()) ->
           ok | {comment, string()} | {error, term()} | no_return().
-file(File, Bindings, Options) ->
-    ParserFun = options_parser(Options),
-    ExpectedSkipped = options_skipped_blocks(Options),
-    Verbose = options_verbose(Options),
+file(File, Bindings, OptionsList) ->
+    Options = options(OptionsList),
     case file:read_file(File) of
         {ok, Content} ->
             try
-                Blocks = inspect(parse(Content, ParserFun)),
+                Blocks = inspect(parse(Content, Options#options.parser)),
                 {_RunResult, Skipped} = run_blocks(Blocks, Bindings,
-                                {file, File}, Verbose),
-                ensure_skipped_blocks(ExpectedSkipped, Skipped),
+                                {file, File}, Options),
+                ensure_skipped_blocks(Options#options.skipped_blocks, Skipped),
                 ok
             catch
                 throw:{error, Error} ->
@@ -433,36 +455,50 @@ file(File, Bindings, Options) ->
             Error
     end.
 
-run_module_docs(#docs_v1{ docs = Docs, module_doc = MD },
-                Bindings, ParserFun, ExpectedSkipped, Verbose) ->
-    MDRes = parse_and_run(moduledoc, MD, Bindings, ParserFun, Verbose),
+run_module_docs(#docs_v1{ docs = Docs, module_doc = MD } = DocsV1,
+                Bindings, Options = #options{ skip_tests = SkipTests }) ->
+    
+    MDRes = case lists:member(moduledoc, SkipTests) of
+                true -> [];
+                false -> parse_and_run(moduledoc, MD, Bindings, Options)
+            end,
+    Equiv = sets:from_list([KFA || {KFA, _Anno, _Sig, _EntryDocs, Meta} <- Docs,
+                                   is_map_key(equiv, Meta)]),
     Res =
         lists:append(
-          [parse_and_run(KFA, EntryDocs, Bindings, ParserFun, Verbose) ||
+          [parse_and_run(KFA, EntryDocs, Bindings, Options) ||
               {KFA, _Anno, _Sig, EntryDocs, _Meta} <- Docs,
-              is_map(EntryDocs)]),
+              is_map(EntryDocs),
+              not lists:member(KFA, SkipTests)]),
     Errors =
         [{{T,F,A},E} || {{T,F,A},[{error,E}],_} <- Res] ++
         [{moduledoc,E} || {moduledoc,[{error,E}],_} <- MDRes],
     _ = [io:put_chars(format_error(E)) || E <- Errors],
     case length(Errors) of
         0 ->
-            Skipped = lists:sum([Count || {_, _, Count} <- MDRes ++ Res]),
-            verbose_log(Verbose,
+            MissingKFAs = case Options#options.missing_tests of
+                              false -> [];
+                              MTs -> [{function,F,A} || {F,A} <- MTs]
+                          end,
+            Skipped = lists:sum([Count || {KFA, _, Count} <- MDRes ++ Res,
+                                         not lists:member(KFA, MissingKFAs)]),
+            verbose_log(Options,
                         "module complete; total skipped blocks: ~p (expected ~p)",
-                        [Skipped, ExpectedSkipped]),
-            ensure_skipped_blocks(ExpectedSkipped, Skipped),
-            NoTests = lists:sort([io_lib:format("  ~p/~p\n", [F,A]) ||
-                                     {{function,F,A},[],_} <- Res]),
-            case length(NoTests) of
-                0 ->
-                    ok;
-                N ->
-                    io:format("The following functions have no tests:~n~n~ts~n",
-                              [NoTests]),
-                    {comment,
-                     lists:flatten(io_lib:format("~p functions lack tests", [N]))}
-            end;
+                        [Skipped, Options#options.skipped_blocks]),
+            ensure_skipped_blocks(Options#options.skipped_blocks, Skipped),
+
+            ensure_skipped_tests(Options#options.skip_tests, DocsV1),
+
+            NoTests = lists:sort([{F,A} ||
+                                     {{function,F,A},[],_} <- Res,
+                                     not sets:is_element({function,F,A}, Equiv)]),
+            HasTests = lists:sort([{F,A} ||
+                                      {{function,F,A},RunResult,_} <- Res,
+                                      RunResult =/= []]),
+            DocFuns = [{F,A} || {{function,F,A}, _Anno, _Sig, EntryDocs, _Meta} <- Docs,
+                                is_map(EntryDocs)],
+            ensure_missing_tests(Options#options.missing_tests,
+                                 NoTests, HasTests, DocFuns);
         N ->
             error({N,errors})
     end.
@@ -490,17 +526,17 @@ format_error_context(#{ message := Message, context := Context }) ->
 format_error_context(#{ message := Message }) ->
     io_lib:format("~ts~n", [string:trim(Message)]).
 
-parse_and_run(_, hidden, _, _, _) -> [];
-parse_and_run(_, none, _, _, _) -> [];
-parse_and_run(KFA, #{} = Ds, Bindings, ParserFun, Verbose) ->
-    [do_parse_and_run(KFA, D, Bindings, ParserFun, Verbose) || _ := D <- Ds].
+parse_and_run(_, hidden, _, _) -> [];
+parse_and_run(_, none, _, _) -> [];
+parse_and_run(KFA, #{} = Ds, Bindings, Options) ->
+    [do_parse_and_run(KFA, D, Bindings, Options) || _ := D <- Ds].
 
-do_parse_and_run(KFA, Docs, Bindings, ParserFun, Verbose) ->
+do_parse_and_run(KFA, Docs, Bindings, Options) ->
     try
         InitialBindings = proplists:get_value(KFA, Bindings, []),
-        Blocks = inspect(parse(Docs, ParserFun)),
+        Blocks = inspect(parse(Docs, Options#options.parser)),
         {RunResult, Skipped} = run_blocks(Blocks, InitialBindings,
-                                          {module, KFA}, Verbose),
+                                          {module, KFA}, Options),
         {KFA, RunResult, Skipped}
     catch
         throw:{error,_}=Error ->
@@ -510,42 +546,42 @@ do_parse_and_run(KFA, Docs, Bindings, ParserFun, Verbose) ->
             erlang:raise(C, R, ST)
     end.
 
-run_blocks(Blocks, Bindings, Context, Verbose) ->
+run_blocks(Blocks, Bindings, Context, Options) ->
     {_Index, Result} =
         lists:foldl(fun(Test, {Index, {Acc, Skipped}}) ->
                             {Result0, NewSkipped} = test_block(Test, Bindings,
-                                                               Context, Index, Skipped, Verbose),
+                                                               Context, Index, Skipped, Options),
                             {Index + 1, {Acc ++ Result0, NewSkipped}}
                     end, {1, {[], 0}}, Blocks),
     Result.
 
-test_block(Code, Bindings, Context, Index, Skipped, Verbose) when is_binary(Code) ->
+test_block(Code, Bindings, Context, Index, Skipped, Options) when is_binary(Code) ->
     ContextLabel = context_label(Context),
     FirstLines = first_lines(Code),
-    verbose_log(Verbose, "running block ~p in ~ts:~n~ts",
+    verbose_log(Options, "running block ~p in ~ts:~n~ts",
                 [Index, ContextLabel, Code]),
-    try run_test(Code, Bindings, Verbose) of
+    try run_test(Code, Bindings, Options) of
         [] ->
-            verbose_log(Verbose, "skipped block ~p in ~ts (no runnable prompt, ~p skipped): ~ts",
+            verbose_log(Options, "skipped block ~p in ~ts (no runnable prompt, ~p skipped): ~ts",
                         [Index, ContextLabel, Skipped + 1, FirstLines]),
             {[], Skipped + 1};
         Result ->
-            verbose_log(Verbose, "passed block ~p in ~ts", [Index, ContextLabel]),
+            verbose_log(Options, "passed block ~p in ~ts", [Index, ContextLabel]),
             {Result, Skipped}
     catch
         throw:{error, ErrorContext} = Error ->
-            verbose_log(Verbose,
+            verbose_log(Options,
                         "failed block ~p in ~ts:~n~ts~n",
                         [Index, ContextLabel,
                          format_error_context(ErrorContext)]),
             throw(Error);
         C:R:ST ->
-            verbose_log(Verbose,
+            verbose_log(Options,
                         "failed block ~p in ~ts with ~p:~tp~nblock snippet:~n~ts",
                         [Index, ContextLabel, C, R, Code]),
             erlang:raise(C, R, ST)
     end;
-test_block(Other, _Bindings, _Context, _Index, _Skipped, _Verbose) ->
+test_block(Other, _Bindings, _Context, _Index, _Skipped, _Options) ->
     throw({error, {invalid_code_block, Other}}).
 
 context_label({module, moduledoc}) ->
@@ -561,19 +597,16 @@ first_lines(Code) ->
     Lines = string:split(Code, "\n", all),
     lists:join($\n, lists:sublist(Lines, 5)).
 
-verbose_log(false, _Fmt, _Args) ->
-    ok;
-verbose_log(true, Fmt, Args) ->
+verbose_log(#options{ verbose = true }, Fmt, Args) ->
     Str = io_lib:format("ct_doctest(verbose): " ++ Fmt, Args),
     [First | Rest] = string:split(string:trim(Str), "\n", all),
-    io:put_chars([First, [["\n    ", Line] || Line <- Rest], "\n"]).
+    io:put_chars([First, [["\n    ", Line] || Line <- Rest], "\n"]);
+verbose_log(_, _, _) ->
+    ok.
 
-parse(Content, ParserFun) ->
-    validate_code_blocks(run_parser(ParserFun, Content)).
-
-run_parser(ParserFun, Content) when is_function(ParserFun, 1) ->
-    ParserFun(Content);
-run_parser(Parser, _Content) ->
+parse(Content, ParserFun) when is_function(ParserFun, 1) ->
+    validate_code_blocks(ParserFun(Content));
+parse(_Content, Parser) ->
     Msg = io_lib:format("Invalid parser provided: ~p. Parser must be a fun/1.", [Parser]),
     throw({error, #{ message => Msg }}).
 
@@ -591,9 +624,21 @@ validate_code_block(Block) when is_binary(Block) ->
 validate_code_block(Other) ->
     throw({error, #{ message => io_lib:format("Invalid code block: ~p.", [Other]) }}).
 
-options_parser(Options) ->
-    proplists:get_value(parser, Options,
-                        fun parse_markdown_builtin/1).
+options(OptionsList) ->
+    lists:foldl(fun
+                        (parser, Acc) ->
+                            Acc#options{ parser = proplists:get_value(parser, OptionsList) };
+                        (skipped_blocks, Acc)  ->
+                            Acc#options{ skipped_blocks = proplists:get_value(skipped_blocks, OptionsList) };
+                        (missing_tests, Acc) ->
+                            Acc#options{ missing_tests = proplists:get_value(missing_tests, OptionsList) };
+                        (skip_tests, Acc) ->
+                            Acc#options{ skip_tests = proplists:get_value(skip_tests, OptionsList) };
+                        (verbose, Acc) ->
+                            Acc#options{ verbose = proplists:get_value(verbose, OptionsList) };
+                        (_Key, Acc) ->
+                            Acc
+                end, #options{}, proplists:get_keys(OptionsList)).
 
 parse_markdown_builtin(Markdown) ->
     extract_erlang_code_blocks(inspect(shell_docs_markdown:parse_md(Markdown))).
@@ -614,11 +659,63 @@ extract_erlang_code_blocks({_Tag, _Attrs, Content}) ->
 extract_erlang_code_blocks(_Other) ->
     [].
 
-options_skipped_blocks(Options) ->
-    proplists:get_value(skipped_blocks, Options, false).
+ensure_skipped_tests([moduledoc | T], #docs_v1{ module_doc = MD } = DocsV1) ->
+    case is_map(MD) of
+        true ->
+            ensure_skipped_tests(T, DocsV1);
+        false ->
+            io:format("Module doc entry not found for skip_tests option"),
+            error({skipped_tests_mismatch, moduledoc})
+    end;
+ensure_skipped_tests([KFA | T], #docs_v1{ docs = Docs} = DocsV1) when is_tuple(KFA) ->
+    case lists:keyfind(KFA, 1, Docs) of
+        {_, _, _, Doc, _} when is_map(Doc) ->
+            ensure_skipped_tests(T, DocsV1);
+        _ ->
+            io:format("Doc entry ~p not found for skip_tests option", [KFA]),
+            error({skipped_tests_mismatch, KFA})
+    end;
+ensure_skipped_tests([], _) ->
+    ok.
 
-options_verbose(Options) ->
-    proplists:get_value(verbose, Options, false) =:= true.
+ensure_missing_tests(false, NoTests, _HasTests, _DocFuns) ->
+    case NoTests of
+        [] ->
+            ok;
+        _ ->
+            NoTestsFmt = lists:sort([io_lib:format("  ~p/~p\n", [F,A]) ||
+                                        {F,A} <- NoTests]),
+            io:format("The following functions have no tests:~n~n~ts~n",
+                      [NoTestsFmt]),
+            {comment,
+             lists:flatten(io_lib:format("~p functions lack tests", [length(NoTests)]))}
+    end;
+ensure_missing_tests(Expected0, NoTests, HasTests, DocFuns)
+  when is_list(Expected0) ->
+    Expected = lists:sort(Expected0),
+    %% Functions that lack tests but aren't in the expected list.
+    NewMissing = NoTests -- Expected,
+    %% Functions in missing_tests that now have doctests (stale entries).
+    Stale = [FA || FA <- Expected, lists:member(FA, HasTests)],
+    %% Functions in missing_tests that aren't documented at all.
+    Invalid = [FA || FA <- Expected, not lists:member(FA, DocFuns)],
+    case {NewMissing, Stale, Invalid} of
+        {[], [], []} ->
+            ok;
+        {_, _, _} ->
+            [io:format("Functions missing doctests "
+                                   "(add doctests or update missing_tests option):~n"
+                                   "  ~p~n", [NewMissing]) || NewMissing =/= []],
+                    [io:format("Functions in missing_tests that now have doctests "
+                                   "(remove from missing_tests):~n"
+                                   "  ~p~n", [Stale]) || Stale =/= []],
+
+                    [io:format("Functions in missing_tests that are not documented "
+                                   "(update missing_tests option):~n"
+                                   "  ~p~n", [Invalid]) || Invalid =/= []],
+            error({missing_tests_mismatch,
+                   [{missing, NewMissing}, {stale, Stale}, {invalid, Invalid}]})
+    end.
 
 ensure_skipped_blocks(false, _Actual) ->
     ok;
@@ -633,7 +730,7 @@ ensure_skipped_blocks(Expected, Actual) when is_integer(Expected), Expected >= 0
 -define(RE_CAPTURE, ~B"(?:(?'line_number'[0-9]+)(?'prefix'>\s)|(?'prefix'\-module\())?(?'content'.*)").
 -define(RE_OPTIONS, [{capture, [line_number, prefix, content], binary}, dupnames, unicode]).
 
-run_test(Code, InitialBindings, Verbose) ->
+run_test(Code, InitialBindings, Options) ->
     Lines = string:split(Code, "\n", all),
     case lists:dropwhile(fun(Line) ->
                            re:run(Line, ~B"^\s*(%.*)?$", [unicode]) =/= nomatch
@@ -647,7 +744,7 @@ run_test(Code, InitialBindings, Verbose) ->
                     Tests = inspect(parse_tests(ReLines, [], 1)),
                     check_prompt_numbers(Tests),
                     _ = lists:foldl(fun(Test, Bindings) ->
-                                            try run_tests(Test, Bindings, Verbose)
+                                            try run_tests(Test, Bindings, Options)
                                             catch throw:{error, Error} ->
                                                     throw({error, Error#{ test => Test}})
                                             end
@@ -743,19 +840,19 @@ parse_match([{match, [<<>>, <<>>, More]} | T], Acc) ->
 parse_match(Rest, Acc) ->
     {Acc, Rest}.
 
-run_tests({test, _Index, Test0, Match0}, Bindings, Verbose) ->
+run_tests({test, _Index, Test0, Match0}, Bindings, Options) ->
     Test1 = unicode:characters_to_list(Test0),
     Test = string:trim(Test1),
     case Match0 of
         [<<"** ", _/binary>> | _] ->
             Match = unicode:characters_to_list(Match0),
-            run_failing(Test, Match, Bindings, Verbose);
+            run_failing(Test, Match, Bindings, Options);
         _ ->
-            run_successful(Test, Match0, Bindings, Verbose)
+            run_successful(Test, Match0, Bindings, Options)
     end.
 
-run_successful(Test, Match, Bindings, Verbose) ->
-    verbose_log(Verbose, "Running: ~ts = ~ts", [Match, Test]),
+run_successful(Test, Match, Bindings, Options) ->
+    verbose_log(Options, "Running: ~ts = ~ts", [Match, Test]),
     Ast = parse_exprs(Test, Match),
     try
         {value, _Res, NewBindings} = inspect(erl_eval:exprs(Ast, Bindings)),
@@ -764,8 +861,8 @@ run_successful(Test, Match, Bindings, Verbose) ->
             throw({error,#{ message => format_exception(C, R, ST) }})
     end.
 
-run_failing(Test, Match, Bindings, Verbose) ->
-    verbose_log(Verbose, "Running: ~ts", [Test]),
+run_failing(Test, Match, Bindings, Options) ->
+    verbose_log(Options, "Running: ~ts", [Test]),
     Ast = parse_exprs(Test, "_"),
     try inspect(erl_eval:exprs(Ast, Bindings)) of
         {value, Res, _} ->
