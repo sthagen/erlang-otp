@@ -1610,8 +1610,7 @@ Other commands:
   (put 'bitsyntax-close-inner 'rear-nonsticky '(category))
   (put 'bitsyntax-close-outer 'syntax-table '(5 . ?<))
   (put 'bitsyntax-close-outer 'rear-nonsticky '(category))
-  (make-local-variable 'parse-sexp-lookup-properties)
-  (setq parse-sexp-lookup-properties 't)
+  (setq-local parse-sexp-lookup-properties t)
   (add-hook 'post-self-insert-hook
     #'erlang-electric-pair-string-delimiter 'append t))
 
@@ -1620,43 +1619,32 @@ Other commands:
   (or erlang-mode-abbrev-table
       (define-abbrev-table 'erlang-mode-abbrev-table ()))
   (setq local-abbrev-table erlang-mode-abbrev-table)
-  (make-local-variable 'paragraph-start)
-  (setq paragraph-start (concat "^$\\|" page-delimiter))
-  (make-local-variable 'paragraph-separate)
-  (setq paragraph-separate paragraph-start)
-  (make-local-variable 'paragraph-ignore-fill-prefix)
-  (setq paragraph-ignore-fill-prefix t)
-  (make-local-variable 'defun-prompt-regexp)
-  (setq defun-prompt-regexp erlang-defun-prompt-regexp)
-  (make-local-variable 'comment-start)
-  (setq comment-start "%")
-  (make-local-variable 'comment-start-skip)
-  (setq comment-start-skip "%+\\s *")
-  (make-local-variable 'comment-column)
-  (setq comment-column 48)
-  (make-local-variable 'indent-line-function)
-  (setq indent-line-function 'erlang-indent-command)
-  (make-local-variable 'indent-region-function)
-  (setq indent-region-function 'erlang-indent-region)
-  (set (make-local-variable 'comment-indent-function) 'erlang-comment-indent)
-  (set (make-local-variable 'parse-sexp-ignore-comments) t)
-  (set (make-local-variable 'dabbrev-case-fold-search) nil)
-  (set (make-local-variable 'imenu-prev-index-position-function)
-       'erlang-beginning-of-function)
-  (set (make-local-variable 'imenu-extract-index-name-function)
-       'erlang-get-function-name-and-arity)
-  (set (make-local-variable 'tempo-match-finder)
-       "[^-a-zA-Z0-9_]\\([-a-zA-Z0-9_]*\\)\\=")
-  (set (make-local-variable 'beginning-of-defun-function)
-       'erlang-beginning-of-function)
-  (set (make-local-variable 'end-of-defun-function) 'erlang-end-of-function)
-  (set (make-local-variable 'open-paren-in-column-0-is-defun-start) nil)
-  (set (make-local-variable 'fill-paragraph-function) 'erlang-fill-paragraph)
-  (set (make-local-variable 'comment-add) 1)
-  (set (make-local-variable 'outline-regexp) "[[:lower:]0-9_]+ *(.*) *-> *$")
-  (set (make-local-variable 'outline-level) (lambda () 1))
-  (set (make-local-variable 'add-log-current-defun-function)
-       'erlang-current-defun))
+  (setq-local paragraph-start (concat "^$\\|" page-delimiter))
+  (setq-local paragraph-separate paragraph-start)
+  (setq-local paragraph-ignore-fill-prefix t)
+  (setq-local defun-prompt-regexp erlang-defun-prompt-regexp)
+  (setq-local comment-start "%")
+  (setq-local comment-start-skip "%+\\s *")
+  (setq-local comment-column 48)
+  (setq-local indent-line-function 'erlang-indent-command)
+  (setq-local indent-region-function 'erlang-indent-region)
+  (setq-local comment-indent-function 'erlang-comment-indent)
+  (setq-local parse-sexp-ignore-comments t)
+  (setq-local dabbrev-case-fold-search nil)
+  (setq-local imenu-prev-index-position-function
+              'erlang-beginning-of-function)
+  (setq-local imenu-extract-index-name-function
+              'erlang-get-function-name-and-arity)
+  (setq-local tempo-match-finder
+              "[^-a-zA-Z0-9_]\\([-a-zA-Z0-9_]*\\)\\=")
+  (setq-local beginning-of-defun-function 'erlang-beginning-of-function)
+  (setq-local end-of-defun-function 'erlang-end-of-function)
+  (setq-local open-paren-in-column-0-is-defun-start nil)
+  (setq-local fill-paragraph-function 'erlang-fill-paragraph)
+  (setq-local comment-add 1)
+  (setq-local outline-regexp "[[:lower:]0-9_]+ *(.*) *-> *$")
+  (setq-local outline-level (lambda () 1))
+  (setq-local add-log-current-defun-function 'erlang-current-defun))
 
 (defun erlang-font-lock-init ()
   "Initialize Font Lock for Erlang mode."
@@ -1665,12 +1653,7 @@ Other commands:
             (let ((table (copy-syntax-table erlang-mode-syntax-table)))
               (modify-syntax-entry ?_ "w" table)
               table)))
-  (set (make-local-variable 'font-lock-syntax-table)
-       erlang-font-lock-syntax-table)
-  (set (make-local-variable (if (boundp 'syntax-begin-function)
-                                'syntax-begin-function
-                              'font-lock-beginning-of-syntax-function))
-       'erlang-beginning-of-clause)
+  (setq-local font-lock-syntax-table erlang-font-lock-syntax-table)
   (make-local-variable 'font-lock-keywords)
   (let ((level (cond ((boundp 'font-lock-maximum-decoration)
                       (symbol-value 'font-lock-maximum-decoration))
@@ -1696,7 +1679,7 @@ Other commands:
            (set 'font-lock-keywords erlang-font-lock-keywords-4))))
 
   ;; Modern font-locks can handle the above much more elegantly:
-  (set (make-local-variable 'font-lock-defaults)
+  (setq-local font-lock-defaults
        '((erlang-font-lock-keywords erlang-font-lock-keywords-1
                                     erlang-font-lock-keywords-2
                                     erlang-font-lock-keywords-3
@@ -4760,8 +4743,7 @@ as on the old form `tag'.
 In the completion list, `module:tag' and `module:' shows up."
   (interactive)
   (require 'etags)
-  (set (make-local-variable 'find-tag-default-function)
-       'erlang-find-tag-for-completion)
+  (setq-local find-tag-default-function 'erlang-find-tag-for-completion)
   (add-hook 'xref-backend-functions
             #'erlang-etags--xref-backend nil t))
 
@@ -5786,8 +5768,7 @@ The following special commands are available:
   ;; Needed when compiling directly from the Erlang shell.
   (setq next-error-last-buffer (current-buffer))
   (setq comint-prompt-regexp "^[^>=]*> *")
-  (make-local-variable 'comint-prompt-read-only)
-  (setq comint-prompt-read-only erlang-shell-prompt-read-only)
+  (setq-local comint-prompt-read-only erlang-shell-prompt-read-only)
   (setq comint-eol-on-send t)
   (setq comint-input-ignoredups t)
   (setq comint-scroll-show-maximum-output t)
@@ -5798,10 +5779,9 @@ The following special commands are available:
             'inferior-erlang-strip-ctrl-m nil t)
   (setq comint-input-ring-file-name erlang-input-ring-file-name)
   (comint-read-input-ring t)
-  (make-local-variable 'kill-buffer-hook)
-  (add-hook 'kill-buffer-hook 'comint-write-input-ring)
+  (add-hook 'kill-buffer-hook 'comint-write-input-ring nil t)
   (compilation-minor-mode 1)
-  (set (make-local-variable 'minor-mode-overriding-map-alist)
+  (setq-local minor-mode-overriding-map-alist
        `((compilation-minor-mode
           . ,(let ((map (make-sparse-keymap)))
                ;; It would be useful to put keymap properties on the
