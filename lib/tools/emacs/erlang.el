@@ -5465,8 +5465,7 @@ frame will become deselected before the next command."
   (or (inferior-erlang-running-p)
       (error "No inferior Erlang process is running"))
   (let ((win (inferior-erlang-window
-              inferior-erlang-display-buffer-any-frame))
-        (frames-p (fboundp 'selected-frame)))
+              inferior-erlang-display-buffer-any-frame)))
     (if (null win)
         (let ((old-win (selected-window)))
           (save-excursion
@@ -5474,7 +5473,6 @@ frame will become deselected before the next command."
             (setq win (selected-window)))
           (select-window old-win))
       (if (and window-system
-               frames-p
                (or select
                    (eq inferior-erlang-display-buffer-any-frame 'raise))
                (not (eq (selected-frame) (window-frame win))))
@@ -5871,12 +5869,11 @@ The default is to go to the directory of the current buffer."
         (match-string 0))))
 
 (defconst erlang-unload-hook
-  (if (fboundp 'advice-remove)
-    (list (lambda ()
-            (advice-remove 'Man-notify-when-ready
-              #'erlang-man-function-name-advice)
-            (advice-remove 'etags-tags-completion-table
-              #'erlang-etags-tags-completion-table-advice)))))
+  (list (lambda ()
+          (advice-remove 'Man-notify-when-ready
+                         #'erlang-man-function-name-advice)
+          (advice-remove 'etags-tags-completion-table
+                         #'erlang-etags-tags-completion-table-advice))))
 
 ;; The end...
 
