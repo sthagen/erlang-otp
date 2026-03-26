@@ -67,9 +67,6 @@
 (require 'erlang)
 (eval-when-compile (require 'url-parse))
 
-(eval-and-compile                       ;for emacs < 24.3
-  (or (fboundp 'user-error) (defalias 'user-error 'error)))
-
 (defgroup erldoc nil
   "Browse Erlang document."
   :group 'help)

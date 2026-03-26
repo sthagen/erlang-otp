@@ -24,8 +24,8 @@
 ;; Author:   Anders Lindgren
 ;; Keywords: erlang, languages, processes
 ;; Date:     2011-12-11
-;; Version:  2.8.6
-;; Package-Requires: ((emacs "24.3"))
+;; Version:  29.0
+;; Package-Requires: ((emacs "27.1"))
 
 ;; Lars Thorsén's modifications of 2000-06-07 included.
 ;; The original version of this package was written by Robert Virding.
@@ -81,12 +81,6 @@
 (require 'comint)
 (require 'tempo)
 (require 'cl-lib)
-(require 'advice)
-
-;;; `caddr' is builtin since Emacs 26.
-(eval-and-compile
-  (or (fboundp 'caddr)
-      (defun caddr (x) (car (cdr (cdr x))))))
 
 ;; Variables:
 
@@ -94,8 +88,9 @@
   "The Erlang programming language."
   :group 'languages)
 
-(defconst erlang-version "2.8.6"
-  "The version number of Erlang mode.")
+(defconst erlang-version "29.0"
+  "The version number of Erlang mode.
+This tracks the Erlang/OTP release version.")
 
 (defcustom erlang-root-dir nil
   "The directory where the Erlang man pages are installed. The
@@ -167,9 +162,8 @@ variable.")
       ("Level 1" erlang-font-lock-level-1)
       ("Off" erlang-font-lock-level-0)))
     ("TAGS"
-     (("Find Tag" find-tag)
+     (("Find Definition" xref-find-definitions)
       ("Find Next Tag" erlang-find-next-tag)
-                                        ;("Find Regexp" find-tag-regexp)
       ("Complete Word" erlang-complete-tag)
       ("Tags Apropos" tags-apropos)
       ("Search Files" tags-search))))
@@ -1443,7 +1437,7 @@ Other commands:
   (erlang-font-lock-init)
   (erlang-skel-init)
   (tempo-use-tag-list 'erlang-tempo-tags)
-  (when (and (fboundp 'add-function) (fboundp 'erldoc-eldoc-function))
+  (when (fboundp 'erldoc-eldoc-function)
     (or eldoc-documentation-function
         (setq-local eldoc-documentation-function #'ignore))
     (add-function :before-until (local 'eldoc-documentation-function)
@@ -4768,11 +4762,8 @@ In the completion list, `module:tag' and `module:' shows up."
   (require 'etags)
   (set (make-local-variable 'find-tag-default-function)
        'erlang-find-tag-for-completion)
-  (if (>= emacs-major-version 25)
-      (add-hook 'xref-backend-functions
-                #'erlang-etags--xref-backend nil t)
-    (erlang-tags-define-keys (current-local-map))
-    (setq erlang-tags-installed t)))
+  (add-hook 'xref-backend-functions
+            #'erlang-etags--xref-backend nil t))
 
 
 
@@ -4859,9 +4850,7 @@ Tags can be given on the forms `tag', `module:', `module:tag'."
   "Find next tag, like \\[find-tag] with prefix arg."
   (interactive)
   (let ((current-prefix-arg '(4)))
-    (if erlang-tags-installed
-        (call-interactively 'erlang-find-tag)
-      (call-interactively 'find-tag))))
+    (call-interactively 'erlang-find-tag)))
 
 
 ;; Mimics `find-tag-noselect' found in `etags.el', but uses `find-tag' to
@@ -5192,15 +5181,8 @@ about Erlang modules."
 
 
 
-;; Emacs 25 expects this function to return a list (and it is ok for
-;; it to include duplicates).  Older emacsen expects an obarray.
 (defun erlang-etags-tags-completion-table ()
-  (if (>= emacs-major-version 25)
-      (erlang-etags-tags-completion-table-list)
-    (let ((obarray (make-vector 511 0)))
-      (dolist (tag (erlang-etags-tags-completion-table-list))
-        (intern tag obarray))
-      obarray)))
+  (erlang-etags-tags-completion-table-list))
 
 ;; Based on `etags-tags-completion-table'.  The difference is that we
 ;; add three strings to the list, the tag, module: and module:tag.
@@ -5664,18 +5646,19 @@ return XREFS as is."
     (and file
          (file-truename file))))
 
+(declare-function xref-item-location "xref" (item))
+(declare-function xref-location-group "xref" (location))
+(declare-function xref-location-origin "xref" (location))
+
 (defun erlang-xref-file (xref)
-  (and (fboundp 'xref-location-group)
-       (fboundp 'xref-item-location)
-       (xref-location-group (xref-item-location xref))))
+  (let ((location (xref-item-location xref)))
+    (cond ((fboundp 'xref-location-origin)  ; Emacs 30+
+           (xref-location-origin location))
+          ((fboundp 'xref-location-group)
+           (xref-location-group location)))))
 
 (defun erlang-visit-tags-table-buffer (cont cbuf)
-  (if (< emacs-major-version 26)
-      (visit-tags-table-buffer cont)
-    ;; Remove this with-no-warnings when Emacs 26 is the required
-    ;; version minimum.
-    (with-no-warnings
-      (visit-tags-table-buffer cont cbuf))))
+  (visit-tags-table-buffer cont cbuf))
 
 ;;;
 ;;; Prepare for other methods to run an Erlang slave process.

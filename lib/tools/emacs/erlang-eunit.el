@@ -129,7 +129,7 @@ buffer and vice versa"
 
 ;;; Checks whether a file is a EUnit test file or not
 (defun erlang-eunit-test-file-p (file-path)
-  (erlang-eunit-string-match-p "^\\(.+\\)_tests.erl$" file-path))
+  (string-match-p "^\\(.+\\)_tests.erl$" file-path))
 
 ;;; Return the module name of the source file
 ;;;     /tmp/foo/src/x.erl        --> x
@@ -148,12 +148,6 @@ buffer and vice versa"
   (interactive)
   (file-name-sans-extension (file-name-nondirectory file-path)))
 
-;;; Older emacsen don't have string-match-p.
-(defun erlang-eunit-string-match-p (regexp string &optional start)
-  (if (fboundp 'string-match-p) ;; appeared in emacs 23
-      (string-match-p regexp string start)
-    (save-match-data ;; fallback for earlier versions of emacs
-      (string-match regexp string start))))
 
 ;;; Join filenames
 (defun filename-join (dir file)
@@ -190,10 +184,10 @@ buffer and vice versa"
     (erlang-name-of-function)))
 
 (defun erlang-eunit-simple-test-p (test-name)
-  (if (erlang-eunit-string-match-p "^\\(.+\\)_test$" test-name) t nil))
+  (if (string-match-p "^\\(.+\\)_test$" test-name) t nil))
 
 (defun erlang-eunit-test-generator-p (test-name)
-  (if (erlang-eunit-string-match-p "^\\(.+\\)_test_$" test-name) t nil))
+  (if (string-match-p "^\\(.+\\)_test_$" test-name) t nil))
 
 ;;; Run one EUnit test
 (defun erlang-eunit-run-test (module-name test-name)
@@ -394,7 +388,7 @@ With prefix arg, compiles for debug and runs tests with the verbose flag set."
      (mapcar (lambda (e) (car e)) erlang-error-regexp-alist))))
 
 (defun erlang-eunit-is-compilation-warning ()
-  (erlang-eunit-string-match-p
+  (string-match-p
    "[0-9]+: Warning:"
    (buffer-substring (line-beginning-position) (line-end-position))))
 
