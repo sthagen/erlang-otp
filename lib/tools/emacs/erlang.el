@@ -163,8 +163,7 @@ variable.")
       ("Off" erlang-font-lock-level-0)))
     ("TAGS"
      (("Find Definition" xref-find-definitions)
-      ("Find Next Tag" erlang-find-next-tag)
-      ("Complete Word" erlang-complete-tag)
+      ("Find References" xref-find-references)
       ("Tags Apropos" tags-apropos)
       ("Search Files" tags-search))))
   "Description of menu used in Erlang mode.
@@ -1872,27 +1871,6 @@ Please see the variable `erlang-menu-base-items'."
           (put id 'menu-enable third))
       (setq items (cdr items)))
     (cons name menumap)))
-
-(defun erlang-menu-substitute (items alist)
-  "Substitute functions in menu described by ITEMS.
-
-The menu ITEMS is updated destructively.
-
-ALIST is list of pairs where the car is the old function and cdr the new."
-  (let (first second pair)
-    (while items
-      (setq first (car-safe (car items)))
-      (setq second (car-safe (cdr-safe (car items))))
-      (cond ((null first))
-            ((symbolp second)
-             (setq pair (and second (assq second alist)))
-             (if pair
-                 (setcar (cdr (car items)) (cdr pair))))
-            ((and (consp second) (eq (car second) 'lambda)))
-            (t
-             (erlang-menu-substitute second alist)))
-      (setq items (cdr items)))))
-
 
 (defun erlang-menu-add-above (entry above items)
   "Add menu ENTRY above menu entry ABOVE in menu ITEMS.
@@ -4653,41 +4631,6 @@ This function is designed to be a member of a criteria list."
 (eval-when-compile
   (require 'etags))
 
-
-;; Variables:
-
-(defvar erlang-tags-function-alist
-  '((find-tag                 . erlang-find-tag)
-    (find-tag-other-window    . erlang-find-tag-other-window)
-    (find-tag-regexp          . erlang-find-tag-regexp)
-    (find-tag-other-frame     . erlang-find-tag-other-frame))
-  "Alist of old tags commands and the replacement functions.")
-
-(defvar erlang-tags-installed nil
-  "Non-nil when the Erlang tags system is installed.")
-(defvar erlang-tags-file-list '()
-  "List of files in tag list. Used when finding tag on form `module:'.")
-(defvar erlang-tags-completion-table nil
-  "Like `tags-completion-table', this table contains `tag' and `module:tag'.")
-(defvar erlang-tags-buffer-installed-p nil
-  "Non-nil when Erlang module recognising functions installed.")
-(defvar erlang-tags-buffer-list '()
-  "Temporary list of buffers.")
-(defvar erlang-tags-orig-completion-table nil
-  "Temporary storage for `tags-completion-table'.")
-(defvar erlang-tags-orig-tag-order nil
-  "Temporary storage for `find-tag-tag-order'.")
-(defvar erlang-tags-orig-regexp-tag-order nil
-  "Temporary storage for `find-tag-regexp-tag-order'.")
-(defvar erlang-tags-orig-search-function nil
-  "Temporary storage for `find-tag-search-function'.")
-(defvar erlang-tags-orig-regexp-search-function nil
-  "Temporary storage for `find-tag-regexp-search-function'.")
-(defvar erlang-tags-orig-format-hooks nil
-  "Temporary storage for `tags-table-format-hooks'.") ;v19
-(defvar erlang-tags-orig-format-functions nil
-  "Temporary storage for `tags-table-format-functions'.") ;v > 19
-
 (defun erlang-tags-init ()
   "Install an alternate version of tags, aware of Erlang modules.
 
@@ -4704,350 +4647,19 @@ In the completion list, `module:tag' and `module:' shows up."
 
 
 
-;; Set all keys bound to `find-tag' et.al. in the global map and the
-;; menu to `erlang-find-tag' et.al. in `map'.
-;;
-;; The function `substitute-key-definition' does not work properly
-;; in all version of Emacs.
-
-(defun erlang-tags-define-keys (map)
-  "Bind tags commands to keymap MAP aware of Erlang modules."
-  (let ((alist erlang-tags-function-alist))
-    (while alist
-      (let* ((old (car (car alist)))
-             (new (cdr (car alist)))
-             (keys (append (where-is-internal old global-map))))
-        (while keys
-          (define-key map (car keys) new)
-          (setq keys (cdr keys))))
-      (setq alist (cdr alist))))
-  ;; Update the menu.
-  (erlang-menu-substitute erlang-menu-base-items erlang-tags-function-alist)
-  (erlang-menu-init))
-
-;; Return `t' since it is used inside `tags-loop-form'.
-;;;###autoload
-(defun erlang-find-tag (modtagname &optional next-p regexp-p)
-  "Like `find-tag'.  Capable of retrieving Erlang modules.
-
-Tags can be given on the forms `tag', `module:', `module:tag'."
-  (interactive (erlang-tag-interactive "Find `module:tag' or `tag': "))
-  (switch-to-buffer (erlang-find-tag-noselect modtagname next-p regexp-p))
-  t)
-
-
-;; Code mainly from `find-tag-other-window' in `etags.el'.
-;;;###autoload
-(defun erlang-find-tag-other-window (tagname &optional next-p regexp-p)
-  "Like `find-tag-other-window' but aware of Erlang modules."
-  (interactive (erlang-tag-interactive
-                "Find `module:tag' or `tag' other window: "))
-
-  ;; This is to deal with the case where the tag is found in the
-  ;; selected window's buffer; without this, point is moved in both
-  ;; windows.  To prevent this, we save the selected window's point
-  ;; before doing find-tag-noselect, and restore it afterwards.
-  (let* ((window-point (window-point (selected-window)))
-         (tagbuf (erlang-find-tag-noselect tagname next-p regexp-p))
-         (tagpoint (progn (set-buffer tagbuf) (point))))
-    (set-window-point (prog1
-                          (selected-window)
-                        (switch-to-buffer-other-window tagbuf)
-                        ;; We have to set this new window's point; it
-                        ;; might already have been displaying a
-                        ;; different portion of tagbuf, in which case
-                        ;; switch-to-buffer-other-window doesn't set
-                        ;; the window's point from the buffer.
-                        (set-window-point (selected-window) tagpoint))
-                      window-point)))
-
-
-(defun erlang-find-tag-other-frame (tagname &optional next-p)
-  "Like `find-tag-other-frame' but aware of Erlang modules."
-  (interactive (erlang-tag-interactive
-                "Find `module:tag' or `tag' other frame: "))
-  (let ((pop-up-frames t))
-    (erlang-find-tag-other-window tagname next-p)))
-
-
-(defun erlang-find-tag-regexp (regexp &optional next-p other-window)
-  "Like `find-tag-regexp' but aware of Erlang modules."
-  (interactive (if (fboundp 'find-tag-regexp)
-                   (erlang-tag-interactive
-                    "Find `module:regexp' or `regexp': ")
-                 (error "This version of Emacs can't find tags by regexps")))
-  (funcall (if other-window
-               'erlang-find-tag-other-window
-             'erlang-find-tag)
-           regexp next-p t))
-
-
-;; Just like C-u M-.  This could be added to the menu.
-(defun erlang-find-next-tag ()
-  "Find next tag, like \\[find-tag] with prefix arg."
-  (interactive)
-  (let ((current-prefix-arg '(4)))
-    (call-interactively 'erlang-find-tag)))
-
-
-;; Mimics `find-tag-noselect' found in `etags.el', but uses `find-tag' to
-;; be compatible with `tags.el'.
-;;
-;; Handles three cases:
-;; * `module:'  Loop over all possible file names.  Stop if a file-name
-;;              without extension and directory matches the module.
-;;
-;; * `module:tag'
-;;              Emacs 19: Replace test functions with functions aware of
-;;              Erlang modules.  Tricky because the etags system wasn't
-;;              built for these kind of operations...
-;;
-;;              Emacs 18: We loop over `find-tag' until we find a file
-;;              whose module matches the requested module.  The
-;;              drawback is that a lot of files could be loaded into
-;;              Emacs.
-;;
-;; * `tag'      Just give it to `find-tag'.
-
-(defun erlang-find-tag-noselect (modtagname &optional next-p regexp-p)
-  "Like `find-tag-noselect' but aware of Erlang modules."
-  (interactive (erlang-tag-interactive "Find `module:tag' or `tag': "))
-  (or modtagname
-      (setq modtagname (symbol-value 'last-tag)))
-  (funcall (symbol-function 'set) 'last-tag modtagname)
-  ;; `tags.el' uses this variable to record how M-, would
-  ;; know where to restart a tags command.
-  (if (boundp 'tags-loop-form)
-      (funcall (symbol-function 'set)
-               'tags-loop-form '(erlang-find-tag nil t)))
-  (save-window-excursion
-    (cond
-     ((string-match ":$" modtagname)
-      ;; Only the module name was given.  Read all files whose file name
-      ;; match.
-      (let ((modname (substring modtagname 0 (match-beginning 0)))
-            (file nil))
-        (if (not next-p)
-            (save-excursion
-              (visit-tags-table-buffer)
-              (setq erlang-tags-file-list
-                    (funcall (symbol-function 'tags-table-files)))))
-        (while (null file)
-          (or erlang-tags-file-list
-              (save-excursion
-                (if (and (funcall
-                          (symbol-function 'visit-tags-table-buffer) 'same)
-                         (funcall
-                          (symbol-function 'visit-tags-table-buffer) t))
-                    (setq erlang-tags-file-list
-                          (funcall (symbol-function 'tags-table-files)))
-                  (error "No %stags containing %s" (if next-p "more " "")
-                         modtagname))))
-          (if erlang-tags-file-list
-              (let ((this-module (erlang-get-module-from-file-name
-                                  (car erlang-tags-file-list))))
-                (if (and (stringp this-module)
-                         (string= modname this-module))
-                    (setq file (car erlang-tags-file-list)))
-                (setq erlang-tags-file-list (cdr erlang-tags-file-list)))))
-        (set-buffer (or (get-file-buffer file)
-                        (find-file-noselect file)))))
-
-     ((string-match ":" modtagname)
-      (progn
-        (erlang-tags-install-module-check)
-        (unwind-protect
-            (funcall (symbol-function 'find-tag)
-                     modtagname next-p regexp-p)
-          (erlang-tags-remove-module-check))))
-     (t
-      (funcall (symbol-function 'find-tag) modtagname next-p regexp-p)))
-    (current-buffer)))                  ; Return the new buffer.
 
 
 
 
-
-
-
-;; Process interactive arguments for erlang-find-tag-*.
-;;
-;; Negative arguments work only for `etags', not `tags'.  This is not
-;; a problem since negative arguments means step back into the
-;; history list, a feature not implemented in `tags'.
-
-(defun erlang-tag-interactive (prompt)
-  (condition-case nil
-      (require 'etags)
-    (error
-     (require 'tags)))
-  (if current-prefix-arg
-      (list nil (if (< (prefix-numeric-value current-prefix-arg) 0)
-                    '-
-                  t))
-    (let* ((default (erlang-default-function-or-module))
-           (prompt (if default
-                       (format "%s(default %s) " prompt default)
-                     prompt))
-           (spec (completing-read prompt 'erlang-tags-complete-tag)))
-      (list (if (equal spec "")
-                (or default (error "There is no default tag"))
-              spec)))))
-
-
-;; Search tag functions which are aware of Erlang modules.  The tactic
-;; is to store new search functions into the local variables of the
-;; TAGS buffers.  The variables are restored directly after the
-;; search.  The situation is complicated by the fact that new TAGS
-;; files can be loaded during the search.
-;;
-
-(defun erlang-tags-install-module-check ()
-  "Install our own tag search functions."
-  ;; Make sure our functions are installed in TAGS files loaded
-  ;; into Emacs while searching.
-  (setq erlang-tags-orig-format-functions
-        (symbol-value 'tags-table-format-functions))
-  (funcall (symbol-function 'set) 'tags-table-format-functions
-           (cons 'erlang-tags-recognize-tags-table
-                 erlang-tags-orig-format-functions))
-  (setq erlang-tags-buffer-list '())
-
-  ;; Install our functions in the TAGS files already resident.
-  (save-excursion
-    (let ((files (symbol-value 'tags-table-computed-list)))
-      (while files
-        (if (stringp (car files))
-            (if (get-file-buffer (car files))
-                (progn
-                  (set-buffer (get-file-buffer (car files)))
-                  (erlang-tags-install-local))))
-        (setq files (cdr files))))))
-
-
-(defun erlang-tags-install-local ()
-  "Install our tag search functions in current buffer."
-  (if erlang-tags-buffer-installed-p
-      ()
-    ;; Mark this buffer as "installed" and record.
-    (set (make-local-variable 'erlang-tags-buffer-installed-p) t)
-    (setq erlang-tags-buffer-list
-          (cons (current-buffer) erlang-tags-buffer-list))
-
-    ;; Save the original values.
-    (set (make-local-variable 'erlang-tags-orig-tag-order)
-         (symbol-value 'find-tag-tag-order))
-    (set (make-local-variable 'erlang-tags-orig-regexp-tag-order)
-         (symbol-value 'find-tag-regexp-tag-order))
-    (set (make-local-variable 'erlang-tags-orig-search-function)
-         (symbol-value 'find-tag-search-function))
-    (set (make-local-variable 'erlang-tags-orig-regexp-search-function)
-         (symbol-value 'find-tag-regexp-search-function))
-
-    ;; Install our own functions.
-    (set (make-local-variable 'find-tag-search-function)
-         'erlang-tags-search-forward)
-    (set (make-local-variable 'find-tag-regexp-search-function)
-         'erlang-tags-regexp-search-forward)
-    (set (make-local-variable 'find-tag-tag-order)
-         (mapcar #'erlang-make-order-function-aware-of-modules
-                 erlang-tags-orig-tag-order))
-    (set (make-local-variable 'find-tag-regexp-tag-order)
-         (mapcar #'erlang-make-order-function-aware-of-modules
-                 erlang-tags-orig-regexp-tag-order))))
-
-(defun erlang-make-order-function-aware-of-modules (f)
-  `(lambda (tag)
-     (let (mod)
-       (when (string-match ":" tag)
-         (setq mod (substring tag 0 (match-beginning 0)))
-         (setq tag (substring tag (match-end 0) nil)))
-       (and (funcall ',f tag)
-            (or (null mod)
-                (erlang-tag-at-point-match-module-p mod))))))
-
-(defun erlang-tag-at-point-match-module-p (mod)
-  (string-equal mod (erlang-get-module-from-file-name
-                     (funcall (symbol-function 'file-of-tag)))))
-
-
-(defun erlang-tags-remove-module-check ()
-  "Remove our own tags search functions."
-  (funcall (symbol-function 'set)
-           'tags-table-format-functions
-           erlang-tags-orig-format-functions)
-
-  ;; Remove our functions from the TAGS files.  (Note that
-  ;; `tags-table-computed-list' need not be the same list as when
-  ;; the search was started.)
-  (save-excursion
-    (let ((buffers erlang-tags-buffer-list))
-      (while buffers
-        (if (buffer-name (car buffers))
-            (progn
-              (set-buffer (car buffers))
-              (erlang-tags-remove-local)))
-        (setq buffers (cdr buffers))))))
-
-
-(defun erlang-tags-remove-local ()
-  "Remove our tag search functions from current buffer."
-  (if (null erlang-tags-buffer-installed-p)
-      ()
-    (funcall (symbol-function 'set) 'erlang-tags-buffer-installed-p nil)
-    (funcall (symbol-function 'set)
-             'find-tag-tag-order erlang-tags-orig-tag-order)
-    (funcall (symbol-function 'set)
-             'find-tag-regexp-tag-order erlang-tags-orig-regexp-tag-order)
-    (funcall (symbol-function 'set)
-             'find-tag-search-function erlang-tags-orig-search-function)
-    (funcall (symbol-function 'set)
-             'find-tag-regexp-search-function
-             erlang-tags-orig-regexp-search-function)))
-
-
-(defun erlang-tags-recognize-tags-table ()
-  "Install our functions in all loaded TAGS files.
-
-This function is added to `tags-table-format-hooks/functions' when searching
-for a tag on the form `module:tag'."
-  (if (null (funcall (symbol-function 'etags-recognize-tags-table)))
-      nil
-    (erlang-tags-install-local)
-    t))
-
-
-(defun erlang-tags-search-forward (tag &optional bound noerror count)
-  "Forward search function, aware of Erlang module prefix."
-  (if (string-match ":" tag)
-      (setq tag (substring tag (match-end 0) nil)))
-  ;; Avoid unintended recursion.
-  (if (eq erlang-tags-orig-search-function 'erlang-tags-search-forward)
-      (search-forward tag bound noerror count)
-    (funcall erlang-tags-orig-search-function tag bound noerror count)))
-
-
-(defun erlang-tags-regexp-search-forward (tag &optional bound noerror count)
-  "Forward regexp search function, aware of Erlang module prefix."
-  (if (string-match ":" tag)
-      (setq tag (substring tag (match-end 0) nil)))
-  (if (eq erlang-tags-orig-regexp-search-function
-          'erlang-tags-regexp-search-forward)
-      (re-search-forward tag bound noerror count)
-    (funcall erlang-tags-orig-regexp-search-function
-             tag bound noerror count)))
-
-;;; Tags completion, Emacs 19 `etags' specific.
+;;; Tags completion.
 ;;;
-;;; The basic idea is to create a second completion table `erlang-tags-
-;;; completion-table' containing all normal tags plus tags on the form
-;;; `module:tag' and `module:'.
+;;; The basic idea is to create a completion table containing all normal
+;;; tags plus tags on the form `module:tag' and `module:'.
 
 (progn
   (require 'etags)
-  (if (fboundp 'advice-add)
-    (advice-add 'etags-tags-completion-table :around
-      #'erlang-etags-tags-completion-table-advice)))
+  (advice-add 'etags-tags-completion-table :around
+              #'erlang-etags-tags-completion-table-advice))
 
 (defun erlang-etags-tags-completion-table-advice (oldfun)
   (if erlang-replace-etags-tags-completion-table
@@ -5072,49 +4684,6 @@ about Erlang modules."
                  (point))))
     (unless (eq start (point))
       (buffer-substring-no-properties start (point)))))
-
-
-;; Based on `tags-complete-tag', but this one uses
-;; `erlang-tags-completion-table' instead of `tags-completion-table'.
-;;
-;; This is the entry-point called by system function `completing-read'.
-;;
-;; Used for minibuffer completion in Emacs 19-24 and completion in
-;; erlang buffers in Emacs 19-22.
-(defun erlang-tags-complete-tag (string predicate what)
-  (with-current-buffer (window-buffer (minibuffer-selected-window))
-    (save-excursion
-      ;; If we need to ask for the tag table, allow that.
-      (let ((enable-recursive-minibuffers t))
-        (visit-tags-table-buffer))
-      (if (eq what t)
-          (all-completions string (erlang-tags-completion-table) predicate)
-        (try-completion string (erlang-tags-completion-table) predicate)))))
-
-
-;; `tags-completion-table' calls itself recursively, make it
-;; call our own wedge instead.  Note that the recursive call
-;; is very rare;  it only occurs when a tags-file contains
-;; `include'-statements.
-(defun erlang-tags-completion-table ()
-  "Build completion table.  Tags on the form `tag' or `module:tag'."
-  (setq erlang-tags-orig-completion-table
-        (symbol-function 'tags-completion-table))
-  (fset 'tags-completion-table
-        (symbol-function 'erlang-tags-completion-table-1))
-  (unwind-protect
-      (erlang-tags-completion-table-1)
-    (fset 'tags-completion-table
-          erlang-tags-orig-completion-table)))
-
-(defun erlang-tags-completion-table-1 ()
-  (make-local-variable 'erlang-tags-completion-table)
-  (or erlang-tags-completion-table
-      (let ((tags-completion-table nil)
-            (tags-completion-table-function
-             'erlang-etags-tags-completion-table))
-        (funcall erlang-tags-orig-completion-table)
-        (setq erlang-tags-completion-table tags-completion-table))))
 
 
 
