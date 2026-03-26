@@ -59,7 +59,6 @@ norm({set,[D],[S],fconv})         -> {fconv,S,D};
 norm({set,[D],[S1,S2],put_list})  -> {put_list,S1,S2,D};
 norm({set,[D],Els,put_tuple2})    -> {put_tuple2,D,{list,Els}};
 norm({set,[D],[S],{get_tuple_element,I}}) -> {get_tuple_element,S,I,D};
-norm({set,[],[S,D],{set_tuple_element,I}}) -> {set_tuple_element,S,D,I};
 norm({set,[D],[S],get_hd})        -> {get_hd,S,D};
 norm({set,[D],[S],get_tl})        -> {get_tl,S,D};
 norm({set,[D],[S|Puts],{alloc,R,{put_map,Op,F}}}) ->

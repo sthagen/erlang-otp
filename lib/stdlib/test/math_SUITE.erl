@@ -179,4 +179,5 @@ ignore_undefined([]) ->
     [].
 
 doctests(_Config) ->
-    ct_doctest:module(math).
+    ct_doctest:module(math, [{skipped_blocks, 0},
+                              {missing_tests, []}]).

@@ -404,63 +404,37 @@ bs_restores_is([#b_set{anno=#{ensured := _},
     %% instruction, so there will never be a restore to this
     %% position.
     Start = bs_subst_ctx(NewPos, CtxChain),
-    case Args of
-        [#b_literal{val=skip},_FromPos,_Type,_Flags,#b_literal{val=all},_] ->
+    case is_skip_all(Args) of
+        true ->
             %% This instruction will be optimized away. (The unit test
             %% part of it has been take care of by the preceding
             %% bs_ensure instruction.) All positions will be
             %% unchanged.
             SPos = FPos = SPos0,
             bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
-        [_,FromPos|_] ->
+        false ->
+            [_,FromPos|_] = Args,
             SPos = SPos0#{Start := NewPos},
             FPos = SPos0#{Start := FromPos},
             bs_restores_is(Is, CtxChain, SPos, FPos, Rs)
     end;
-bs_restores_is([#b_set{op=bs_match,dst=NewPos,args=Args}=I|Is],
+bs_restores_is([#b_set{op=bs_match,dst=NewPos,args=Args}|Is],
                CtxChain, SPos0, _FPos, Rs0) ->
+    false = is_skip_all(Args),                  %Assertion.
     Start = bs_subst_ctx(NewPos, CtxChain),
     [_,FromPos|_] = Args,
     case SPos0 of
         #{Start:=FromPos} ->
             %% Same position, no restore needed.
-            SPos = case bs_match_type(I) of
-                       plain ->
-                            %% Update position to new position.
-                            SPos0#{Start:=NewPos};
-                        _ ->
-                            %% Position will not change (test_unit
-                            %% instruction or no instruction at
-                            %% all).
-                            SPos0
-                   end,
+            SPos = SPos0#{Start:=NewPos},
             FPos = SPos0,
             bs_restores_is(Is, CtxChain, SPos, FPos, Rs0);
         #{Start:=_} ->
-            %% Different positions, might need a restore instruction.
-            case bs_match_type(I) of
-                none ->
-                    %% This is a tail test that will be optimized away.
-                    %% There's no need to do a restore, and all
-                    %% positions are unchanged.
-                    FPos = SPos0,
-                    bs_restores_is(Is, CtxChain, SPos0, FPos, Rs0);
-                test_unit ->
-                    %% This match instruction will be replaced by
-                    %% a test_unit instruction. We will need a
-                    %% restore. The new position will be the position
-                    %% restored to (NOT NewPos).
-                    SPos = SPos0#{Start:=FromPos},
-                    FPos = SPos,
-                    Rs = Rs0#{NewPos=>{Start,FromPos}},
-                    bs_restores_is(Is, CtxChain, SPos, FPos, Rs);
-                plain ->
-                    %% Match or skip. Position will be changed.
-                    SPos = SPos0#{Start:=NewPos},
-                    FPos = SPos0#{Start:=FromPos},
-                    Rs = Rs0#{NewPos=>{Start,FromPos}},
-                    bs_restores_is(Is, CtxChain, SPos, FPos, Rs)
-            end
+            %% Match or skip. Position will be changed.
+            SPos = SPos0#{Start := NewPos},
+            FPos = SPos0#{Start := FromPos},
+            Rs = Rs0#{NewPos => {Start,FromPos}},
+            bs_restores_is(Is, CtxChain, SPos, FPos, Rs)
     end;
 bs_restores_is([#b_set{op=bs_extract,args=[FromPos|_]}|Is],
                CtxChain, SPos, _FPos, Rs) ->
@@ -511,15 +485,8 @@ bs_restores_is([], _CtxChain, SPos, _FPos, Rs) ->
     FPos = SPos,
     {SPos, FPos, Rs}.
 
-bs_match_type(#b_set{args=[#b_literal{val=skip},_Ctx,
-                             #b_literal{val=binary},_Flags,
-                             #b_literal{val=all},#b_literal{val=U}]}) ->
-    case U of
-        1 -> none;
-        _ -> test_unit
-    end;
-bs_match_type(_) ->
-    plain.
+is_skip_all([#b_literal{val=skip},_,_,_,#b_literal{val=all},_]) -> true;
+is_skip_all(_) -> false.
 
 %% Call instructions leave the match position in an undefined state,
 %% requiring us to invalidate each affected argument.
@@ -2946,7 +2913,6 @@ use_zreg(recv_marker_bind) -> yes;
 use_zreg(recv_marker_clear) -> yes;
 use_zreg(remove_message) -> yes;
 use_zreg(require_stack) -> yes;
-use_zreg(set_tuple_element) -> yes;
 use_zreg(succeeded) -> yes;
 use_zreg(wait_timeout) -> yes;
 %% There's no way we can combine these into a test instruction, so we must

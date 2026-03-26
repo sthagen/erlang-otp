@@ -447,6 +447,24 @@ is_record_bif(Config) ->
     false = is_record(Config, a),
     false = is_record(Config, ?MODULE, a),
 
+    case is_list(Config) of
+        true ->
+            false = is_record(Config, empty),
+            false = is_record(Config, ?MODULE, empty),
+            false = is_record(Config, a),
+            false = is_record(Config, ?MODULE, a)
+    end,
+
+    false = is_record(not_a_record(id(a)), ?MODULE, empty),
+    false = is_record(not_a_record(id(0)), ?MODULE, empty),
+
+    true = is_record(some_record(#a{x=0,y=1}), ?MODULE, a),
+    false = is_record(some_record(#a{x=0,y=1}), ?MODULE, empty),
+    true = is_record(some_record(#b{}), ?MODULE, b),
+    false = is_record(some_record(#b{}), ?MODULE, empty),
+    true = is_record(some_record(#empty{}), ?MODULE, empty),
+    false = is_record(some_record(#empty{}), ?MODULE, 'div'),
+
     BR = id(#b{}),
     true = is_record(BR),
     true = is_record(BR, b),
@@ -496,6 +514,13 @@ is_record_bif(Config) ->
     false = is_record(BR, ?MODULE, empty),
 
     ok.
+
+not_a_record(A) when is_atom(A) -> a;
+not_a_record(I) when is_integer(I) -> 42.
+
+some_record(#a{}=R) -> R;
+some_record(#b{}=R) -> R;
+some_record(#_{}=R) -> R.
 
 -record #r_two{r=1,s=2}.
 -record #r_three{r=1,s=2,t=3}.

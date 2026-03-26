@@ -2640,4 +2640,7 @@ uniq_2(_Config) ->
     ok.
 
 doctests(_Config) ->
-    ct_doctest:module(lists, [{skipped_blocks, 5}]).
+    ct_doctest:module(lists, [{skipped_blocks, 5},
+                               {missing_tests,
+                                [{foreach, 2},
+                                 {keysearch, 3}]}]).

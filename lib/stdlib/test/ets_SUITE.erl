@@ -8333,7 +8333,17 @@ ms_excessive_nesting(Config) when is_list(Config) ->
     {comment, "match_spec_compile() "++ENMSC++"; select_replace(_,[ordered_set]) "++SRT++"; select_replace(_,[set]) "++SRH}.
 
 doctests(_Config) ->
-    ct_doctest:module(ets, [{skipped_blocks, 16}]).
+    ct_doctest:module(ets, [{skipped_blocks, 2},
+                             {missing_tests,
+                              [{all, 0},
+                               {delete, 1},
+                               {i, 0},
+                               {i, 1},
+                               {match_spec_run, 2},
+                               {repair_continuation, 2},
+                               {safe_fixtable, 2},
+                               {select, 2},
+                               {tab2list, 1}]}]).
 
 %% The following help functions are used by
 %% throughput_benchmark. They are declared on the top level beacuse

@@ -485,7 +485,10 @@ doctests(Config) ->
             ct_doctest:module(
               zstd,
               Bindings,
-              []
+              [{skipped_blocks, 0},
+               {missing_tests,
+                [{close, 1},
+                 {context, 2}]}]
              )
     end.
 

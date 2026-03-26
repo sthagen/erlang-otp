@@ -2374,7 +2374,9 @@ throw_after_byte(<<_,_/binary>>) ->
 matches_on_parameter(Config) when is_list(Config) ->
     %% This improves coverage for matching on "naked" parameters.
     {<<"urka">>, <<"a">>} = matches_on_parameter_1(<<"gurka">>),
-    ok = (catch matches_on_parameter_2(<<"10001110101">>, 0)).
+    ?assertThrow(ok, matches_on_parameter_2(<<"10001110101">>, 0)),
+    <<"urka">> = matches_on_parameter_3(<<"gurka">>),
+    ok.
 
 matches_on_parameter_1(Bin) ->
     <<"g", A/binary>> = Bin,
@@ -2387,6 +2389,11 @@ matches_on_parameter_2(Bin, Offset) ->
         0 -> throw(ok);
         _ -> [Bit | matches_on_parameter_2(Bin, Offset + 1)]
     end.
+
+matches_on_parameter_3(Bin) ->
+    <<"g", A/binary>> = Bin,
+    <<_,_,"rk", _/binary>> = Bin,
+    A.
 
 big_positions(Config) when is_list(Config) ->
     %% This provides coverage for when match context positions no longer fit

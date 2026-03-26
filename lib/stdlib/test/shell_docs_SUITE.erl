@@ -647,7 +647,21 @@ columns(_Config) ->
     ok.
 
 doctests(_Config) ->
-    ct_doctest:module(shell_docs).
+    ct_doctest:module(shell_docs,
+                      [{skipped_blocks, 0},
+                       {missing_tests,
+                        [{normalize, 1},
+                         {render, 3},
+                         {render, 4},
+                         {render, 5},
+                         {render_callback, 3},
+                         {render_callback, 4},
+                         {render_callback, 5},
+                         {render_type, 3},
+                         {render_type, 4},
+                         {render_type, 5},
+                         {supported_tags, 0},
+                         {validate, 1}]}]).
 
 %%
 %% Parallel map function.

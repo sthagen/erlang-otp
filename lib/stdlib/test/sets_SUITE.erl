@@ -540,13 +540,16 @@ iterate_set_1(M, {E, I}, R) ->
     iterate_set_1(M, M(next, I), [E | R]).
 
 doctests_gb_sets(_Config) ->
-    ct_doctest:module(gb_sets, [{skipped_blocks, 1}]).
+    ct_doctest:module(gb_sets, [{skipped_blocks, 1},
+                                {missing_tests, [{iterator, 1}]}]).
 
 doctests_ordsets(_Config) ->
-    ct_doctest:module(ordsets, [{skipped_blocks, 1}]).
+    ct_doctest:module(ordsets, [{skipped_blocks, 1},
+                                {missing_tests, []}]).
 
 doctests_sets(_Config) ->
-    ct_doctest:module(sets, [{skipped_blocks, 1}]).
+    ct_doctest:module(sets, [{skipped_blocks, 1},
+                             {missing_tests, []}]).
 
 %%%
 %%% Helper functions.
