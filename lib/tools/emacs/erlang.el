@@ -1199,9 +1199,7 @@ behaviour.")
 (defvar erlang-font-lock-keywords-attr
   (list
    (list (concat "^\\(-" erlang-atom-regexp "\\)\\(\\s-\\|\\.\\|(\\)")
-         1 (if (boundp 'font-lock-preprocessor-face)
-               'font-lock-preprocessor-face
-             'font-lock-constant-face)))
+         1 'font-lock-preprocessor-face))
   "Font lock keyword highlighting attributes.")
 
 (defvar erlang-font-lock-keywords-quotes
@@ -1235,9 +1233,7 @@ are highlighted by syntactic analysis.")
          1 'font-lock-constant-face)
    (list (concat "^\\(-\\(?:define\\|ifn?def\\)\\)\\s-*(\\s-*\\(" erlang-atom-regexp
                  "\\|" erlang-variable-regexp "\\)")
-         (if (boundp 'font-lock-preprocessor-face)
-             (list 1 'font-lock-preprocessor-face t)
-           (list 1 'font-lock-constant-face t))
+         (list 1 'font-lock-preprocessor-face t)
          (list 3 'font-lock-type-face t t))
    (list "^-e\\(lse\\|ndif\\)\\>" 0 'font-lock-preprocessor-face t))
   "Font lock keyword highlighting macros.
@@ -3547,8 +3543,7 @@ With argument, do this that many times."
   (push-mark (point) nil t)
   (erlang-beginning-of-clause 1)
   ;; The above function deactivates the mark.
-  (if (boundp 'deactivate-mark)
-      (funcall (symbol-function 'set) 'deactivate-mark nil)))
+  (setq deactivate-mark nil))
 
 (defun erlang-beginning-of-function (&optional arg)
   "Move backward to previous start of function.
@@ -3644,20 +3639,7 @@ With negative argument go towards the beginning of the buffer."
               (goto-char (point-min)))))
       (setq arg (1+ arg)))))
 
-(eval-and-compile
-  (if (default-boundp 'beginning-of-defun-function)
-      (defalias 'erlang-mark-function 'mark-defun)
-    (defun erlang-mark-function ()
-      "Put mark at end of function, point at beginning."
-      (interactive)
-      (push-mark (point))
-      (erlang-end-of-function 1)
-      ;; Sets the region.
-      (push-mark (point) nil t)
-      (erlang-beginning-of-function 1)
-      ;; The above function deactivates the mark.
-      (if (boundp 'deactivate-mark)
-          (funcall (symbol-function 'set) 'deactivate-mark nil)))))
+(defalias 'erlang-mark-function 'mark-defun)
 
 (defun erlang-pass-over-function ()
   (while (progn
@@ -5784,15 +5766,10 @@ The following special commands are available:
   (setq-local minor-mode-overriding-map-alist
        `((compilation-minor-mode
           . ,(let ((map (make-sparse-keymap)))
-               ;; It would be useful to put keymap properties on the
-               ;; error lines so that we could use RET and mouse-2
-               ;; on them directly.
-               (when (boundp 'compilation-skip-threshold) ; new compile.el
-                 (define-key map [mouse-2] #'erlang-mouse-2-command)
-                 (define-key map "\C-m" #'erlang-RET-command))
-               (if (boundp 'compilation-menu-map)
-                   (define-key map [menu-bar compilation]
-                     (cons "Errors" compilation-menu-map)))
+               (define-key map [mouse-2] #'erlang-mouse-2-command)
+               (define-key map "\C-m" #'erlang-RET-command)
+               (define-key map [menu-bar compilation]
+                 (cons "Errors" compilation-menu-map))
                map))))
   (erlang-tags-init))
 
@@ -5911,8 +5888,7 @@ editing control characters:
 
   (setq inferior-erlang-process
         (get-buffer-process inferior-erlang-buffer))
-  (funcall (symbol-function 'set-process-query-on-exit-flag)
-           inferior-erlang-process nil)
+  (set-process-query-on-exit-flag inferior-erlang-process nil)
   (if erlang-inferior-shell-split-window
       (switch-to-buffer-other-window inferior-erlang-buffer)
     (switch-to-buffer inferior-erlang-buffer))
