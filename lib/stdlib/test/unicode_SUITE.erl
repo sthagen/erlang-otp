@@ -22,6 +22,7 @@
 -module(unicode_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, suite/0,groups/0,
 	 utf8_illegal_sequences_bif/1,
@@ -199,73 +200,73 @@ exceptions(Config) when is_list(Config) ->
 
 ex_exceptions(Config) when is_list(Config) ->
     L = lists:seq(0,255),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L++255,unicode)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary({1,2,3},unicode)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(1,unicode)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(1.0,unicode)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary('1',unicode)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary([1,2,3,apa],unicode)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary([1,2,3,4.0],unicode)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L++255,latin1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary({1,2,3},latin1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(1,latin1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(1.0,latin1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary('1',latin1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary([1,2,3,apa],latin1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary([1,2,3,4.0],latin1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,gnarfl)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,L)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,{latin1})),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,[latin1])),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,1.0)),
+    ?assertError(badarg, unicode:characters_to_binary(L++255,unicode)),
+    ?assertError(badarg, unicode:characters_to_binary({1,2,3},unicode)),
+    ?assertError(badarg, unicode:characters_to_binary(1,unicode)),
+    ?assertError(badarg, unicode:characters_to_binary(1.0,unicode)),
+    ?assertError(badarg, unicode:characters_to_binary('1',unicode)),
+    ?assertError(badarg, unicode:characters_to_binary([1,2,3,apa],unicode)),
+    ?assertError(badarg, unicode:characters_to_binary([1,2,3,4.0],unicode)),
+    ?assertError(badarg, unicode:characters_to_binary(L++255,latin1)),
+    ?assertError(badarg, unicode:characters_to_binary({1,2,3},latin1)),
+    ?assertError(badarg, unicode:characters_to_binary(1,latin1)),
+    ?assertError(badarg, unicode:characters_to_binary(1.0,latin1)),
+    ?assertError(badarg, unicode:characters_to_binary('1',latin1)),
+    ?assertError(badarg, unicode:characters_to_binary([1,2,3,apa],latin1)),
+    ?assertError(badarg, unicode:characters_to_binary([1,2,3,4.0],latin1)),
+    ?assertError(badarg, unicode:characters_to_binary(L,gnarfl)),
+    ?assertError(badarg, unicode:characters_to_binary(L,L)),
+    ?assertError(badarg, unicode:characters_to_binary(L,{latin1})),
+    ?assertError(badarg, unicode:characters_to_binary(L,[latin1])),
+    ?assertError(badarg, unicode:characters_to_binary(L,1)),
+    ?assertError(badarg, unicode:characters_to_binary(L,1.0)),
     Encodings = [unicode, utf8,utf16,utf32,{utf16,big},
 		 {utf16,little},{utf32,big},{utf32,little}],
     [ begin
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L++255,unicode,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary({1,2,3},unicode,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(1,unicode,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(1.0,unicode,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary('1',unicode,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary([1,2,3,apa],unicode,
-								    Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary([1,2,3,4.0],unicode,
-								    Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L++255,latin1,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary({1,2,3},latin1,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(1,latin1,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(1.0,latin1,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary('1',latin1,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary([1,2,3,apa],latin1,
-								    Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary([1,2,3,4.0],latin1,
-								    Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,gnarfl,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,L,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,{latin1},Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,[latin1],Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,1,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_binary(L,1.0,Enc))
+          ?assertError(badarg, unicode:characters_to_binary(L++255,unicode,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary({1,2,3},unicode,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(1,unicode,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(1.0,unicode,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary('1',unicode,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary([1,2,3,apa],unicode,
+                                                                    Enc)),
+          ?assertError(badarg, unicode:characters_to_binary([1,2,3,4.0],unicode,
+                                                                    Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(L++255,latin1,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary({1,2,3},latin1,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(1,latin1,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(1.0,latin1,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary('1',latin1,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary([1,2,3,apa],latin1,
+                                                                    Enc)),
+          ?assertError(badarg, unicode:characters_to_binary([1,2,3,4.0],latin1,
+                                                                    Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(L,gnarfl,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(L,L,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(L,{latin1},Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(L,[latin1],Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(L,1,Enc)),
+          ?assertError(badarg, unicode:characters_to_binary(L,1.0,Enc))
       end || Enc <- Encodings ],
 
 
     Encodings2 = [latin1, unicode, utf8,utf16,utf32,{utf16,big},
 		  {utf16,little},{utf32,big},{utf32,little}],
     [ begin
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(L++255,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list({1,2,3},Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(1,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(1.0,Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list('1',Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list([1,2,3,apa],Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list([1,2,3,4.0],Enc)),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(L,{Enc})),
-	  {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(L,[Enc]))
+          ?assertError(badarg, unicode:characters_to_list(L++255,Enc)),
+          ?assertError(badarg, unicode:characters_to_list({1,2,3},Enc)),
+          ?assertError(badarg, unicode:characters_to_list(1,Enc)),
+          ?assertError(badarg, unicode:characters_to_list(1.0,Enc)),
+          ?assertError(badarg, unicode:characters_to_list('1',Enc)),
+          ?assertError(badarg, unicode:characters_to_list([1,2,3,apa],Enc)),
+          ?assertError(badarg, unicode:characters_to_list([1,2,3,4.0],Enc)),
+          ?assertError(badarg, unicode:characters_to_list(L,{Enc})),
+          ?assertError(badarg, unicode:characters_to_list(L,[Enc]))
       end || Enc <- Encodings2 ],
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(L,gnarfl)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(L,L)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(L,1)),
-    {'EXIT',{badarg,_}} = (catch unicode:characters_to_list(L,1.0)),
+    ?assertError(badarg, unicode:characters_to_list(L,gnarfl)),
+    ?assertError(badarg, unicode:characters_to_list(L,L)),
+    ?assertError(badarg, unicode:characters_to_list(L,1)),
+    ?assertError(badarg, unicode:characters_to_list(L,1.0)),
     [ begin
 	  Bx = unicode:characters_to_binary(L,latin1, Enc),
 	  L = unicode:characters_to_list(Bx,Enc)
@@ -537,13 +538,13 @@ ex_random_lists(Config) when is_list(Config) ->
 						  flatb(L)))
 	       end,
     SelfMadeA = fun(L) -> 
-			case (catch list_to_utf8_bsyntax(L,latin1)) of
-			    {'EXIT', Reason} ->
-				io:format("Exit: ~p (~w)~n",[Reason,L]),
-				exit(Reason);
-			    Other ->
-				Other
-			end
+                        try
+                            list_to_utf8_bsyntax(L,latin1)
+                        catch
+                            _:Reason ->
+                                io:format("Exit: ~p (~w)~n",[Reason,L]),
+                                exit(Reason)
+                        end
 		end,
     random_iolist:run(150, PlainFlatten1, SelfMade),
     random_iolist:run(150, PlainFlatten2, SelfMadeA),
@@ -943,14 +944,14 @@ fail_bif_1(Bin,Coding) ->
 
 normalize(_) ->
     %% More tests are in unicode_util_SUITE.erl and str_SUITE.erl
-    {'EXIT', _} = (catch unicode:characters_to_nfc_list({tuple})),
-    {'EXIT', _} = (catch unicode:characters_to_nfd_list({tuple})),
-    {'EXIT', _} = (catch unicode:characters_to_nfkc_list({tuple})),
-    {'EXIT', _} = (catch unicode:characters_to_nfkd_list({tuple})),
-    {'EXIT', _} = (catch unicode:characters_to_nfc_binary({tuple})),
-    {'EXIT', _} = (catch unicode:characters_to_nfd_binary({tuple})),
-    {'EXIT', _} = (catch unicode:characters_to_nfkc_binary({tuple})),
-    {'EXIT', _} = (catch unicode:characters_to_nfkd_binary({tuple})),
+    ?assertError(_, unicode:characters_to_nfc_list({tuple})),
+    ?assertError(_, unicode:characters_to_nfd_list({tuple})),
+    ?assertError(_, unicode:characters_to_nfkc_list({tuple})),
+    ?assertError(_, unicode:characters_to_nfkd_list({tuple})),
+    ?assertError(_, unicode:characters_to_nfc_binary({tuple})),
+    ?assertError(_, unicode:characters_to_nfd_binary({tuple})),
+    ?assertError(_, unicode:characters_to_nfkc_binary({tuple})),
+    ?assertError(_, unicode:characters_to_nfkd_binary({tuple})),
     String = ["abc..åäö", <<"Ωµe`è"/utf8>>, "œŒþæÆħ§ß ホンダ"],
     NFD_l = unicode:characters_to_nfd_list(String),
     NFD_b = unicode:characters_to_nfd_binary(String),
@@ -1495,9 +1496,9 @@ category(_Config) ->
                     LC == unicode:category(Id)
             end,
     [] = [Id || Id <- lists:seq(1, ?MAX_CHAR), not Check(Id)],
-    {'EXIT', _} = catch unicode:category(-1),
-    {'EXIT', _} = catch unicode:category(5000000),
-    {'EXIT', _} = catch unicode:category(foobar),
+    ?assertError(_, unicode:category(-1)),
+    ?assertError(_, unicode:category(5000000)),
+    ?assertError(_, unicode:category(foobar)),
     ok.
 
 is_whitespace(Config) ->
