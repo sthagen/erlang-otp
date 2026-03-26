@@ -1649,32 +1649,6 @@ Other commands:
             (let ((table (copy-syntax-table erlang-mode-syntax-table)))
               (modify-syntax-entry ?_ "w" table)
               table)))
-  (setq-local font-lock-syntax-table erlang-font-lock-syntax-table)
-  (make-local-variable 'font-lock-keywords)
-  (let ((level (cond ((boundp 'font-lock-maximum-decoration)
-                      (symbol-value 'font-lock-maximum-decoration))
-                     ((boundp 'font-lock-use-maximal-decoration)
-                      (symbol-value 'font-lock-use-maximal-decoration))
-                     (t nil))))
-    (if (consp level)
-        (setq level (cdr-safe (or (assq 'erlang-mode level)
-                                  (assq t level)))))
-    ;; `level' can here be:
-    ;;      A number - The fontification level
-    ;;      nil      - Use the default
-    ;;      t        - Use maximum
-    (cond ((eq level nil)
-           (set 'font-lock-keywords erlang-font-lock-keywords))
-          ((eq level 1)
-           (set 'font-lock-keywords erlang-font-lock-keywords-1))
-          ((eq level 2)
-           (set 'font-lock-keywords erlang-font-lock-keywords-2))
-          ((eq level 3)
-           (set 'font-lock-keywords erlang-font-lock-keywords-3))
-          (t
-           (set 'font-lock-keywords erlang-font-lock-keywords-4))))
-
-  ;; Modern font-locks can handle the above much more elegantly:
   (setq-local font-lock-defaults
        '((erlang-font-lock-keywords erlang-font-lock-keywords-1
                                     erlang-font-lock-keywords-2
