@@ -1941,8 +1941,7 @@ The variable `erlang-man-dirs' contains entries describing
 the location of the manual pages."
   (interactive)
   (if (or erlang-man-inhibit
-          (and (boundp 'menu-bar-mode)
-               (not menu-bar-mode)))
+          (not menu-bar-mode))
       ()
     (setq erlang-menu-man-items
           '(nil
@@ -2220,25 +2219,14 @@ patch to `Man-notify-when-ready'.")
            (setq modname name)))
     (when (or (null modname) (string= modname ""))
       (error "No Erlang module name given"))
-    (cond ((fboundp 'Man-notify-when-ready)
-           ;; From Emacs 19:  The man command could possibly start an
-           ;; asynchronous process, i.e. we must hook ourselves into
-           ;; the system to be activated when the man-process
-           ;; terminates.
-           (if (null funcname)
-               ()
-             (erlang-man-patch-notify)
-             (setq erlang-man-function-name funcname))
-           (condition-case err
-               (erlang-man-module modname)
-             (error (setq erlang-man-function-name nil)
-                    (signal (car err) (cdr err)))))
-          (t
-           (erlang-man-module modname)
-           (when funcname
-             (erlang-man-repeated-search-for-function nil
-                                                      funcname
-                                                      modname))))))
+    (if (null funcname)
+        ()
+      (erlang-man-patch-notify)
+      (setq erlang-man-function-name funcname))
+    (condition-case err
+        (erlang-man-module modname)
+      (error (setq erlang-man-function-name nil)
+             (signal (car err) (cdr err))))))
 
 (defun erlang-man-function (&optional name)
   "Find manual page for NAME, where NAME is module:function.
@@ -5636,8 +5624,7 @@ There exists two workarounds for this bug:
                        erlang-compile-extra-opts))
          end)
     (with-current-buffer inferior-erlang-buffer
-      (when (fboundp 'compilation-forget-errors)
-        (compilation-forget-errors)))
+      (compilation-forget-errors))
     (setq end (inferior-erlang-send-command
                (inferior-erlang-compute-compile-command noext opts)
                nil))
@@ -5811,15 +5798,14 @@ unless the optional NO-DISPLAY is non-nil."
   (and (fboundp 'tramp-tramp-file-p)
        (tramp-tramp-file-p (buffer-file-name))))
 
+(declare-function compilation-forget-errors "compile" ())
+(declare-function tramp-dissect-file-name "tramp" (name &optional nodefault))
+(declare-function tramp-file-name-localname "tramp" (vec))
+
 (defun erlang-tramp-get-localname ()
   (when (fboundp 'tramp-dissect-file-name)
-    (let ((tramp-info (tramp-dissect-file-name (buffer-file-name))))
-      (if (fboundp 'tramp-file-name-localname)
-          (tramp-file-name-localname tramp-info)
-        ;; In old versions of tramp, it was `tramp-file-name-path'
-        ;; instead of the newer `tramp-file-name-localname'
-        (when (fboundp 'tramp-file-name-path)
-          (tramp-file-name-path tramp-info))))))
+    (tramp-file-name-localname
+     (tramp-dissect-file-name (buffer-file-name)))))
 
 ;; `next-error' only accepts buffers with major mode `compilation-mode'
 ;; or with the minor mode `compilation-minor-mode' activated.
@@ -5831,8 +5817,7 @@ unless the optional NO-DISPLAY is non-nil."
 Capable of finding error messages in an inferior Erlang buffer."
   (interactive "P")
   (let ((done nil)
-        (buf (or (and (boundp 'next-error-last-buffer)
-                      next-error-last-buffer)
+        (buf (or next-error-last-buffer
                  (and (boundp 'compilation-last-buffer)
                       compilation-last-buffer))))
     (if (and (bufferp buf)
