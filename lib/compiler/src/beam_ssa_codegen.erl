@@ -462,7 +462,6 @@ classify_heap_need(recv_next) -> gc;
 classify_heap_need(remove_message) -> neutral;
 classify_heap_need(require_stack) -> neutral;
 classify_heap_need(resume) -> gc;
-classify_heap_need(set_tuple_element) -> gc;
 classify_heap_need(succeeded) -> neutral;
 classify_heap_need(wait_timeout) -> gc.
 
@@ -2372,8 +2371,6 @@ cg_instr(bs_set_position, [Ctx,Pos], _Dst) ->
     [{bs_set_position,Ctx,Pos}];
 cg_instr(build_stacktrace, Args, Dst) ->
     setup_args(Args) ++ [build_stacktrace|copy({x,0}, Dst)];
-cg_instr(set_tuple_element=Op, [New,Tuple,{integer,Index}], _Dst) ->
-    [{Op,New,Tuple,Index}];
 cg_instr({float,get}, [Src], Dst) ->
     [{fmove,Src,Dst}];
 cg_instr({float,put}, [Src], Dst) ->
@@ -2427,9 +2424,6 @@ cg_test(put_record, Fail, [{atom,empty},Id|Ss], Dst, #cg_set{anno=Anno}=Set) ->
 cg_test(put_record, Fail, [Arg,Id|Ss], Dst, #cg_set{anno=Anno}=Set) ->
     Live = get_live(Set),
     [line(Anno),{put_record,Fail,Id,Arg,Dst,Live,{list,Ss}}];
-cg_test(set_tuple_element=Op, Fail, Args, Dst, Set) ->
-    {f,0} = Fail,                               %Assertion.
-    cg_instr(Op, Args, Dst, Set);
 cg_test(raw_raise, _Fail, Args, Dst, _I) ->
     cg_instr(raw_raise, Args, Dst);
 cg_test(resume, _Fail, [_,_]=Args, Dst, _I) ->
@@ -2483,14 +2477,7 @@ cg_bs_skip(Fail, [{atom,Type}|Ss0], Set) ->
                  %% Utf8/16/32.
                  [Ctx,Live,field_flags(Flags, Set)]
          end,
-    case {Type,Ss} of
-        {binary,[_,{atom,all},1,_]} ->
-            [];
-        {binary,[R,{atom,all},U,_]} ->
-            [{test,bs_test_unit,Fail,[R,U]}];
-        {_,_} ->
-            [{test,Op,Fail,Ss}]
-    end.
+    [{test,Op,Fail,Ss}].
 
 field_flags(Flags, #cg_set{anno=#{location:={File,Line}}}) ->
     {field_flags,[{anno,[Line,{file,File}]}|Flags]};

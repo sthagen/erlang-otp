@@ -426,36 +426,30 @@ types(erlang, is_record, [Type,Mod0,Name0]=Args) ->
     case {Mod0,Name0} of
         {#t_atom{elements=[Mod]},
          #t_atom{elements=[Name]}} ->
+            %% We KNOW that this is_record/3 test is always preceeded
+            %% by an is_record/1 test. Therefore, `Type` is always a
+            %% record or a record set.
             RetType =
                 case meet(Type, #t_record{}) of
-                    #t_record{name={Mod,Name}} ->
-                        #t_atom{elements=[true]};
-                    #t_record{name={_,_}} ->
-                        %% Wrong name.
-                        #t_atom{elements=[false]};
-                    none ->
-                        #t_atom{elements=[false]};
-                    #t_record{name=nil} ->
-                        beam_types:make_boolean();
-                    Other ->
-                        case normalize(Other) of
-                            #t_record{name=nil} ->
-                                %% This is always a native record.
-                                Recs = Other#t_union.native_record_set,
-                                maybe
-                                    false ?= any(fun(#t_record{name=RecName}) ->
-                                                         case RecName of
-                                                             nil -> true;
-                                                             {Mod,Name} -> true;
-                                                             _ -> false
-                                                         end
-                                                 end, Recs),
-                                    #t_atom{elements=[false]}
-                                else
-                                    _ ->
-                                        beam_types:make_boolean()
-                                end;
-                            _ ->
+                    #t_record{name=Id} ->
+                        case Id of
+                            {Mod,Name} ->
+                                #t_atom{elements=[true]};
+                            {_,_} ->
+                                #t_atom{elements=[false]};
+                            nil ->
+                                beam_types:make_boolean()
+                        end;
+                    #t_union{native_record_set=Recs} ->
+                        case any(fun(#t_record{name=Id}) ->
+                                         case Id of
+                                             {Mod,Name} -> true;
+                                             {_,_} -> false
+                                         end
+                                 end, Recs) of
+                            false ->
+                                #t_atom{elements=[false]};
+                            true ->
                                 beam_types:make_boolean()
                         end
                 end,
