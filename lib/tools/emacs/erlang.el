@@ -1063,8 +1063,7 @@ behaviour.")
     (define-key map (kbd "C-m")         'erlang-electric-newline)
     (define-key map (kbd "DEL")         'backward-delete-char-untabify)
     (define-key map (kbd "M-q")         'erlang-fill-paragraph)
-    (define-key map (kbd "M-<tab>")     'erlang-complete-tag)
-    (define-key map (kbd "M-+")         'erlang-find-next-tag)
+    (define-key map (kbd "M-?")          'xref-find-references)
     (define-key map (kbd "C-c M-<tab>") 'tempo-complete-tag)
     (define-key map (kbd "C-c M-a")     'erlang-beginning-of-clause)
     (define-key map (kbd "C-c M-b")     'tempo-backward-mark)
@@ -2331,9 +2330,8 @@ the function name, or to nil.
 The reason for patching a function is that under Emacs 19, the man
 command is executed asynchronously."
   (require 'man)
-  (if (fboundp 'advice-add)
-    (advice-add 'Man-notify-when-ready :after
-      #'erlang-man-function-name-advice)))
+  (advice-add 'Man-notify-when-ready :after
+              #'erlang-man-function-name-advice))
 
 (defun erlang-man-function-name-advice (arg)
   "Set point at the documentation of the function name in
@@ -5574,12 +5572,11 @@ Return the position after the newly inserted command."
     ;; Adjust all windows whose points are incorrect.
     (if (null comint-process-echoes)
         (walk-windows
-         (function
-          (lambda (window)
-            (if (and (eq (window-buffer window) inferior-erlang-buffer)
-                     (= (window-point window) insert-point))
-                (set-window-point window
-                                  (+ insert-point insert-length)))))
+         (lambda (window)
+           (if (and (eq (window-buffer window) inferior-erlang-buffer)
+                    (= (window-point window) insert-point))
+               (set-window-point window
+                                 (+ insert-point insert-length))))
          nil t))
     (set-buffer old-buffer)
     (+ insert-point insert-length)))
@@ -5588,34 +5585,30 @@ Return the position after the newly inserted command."
 (defun inferior-erlang-strip-delete (&optional _s)
   "Remove `^H' (delete) and the characters it was supposed to remove."
   (interactive)
-  (if (and (boundp 'comint-last-input-end)
-           (boundp 'comint-last-output-start))
-      (save-excursion
-        (goto-char
-         (if (called-interactively-p 'interactive)
-             (symbol-value 'comint-last-input-end)
-           (symbol-value 'comint-last-output-start)))
-        (while (progn (skip-chars-forward "^\C-h")
-                      (not (eq (point) (point-max))))
-          (delete-char 1)
-          (or (bolp)
-            (delete-char -1))))))
+  (save-excursion
+    (goto-char
+     (if (called-interactively-p 'interactive)
+         comint-last-input-end
+       comint-last-output-start))
+    (while (progn (skip-chars-forward "^\C-h")
+                  (not (eq (point) (point-max))))
+      (delete-char 1)
+      (or (bolp)
+          (delete-char -1)))))
 
 
 ;; Basically `comint-strip-ctrl-m', with a few extra checks.
 (defun inferior-erlang-strip-ctrl-m (&optional _string)
   "Strip trailing `^M' characters from the current output group."
   (interactive)
-  (if (and (boundp 'comint-last-input-end)
-           (boundp 'comint-last-output-start))
-      (let ((pmark (process-mark (get-buffer-process (current-buffer)))))
-        (save-excursion
-          (goto-char
-           (if (called-interactively-p 'interactive)
-               (symbol-value 'comint-last-input-end)
-             (symbol-value 'comint-last-output-start)))
-          (while (re-search-forward "\r+$" pmark t)
-            (replace-match "" t t))))))
+  (let ((pmark (process-mark (get-buffer-process (current-buffer)))))
+    (save-excursion
+      (goto-char
+       (if (called-interactively-p 'interactive)
+           comint-last-input-end
+         comint-last-output-start))
+      (while (re-search-forward "\r+$" pmark t)
+        (replace-match "" t t)))))
 
 
 (defun inferior-erlang-compile (arg)
