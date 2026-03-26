@@ -2961,7 +2961,7 @@ create_opened_log(File) ->
     Tab = t,
     file:delete(File),
     {ok, Tab} = dets:open_file(Tab, [{file,File}]),
-    ok = ins(Tab, 60000),
+    ok = ins(Tab, 100_000),
     ok = dets:close(Tab),
     crash(File, ?CLOSED_PROPERLY_POS+3, ?NOT_PROPERLY_CLOSED),
     ok.
