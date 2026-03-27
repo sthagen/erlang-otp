@@ -86,7 +86,7 @@ view may temporarily diverge. For example, when processes on `node1` and `node2`
 join concurrently, `node3` and `node4` may receive updates in a different order.
 
 Membership view is not transitive. If `node1` is not directly connected to
-`node2`, they will not see each other groups. But if both are connected to
+`node2`, they will not see each other's groups. But if both are connected to
 `node3`, `node3` will have the full view.
 
 Groups are automatically created when any process joins, and are removed when

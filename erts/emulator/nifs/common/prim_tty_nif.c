@@ -1044,6 +1044,12 @@ static ERL_NIF_TERM tty_create_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM 
             /* Failed to set any VT mode, can't do anything here. */
             return make_errno_error(env, "SetConsoleModeIn");
         }
+    } else {
+        /* If we cannot get the console mode, mark the TTY as unavailable
+           This can happen when the input handle is a pipe, but the output
+           handle is a console.
+        */
+        tty->tty = unavailable;
     }
     
 #endif

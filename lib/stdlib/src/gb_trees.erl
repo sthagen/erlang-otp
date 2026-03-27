@@ -60,8 +60,8 @@ should also be OK.
 
 -export([empty/0, is_empty/1, size/1, lookup/2, get/2, insert/3,
 	 update/3, enter/3, delete/2, delete_any/2, balance/1,
-	 is_defined/2, keys/1, values/1, to_list/1, from_orddict/1,
-	 smallest/1, largest/1, take/2, take_any/2,
+         is_defined/2, keys/1, values/1, to_list/1, from_list/1,
+         from_orddict/1, smallest/1, largest/1, take/2, take_any/2,
          take_smallest/1, take_largest/1, smaller/2, larger/2,
          iterator/1, iterator/2, iterator_from/2, iterator_from/3,
          next/1, map/2]).
@@ -431,24 +431,64 @@ balance({S, T}) when is_integer(S), S >= 0 ->
     {S, balance(T, S)}.
 
 balance(T, S) ->
-    balance_list(to_list_1(T), S).
+    balance_list_unchecked(to_list_1(T), S).
 
-balance_list(L, S) ->
-    {T, []} = balance_list_1(L, S),
+balance_list_unchecked(L, S) ->
+    {T, []} = balance_list_unchecked_1(L, S),
     T.
 
-balance_list_1(L, S) when S > 1 ->
-    Sm = S - 1,
-    S2 = Sm div 2,
-    S1 = Sm - S2,
-    {T1, [{K, V} | L1]} = balance_list_1(L, S1),
-    {T2, L2} = balance_list_1(L1, S2),
+balance_list_unchecked_1(L, S) when S > 1 ->
+    {S1, S2} = split_list_size(S),
+    {T1, [{K, V} | L1]} = balance_list_unchecked_1(L, S1),
+    {T2, L2} = balance_list_unchecked_1(L1, S2),
     T = {K, V, T1, T2},
     {T, L2};
-balance_list_1([{Key, Val} | L], 1) ->
+balance_list_unchecked_1([{Key, Val} | L], 1) ->
     {{Key, Val, nil, nil}, L};
-balance_list_1(L, 0) ->
+balance_list_unchecked_1(L, 0) ->
     {nil, L}.
+
+balance_list_checked(L, S) ->
+    {T, []} = balance_list_checked_1(L, S),
+    T.
+
+balance_list_checked_1(L, S) when S > 1 ->
+    {S1, S2} = split_list_size(S),
+    {T1, [{K, V} | L1]} = balance_list_checked_1(L, S1),
+    case L1 of
+        [{K1, _} | _] when K >= K1 ->
+            erlang:error({badarg, not_orddict});
+        _ ->
+            {T2, L2} = balance_list_checked_1(L1, S2),
+            T = {K, V, T1, T2},
+            {T, L2}
+    end;
+balance_list_checked_1([{K1, _}, {K2, _} | _], 1) when K1 >= K2 ->
+    erlang:error({badarg, not_orddict});
+balance_list_checked_1([{Key, Val} | L], 1) ->
+    {{Key, Val, nil, nil}, L};
+balance_list_checked_1(L, 0) ->
+    {nil, L}.
+
+-doc """
+Returns a tree of the key-value tuples in `List`,
+where `List` can be unordered and contain duplicate keys.
+
+## Examples
+
+```erlang
+1> Unordered = [{x, 1}, {y, 2}, {a, 3}, {x, 4}, {y, 5}, {b, 6}].
+2> gb_trees:to_list(gb_trees:from_list(Unordered)).
+[{a,3},{b,6},{x,4},{y,5}]
+```
+""".
+-doc #{since => ~"OTP @OTP-20061@"}.
+-spec from_list(List) -> Tree when
+      List :: [{Key, Value}],
+      Tree :: tree(Key, Value).
+
+from_list(L) ->
+    from_orddict_unchecked(orddict:from_list(L)).
 
 -doc """
 Turns an ordered list `List` of key-value tuples into a tree.
@@ -469,7 +509,11 @@ The list must not contain duplicate keys.
 
 from_orddict(L) ->
     S = length(L),
-    {S, balance_list(L, S)}.
+    {S, balance_list_checked(L, S)}.
+
+from_orddict_unchecked(L) ->
+    S = length(L),
+    {S, balance_list_unchecked(L, S)}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -1092,3 +1136,11 @@ map(F, {Size, Tree}) when is_function(F, 2) ->
 map_1(_, nil) -> nil;
 map_1(F, {K, V, Smaller, Larger}) ->
     {K, F(K, V), map_1(F, Smaller), map_1(F, Larger)}.
+
+
+-compile({inline, [split_list_size/1]}).
+split_list_size(S) ->
+    Sm = S - 1,
+    S2 = Sm div 2,
+    S1 = Sm - S2,
+    {S1, S2}.
