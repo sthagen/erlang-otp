@@ -22,6 +22,7 @@
 -module(calendar_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1,
 	 init_per_group/2,end_per_group/2,
@@ -456,10 +457,10 @@ rfc3339(Config) when is_list(Config) ->
     "9999-12-31T23:59:59.999999999Z" =
         roundtrip_fmt_rfc3339_z(253402300799*1_000_000_000+999_999_999, Ns),
     %% Year 10000 is out of range (restricted to -9999..9999)
-    {'EXIT', _} = (catch do_format_z(253402300799+1, [])),
-    {'EXIT', _} = (catch do_parse("9999-12-31T23:59:60Z", [])),
-    {'EXIT', _} = (catch do_format_z(253402300799*1_000_000_000+999_999_999+1, Ns)),
-    {'EXIT', _} = (catch do_parse("2010-04-11T22:35:41", [])), % OTP-16514
+    ?assertError(_, do_format_z(253402300799+1, [])),
+    ?assertError(_, do_parse("9999-12-31T23:59:60Z", [])),
+    ?assertError(_, do_format_z(253402300799*1_000_000_000+999_999_999+1, Ns)),
+    ?assertError(_, do_parse("2010-04-11T22:35:41", [])), % OTP-16514
     253402300799 = do_parse("9999-12-31T23:59:59Z", []),
 
     "0000-01-01T00:00:00Z" = test_parse("0000-01-01T00:00:00.0+00:00"),
