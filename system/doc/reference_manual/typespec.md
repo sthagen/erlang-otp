@@ -189,7 +189,7 @@ association type it is not required for the key type to be present.
 The notation `#{}` specifies the singleton type for the empty map. Note that
 this notation is not a shorthand for the `t:map/0` type.
 
-For convenience, the following types are also built-in. They can be thought as
+For convenience, the following types are also built-in. They can be thought of as
 predefined aliases for the type unions also shown in the table.
 
 [](){: #builtin_types }
@@ -225,15 +225,15 @@ predefined aliases for the type unions also shown in the table.
 
 _Table: Built-in types, predefined aliases_
 
-In addition, the following three built-in types exist and can be thought as
+In addition, the following three built-in types exist and can be thought of as
 defined below, though strictly their "type definition" is not valid syntax
 according to the type language defined above.
 
-| Built-in type         | Can be thought defined by the syntax |
-| --------------------- | ------------------------------------ |
-| `t:non_neg_integer/0` | `0..`                                |
-| `t:pos_integer/0`     | `1..`                                |
-| `t:neg_integer/0`     | `..-1`                               |
+| Built-in type         | Can be thought of as defined by the syntax |
+| --------------------- | ------------------------------------------ |
+| `t:non_neg_integer/0` | `0..`                                      |
+| `t:pos_integer/0`     | `1..`                                      |
+| `t:neg_integer/0`     | `..-1`                                     |
 
 _Table: Additional built-in types_
 
@@ -317,7 +317,7 @@ similar restriction currently exists for records.)
 
 Type declarations can also be parameterized by including type variables between
 the parentheses. The syntax of type variables is the same as Erlang variables,
-that is, starts with an upper-case letter. These variables is to
+that is, they start with an uppercase letter. These variables are to
 appear on the RHS of the definition. A concrete example follows:
 
 ```erlang
@@ -331,7 +331,7 @@ refer to them as _remote types_. This declaration has the following form:
 -export_type([T1/A1, ..., Tk/Ak]).
 ```
 
-Here the `Ti`s are atoms (the name of the type) and the `Ai`s are their arguments.
+Here the `Ti`s are atoms (the name of the type) and the `Ai`s are their arities.
 
 _Example:_
 
@@ -353,7 +353,7 @@ Types declared as `opaque` represent sets of terms whose structure is not
 supposed to be visible from outside of their defining module. That is, only the
 module defining them is allowed to depend on their term structure. Consequently,
 such types do not make much sense as module local - module local types are not
-accessible by other modules anyway - and is always to be exported.
+accessible by other modules anyway - and are always to be exported.
 
 > #### Change {: .info }
 >
@@ -364,7 +364,7 @@ names instead of their structure. That is, `-nominal feet() :: integer()` and
 `-nominal meter() :: integer()` are not the same type, while if `-type` is
 used it would be.
 
-Read more on [Opaques](opaques.md) and [Nominals](nominals.md)
+Read more on [Opaques](opaques.md) and [Nominals](nominals.md).
 
 [](){: #typeinrecords }
 
@@ -458,7 +458,7 @@ declaration.
 > ```
 >
 > In specifications and type declarations the type `person()` is to be preferred
-> before `#person{}`.
+> over `#person{}`.
 
 ## Specifications for Functions
 
