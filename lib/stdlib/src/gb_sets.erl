@@ -329,7 +329,7 @@ insert_1(Key, {Key1, Smaller, Bigger}, S) when Key < Key1 ->
 	    P = ?pow(SS, ?p),
 	    if
 		H > P -> 
-		    balance(T, SS);
+                    balance_unchecked(T, SS);
 		true ->
 		    {T, H, SS}
 	    end;
@@ -346,7 +346,7 @@ insert_1(Key, {Key1, Smaller, Bigger}, S) when Key > Key1 ->
 	    P = ?pow(SS, ?p),
 	    if
 		H > P -> 
-		    balance(T, SS);
+                    balance_unchecked(T, SS);
 		true ->
 		    {T, H, SS}
 	    end;
@@ -393,26 +393,46 @@ does not rebalance the tree.
       Set2 :: set(Element).
 
 balance({S, T}) when is_integer(S), S >= 0 ->
-    {S, balance(T, S)}.
+    {S, balance_unchecked(T, S)}.
 
-balance(T, S) ->
-    balance_list(to_list_1(T), S).
+balance_unchecked(T, S) ->
+    balance_list_unchecked(to_list_1(T), S).
 
-balance_list(L, S) ->
-    {T, _} = balance_list_1(L, S),
+balance_list_unchecked(L, S) ->
+    {T, _} = balance_list_unchecked_1(L, S),
     T.
 
-balance_list_1(L, S) when S > 1 ->
-    Sm = S - 1,
-    S2 = Sm div 2,
-    S1 = Sm - S2,
-    {T1, [K | L1]} = balance_list_1(L, S1),
-    {T2, L2} = balance_list_1(L1, S2),
+balance_list_unchecked_1(L, S) when S > 1 ->
+    {S1, S2} = split_list_size(S),
+    {T1, [K | L1]} = balance_list_unchecked_1(L, S1),
+    {T2, L2} = balance_list_unchecked_1(L1, S2),
     T = {K, T1, T2},
     {T, L2};
-balance_list_1([Key | L], 1) ->
+balance_list_unchecked_1([Key | L], 1) ->
     {{Key, nil, nil}, L};
-balance_list_1(L, 0) ->
+balance_list_unchecked_1(L, 0) ->
+    {nil, L}.
+
+balance_list_checked(L, S) ->
+    {T, _} = balance_list_checked_1(L, S),
+    T.
+
+balance_list_checked_1(L, S) when S > 1 ->
+    {S1, S2} = split_list_size(S),
+    {T1, [K | L1]} = balance_list_checked_1(L, S1),
+    case L1 of
+        [K1 | _] when K >= K1 ->
+            erlang:error({badarg, not_ordset});
+        _ ->
+            {T2, L2} = balance_list_checked_1(L1, S2),
+            T = {K, T1, T2},
+            {T, L2}
+    end;
+balance_list_checked_1([E1, E2 | _], 1) when E1 >= E2 ->
+    erlang:error({badarg, not_ordset});
+balance_list_checked_1([Key | L], 1) ->
+    {{Key, nil, nil}, L};
+balance_list_checked_1(L, 0) ->
     {nil, L}.
 
 -doc """
@@ -470,7 +490,7 @@ contain duplicates.
       Set :: set(Element).
 
 from_list(L) ->
-    from_ordset(ordsets:from_list(L)).
+    from_ordset_unchecked(ordsets:from_list(L)).
 
 -doc """
 Turns an ordered list without duplicates `List` into a set.
@@ -492,7 +512,11 @@ duplicates.
 
 from_ordset(L) ->
     S = length(L),
-    {S, balance_list(L, S)}.
+    {S, balance_list_checked(L, S)}.
+
+from_ordset_unchecked(L) ->
+    S = length(L),
+    {S, balance_list_unchecked(L, S)}.
 
 -doc(#{equiv => delete_any(Element, Set1)}).
 -spec del_element(Element, Set1) -> Set2 when
@@ -1051,9 +1075,7 @@ balance_revlist(L, S) when is_integer(S) ->
     T.
 
 balance_revlist_1(L, S) when S > 1 ->
-    Sm = S - 1,
-    S2 = Sm div 2,
-    S1 = Sm - S2,
+    {S1, S2} = split_list_size(S),
     {T2, [K | L1]} = balance_revlist_1(L, S1),
     {T1, L2} = balance_revlist_1(L1, S2),
     T = {K, T1, T2},
@@ -1435,7 +1457,7 @@ Filters elements in `Set1` using predicate function `Pred`.
       Set2 :: set(Element).
 
 filter(F, S) when is_function(F, 1) ->
-    from_ordset([X || X <- to_list(S), F(X)]).
+    from_ordset_unchecked([X || X <- to_list(S), F(X)]).
 
 -doc """
 Maps elements in `Set1` with mapping function `Fun`.
@@ -1543,3 +1565,11 @@ fold_1(F, Acc0, {Key, Small, Big}) ->
     fold_1(F, Acc, Big);
 fold_1(_, Acc, _) ->
     Acc.
+
+
+-compile({inline, [split_list_size/1]}).
+split_list_size(S) ->
+    Sm = S - 1,
+    S2 = Sm div 2,
+    S1 = Sm - S2,
+    {S1, S2}.

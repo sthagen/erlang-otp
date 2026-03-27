@@ -35,6 +35,7 @@
          doctests_gb_sets/1, doctests_ordsets/1, doctests_sets/1]).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -import(lists, [foldl/3,reverse/1]).
 
@@ -195,7 +196,7 @@ intersection_1(List, M) ->
     true = M(is_equal, {Empty,M(intersection, [S0,Empty,S0,Empty])}),
 
     %% The intersection of no sets is undefined.
-    {'EXIT',_} = (catch M(intersection, [])),
+    ?assertError(_, M(intersection, [])),
 
     %% Disjoint sets.
     Disjoint = [{El} || El <- List],
