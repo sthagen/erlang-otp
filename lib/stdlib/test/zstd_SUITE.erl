@@ -221,7 +221,7 @@ cstream(_Config) ->
     %% are confirmed to work.
     {ok, FCtx} = zstd:context(decompress),
     {continue, F1} = zstd:stream(CCtx, ~"hello"),
-    {continue, F2} = zstd:flush(CCtx, <<>>),
+    {continue, F2} = zstd:flush(CCtx),
     ?assertEqual(~"hello", iob(zstd:decompress([F1, F2], FCtx))),
     {continue, F3} = zstd:stream(CCtx, ~"world"),
     {done, F4} = zstd:finish(CCtx, <<>>),
