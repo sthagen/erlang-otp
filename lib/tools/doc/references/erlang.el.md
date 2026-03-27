@@ -165,16 +165,11 @@ different alternatives:
 For the tag commands to work it requires that you have generated a tag file. See
 [Erlang mode users guide](erlang_mode_chapter.md#tags)
 
--   _`M-.`_ (`find-tag`) - Find a function definition. The default value is the
-    function name under the point.
--   Find Tag (`erlang-find-tag`) - Like the Elisp-function
-    `find-tag'. Capable of retrieving Erlang modules. Tags can be given of the forms `tag',
-    `module:', `module:tag'.
--   _`M-+`_ (`erlang-find-next-tag`) - Find the next occurrence of tag.
--   _`M-TAB`_ (`erlang-complete-tag`) - Perform completion on the tag entered in
-    a tag search. Completes to the set of names listed in the current tags
-    table.
--   Tags aprops (`tags-apropos`) - Display list of all tags in tags table REGEXP
+-   _`M-.`_ (`xref-find-definitions`) - Find a function definition. The default
+    value is the function name under the point.
+-   _`M-?`_ (`xref-find-references`) - Find all references to the function under
+    the point.
+-   Tags apropos (`tags-apropos`) - Display list of all tags in tags table REGEXP
     matches.
 -   _`C-x t s`_ (`tags-search`) - Search through all files listed in tags table
     for match for REGEXP. Stops when a match is found.
