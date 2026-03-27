@@ -517,6 +517,11 @@ oc_mark(?map(Pairs, DefK, DefV), Direction, Module) ->
   t_map([{K, MNess, oc_mark(V, Direction, Module)} || {K, MNess, V} <- Pairs],
         oc_mark(DefK, Direction, Module),
         oc_mark(DefV, Direction, Module));
+oc_mark(?record(Name,Types0), Direction, Module) ->
+  Types1 = #{K => {present, oc_mark(V, Direction, Module)} || K := {present, V} <- Types0},
+  ?record(Name, Types1);
+oc_mark(?record_set(Types), Direction, Module) ->
+  ?record_set([oc_mark(T, Direction, Module) || T <- Types]);
 oc_mark(T, _Direction, _Module) ->
   T.
 
@@ -1261,6 +1266,10 @@ t_widen_to_number(?tuple(Types, Arity, Tag)) ->
   ?tuple(list_widen_to_number(Types), Arity, Tag);
 t_widen_to_number(?tuple_set(_) = Tuples) ->
   t_sup([t_widen_to_number(T) || T <- t_tuple_subtypes(Tuples)]);
+t_widen_to_number(?record(_,_)) ->
+  error({error, "Internal error. Please report this issue to Erlang/OTP."});
+t_widen_to_number(?record_set(_)) ->
+  error({error, "Internal error. Please report this issue to Erlang/OTP."});
 t_widen_to_number(?union(List)) ->
   ?union(list_widen_to_number(List));
 t_widen_to_number(?var(_Id)= T) -> T.
@@ -1905,6 +1914,8 @@ t_has_var(?map(_, DefK, _)= Map) ->
     t_has_var(DefK);
 t_has_var(?record(_,Type)) ->
   t_has_var_list(maps:to_list(Type));
+t_has_var(?record_set(List)) ->
+  t_has_var_list(List);
 t_has_var(?union(List)) ->
   t_has_var_list(List);
 t_has_var(_) -> false.
@@ -1946,6 +1957,10 @@ t_collect_var_names(?nominal(_, S), Acc) ->
   t_collect_var_names(S, Acc);
 t_collect_var_names(?nominal_set(N, S), Acc) ->
   t_collect_vars_list(N, t_collect_var_names(S, Acc));
+t_collect_var_names(?record(_,Types), Acc) ->
+  t_collect_vars_list(maps:to_list(Types), Acc);
+t_collect_var_names(?record_set(Types), Acc) ->
+  t_collect_vars_list(Types, Acc);
 t_collect_var_names(?union(List), Acc) ->
   t_collect_vars_list(List, Acc);
 t_collect_var_names(_, Acc) ->
@@ -2618,6 +2633,8 @@ t_elements(?tuple_set(_) = TS) ->
     Elems -> Elems
   end;
 t_elements(?record(_,_) = T) -> [T];
+t_elements(?record_set(_)) ->
+  error({error, "Internal error. Please report this issue to Erlang/OTP."});
 t_elements(?union(_) = T) ->
   do_elements(T);
 t_elements(?var(_)) -> [?any].  %% yes, vars exist -- what else to do here?
@@ -3325,6 +3342,10 @@ t_unify_table_only(?map(_, ADefK, ADefV) = A, ?map(_, BDefK, BDefV) = B, VarMap0
 	  {Pairs0, VarMap4}
       end, {[], VarMap2}, A, B),
   VarMap;
+t_unify_table_only(?record(_,_), ?record(_,_), _) ->
+  error({error, "Internal error. Please report this issue to Erlang/OTP."});
+t_unify_table_only(?record_set(_), ?record_set(_), _) ->
+  error({error, "Internal error. Please report this issue to Erlang/OTP."});
 t_unify_table_only(T, T, VarMap) ->
   VarMap;
 t_unify_table_only(T1, T2, _) ->
