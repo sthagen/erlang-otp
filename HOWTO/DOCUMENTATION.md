@@ -60,7 +60,8 @@ All user facing documentation is written using [Markdown], specifically
 the [Markdown flavor] used by [earmark_parser].
 The flavor is described in detail in the [earmark_parser README],
 but it is basically [GFM] with some extra extensions, such as [IAL] and
-[Mathematical Expressions].
+[Mathematical Expressions]. Inline HTML elements are not allowed as they make
+it impossible to produce shell docs or man pages.
 
 The documentation is built using [ex_doc] and [$ERL_TOP/make/ex_doc.exs], which is
 a top level [ex_doc configuration file] describing how to build the docs for

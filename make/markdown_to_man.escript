@@ -1,4 +1,5 @@
 #!/usr/bin/env escript
+%%! +S 1 -mode minimal
 %%
 %% %CopyrightBegin%
 %%

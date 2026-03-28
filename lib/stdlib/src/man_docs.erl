@@ -64,7 +64,7 @@ module_to_manpage(Module, Path, #docs_v1{module_doc = #{~"en" := ModuleDoc}, doc
 %% Formats markdown as a roff man page.
 -spec markdown_to_manpage(binary(), file:filename(), string()) -> binary().
 markdown_to_manpage(Markdown, Path, Section) ->
-        markdown_to_manpage1(shell_docs_markdown:parse_md(Markdown), Path, Section).
+        markdown_to_manpage1(shell_docs_markdown:parse_md(Markdown, #{ allow_html => false }), Path, Section).
 markdown_to_manpage1(MarkdownChunks, Path, Section) ->
     Path1 = filename:absname(Path),
     App = get_app(Path1),

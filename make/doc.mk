@@ -134,25 +134,25 @@ man: $(MAN1_PAGES) $(MAN3_PAGES) $(MAN4_PAGES) $(MAN6_PAGES) $(MAN7_PAGES)
 MARKDOWN_TO_MAN=$(ERL_TOP)/make/markdown_to_man.escript
 
 man1/%.1: references/%_cmd.md $(MARKDOWN_TO_MAN)
-	@escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN1DIR) $<
+	$(gen_verbose)escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN1DIR) $<
 
 man3/%.3: src/%.md $(MARKDOWN_TO_MAN)
-	@escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN3DIR) $<
+	$(gen_verbose)escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN3DIR) $<
 
 man3/%.3: references/%.md $(MARKDOWN_TO_MAN)
-	@escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN3DIR) $<
+	$(gen_verbose)escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN3DIR) $<
 
 man3/%.3: %.erl $(MARKDOWN_TO_MAN)
-	@escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN3DIR) $<
+	$(gen_verbose)escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN3DIR) $<
 
 man4/%.4: references/%.md $(MARKDOWN_TO_MAN)
-	@escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN4DIR) -s 4 $<
+	$(gen_verbose)escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN4DIR) -s 4 $<
 
 man6/%.6: %_app.md $(MARKDOWN_TO_MAN)
-	@escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN6DIR) $<
+	$(gen_verbose)escript$(EXEEXT) $(MARKDOWN_TO_MAN) -o $(MAN6DIR) $<
 
 man7/%.7: $(APP_DIR)/mibs/%.mib
-	@mkdir -p man7
+	$(gen_verbose)mkdir -p man7
 	$(eval REL_PATH := $(patsubst $(ERL_TOP)/lib/%,%,$(abspath $<)))
 	$(eval APP_NAME := $(shell echo $(firstword $(subst /, ,$(REL_PATH))) |  tr '[:lower:]' '[:upper:]'))
 	$(eval MIB_NAME := $(basename $(notdir $<)))
