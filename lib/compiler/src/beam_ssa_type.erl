@@ -1166,7 +1166,7 @@ simplify(#b_set{op={bif,get_record_field},
         {Mod, #t_record{name={Mod,Name},type=Es}} ->
             case Es of
                 #{F := {present,_Type}} ->
-                    I = I0#b_set{anno=Anno#{blurf => true},op=get_record_element,args=[Term,F0]},
+                    I = I0#b_set{anno=Anno,op=get_record_element,args=[Term,F0]},
                     simplify(I, Ts, Ds);
                 #{} ->
                     I0
