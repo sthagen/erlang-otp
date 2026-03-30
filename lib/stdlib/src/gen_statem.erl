@@ -2351,7 +2351,7 @@ for the `gen_statem` process.  If the `gen_statem` process is started with
 - **[`{error, timeout}`](`t:start_ret/0`)** -
   [`Module:init/1`](`c:init/1`) did not return within
   the [start time-out](`t:start_opt/0`).  The `gen_statem` process
-  has been killed with [`exit(_, kill)`](`erlang:exit/2`).
+  has been killed with [`exit_signal(_, kill)`](`erlang:exit_signal/2`).
 
 - **[`{error, Reason}`](`t:start_ret/0`)**
   + Either [`Module:init/1`](`c:init/1`) returned

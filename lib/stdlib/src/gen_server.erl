@@ -937,7 +937,7 @@ Return value from the [`start/3,4`](`start/3`) and
 - **`{error, timeout}`** - The `gen_server` process failed to initialize
   since [`Module:init/1`](`c:init/1`) did not return within the
   [start time-out](`t:start_opt/0`). The `gen_server` process was killed
-  with [`exit(_, kill)`](`erlang:exit/2`).
+  with [`exit_signal(_, kill)`](`erlang:exit_signal/2`).
 
 - **`ignore`** - The `gen_server` process failed to initialize since
   [`Module:init/1`](`c:init/1`) returned `ignore`.
