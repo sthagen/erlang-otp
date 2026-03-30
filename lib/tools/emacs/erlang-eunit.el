@@ -112,9 +112,9 @@ buffer and vice versa"
 (defun erlang-eunit-buddy-file-path (orig-file-path buddy-dir-name)
   (let* ((orig-dir-name   (file-name-directory orig-file-path))
          (buddy-dir-name  (file-truename
-                           (erlang-eunit-filename-join orig-dir-name buddy-dir-name)))
+                           (expand-file-name buddy-dir-name orig-dir-name)))
          (buddy-base-name (erlang-eunit-buddy-basename orig-file-path)))
-    (erlang-eunit-filename-join buddy-dir-name buddy-base-name)))
+    (expand-file-name buddy-base-name buddy-dir-name)))
 
 ;;; Return the basename of the buddy file:
 ;;;     /tmp/foo/src/x.erl        --> x_tests.erl
@@ -150,13 +150,6 @@ buffer and vice versa"
 (defun erlang-eunit-module-name (file-path)
   (file-name-sans-extension (file-name-nondirectory file-path)))
 
-
-;;; Join filenames
-(defun erlang-eunit-filename-join (dir file)
-  (if (or (= (elt file 0) ?/)
-          (= (car (last (append dir nil))) ?/))
-      (concat dir file)
-    (concat dir "/" file)))
 
 ;;; Get info about the most recent running of EUnit
 (defun erlang-eunit-recent (key)
@@ -260,17 +253,12 @@ code along with the coverage analysis results."
     ;; analysis from a file into a new buffer (or an old, if one with
     ;; the specified name already exists).  Also we want the erlang-mode
     ;; *and* view-mode to be enabled.
-    (save-excursion
-      (let ((buf (get-buffer-create (format "*%s coverage*" module-name))))
-        (set-buffer buf)
+    (let ((buf (get-buffer-create (format "*%s coverage*" module-name))))
+      (with-current-buffer buf
         (setq buffer-read-only nil)
         (insert-file-contents tmp-filename nil nil nil t)
         (if (= (buffer-size) 0)
             (kill-buffer buf)
-          ;; FIXME: this would be a good place to enable (emacs-mode)
-          ;;        to get some nice syntax highlighting in the
-          ;;        coverage report, but it doesn't play well with
-          ;;        flymake.  Leave it off for now.
           (view-buffer buf))))
     (delete-file tmp-filename)))
 
