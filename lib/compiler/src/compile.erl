@@ -849,6 +849,22 @@ value are listed.
   record. It can also be emitted when creating a record if the module
   name for the record is explicitly given as the current module.
 
+- **`nowarn_unsafe_function`** - Turns off warnings for calls to unsafe
+  functions. Default is to emit warnings for every call to a function known by
+  the compiler to be unsafe. Notice that the compiler does not know about
+  attribute `-unsafe()`, but uses an assembled list of unsafe functions
+  in Erlang/OTP. To do a more general check, the Xref tool can be used. See also
+  [xref(3)](`m:xref#unsafe_function`) and the function `xref:m/1`, also
+  accessible through the function `\c:xm/1`.
+
+- **`{nowarn_unsafe_function, MFAs}`** - Turns off warnings for calls to
+  unsafe functions like `nowarn_unsafe_function` does, but only for the
+  mentioned functions. `MFAs` is a tuple `{Module,Name,Arity}` or a list of such
+  tuples.
+
+- **`warn_possibly_unsafe_function`** - Enables warnings for functions that
+  are unsafe when used in a certain manner.
+
 Other kinds of warnings are _opportunistic warnings_. They are generated when
 the compiler happens to notice potential issues during optimization and code
 generation.
