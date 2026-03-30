@@ -224,7 +224,7 @@ mnrs_merge([#t_record{name=nil}=A], [B|RsB], Acc) ->
         #t_record{}=T ->
             mnrs_merge([A], RsB, [T | Acc]);
         _ ->
-            none
+            mnrs_merge([A], RsB, Acc)
     end;
 mnrs_merge([A|RsA], [B|RsB], Acc) ->
     %% None of sets can have an element with the name nil.
@@ -232,7 +232,7 @@ mnrs_merge([A|RsA], [B|RsB], Acc) ->
         #t_record{}=T ->
             mnrs_merge(RsA, RsB, [T | Acc]);
         _ ->
-            none
+            mnrs_merge(RsA, RsB, Acc)
     end;
 mnrs_merge(_RsA, _RsB, Acc) ->
     %% At least one of the sets is empty.
