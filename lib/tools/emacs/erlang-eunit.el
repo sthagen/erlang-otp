@@ -24,8 +24,7 @@
 ;;;
 ;;; Author: Klas Johansson
 
-(eval-when-compile
-  (require 'cl-lib))
+(require 'cl-lib)
 (require 'erlang)
 
 (defcustom erlang-eunit-src-candidate-dirs '("../src" ".")
@@ -395,13 +394,7 @@ With prefix arg, compiles for debug and runs tests with the verbose flag set."
    "[0-9]+: Warning:"
    (buffer-substring (line-beginning-position) (line-end-position))))
 
-(defun erlang-eunit-all-list-elems-fulfill-p (pred list)
-  (let ((matches-p t))
-    (while (and list matches-p)
-      (if (not (funcall pred (car list)))
-          (setq matches-p nil))
-      (setq list (cdr list)))
-    matches-p))
+(defalias 'erlang-eunit-all-list-elems-fulfill-p #'cl-every)
 
 ;;; Evaluate a command in an erlang buffer
 (defun erlang-eunit-inferior-erlang-send-command (command)
