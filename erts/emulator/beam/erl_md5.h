@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 2023-2025. All Rights Reserved.
+ * Copyright Ericsson AB 2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,15 +23,21 @@
 #ifndef ERL_MD5_H__
 #define ERL_MD5_H__
 
-#undef ERLANG_OPENSSL_INTEGRATION
-#define ERLANG_OPENSSL_INTEGRATION
+#include <stdint.h>
 
-#define MD5_INIT_FUNCTION_NAME                  ei_MD5Init
-#define MD5_UPDATE_FUNCTION_NAME                ei_MD5Update
-#define MD5_FINAL_FUNCTION_NAME                 ei_MD5Final
-#define MD5_TRANSFORM_FUNCTION_NAME             ei_MD5Transform
-#define MD5_BLOCK_DATA_ORDER_FUNCTION_NAME      ei_MD5BlockDataOrder
+#define MD5_DIGEST_LENGTH 16
 
-#include "openssl_local/md5.h"
+typedef struct {
+    uint32_t a, b, c, d;
+    size_t tot_len;
+    size_t len;
+    uint8_t buf[64];
+} erts_md5_state;
 
-#endif
+void erts_md5(const uint8_t* msg, size_t msg_len, uint8_t* out);
+void erts_md5_init(erts_md5_state*);
+void erts_md5_update(erts_md5_state*, const uint8_t* msg, size_t msg_len);
+void erts_md5_finish(uint8_t* out, erts_md5_state*);
+
+#endif // ERL_MD5_H__
+
