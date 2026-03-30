@@ -413,7 +413,7 @@ During the walk, `erldoc-dom-walk-parent' and
 (defvar erldoc-app-manuals '("crypto" "diameter" "erl_docgen"
                              "kernel" "observer" "os_mon"
                              "runtime_tools" "sasl" "snmp"
-                             "ssl" "test_server"
+                             "ssl"
                              ("ssh" . "SSH") ("stdlib" . "STDLIB"))
   "List of applications that come with a manual.")
 

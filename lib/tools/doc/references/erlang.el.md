@@ -192,20 +192,19 @@ package "tempo". Here follows a brief description of the available skeletons:
     information about the module), and Large Header (medium header with some
     extra layout structure).
 -   Small Server - skeleton for a simple server not using OTP.
--   Application - skeletons for the OTP application behavior
+-   Application - skeleton for the OTP application behavior
 -   Supervisor - skeleton for the OTP supervisor behavior
--   Supervisor Bridge - skeleton for the OTP supervisor bridge behavior
 -   gen_server - skeleton for the OTP gen_server behavior
 -   gen_event - skeleton for the OTP gen_event behavior
--   gen_fsm - skeleton for the OTP gen_fsm behavior (deprecated, use gen_statem)
 -   gen_statem (StateName/3) - skeleton for the OTP gen_statem behavior using
     state name functions
 -   gen_statem (handle_event/4) - skeleton for the OTP gen_statem behavior using
     one state function
+-   wx_object - skeleton for the wx_object behavior
 -   Library module - skeleton for a module that does not implement a process.
--   Corba callback - skeleton for a Corba callback module.
--   Erlang test suite - skeleton for a callback module for the erlang test
-    server.
+-   Small Common Test suite - skeleton for a basic Common Test suite
+-   Large Common Test suite - skeleton for a full Common Test suite
+-   Common Test Hook - skeleton for a Common Test hook module
 
 ## Shell
 
