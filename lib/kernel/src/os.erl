@@ -61,8 +61,12 @@ Options for [`os:cmd/2`](`cmd/2`).
 
 - **`max_size`** - The maximum size of the data returned by the `os:cmd/2` call.
   See the [`os:cmd/2`](`cmd/2`) documentation for more details.
+
+  Since OTP 20.2.3
 - **`exception_on_failure`** - If set to true, `cmd/2` will throw an error exception if
   the command exits with a non-zero exit code.
+
+  Since OTP 28.0
 """.
 -type os_command_opts() :: #{ max_size => non_neg_integer() | infinity,
                               exception_on_failure => boolean() }.
@@ -550,6 +554,7 @@ The possible options are:
   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   ```
 
+  Since OTP 20.2.3
 - **`exception_on_failure`** - If set to true, `os:cmd/2` will throw an error
   exception if the command exits with a non-zero exit code. The exception reason
   looks like this: `{command_failed, ResultBeforeFailure, ExitCode}` where
@@ -564,6 +569,8 @@ The possible options are:
            [{os,cmd,2,[{file,"os.erl"},{line,579}]},
   ...
   ```
+
+  Since OTP 28.0
 
 The command shell can be set using the
 [kernel configuration parameter](kernel_app.md#os_cmd_shell), by default the
