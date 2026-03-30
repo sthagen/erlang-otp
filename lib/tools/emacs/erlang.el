@@ -4652,15 +4652,12 @@ In the completion list, `module:tag' and `module:' shows up."
 
 (defun erlang-complete-tag ()
   "Perform tags completion on the text around point.
-Completes to the set of names listed in the current tags table.
-
-Should the Erlang tags system be installed this command knows
-about Erlang modules."
+Completes to the set of names listed in the current tags table,
+including module-qualified names."
   (interactive)
   (require 'etags)
   (let ((erlang-replace-etags-tags-completion-table t))
     (complete-tag)))
-
 
 (defun erlang-find-tag-for-completion ()
   (let ((start (save-excursion
@@ -5252,8 +5249,6 @@ Also see the description of `ielm-prompt-read-only'."
 
 (defvar erlang-shell-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map "\M-\t"    'erlang-complete-tag)
-
     ;; Normally the other way around.
     (define-key map "\C-a"     'comint-bol)
     (define-key map "\C-c\C-a" 'beginning-of-line)
