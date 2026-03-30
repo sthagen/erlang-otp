@@ -6029,6 +6029,24 @@ native_records(Config) ->
                      [98,97,100,32,"record",32,100,101,99,108,97,114,97,116,105,111,
                       110]}],
             []}
+          },
+          {illegal_type_restriction,
+           <<"-record #xy{x :: number(), y :: number()}.
+             -type xy() :: #xy{}.
+             -type int_xy() :: #xy{x :: integer(), y :: integer()}.
+
+             -spec mk_int_xy() -> #xy{x :: integer(), y :: integer()}.
+             mk_int_xy() -> #xy{x=0,y=1}.
+
+             -spec int_inc_xy(int_xy()) -> int_xy().
+             int_inc_xy(#xy{x=X,y=Y}) -> #xy{x=X+1, y=Y+1}.
+
+              -spec mk_xy() -> xy().
+              mk_xy() -> #xy{x=42.0,y=100.0}.">>,
+           [],
+           {errors,[{{3,36},erl_lint,native_record_field_types},
+                    {{5,39},erl_lint,native_record_field_types}],
+            []}
           }
          ],
     [] = run(Config, Ts),
