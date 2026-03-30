@@ -444,8 +444,7 @@ files written in other languages than Erlang.")
       ("Off" erlang-font-lock-level-0)))
     ("TAGS"
      (("Find Definition" xref-find-definitions)
-      ("Find Next Tag" erlang-find-next-tag)
-      ("Complete Word" erlang-complete-tag)
+      ("Find References" xref-find-references)
       ("Tags Apropos" tags-apropos)
       ("Search Files" tags-search)))
     nil

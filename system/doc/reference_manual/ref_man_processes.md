@@ -172,7 +172,7 @@ been performed.
 - **`unlink`** - Sent when calling the [unlink/1](`erlang:unlink/1`) BIF.
 
 - **`exit`** - Sent either when explicitly sending an `exit` signal by calling
-  the [exit/2](`erlang:exit/2`) BIF, or when a
+  the [exit_signal/2](`erlang:exit_signal/2`) BIF, or when a
   [linked process terminates](ref_man_processes.md#sending_exit_signals). If the
   signal is sent due to a link, the signal is sent after all
   [_directly visible Erlang resources_](ref_man_processes.md#visible-resources)
@@ -525,18 +525,11 @@ lost.
   - `erlang:link/1`
   - `erlang:group_leader/2`
 
-- **Unexpected Behaviours of Exit Signals** - When a process sends an exit
-  signal with exit reason `normal` to itself by calling
-  [`erlang:exit(self(), normal)`](`erlang:exit/2`) it will be terminated
-  [when the `exit` signal is received](ref_man_processes.md#receiving_exit_signals).
-  In all other cases when an exit signal with exit reason `normal` is received,
-  it is dropped.
-
-  When an
+- **Unexpected Behaviours of Exit Signals** - When an
   [`exit` signal with exit reason `kill` is received](ref_man_processes.md#receiving_exit_signals),
   the action taken is different depending on whether the signal was sent due to
   a linked process terminating, or the signal was explicitly sent using the
-  [`exit/2`](`erlang:exit/2`) BIF. When sent using the [`exit/2`](`exit/2`) BIF,
+  [`exit_signal/2`](`erlang:exit_signal/2`) BIF. When sent using the [`exit_signal/2`](`exit_signal/2`) BIF,
   the signal cannot be [trapped](`m:erlang#process_flag_trap_exit`), while it
   can be trapped if the signal was sent due to a link.
 
@@ -641,12 +634,12 @@ following information:
     still be alive.
 
 Exit signals can also be sent explicitly by calling the
-[`exit(PidOrPort, Reason)`](`erlang:exit/2`) BIF. The exit signal is sent to the
+[`exit(PidOrPort, Reason)`](`erlang:exit_signal/2`) BIF. The exit signal is sent to the
 process or port identified by the `PidOrPort` argument. The exit signal sent
 will contain the following information:
 
 - **Sender identifier** - The process identifier of the process that called
-  [`exit/2`](`exit/2`).
+  [`exit_signal/2`](`exit_signal/2`).
 
 - **Receiver identifier** - The process or port identifier of the process or
   port which the exit signal is sent to.
@@ -655,7 +648,7 @@ will contain the following information:
   signal was not sent due to a link.
 
 - **Exit reason** - The term passed as `Reason` in the call to
-  [`exit/2`](`exit/2`). If `Reason` is the atom `kill`, the receiver cannot
+  [`exit_signal/2`](`exit_signal/2`). If `Reason` is the atom `kill`, the receiver cannot
   [trap the exit](`m:erlang#process_flag_trap_exit`) signal and will
   unconditionally terminate when it receives the signal.
 
@@ -671,7 +664,7 @@ What happens when a process receives an exit signal depends on:
 - The sender of the exit signal.
 - The state of the `link` flag of the exit signal. If the `link` flag is set,
   the exit signal was sent due to a link; otherwise, the exit signal was sent by
-  a call to the [`exit/2`](`erlang:exit/2`) BIF.
+  a call to the [`exit_signal/2`](`erlang:exit_signal/2`) BIF.
 - If the `link` flag is set, what happens also depends on whether the
   [link is still active or not](`erlang:unlink/1`) when the exit signal is
   received.
@@ -683,8 +676,8 @@ received by a process:
 
   - the `link` flag of the exit signal is set and the corresponding link has
     been deactivated.
-  - the exit reason of the exit signal is the atom `normal`, the receiver is not
-    trapping exits, and the receiver and sender are not the same process.
+  - the exit reason of the exit signal is the atom `normal`, and the receiver
+    is not trapping exits.
 
 - The receiving process is terminated if:
 
@@ -697,10 +690,6 @@ received by a process:
     The exit reason of the receiving process will equal the exit reason of the
     exit signal. Note that if the `link` flag is set, an exit reason of `kill`
     will _not_ be converted to `killed`.
-  - the exit reason of the exit signal is the atom `normal` and the sender of
-    the exit signal is the same process as the receiver. The `link` flag cannot
-    be set in this case. The exit reason of the receiving process will be the
-    atom `normal`.
 
 - The exit signal is converted to a message signal and added to the end of the
   message queue of the receiver, if the receiver is trapping exits, the `link`

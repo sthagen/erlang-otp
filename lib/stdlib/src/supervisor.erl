@@ -236,12 +236,12 @@ but the map is preferred.
 
 - `shutdown` defines how a child process must be terminated. `brutal_kill` means
   that the child process is unconditionally terminated using
-  [`exit(Child,kill)`](`exit/2`). An integer time-out value means that the
+  [`exit_signal(Child,kill)`](`exit_signal/2`). An integer time-out value means that the
   supervisor tells the child process to terminate by calling
-  [`exit(Child,shutdown)`](`exit/2`) and then wait for an exit signal with
+  [`exit_signal(Child,shutdown)`](`exit_signal/2`) and then wait for an exit signal with
   reason `shutdown` back from the child process. If no exit signal is received
   within the specified number of milliseconds, the child process is
-  unconditionally terminated using [`exit(Child,kill)`](`exit/2`).
+  unconditionally terminated using [`exit_signal(Child,kill)`](`exit_signal/2`).
 
   If the child process is another supervisor, the shutdown time must be set to
   `infinity` to give the subtree ample time to shut down.

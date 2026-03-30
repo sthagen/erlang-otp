@@ -873,6 +873,7 @@ static ERL_NIF_TERM tty_tigetstr_nif(ErlNifEnv* env, int argc, const ERL_NIF_TER
 #endif
 }
 
+static int library_refc = 0;
 #ifdef HAVE_TERMCAP
 static ErlNifMutex *tputs_mutex;
 static int tputs_buffer_index;
@@ -1244,35 +1245,44 @@ static void tty_select_stop(ErlNifEnv* caller_env, void* obj, ErlNifEvent event,
 #endif
 }
 
-static void load_resources(ErlNifEnv* env, ErlNifResourceFlags rt_flags) {
+static void init(ErlNifEnv* env, ErlNifResourceFlags rt_flags) {
     ErlNifResourceTypeInit rt = {
         NULL /* dtor */,
         tty_select_stop,
         tty_monitor_down};
 
-#define ATOM_DECL(A) atom_##A = enif_make_atom(env, #A)
-    ATOMS
-#undef ATOM_DECL
+    tty_rt = enif_open_resource_type_x(env, "tty", &rt, rt_flags, NULL);
 
-        tty_rt = enif_open_resource_type_x(env, "tty", &rt, rt_flags, NULL);
+    if (library_refc == 0) {
+#ifdef HAVE_TERMCAP
+        tputs_mutex = enif_mutex_create("tputs_muex");
+#endif
+#define ATOM_DECL(A) atom_##A = enif_make_atom(env, #A)
+        ATOMS
+#undef ATOM_DECL
+    }
+    ++library_refc;
 }
 
 static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
     *priv_data = NULL;
-#ifdef HAVE_TERMCAP
-    tputs_mutex = enif_mutex_create("tputs_muex");
-#endif
-    load_resources(env, ERL_NIF_RT_CREATE);
+    init(env, ERL_NIF_RT_CREATE);
     return 0;
 }
 
 static void unload(ErlNifEnv* env, void* priv_data)
 {
+    --library_refc;
 #ifdef HAVE_TERMCAP
-    if (saved_term) {
-        del_curterm(saved_term);
-        saved_term = NULL;
+    if (library_refc == 0) {
+        enif_mutex_destroy(tputs_mutex);
+        tputs_mutex = NULL;
+
+        if (saved_term) {
+            del_curterm(saved_term);
+            saved_term = NULL;
+        }
     }
 #endif
 }
@@ -1287,6 +1297,6 @@ static int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
         return -1; /* Don't know how to do that */
     }
     *priv_data = NULL;
-    load_resources(env, ERL_NIF_RT_TAKEOVER);
+    init(env, ERL_NIF_RT_TAKEOVER);
     return 0;
 }

@@ -54,6 +54,7 @@
 -define(format(S, A), ok).
 -define(privdir(Conf), proplists:get_value(priv_dir, Conf)).
 -endif.
+-include_lib("stdlib/include/assert.hrl").
 
 suite() ->
     [{ct_hooks,[ts_install_cth]},
@@ -83,18 +84,18 @@ error_1(Config) when is_list(Config) ->
     PrivDir = ?privdir(Config),
     File = filename:join(PrivDir, "slask"),
     {ok, F1} = file:open(File, [write]),
-    {'EXIT', _} = (catch io:format(muttru, "hej", [])),
-    {'EXIT', _} = (catch io:format(F1, pelle, "hej")),
-    {'EXIT', _} = (catch io:format(F1, 1, "hej")),
-    {'EXIT', _} = (catch io:format(F1, "~p~", [kaka])),
-    {'EXIT', _} = (catch io:format(F1, "~m~n", [kaka])),
+    ?assertError(_, io:format(muttru, "hej", [])),
+    ?assertError(_, io:format(F1, pelle, "hej")),
+    ?assertError(_, io:format(F1, 1, "hej")),
+    ?assertError(_, io:format(F1, "~p~", [kaka])),
+    ?assertError(_, io:format(F1, "~m~n", [kaka])),
 
     %% This causes the file process to die, and it is linked to us,
     %% so we can't catch the error this easily.
     %%    {'EXIT', _} = (catch io:put_chars(F1, 666)),
 
     file:close(F1),
-    {'EXIT', _} = (catch io:format(F1, "~p", ["hej"])),
+    ?assertError(_,io:format(F1, "~p", ["hej"])),
     ok.
 
 format_neg_zero(Config) when is_list(Config) ->
@@ -151,17 +152,20 @@ float_g(Config) when is_list(Config) ->
      "5.0e+4",
      "5.0e+5"] = float_g_1("~.2g", 5.0, -2, 5),
 
-    case catch fmt("~.1g", [0.5]) of
-	"0.5" ->
-	    ["5.0e-2",
-	     "0.5",
-	     "5.0e+0",
-	     "5.0e+1",
-	     "5.0e+2",
-	     "5.0e+3",
-	     "5.0e+4",
-	     "5.0e+5"] = float_g_1("~.1g", 5.0, -2, 5);
-	{'EXIT',_} -> ok
+    try
+        fmt("~.1g", [0.5])
+    of
+        "0.5" ->
+            ["5.0e-2",
+             "0.5",
+             "5.0e+0",
+             "5.0e+1",
+             "5.0e+2",
+             "5.0e+3",
+             "5.0e+4",
+             "5.0e+5"] = float_g_1("~.1g", 5.0, -2, 5)
+    catch
+        _:_ -> ok
     end,
 
     ["4.99999e-2",
@@ -218,7 +222,7 @@ float_w(Config) when is_list(Config) ->
     ok.
 
 calling_self(Config) when is_list(Config) ->
-    {'EXIT', {calling_self, _}} = (catch io:format(self(), "~p", [oops])),
+    ?assertError(calling_self, io:format(self(), "~p", [oops])),
     ok.
 
 %% OTP-5403. ~s formats I/O lists and a single binary.
@@ -1454,14 +1458,22 @@ g_t_1(V, Sv) ->
             SvLow = step_lsd(Sv, -Times)
     end,
 
-    case catch list_to_float(SvLow) of
+    try
+        list_to_float(SvLow)
+    of
         V -> throw(low_is_v);
         _ -> ok
+    catch
+        _:_ -> ok
     end,
 
-    case catch list_to_float(SvHigh) of
+    try
+        list_to_float(SvHigh)
+    of
         V -> throw(high_is_v);
         _ -> ok
+    catch
+        _:_ -> ok
     end,
 
     %% Check that Sv has enough digits.
@@ -1633,9 +1645,12 @@ f2r({S,BE,M}) when 0 =< S, S =< 1,
                    0 =< M, M =< ?ALL_ONES ->
     Vr = {T,N} = f2r1(S, BE, M),
     <<F:64/float>> = <<S:1, BE:11, M:52>>,
-    case catch T/N of
-        {'EXIT', _} -> ok;
+    try
+        T/N
+    of
         TN -> true = F == TN
+    catch
+        _:_ -> ok
     end,
     Vr.
 
@@ -2168,7 +2183,7 @@ bad_printable_range(Config) when is_list(Config) ->
          after 6000 ->
                    timeout
          end,
-    catch port_close(P),
+    try port_close(P) catch _:_ -> ok end,
     flush_from_port(P),
     ok.
 
@@ -3025,8 +3040,8 @@ otp_15076(_Config) ->
     ok = bad_io_lib_format("~c", [a]),
     L = io_lib:scan_format("~c", [a]),
     {"~c", [a]} = io_lib:unscan_format(L),
-    {'EXIT', {badarg, _}} = (catch io_lib:build_text(L)),
-    {'EXIT', {badarg, _}} = (catch io_lib:build_text(L, [])),
+    ?assertError(badarg, io_lib:build_text(L)),
+    ?assertError(badarg, io_lib:build_text(L, [])),
     ok.
 
 otp_15639(_Config) ->

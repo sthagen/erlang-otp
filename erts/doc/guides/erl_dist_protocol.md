@@ -925,7 +925,7 @@ distributed operation it encodes:
 
 - **`EXIT2`** - `{8, FromPid, ToPid, Reason}`
 
-  This signal is sent by a call to the erlang:exit/2 bif
+  This signal is sent by a call to the erlang:exit_signal/2 bif
 
 - **`SEND_TT`** - `{12, Unused, ToPid, TraceToken}`
 

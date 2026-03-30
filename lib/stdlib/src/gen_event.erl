@@ -727,7 +727,7 @@ If the event manager fails to start within the specified start timeout
 `{timeout, Time}`, which is very unlikely since the start
 does not interact with other processes, the function returns
 `{error, timeout}` and the failed event manager is killed with
-[`exit(_, kill)`](`erlang:exit/2`).
+[`exit_signal(_, kill)`](`erlang:exit_signal/2`).
 
 If `start_link/1,2` returns `{error, _}`, the started event manager process
 has terminated.  If an `'EXIT'` message was delivered

@@ -108,9 +108,9 @@ buffer and vice versa"
 (defun erlang-eunit-buddy-file-path (orig-file-path buddy-dir-name)
   (let* ((orig-dir-name   (file-name-directory orig-file-path))
          (buddy-dir-name  (file-truename
-                           (filename-join orig-dir-name buddy-dir-name)))
+                           (erlang-eunit-filename-join orig-dir-name buddy-dir-name)))
          (buddy-base-name (erlang-eunit-buddy-basename orig-file-path)))
-    (filename-join buddy-dir-name buddy-base-name)))
+    (erlang-eunit-filename-join buddy-dir-name buddy-base-name)))
 
 ;;; Return the basename of the buddy file:
 ;;;     /tmp/foo/src/x.erl        --> x_tests.erl
@@ -135,7 +135,6 @@ buffer and vice versa"
 ;;;     /tmp/foo/src/x.erl        --> x
 ;;;     /tmp/foo/test/x_tests.erl --> x
 (defun erlang-eunit-source-module-name (file-path)
-  (interactive)
   (let ((module-name (erlang-eunit-module-name file-path)))
     (if (string-match "^\\(.+\\)_tests$" module-name)
         (substring module-name (match-beginning 1) (match-end 1))
@@ -145,12 +144,11 @@ buffer and vice versa"
 ;;;     /tmp/foo/src/x.erl        --> x
 ;;;     /tmp/foo/test/x_tests.erl --> x_tests
 (defun erlang-eunit-module-name (file-path)
-  (interactive)
   (file-name-sans-extension (file-name-nondirectory file-path)))
 
 
 ;;; Join filenames
-(defun filename-join (dir file)
+(defun erlang-eunit-filename-join (dir file)
   (if (or (= (elt file 0) ?/)
           (= (car (last (append dir nil))) ?/))
       (concat dir file)
