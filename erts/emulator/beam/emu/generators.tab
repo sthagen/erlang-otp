@@ -1181,9 +1181,15 @@ gen.bs_match(Fail, Ctx, N, List) {
                 op->a[2].type = TAG_u;
                 op->a[2].val = unit; /* Unit */
                 op->a[3] = Fail;
+            } else if (size == 0 && unit == 8) {
+                $NewBeamOp(S, op);
+                $BeamOpNameArity(op, i_bs_test_unit8, 2);
+
+                op->a[0] = Fail;
+                op->a[1] = Ctx;
             } else if (size == 0 && unit != 1) {
                 $NewBeamOp(S, op);
-                $BeamOpNameArity(op, bs_test_unit, 3);
+                $BeamOpNameArity(op, i_bs_test_unit, 3);
 
                 op->a[0] = Fail;
                 op->a[1] = Ctx;

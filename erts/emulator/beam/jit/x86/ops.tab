@@ -945,8 +945,6 @@ bs_test_tail2 Fail=f _Ms=xy o => jump Fail
 
 bs_test_tail2 f S W
 
-bs_test_unit f S t
-
 # Gets a bitstring from the tail of a context.
 bs_get_tail S d t
 

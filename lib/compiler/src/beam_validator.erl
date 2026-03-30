@@ -938,20 +938,6 @@ vi({test,bs_test_tail2,{f,Fail},[Ctx0,_Size]}, Vst) ->
     assert_no_exception(Fail),
     assert_type(#t_bs_context{}, Ctx, Vst),
     branch(Fail, Vst);
-vi({test,bs_test_unit,{f,Fail},[Ctx0,Unit]}, Vst) ->
-    Ctx = unpack_typed_arg(Ctx0, Vst),
-    assert_type(#t_bs_context{}, Ctx, Vst),
-
-    Type = #t_bs_context{tail_unit=Unit},
-
-    branch(Fail, Vst,
-           fun(FailVst) ->
-                   update_type(fun subtract/2, Type, Ctx, FailVst)
-           end,
-           fun(SuccVst0) ->
-                   SuccVst = update_bs_unit(Ctx, Unit, SuccVst0),
-                   update_type(fun meet/2, Type, Ctx, SuccVst)
-           end);
 vi({test,bs_skip_utf8,{f,Fail},[Ctx,Live,_]}, Vst) ->
     validate_bs_skip(Fail, Ctx, 8, Live, Vst);
 vi({test,bs_skip_utf16,{f,Fail},[Ctx,Live,_]}, Vst) ->
