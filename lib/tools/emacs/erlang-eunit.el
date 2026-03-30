@@ -28,26 +28,31 @@
   (require 'cl-lib))
 (require 'erlang)
 
-(defvar erlang-eunit-src-candidate-dirs '("../src" ".")
-  "*Name of directories which to search for source files matching
-an EUnit test file.  The first directory in the list will be used,
-if there is no match.")
+(defcustom erlang-eunit-src-candidate-dirs '("../src" ".")
+  "Directories to search for source files matching an EUnit test file.
+The first directory in the list will be used if there is no match."
+  :type '(repeat string)
+  :group 'erlang)
 
-(defvar erlang-eunit-test-candidate-dirs '("../test" ".")
-  "*Name of directories which to search for EUnit test files matching
-a source file.  The first directory in the list will be used,
-if there is no match.")
+(defcustom erlang-eunit-test-candidate-dirs '("../test" ".")
+  "Directories to search for EUnit test files matching a source file.
+The first directory in the list will be used if there is no match."
+  :type '(repeat string)
+  :group 'erlang)
 
-(defvar erlang-eunit-autosave nil
-  "*Set to non-nil to automatically save unsaved buffers before running tests.
-This is useful, reducing the save-compile-load-test cycle to one keychord.")
+(defcustom erlang-eunit-autosave nil
+  "Non-nil means automatically save unsaved buffers before running tests."
+  :type 'boolean
+  :group 'erlang)
 
 (defvar erlang-eunit-recent-info '((mode . nil) (module . nil) (test . nil) (cover . nil))
   "Info about the most recent running of an EUnit test representation.")
 
-(defvar erlang-error-regexp-alist
+(defcustom erlang-error-regexp-alist
   '(("^\\([^:( \t\n]+\\)[:(][ \t]*\\([0-9]+\\)[:) \t]" . (1 2)))
-  "*Patterns for matching Erlang errors.")
+  "Patterns for matching Erlang errors."
+  :type '(alist :key-type regexp :value-type sexp)
+  :group 'erlang)
 
 ;;;
 ;;; Switch between src/EUnit test buffers
