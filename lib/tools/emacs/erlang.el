@@ -5460,7 +5460,7 @@ frame will become deselected before the next command."
             (switch-to-buffer-other-window inferior-erlang-buffer)
             (setq win (selected-window)))
           (select-window old-win))
-      (if (and window-system
+      (if (and (display-graphic-p)
                (or select
                    (eq inferior-erlang-display-buffer-any-frame 'raise))
                (not (eq (selected-frame) (window-frame win))))
