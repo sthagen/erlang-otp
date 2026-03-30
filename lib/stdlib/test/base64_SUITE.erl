@@ -34,7 +34,7 @@
 	 base64_otp_5635/1, base64_otp_6279/1, big/1, illegal/1,
 	 mime_decode/1, mime_decode_modes/1,
 	 mime_decode_to_string/1, mime_decode_to_string_modes/1,
-	 roundtrip_1/1, roundtrip_2/1, roundtrip_3/1, roundtrip_4/1]).
+         roundtrip_1/1, roundtrip_2/1, roundtrip_3/1, roundtrip_4/1, doctests/1]).
 
 %%-------------------------------------------------------------------------
 %% Test cases starts here.
@@ -49,7 +49,7 @@ all() ->
      base64_decode, base64_decode_to_string, base64_decode_modes,
      base64_otp_5635, base64_otp_6279, big, illegal,
      mime_decode, mime_decode_modes,
-     mime_decode_to_string, mime_decode_to_string_modes,
+     mime_decode_to_string, mime_decode_to_string_modes, doctests,
      {group, roundtrip}].
 
 groups() ->
@@ -513,3 +513,6 @@ mbb(N, Acc) when N > 256 ->
 mbb(N, Acc) ->
     B = list_to_binary(lists:seq(0, N-1)),
     lists:reverse(Acc, B).
+
+doctests(_Config) ->
+    ct_doctest:module(base64, [{skipped_blocks, 0}, {missing_tests, []}]).
