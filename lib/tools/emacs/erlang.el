@@ -5323,30 +5323,45 @@ Selects Comint or Compilation mode command as appropriate."
 ;;; Inferior Erlang -- Run an Erlang shell as a subprocess.
 ;;;
 
-(defvar inferior-erlang-display-buffer-any-frame nil
-  "When nil, `inferior-erlang-display-buffer' use only selected frame.
-When t, all frames are searched.  When \='raise, the frame is raised.")
+(defcustom inferior-erlang-display-buffer-any-frame nil
+  "How to find the inferior Erlang buffer when displaying it.
+When nil, use only the selected frame.  When t, search all frames.
+When `raise', search all frames and raise the frame containing the buffer."
+  :type '(choice (const :tag "Selected frame only" nil)
+                 (const :tag "Search all frames" t)
+                 (const :tag "Search and raise" raise))
+  :group 'erlang)
 
-(defvar inferior-erlang-machine "erl"
-  "The name of the Erlang shell.")
+(defcustom inferior-erlang-machine "erl"
+  "The command to start the Erlang shell."
+  :type 'string
+  :group 'erlang)
 
-(defvar inferior-erlang-machine-options '()
-  "The options used when activating the Erlang shell.
+(defcustom inferior-erlang-machine-options '()
+  "Additional options for the Erlang shell command.
+This must be a list of strings."
+  :type '(repeat string)
+  :group 'erlang)
 
-This must be a list of strings.")
+(defcustom inferior-erlang-process-name "inferior-erlang"
+  "The name of the inferior Erlang process."
+  :type 'string
+  :group 'erlang)
 
-(defvar inferior-erlang-process-name "inferior-erlang"
-  "The name of the inferior Erlang process.")
+(defcustom inferior-erlang-buffer-name erlang-shell-buffer-name
+  "The name of the inferior Erlang buffer."
+  :type 'string
+  :group 'erlang)
 
-(defvar inferior-erlang-buffer-name erlang-shell-buffer-name
-  "The name of the inferior Erlang buffer.")
-
-(defvar inferior-erlang-prompt-timeout 60
+(defcustom inferior-erlang-prompt-timeout 60
   "Number of seconds before `inferior-erlang-wait-prompt' timeouts.
-
 The time specified is waited after every output made by the inferior
 Erlang shell.  When this variable is t, we assume that we always have
-a prompt.  When nil, we will wait forever, or until \\[keyboard-quit].")
+a prompt.  When nil, we will wait forever, or until \\[keyboard-quit]."
+  :type '(choice integer
+                 (const :tag "Always assume prompt" t)
+                 (const :tag "Wait forever" nil))
+  :group 'erlang)
 
 (defvar inferior-erlang-process nil
   "Process of last invoked inferior Erlang, or nil.")
