@@ -39,8 +39,8 @@ The following command are directly available for indentation.
 
 -   _`TAB`_ (`erlang-indent-command`) - Indents the current line of code.
 -   _`M-C-\`_ (`indent-region`) - Indents all lines in the region.
--   _`M-l`_ (`indent-for-comment`) - Insert a comment character to the right of
-    the code on the line (if any).
+-   _`M-;`_ (`comment-indent`) - Insert a comment character to the right of the
+    code on the line (if any).
 
 Lines containing comment are indented differently depending on the number of
 %-characters used:
@@ -149,7 +149,7 @@ sum([], Sum)    -> Sum.             % base case
 
 ## Syntax highlighting
 
-The syntax highlighting can be activated from the Erlang menu. There are four
+The syntax highlighting can be activated from the Erlang menu. There are five
 different alternatives:
 
 -   Off: Normal black and white display.
@@ -157,7 +157,8 @@ different alternatives:
     and character constants will be colored.
 -   Level 2: The above, attributes, Erlang bif:s, guards, and words in comments
     enclosed in single quotes will be colored.
--   Level 3: The above, variables, records, and macros will be colored. (This
+-   Level 3: The above, variables, records, and macros will be colored.
+-   Level 4: The above plus everything else that can be highlighted. (This
     level is also known as the Christmas tree level.)
 
 ## Tags
@@ -196,7 +197,7 @@ package "tempo". Here follows a brief description of the available skeletons:
 -   Supervisor Bridge - skeleton for the OTP supervisor bridge behavior
 -   gen_server - skeleton for the OTP gen_server behavior
 -   gen_event - skeleton for the OTP gen_event behavior
--   gen_fsm - skeleton for the OTP gen_fsm behavior
+-   gen_fsm - skeleton for the OTP gen_fsm behavior (deprecated, use gen_statem)
 -   gen_statem (StateName/3) - skeleton for the OTP gen_statem behavior using
     state name functions
 -   gen_statem (handle_event/4) - skeleton for the OTP gen_statem behavior using
@@ -239,8 +240,8 @@ final slash. Practically, you should add a line on the following form to your
 ## Starting IMenu
 
 -   _`M-x imenu-add-to-menubar RET`_ - This command will create the IMenu menu
-    containing all the functions in the current buffer.The command will ask you
-    for a suitable name for the menu. Not supported by Xemacs.
+    containing all the functions in the current buffer. The command will ask you
+    for a suitable name for the menu.
 
 ## Version
 
