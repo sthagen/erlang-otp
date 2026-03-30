@@ -1091,11 +1091,9 @@ behaviour.")
 
 
 (defvar erlang-skel-file "erlang-skels"
-  "The type of erlang-skeletons that should be used, default
-   uses edoc type, for the old type, standard comments,
-   set \"erlang-skels-old\" in your .emacs and restart.
-
-   Or define your own and set the variable to that file.")
+  "The skeleton file to load.
+The default uses EDoc-style skeletons.  Set to a different file
+name to use custom skeletons.")
 
 ;; Tempo skeleton templates:
 (load erlang-skel-file)
