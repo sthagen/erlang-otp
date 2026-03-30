@@ -5327,15 +5327,6 @@ Selects Comint or Compilation mode command as appropriate."
   "When nil, `inferior-erlang-display-buffer' use only selected frame.
 When t, all frames are searched.  When \='raise, the frame is raised.")
 
-(defvar inferior-erlang-shell-type 'newshell
-  "The type of Erlang shell to use.
-
-When this variable is set to the atom `oldshell', the old shell is used.
-When set to `newshell' the new shell is used.  Should the variable be
-nil, the default shell is used.
-
-This variable influence the setting of other variables.")
-
 (defvar inferior-erlang-machine "erl"
   "The name of the Erlang shell.")
 
@@ -5393,11 +5384,7 @@ editing control characters:
         (setq cmd "sh"
               opts (list "-c" command))
       (setq cmd inferior-erlang-machine
-            opts inferior-erlang-machine-options)
-      (cond ((eq inferior-erlang-shell-type 'oldshell)
-             (setq opts (cons "-oldshell" opts)))
-            ((eq inferior-erlang-shell-type 'newshell)
-             (setq opts (append '("-newshell" "-env" "TERM" "vt100") opts)))))
+            opts inferior-erlang-machine-options))
 
     ;; Using create-file-buffer and list-buffers-directory in this way
     ;; makes uniquify give each buffer a unique name based on the
@@ -5418,9 +5405,8 @@ editing control characters:
   (if erlang-inferior-shell-split-window
       (switch-to-buffer-other-window inferior-erlang-buffer)
     (switch-to-buffer inferior-erlang-buffer))
-  (if (and (not (eq system-type 'windows-nt))
-           (eq inferior-erlang-shell-type 'newshell))
-      (setq comint-process-echoes t))
+  (unless (eq system-type 'windows-nt)
+    (setq comint-process-echoes t))
   (erlang-shell-mode))
 
 
