@@ -634,7 +634,7 @@ following information:
     still be alive.
 
 Exit signals can also be sent explicitly by calling the
-[`exit(PidOrPort, Reason)`](`erlang:exit_signal/2`) BIF. The exit signal is sent to the
+[`exit_signal(PidOrPort, Reason)`](`erlang:exit_signal/2`) BIF. The exit signal is sent to the
 process or port identified by the `PidOrPort` argument. The exit signal sent
 will contain the following information:
 
