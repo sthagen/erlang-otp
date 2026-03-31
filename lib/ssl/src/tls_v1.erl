@@ -1045,24 +1045,24 @@ signature_schemes(_, _) ->
     [].
 
 default_signature_schemes(Version) ->
-    Default = [eddsa_ed25519,
-               eddsa_ed448,
-               ecdsa_secp521r1_sha512,
-               ecdsa_secp384r1_sha384,
-               ecdsa_secp256r1_sha256,
-               ecdsa_brainpoolP512r1tls13_sha512,
-               ecdsa_brainpoolP384r1tls13_sha384,
-               ecdsa_brainpoolP256r1tls13_sha256,
-               rsa_pss_pss_sha512,
-               rsa_pss_pss_sha384,
-               rsa_pss_pss_sha256,
-               rsa_pss_rsae_sha512,
-               rsa_pss_rsae_sha384,
-               rsa_pss_rsae_sha256,
-               mldsa44,
+    Default = [mldsa87,
                mldsa65,
-               mldsa87
-              ],
+               mldsa44] ++ slh_dsa_schemes() ++
+        [eddsa_ed25519,
+         eddsa_ed448,
+         ecdsa_secp521r1_sha512,
+         ecdsa_secp384r1_sha384,
+         ecdsa_secp256r1_sha256,
+         ecdsa_brainpoolP512r1tls13_sha512,
+         ecdsa_brainpoolP384r1tls13_sha384,
+         ecdsa_brainpoolP256r1tls13_sha256,
+         rsa_pss_pss_sha512,
+         rsa_pss_pss_sha384,
+         rsa_pss_pss_sha256,
+         rsa_pss_rsae_sha512,
+         rsa_pss_rsae_sha384,
+         rsa_pss_rsae_sha256
+        ],
     signature_schemes(Version, Default).
 
 legacy_signature_schemes(Version) ->
