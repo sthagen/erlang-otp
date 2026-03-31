@@ -10438,6 +10438,7 @@ the `CpuTopology` type to change.
          (dynamic_trace) -> none | dtrace | systemtap;
          (dynamic_trace_probes) -> boolean();
          (eager_check_io) -> boolean();
+         (embedded_3pps) -> #{ 'included' := [atom()], 'excluded' := [atom()] };
          (emu_flavor) -> emu | jit;
          (emu_type) -> opt | debug | gcov | valgrind | gprof | lcnt | frmptr;
          (end_time) -> non_neg_integer();

@@ -982,30 +982,6 @@ void BeamModuleAssembler::emit_i_bs_validate_unicode_retract(
     a.bind(next);
 }
 
-void BeamModuleAssembler::emit_bs_test_unit(const ArgLabel &Fail,
-                                            const ArgRegister &Ctx,
-                                            const ArgWord &Unit) {
-    auto ctx_reg = load_source(Ctx, TMP1);
-    unsigned int unit = Unit.get();
-
-    a.ldur(TMP2, emit_boxed_val(ctx_reg.reg, offsetof(ErlSubBits, end)));
-    a.ldur(TMP3, emit_boxed_val(ctx_reg.reg, offsetof(ErlSubBits, start)));
-
-    a.sub(TMP1, TMP2, TMP3);
-
-    if ((unit & (unit - 1))) {
-        mov_imm(TMP2, unit);
-
-        a.udiv(TMP3, TMP1, TMP2);
-        a.msub(TMP1, TMP3, TMP2, TMP1);
-
-        a.cbnz(TMP1, resolve_beam_label(Fail, disp1MB));
-    } else {
-        a.tst(TMP1, imm(unit - 1));
-        a.b_ne(resolve_beam_label(Fail, dispUnknown));
-    }
-}
-
 void BeamModuleAssembler::emit_bs_init_writable() {
     ERTS_CT_ASSERT(ERTS_HIGHEST_CALLEE_SAVE_XREG >= 0);
 

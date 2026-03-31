@@ -945,8 +945,6 @@ bs_test_tail2 Fail=f _Ms=xy o => jump Fail
 
 bs_test_tail2 f S W
 
-bs_test_unit f S t
-
 # Gets a bitstring from the tail of a context.
 bs_get_tail S d t
 
@@ -1349,5 +1347,8 @@ i_create_native_record c d t I *
 i_update_native_record s d t I *
 
 is_record_accessible f xy a
+
+get_record_field Fail BadRecord=c Mod Name Dst =>
+    move BadRecord x | get_record_field Fail x Mod Name Dst
 
 get_record_field j xy c a d

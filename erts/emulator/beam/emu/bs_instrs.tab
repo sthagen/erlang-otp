@@ -757,14 +757,14 @@ bs_test_tail_imm2(Fail, Ctx, Offset) {
     }
 }
 
-bs_test_unit(Fail, Ctx, Unit) {
+i_bs_test_unit(Fail, Ctx, Unit) {
     ErlSubBits *sb = (ErlSubBits*)bitstring_val($Ctx);
     if ((sb->end - sb->start) % $Unit) {
         $FAIL($Fail);
     }
 }
 
-bs_test_unit8(Fail, Ctx) {
+i_bs_test_unit8(Fail, Ctx) {
     ErlSubBits *sb = (ErlSubBits*)bitstring_val($Ctx);
     if ((sb->end - sb->start) & 7) {
         $FAIL($Fail);
