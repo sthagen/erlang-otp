@@ -1332,24 +1332,6 @@ cannot be encoded using `encoding`.
 
 Available since OTP R14B
 
-## enif_get_atom_cache_index()
-
-```c
-int enif_get_atom_cache_index(
-        ErlNifEnv *env,
-        ERL_NIF_TERM atom,
-        unsigned *index);
-```
-
-Sets `*index` to the distribution output atom cache index for `atom`.
-
-Returns `true` on success, or `false` if `atom` is not an atom or if `index` is
-`NULL`.
-
-The returned value is in the range `0..enif_max_atom_cache_index()`.
-
-Available since OTP 29.0
-
 ## enif_get_double()
 
 ```c
@@ -3046,17 +3028,6 @@ process is no longer alive or if `target_pid` is
 This function is thread-safe.
 
 Available since OTP 20.0
-
-## enif_max_atom_cache_index()
-
-```c
-unsigned enif_max_atom_cache_index(void);
-```
-
-Returns the maximum distribution output atom cache index that can be returned
-by [`enif_get_atom_cache_index`](erl_nif.md#enif_get_atom_cache_index).
-
-Available since OTP 29.0
 
 ## enif_monotonic_time()
 
