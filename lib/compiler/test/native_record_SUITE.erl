@@ -122,11 +122,19 @@ local_basic(_Config) ->
     ?assertError({badfield,{{?MODULE,b},bad_field}},
                  BRec#b{bad_field = some_value}),
 
-    %% Test errors when accessing native records
+    %% Test errors when accessing native records.
     ?assertError({badfield,{{?MODULE,b},zoo}}, BRec#b.zoo),
     ?assertError({badfield,{{?MODULE,b},zoo}}, BRec#?MODULE:b.zoo),
     ?assertError({badrecord,ARec}, ARec#b.x),
     ?assertError({badrecord,ARec}, ARec#non_existing_module:rec.x),
+
+    %% Test errors when accessing literal native records.
+    ?assertError({badrecord,not_a_record}, not_a_record#a.x),
+    ?assertError({badrecord,not_a_record},
+                 not_a_record#non_existing_module:rec.x),
+    ?assertError({badrecord,not_a_record}, not_a_record#a.x),
+    ?assertError({badrecord,42}, (42)#non_existing_module:rec.x),
+    ?assertError({badrecord,{a,b,c}}, {a,b,c}#a.x),
 
     true = is_int_ax(ARec),
     false = is_int_ax(id(#a{x=a,y=b})),

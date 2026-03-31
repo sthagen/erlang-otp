@@ -1666,6 +1666,9 @@ is_record_accessible Fail=f Src=xy a =>
 i_is_record_accessible f? xy
 i_is_wildcard_record_accessible f? xy a
 
+get_record_field Fail BadRecord=c Mod Name Dst =>
+    move BadRecord x | get_record_field Fail x Mod Name Dst
+
 get_record_field Fail Src Id=a Field Dst =>
     i_get_local_record_field Fail Src Id Field Dst
 get_record_field Fail Src Id Field Dst =>

@@ -1426,4 +1426,7 @@ i_update_native_record s d t I *
 
 is_record_accessible f xy a
 
+get_record_field Fail BadRecord=c Mod Name Dst =>
+    move BadRecord x | get_record_field Fail x Mod Name Dst
+
 get_record_field j xy c a d
