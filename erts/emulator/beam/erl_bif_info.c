@@ -3560,6 +3560,81 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
         hp = hsz ? HAlloc(BIF_P, hsz) : NULL;
         res = erts_bld_sint64(&hp, NULL, (Sint64) erts_halt_flush_timeout);
         BIF_RET(res);
+    } else if (ERTS_IS_ATOM_STR("embedded_3pps", BIF_ARG_1)) {
+        Uint xtra;
+        Eterm res, *hp;
+        Eterm included = NIL, excluded = NIL;
+        Eterm ks[2], vs[2];
+        ErtsHeapFactory hfact;
+        ERTS_DECL_AM(included);
+        ERTS_DECL_AM(excluded);
+        ERTS_DECL_AM(asmjit);
+        ERTS_DECL_AM(pcre2);
+        ERTS_DECL_AM(ryu);
+        ERTS_DECL_AM(STL);
+        ERTS_DECL_AM(tcl);
+        ERTS_DECL_AM(zstd);
+        ERTS_DECL_AM(zlib);
+
+        erts_factory_proc_init(&hfact, BIF_P);
+
+        xtra = 2*8 /* cons-cells */ + MAP_HEADER_FLATMAP_SZ + 2 /* map size */;
+
+        hp = erts_produce_heap(&hfact, 2, xtra);
+#ifdef ERTS_USE_BUILTIN_ZLIB
+        included = CONS(hp, AM_zlib, included);
+#else
+        excluded = CONS(hp, AM_zlib, excluded);
+#endif
+        xtra -= 2;
+
+        hp = erts_produce_heap(&hfact, 2, xtra);
+#ifdef ERTS_USE_BUILTIN_ZSTD
+        included = CONS(hp, AM_zstd, included);
+#else
+        excluded = CONS(hp, AM_zstd, excluded);
+#endif
+        xtra -= 2;
+
+        hp = erts_produce_heap(&hfact, 2, xtra);
+#ifdef ERTS_USE_BUILTIN_ERRNO_ID
+        included = CONS(hp, AM_tcl, included);
+#else
+        excluded = CONS(hp, AM_tcl, excluded);
+#endif
+        xtra -= 2;
+
+        hp = erts_produce_heap(&hfact, 2, xtra);
+        included = CONS(hp, AM_STL, included);
+        xtra -= 2;
+
+        hp = erts_produce_heap(&hfact, 2, xtra);
+        included = CONS(hp, AM_ryu, included);
+        xtra -= 2;
+
+        hp = erts_produce_heap(&hfact, 2, xtra);
+        included = CONS(hp, AM_pcre2, included);
+        xtra -= 2;
+
+        hp = erts_produce_heap(&hfact, 2, xtra);
+#ifdef BEAMASM
+        included = CONS(hp, AM_asmjit, included);
+#else
+        excluded = CONS(hp, AM_asmjit, excluded);
+#endif
+        xtra -= 2;
+
+        ks[0] = AM_included;
+        vs[0] = included;
+
+        ks[1] = AM_excluded;
+        vs[1] = excluded;
+
+        res = erts_map_from_ks_and_vs(&hfact, ks, vs, 2);
+
+        erts_factory_close(&hfact);
+
+        BIF_RET(res);
     }
 
     BIF_ERROR(BIF_P, BADARG);

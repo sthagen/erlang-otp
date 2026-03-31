@@ -239,6 +239,10 @@ Fields summary:
 To update the package, perform any modifications in a `vendor.info` package
 and re-run the source SBOM generation steps ([Erlang/OTP source SBOM]).
 
+If the vendor package is optional, the `create_vendor_relations()` function in the `.github/scripts/otp-compliance.es` script needs to be updated to add the `OPTIONAL_COMPONENT_OF` relation for the package.
+
+For vendor packages in `erts`, `erlang:system_info(embedded_3pps)` (`erts/emulator/beam/erl_bif_info.c`) also needs to be updated. The 3pp should be part of either the value for the `included` key (the build includes the 3pp) or the `excluded` key (the build does not include the 3pp). If the package is optional, the build should automatically place it as part of the value of the correct key.
+
 ### Add a New Vendor Dependency
 
 Follow the same steps as in [Update SPDX Vendor Packages].
