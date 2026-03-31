@@ -3572,7 +3572,6 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
         ERTS_DECL_AM(pcre2);
         ERTS_DECL_AM(ryu);
         ERTS_DECL_AM(STL);
-        ERTS_DECL_AM(tcl);
         ERTS_DECL_AM(zstd);
         ERTS_DECL_AM(zlib);
 
@@ -3593,14 +3592,6 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
         included = CONS(hp, AM_zstd, included);
 #else
         excluded = CONS(hp, AM_zstd, excluded);
-#endif
-        xtra -= 2;
-
-        hp = erts_produce_heap(&hfact, 2, xtra);
-#ifdef ERTS_USE_BUILTIN_ERRNO_ID
-        included = CONS(hp, AM_tcl, included);
-#else
-        excluded = CONS(hp, AM_tcl, excluded);
 #endif
         xtra -= 2;
 
