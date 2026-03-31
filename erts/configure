@@ -670,6 +670,8 @@ LIBSCTP
 SYSTEMD_DAEMON_LIBS
 SOCKET_LIBS
 Z_LIB
+LIBZSTD
+ERTS_USE_BUILTIN_ERRNO_ID
 TERMCAP_LIB
 THR_DEFS
 THR_LIBS
@@ -851,6 +853,9 @@ with_libatomic_ops
 with_with_sparc_memory_order
 enable_ppc_lwsync_instruction
 with_threadnames
+enable_use_embedded_3pp_alternatives
+enable_builtin_errno_id
+enable_builtin_zstd
 enable_builtin_zlib
 enable_esock
 enable_esock_use_rcvsndtimeo
@@ -1596,7 +1601,20 @@ Optional Features:
                           enable use of powerpc lwsync instruction
   --disable-ppc-lwsync-instruction
                           disable use of powerpc lwsync instruction
+  --enable-use-embedded-3pp-alternatives
+                          use all available alternatives instead of embedded
+                          3pps
+  --disable-use-embedded-3pp-alternatives
+                          do not use any alternatives to embedded 3pps
+  --enable-builtin-errno-id
+                          force use of our own built-in errno-id
+  --disable-builtin-errno-id
+                          try to find an alternative on the system to use for
+                          errno-id
+  --enable-builtin-zstd   force use of our own built-in zstd
+  --disable-builtin-zstd  try to find a static libzstd on the system to use
   --enable-builtin-zlib   force use of our own built-in zlib
+  --disable-builtin-zlib  try to find a zlib on the system to use
   --enable-esock          enable builtin socket (as a nif) support (default)
   --disable-esock         disable builtin socket (as a nif) support
   --enable-esock-rcvsndtimeo
@@ -16647,6 +16665,154 @@ printf "%s\n" "#define HAVE_WCWIDTH 1" >>confdefs.h
 
 fi
 
+# Check whether --enable-use-embedded-3pp-alternatives was given.
+if test ${enable_use_embedded_3pp_alternatives+y}
+then :
+  enableval=$enable_use_embedded_3pp_alternatives;  case "$enableval" in
+    no)
+      enable_builtin_errno_id=yes
+      enable_builtin_zstd=yes
+      enable_builtin_zlib=yes
+      use_embedded_3pp_alts=no
+      use_embedded_3pp_alts_val=0
+      ;;
+    *)
+      enable_builtin_errno_id=no
+      enable_builtin_zstd=no
+      enable_builtin_zlib=no
+      use_embedded_3pp_alts=yes
+      use_embedded_3pp_alts_val=1
+      ;;
+  esac
+
+else case e in #(
+  e)
+  enable_builtin_errno_id=no
+  enable_builtin_zstd=no
+  enable_builtin_zlib=no
+  use_embedded_3pp_alts=default
+  use_embedded_3pp_alts_val=-1
+ ;;
+esac
+fi
+
+
+
+printf "%s\n" "#define ERTS_USE_EMBEDDED_3PP_ALTS $use_embedded_3pp_alts_val" >>confdefs.h
+
+
+
+# Check whether --enable-builtin-errno-id was given.
+if test ${enable_builtin_errno_id+y}
+then :
+  enableval=$enable_builtin_errno_id; case "$enableval" in
+      no) enable_builtin_errno_id=no ;;
+      *)  enable_builtin_errno_id=yes ;;
+    esac
+fi
+
+
+ac_fn_c_check_func "$LINENO" "strerrorname_np" "ac_cv_func_strerrorname_np"
+if test "x$ac_cv_func_strerrorname_np" = xyes
+then :
+  printf "%s\n" "#define HAVE_STRERRORNAME_NP 1" >>confdefs.h
+
+fi
+
+
+if test "$ac_cv_func_strerrorname_np" != "yes"
+then :
+  enable_builtin_errno_id=yes
+fi
+
+if test $enable_builtin_errno_id = yes
+then :
+
+
+printf "%s\n" "#define ERTS_USE_BUILTIN_ERRNO_ID 1" >>confdefs.h
+
+
+fi
+
+ERTS_USE_BUILTIN_ERRNO_ID=$enable_builtin_errno_id
+
+
+
+# Check whether --enable-builtin-zstd was given.
+if test ${enable_builtin_zstd+y}
+then :
+  enableval=$enable_builtin_zstd;  case "$enableval" in
+      no) enable_builtin_zstd=no ;;
+      *)  enable_builtin_zstd=yes ;;
+    esac
+fi
+
+
+LIBZSTD=
+
+if test "$enable_builtin_zstd" = "no"
+then :
+
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for static libzstd of version 1.5.6 or higher" >&5
+printf %s "checking for static libzstd of version 1.5.6 or higher... " >&6; }
+  zstd_save_LIBS=$LIBS
+  LIBS="-l:libzstd.a $LIBS"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#include <zdict.h>
+
+int
+main (void)
+{
+
+#if ZSTD_VERSION_NUMBER >= 10506
+    (void) ZSTD_createCCtx_advanced(ZSTD_defaultCMem);
+#else
+#error "No libzstd of version 1.5.6 or higher found"
+error
+#endif
+
+  ;
+  return 0;
+}
+
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+
+ LIBZSTD="-l:libzstd.a"
+ { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+printf "%s\n" "yes" >&6; }
+
+else case e in #(
+  e)
+ { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no, using builtin zstd instead" >&5
+printf "%s\n" "no, using builtin zstd instead" >&6; }
+ ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+
+LIBS="$zstd_save_LIBS"
+
+
+fi
+
+
+
+if test "$LIBZSTD" = ""
+then :
+
+
+printf "%s\n" "#define ERTS_USE_BUILTIN_ZSTD 1" >>confdefs.h
+
+
+fi
+
 
 # Check whether --enable-builtin-zlib was given.
 if test ${enable_builtin_zlib+y}
@@ -16655,9 +16821,6 @@ then :
       no) enable_builtin_zlib=no ;;
       *)  enable_builtin_zlib=yes ;;
     esac
-else case e in #(
-  e) enable_builtin_zlib=no ;;
-esac
 fi
 
 
@@ -16799,6 +16962,15 @@ LIBS=$zlib_save_LIBS
 
   ;;
 esac
+fi
+
+if test "$Z_LIB" = ""
+then :
+
+
+printf "%s\n" "#define ERTS_USE_BUILTIN_ZLIB 1" >>confdefs.h
+
+
 fi
 
 

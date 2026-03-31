@@ -176,6 +176,7 @@ static erts_lc_lock_order_t erts_lock_order[] = {
     LEVEL,
     {"record_staging_lock",                     NULL},
     {"global_literals",                         NULL},
+    {"errno_table",                             NULL},
     LEVEL,
     {"alcu_allocator",			        "index"},
     LEVEL,

@@ -7,7 +7,7 @@
  *
  * Copyright (c) 1991-1994 The Regents of the University of California.
  * Copyright (c) 1994-1996 Sun Microsystems, Inc.
- * Copyright Ericsson AB 1996-2023. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2026. All Rights Reserved.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -73,8 +73,25 @@ terms specified in this license.
 
 #include "erl_errno.h"
 #include "sys.h"
+
+#ifdef ERTS_USE_BUILTIN_ERRNO_ID
+
 #include "erl_driver.h"
 
+void
+erts_errno_init(void)
+{
+    /* Allocators have been initialized... */
+}
+
+void
+erts_errno_late_init(void)
+{
+    /*
+     * We are still single threaded and now the thread lib has been
+     * initialized...
+     */
+}
 /*
  *----------------------------------------------------------------------
  *
@@ -151,6 +168,9 @@ erl_errno_id(int error /* Posix error number (as from errno). */)
 #endif
 #ifdef EBUSY
     case EBUSY: return "ebusy";
+#endif
+#ifdef ECANCELED
+    case ECANCELED: return "ecanceled";
 #endif
 #ifdef ECHILD
     case ECHILD: return "echild";
@@ -353,6 +373,9 @@ erl_errno_id(int error /* Posix error number (as from errno). */)
 #ifdef ENOPROTOOPT
     case ENOPROTOOPT: return "enoprotoopt";
 #endif
+#ifdef ENOTRECOVERABLE
+    case ENOTRECOVERABLE: return "enotrecoverable";
+#endif
 #ifdef ENOSPC
     case ENOSPC: return "enospc";
 #endif
@@ -403,6 +426,9 @@ erl_errno_id(int error /* Posix error number (as from errno). */)
 #endif
 #ifdef EOVERFLOW
     case EOVERFLOW: return "eoverflow";
+#endif
+#ifdef EOWNERDEAD
+    case EOWNERDEAD: return "eownerdead";
 #endif
 #ifdef EPERM
     case EPERM: return "eperm";
@@ -693,3 +719,5 @@ erl_errno_id(int error /* Posix error number (as from errno). */)
     }
     return "unknown";
 }
+
+#endif /* ERTS_USE_BUILTIN_ERRNO_ID */

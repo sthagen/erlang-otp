@@ -1214,6 +1214,7 @@ early_init(int *argc, char **argv) /*
 						 -M flags. */
     aux_threads += erts_no_dirty_alloc_instances;
     /* Require allocators */
+    erts_errno_init();
 
     erts_init_check_io(argc, argv);
 
@@ -1264,6 +1265,8 @@ early_init(int *argc, char **argv) /*
 
 	erts_thr_late_init(&elid);
     }
+
+    erts_errno_late_init();
     erts_msacc_early_init();
 
 #ifdef ERTS_ENABLE_LOCK_CHECK
