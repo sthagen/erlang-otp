@@ -1469,10 +1469,10 @@ opt_supported_groups(UserOpts, #{versions := TlsVsns} = Opts, Env) ->
 
 opt_psk_groups(undefined, _,  _, _) ->
     undefined;
-opt_psk_groups(#supported_groups{supported_groups = SupportedGroups},  UserOpts, Opts, _Env) ->
+opt_psk_groups(#supported_groups{supported_groups = [First| _] = SupportedGroups},
+               UserOpts, Opts, _Env) ->
     %% Version dependency already asserted when SupportedGroups is supported
-    %% so is psk_groups
-    First = hd(SupportedGroups),
+    %% hence so is psk_groups
     case get_opt_list(psk_groups, [First], UserOpts, Opts) of
         {default, Default} ->
             Default;
@@ -1495,29 +1495,10 @@ opt_crl(UserOpts, Opts, _Env) ->
 opt_handshake(UserOpts, Opts, _Env) ->
     {_, HS} = get_opt_of(handshake, [hello, full], full, UserOpts, Opts),
 
-    DefaultMaxHS = default_max_hs(Opts),
-
-    {_, MHSS} = get_opt_int(max_handshake_size, 1, ?MAX_UNIT24 , DefaultMaxHS,
+    {_, MHSS} = get_opt_int(max_handshake_size, 1, ?MAX_UNIT24 , ?DEFAULT_MAX_HANDSHAKE_SIZE,
                             UserOpts, Opts),
 
     Opts#{handshake => HS, max_handshake_size => MHSS}.
-
-default_max_hs(#{signature_algs:= undefined}) ->
-    ?DEFAULT_MAX_HANDSHAKE_SIZE;
-default_max_hs(#{signature_algs:= Algs}) ->
-    %%% In OTP-26 max handshake_size was lowered by half for most
-    %%% handshakes would fit that size and OpenSSL had a lower default
-    Set = sets:intersection(sets:from_list(Algs, [{version, 2}]),
-                            sets:from_list(tls_v1:slh_dsa_schemes(),
-                                           [{version, 2}])),
-    case sets:is_empty(Set) of
-        true ->
-            ?DEFAULT_MAX_HANDSHAKE_SIZE;
-        false ->
-            %% SLH_DSA creates fairly big handshake sizes so raise limit back
-            %% if these algorithms are supported,
-            ?DEFAULT_MAX_HANDSHAKE_SIZE * 2
-    end.
 
 opt_use_srtp(UserOpts, #{protocol := Protocol} = Opts, _Env) ->
     UseSRTP = case get_opt_map(use_srtp, undefined, UserOpts, Opts) of

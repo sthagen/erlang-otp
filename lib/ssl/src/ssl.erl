@@ -693,8 +693,7 @@ Options common to both client and server side.
   Used to limit the size of valid TLS handshake packets to avoid DoS
   attacks.
 
-  Integer (24 bits, unsigned). Defaults to `256*1024` before OTP-26 or if SLH-DSA algorithms
-  are configured, otherwise the default is `256*1024`/2.
+  Integer (24 bits, unsigned). Defaults to `262144` since OTP 29.0
 
 - **`{hibernate_after, HibernateTimeout}`** - Hibernate inactive connection processes.
 
@@ -751,7 +750,7 @@ Common certificate related options to both client and server.
   connection will be selected.
 
   The different signature algorithms are prioritized in the following
-  order: `mldsa`, `slh-dsa`, `eddsa`, `ecdsa`, `rsa_pss_pss`, `rsa`, and `dsa`. If more
+  order: `mldsa`, `slhdsa`, `eddsa`, `ecdsa`, `rsa_pss_pss`, `rsa`, and `dsa`. If more
   than one key is supplied for the same signature algorithm, they will
   be prioritized by strength (except for _engine keys_; see the next
   paragraph). This offers flexibility to, for instance, configure a
@@ -1392,7 +1391,7 @@ The following options are specific to the client side, or have
 different semantics for the client and server:
 
 - **`{psk_groups, Groups}`** - key exchange groups that the client
-will send pre share keys for, defaults to first group in
+will send pre shared keys for, defaults to the first group in
 supported_groups. Must be a subset of supported_groups and will
 be sent in the same order as they appear in supported_groups.
 
@@ -1445,7 +1444,7 @@ different semantics for the client and server.
   > #### Change {: .info }
   >
   > The default for `Verify` was changed to `verify_peer` in
-  > Erlang/OTP 26.
+  > Erlang/OTP 26.0.
 
 - **`{cacerts, CACerts}`** - Trusted certificates
 
@@ -1864,7 +1863,7 @@ Certificate related options for a server.
   `true`, the server fails if the client does not have a certificate to send, that
   is, sends an empty certificate. If set to `false`, it fails only if the client
   sends an invalid certificate (an empty certificate is considered valid).
-  Defaults to `true`, the default value was changed in OTP-26.0.
+  Defaults to `true`, the default value was changed in OTP 26.0.
 
 - **`{certificate_authorities, ServerCertAuth}`** - Inter-operate hint option
 
@@ -3180,7 +3179,7 @@ eccs(Other) ->
 -doc """
 Returns all supported groups in TLS 1.3.
 
-Existed since OTP 22.0; documented as of OTP 27.
+Existed since OTP 22.0; documented as of OTP 27.0.
 """.
 -spec groups() -> [group()].
 %%--------------------------------------------------------------------
@@ -3195,7 +3194,7 @@ groups() ->
 -doc """
 Returns default supported groups in TLS 1.3.
 
-Existed since OTP 22.0; documented as of OTP 27.
+Existed since OTP 22.0; documented as of OTP 27.0.
 """.
 
 %%--------------------------------------------------------------------
