@@ -1234,7 +1234,8 @@ AS_IF([test "x$with_termcap" != "xno" && test "X$host" != "Xwin32"],
   ])
 
 AC_SUBST(TERMCAP_LIB)
-AC_CHECK_HEADERS([termcap.h curses.h term.h])
+
+AC_CHECK_HEADERS([termcap.h ncurses/curses.h curses.h term.h])
 
 if test "x$TERMCAP_LIB" != "x"; then
 
