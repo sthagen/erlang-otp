@@ -23,8 +23,6 @@
 -module(inet_db).
 -moduledoc false.
 
--compile(nowarn_deprecated_catch).
-
 %% Store info about ip addresses, names, aliases host files resolver
 %% options.
 %% Also miscellaneous "stuff" related to sockets.
@@ -285,13 +283,12 @@ add_rc(File) ->
 	Error -> Error
     end.
 
-%% Add an inetrc binary term must be a rc list
+%% Add an inetrc binary term that must be an rc list
 add_rc_bin(Bin) ->
-    case catch binary_to_term(Bin) of
-	List when is_list(List) ->
-	    add_rc_list(List);
-	_ ->
-	    {error, badarg}
+    try binary_to_term(Bin) of
+        List when is_list(List)     -> add_rc_list(List);
+        _                           -> {error, badarg}
+    catch error : _                 -> {error, badarg}
     end.
 
 add_rc_list(List) -> call({add_rc_list, List}).
