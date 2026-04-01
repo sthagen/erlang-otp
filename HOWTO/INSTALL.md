@@ -372,7 +372,6 @@ Some of the available `configure` options are:
 *   `--with-javac=JAVAC` - Specify Java compiler to use
 *   `--{with,without}-javac` - Java compiler (without implies that the
     `jinterface` application won't be built)
-*   `--{enable,disable}-builtin-zlib` - Use the built-in source for zlib.
 *   `--{enable,disable}-dynamic-ssl-lib` - Enable or disable dynamic OpenSSL
     libraries when linking the crypto NIF. By default dynamic linking is
     done unless it does not work or is if it is a Windows system.
@@ -455,6 +454,22 @@ Some of the available `configure` options are:
     flags when compiling Erlang/OTP. This can be useful in some scenarios
     when the flags either causes Erlang/OTP not to build, or unacceptable
     performance degradations.
+*   `--enable-use-embedded-3pp-alternatives` - Use all available alternatives
+    instead of embedded 3pps. Implies all `--disable-builtin-*` options. Can
+    be overridden by individual `--enable-builtin-*` options.
+*   `--disable-use-embedded-3pp-alternatives` - Do not use any alternatives
+    to embedded 3pps. Implies all `--enable-builtin-*` options. Can be overridden
+    by individual `--disable-builtin-*` options.
+*   `--enable-builtin-ryu` - Use our own built-in ryu for float to short string.
+*   `--disable-builtin-ryu` - Use C++17 as an alternative for built-in ryu. May
+    cause slightly different results when converting floating point values to
+    strings using `float_to_list(F,[short])`, `float_to_binary(F,[short])` or
+    `io:format` with control sequences `~p` or `~w`.
+*   `--enable-builtin-zstd` - Force use of our own built-in zstd.
+*   `--disable-builtin-zstd` - Find a static libzstd on the system to use.
+*   `--enable-builtin-zlib` - Force use of our own built-in zlib.
+*   `--disable-builtin-zlib` - Find a zlib on the system to use.
+
 
 If you or your system has special requirements please read the `Makefile` for
 additional configuration information.

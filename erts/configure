@@ -663,6 +663,7 @@ PRIMARY_FLAVOR
 JIT_ARCH
 JIT_ENABLED
 EMU_LDFLAGS
+ERTS_USE_BUILTIN_RYU
 M4
 LIBRT
 BITS64
@@ -853,6 +854,7 @@ with_with_sparc_memory_order
 enable_ppc_lwsync_instruction
 with_threadnames
 enable_use_embedded_3pp_alternatives
+enable_builtin_ryu
 enable_builtin_zstd
 enable_builtin_zlib
 enable_esock
@@ -1601,13 +1603,22 @@ Optional Features:
                           disable use of powerpc lwsync instruction
   --enable-use-embedded-3pp-alternatives
                           use all available alternatives instead of embedded
-                          3pps
+                          3pps. Implies all --disable-builtin-* options. Can
+                          be overridden by individual --enable-builtin-*
+                          options.
   --disable-use-embedded-3pp-alternatives
-                          do not use any alternatives to embedded 3pps
+                          do not use any alternatives to embedded 3pps.
+                          Implies all --enable-builtin-* options. Can be
+                          overridden by individual --disable-builtin-*
+                          options.
+  --enable-builtin-ryu    use our own built-in ryu for float to short string
+                          (default)
+  --disable-builtin-ryu   use C++17 as an alternative for built-in ryu
   --enable-builtin-zstd   force use of our own built-in zstd
   --disable-builtin-zstd  try to find a static libzstd on the system to use
+                          (default)
   --enable-builtin-zlib   force use of our own built-in zlib
-  --disable-builtin-zlib  try to find a zlib on the system to use
+  --disable-builtin-zlib  try to find a zlib on the system to use (default)
   --enable-esock          enable builtin socket (as a nif) support (default)
   --disable-esock         disable builtin socket (as a nif) support
   --enable-esock-rcvsndtimeo
@@ -16670,21 +16681,28 @@ if test ${enable_use_embedded_3pp_alternatives+y}
 then :
   enableval=$enable_use_embedded_3pp_alternatives;  case "$enableval" in
     no)
+      builtin_ryu=yes
       builtin_zstd=yes
       builtin_zlib=yes
       ;;
     *)
+      builtin_ryu=no
       builtin_zstd=no
       builtin_zlib=no
       ;;
   esac
 
-else case e in #(
-  e)
-  builtin_zstd=no
-  builtin_zlib=no
- ;;
-esac
+fi
+
+
+
+# Check whether --enable-builtin-ryu was given.
+if test ${enable_builtin_ryu+y}
+then :
+  enableval=$enable_builtin_ryu; case "$enableval" in
+      no) builtin_ryu=no ;;
+      *)  builtin_ryu=yes ;;
+   esac
 fi
 
 
@@ -16701,7 +16719,7 @@ fi
 
 LIBZSTD=
 
-if test "$builtin_zstd" = "no"
+if test "$builtin_zstd" != "yes"
 then :
 
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for static libzstd of version 1.5.6 or higher" >&5
@@ -16740,8 +16758,14 @@ printf "%s\n" "yes" >&6; }
 
 else case e in #(
   e)
- { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no, using builtin zstd instead" >&5
-printf "%s\n" "no, using builtin zstd instead" >&6; }
+ if test "$builtin_zstd" = "no"
+then :
+  as_fn_error $? "libzstd not found" "$LINENO" 5
+else case e in #(
+  e) { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no, using builtin zstd instead" >&5
+printf "%s\n" "no, using builtin zstd instead" >&6; } ;;
+esac
+fi
  ;;
 esac
 fi
@@ -16777,17 +16801,9 @@ fi
 
 Z_LIB=
 
-if test "x$builtin_zlib" = "xyes"
+if test "$builtin_zlib" != "yes"
 then :
 
-
-printf "%s\n" "#define HAVE_ZLIB_INFLATEGETDICTIONARY 1" >>confdefs.h
-
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: Using our own built-in zlib source" >&5
-printf "%s\n" "$as_me: Using our own built-in zlib source" >&6;}
-
-else case e in #(
-  e)
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for zlib 1.2.5 or higher" >&5
 printf %s "checking for zlib 1.2.5 or higher... " >&6; }
 zlib_save_LIBS=$LIBS
@@ -16826,8 +16842,14 @@ printf "%s\n" "yes" >&6; }
 
 else case e in #(
   e)
- { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; }
+ if test "$builtin_zlib" = "no"
+then :
+  as_fn_error $? "zlib not found" "$LINENO" 5
+else case e in #(
+  e) { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no, using builtin zlib instead" >&5
+printf "%s\n" "no, using builtin zlib instead" >&6; } ;;
+esac
+fi
  ;;
 esac
 fi
@@ -16911,15 +16933,19 @@ fi
 
 LIBS=$zlib_save_LIBS
 
-  ;;
-esac
+
 fi
 
 if test "$Z_LIB" = ""
 then :
 
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: Using our own built-in zlib source" >&5
+printf "%s\n" "$as_me: Using our own built-in zlib source" >&6;}
 
 printf "%s\n" "#define ERTS_USE_BUILTIN_ZLIB 1" >>confdefs.h
+
+
+printf "%s\n" "#define HAVE_ZLIB_INFLATEGETDICTIONARY 1" >>confdefs.h
 
 
 fi
@@ -26278,7 +26304,6 @@ fi
 
 
 JIT_ARCH=
-
 if test ${enable_jit} != no
 then :
 
@@ -26345,7 +26370,10 @@ printf "%s\n" "$as_me: WARNING: JIT disabled due to lack to support on $ARCH-$OP
            ;;
    esac
 
-   if test ${enable_jit} != no
+fi
+
+
+if test ${enable_jit} != no -o "$builtin_ryu" = "no"
 then :
 
        if test "$CXX" != false
@@ -26384,6 +26412,7 @@ else case e in #(
 printf %s "checking for C++17 support... " >&6; }
                { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
 printf "%s\n" "no" >&6; }
+               CXXFLAGS=$old_CXXFLAGS
                HAVE_CXX17=false ;;
 esac
 fi
@@ -26397,9 +26426,16 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 fi
        if test "$CXX" = false -o "$HAVE_CXX17" = false; then
+         # C++17 not found
+         if test "$builtin_ryu" = "no"; then
+           as_fn_error $? "Alternative to builtin ryu needs C++17 support" "$LINENO" 5
+         else
+           builtin_ryu=yes
+         fi
          if test ${enable_jit} = yes; then
            as_fn_error $? "JIT needs a C++ compiler with C++17 support" "$LINENO" 5
-         else
+         fi
+         if test ${enable_jit} != no; then
            enable_jit=no
            cat >> $ERL_TOP/erts/CONF_INFO <<EOF
 
@@ -26407,16 +26443,32 @@ fi
 EOF
            { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: JIT disable due to lack of C++ compiler with C++17 support" >&5
 printf "%s\n" "$as_me: WARNING: JIT disable due to lack of C++ compiler with C++17 support" >&2;}
-        fi
-     fi
+         fi
+       else
+         # C++17 found
+         if test ${enable_jit} != no; then
+           enable_jit=yes
+         fi
+       fi
 
 fi
 
-   if test ${enable_jit} != no; then
-     enable_jit=yes
-   fi
+if test "$builtin_ryu" = "no"
+then :
 
+        ERTS_USE_BUILTIN_RYU=no
+
+else case e in #(
+  e)
+
+printf "%s\n" "#define ERTS_USE_BUILTIN_RYU 1" >>confdefs.h
+
+        ERTS_USE_BUILTIN_RYU=yes
+       ;;
+esac
 fi
+
+
 
 if test ${enable_jit} != no
 then :
