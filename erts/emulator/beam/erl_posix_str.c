@@ -78,20 +78,6 @@ terms specified in this license.
 
 #include "erl_driver.h"
 
-void
-erts_errno_init(void)
-{
-    /* Allocators have been initialized... */
-}
-
-void
-erts_errno_late_init(void)
-{
-    /*
-     * We are still single threaded and now the thread lib has been
-     * initialized...
-     */
-}
 /*
  *----------------------------------------------------------------------
  *
@@ -717,7 +703,7 @@ erl_errno_id(int error /* Posix error number (as from errno). */)
     case WSA_E_CANCELLED: return "e_cancelled";
 #endif
     }
-    return "unknown";
+    return erl_errno_id_unknown(NULL, error);
 }
 
 #endif /* ERTS_USE_BUILTIN_ERRNO_ID */

@@ -691,6 +691,7 @@ Uint erts_sys_misc_mem_sz(void);
 /* erl_errno_str.c & erl_posix_str.c */
 
 /* char *erl_errno_id(int eno); */ /* Prototype in erl_driver.h */
+char *erl_errno_id_unknown(char *str, int eno);
 void erts_errno_init(void);
 void erts_errno_late_init(void);
 
