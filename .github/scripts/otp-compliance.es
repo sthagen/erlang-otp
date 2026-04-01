@@ -2298,7 +2298,7 @@ root_vendor_packages() ->
 minimum_vendor_packages() ->
     %% self-contained
     root_vendor_packages() ++
-        [~"tcl", ~"STL", ~"json-test-suite", ~"openssl", ~"Autoconf", ~"wxwidgets", ~"jquery", ~"jquery-migrate", ~"tablesorter"].
+        [~"tcl", ~"STL", ~"json-test-suite", ~"Autoconf", ~"wxwidgets", ~"jquery", ~"jquery-migrate", ~"tablesorter"].
 
 test_copyright_not_empty(#{~"packages" := Packages}) ->
     true = lists:all(fun (#{~"copyrightText" := Copyright}) -> Copyright =/= ~"" end, Packages),
@@ -2722,10 +2722,7 @@ test_package_relations(#{~"packages" := Packages}=Spdx) ->
                      end, Relations),
 
     %% test_known_special_cases(),
-    SpecialCases = [#{~"relatedSpdxElement" => ~"SPDXRef-otp-erlinterface",
-                      ~"relationshipType" => ~"PACKAGE_OF",
-                      ~"spdxElementId" => ~"SPDXRef-otp-erlinterface-openssl"},
-                    #{~"relatedSpdxElement" => ~"SPDXRef-otp-stdlib-test",
+    SpecialCases = [#{~"relatedSpdxElement" => ~"SPDXRef-otp-stdlib-test",
                       ~"relationshipType" => ~"PACKAGE_OF",
                       ~"spdxElementId" => ~"SPDXRef-otp-stdlib-test-json-suite"},
                     #{~"relatedSpdxElement" => ~"SPDXRef-otp-stdlib",
