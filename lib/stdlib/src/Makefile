@@ -150,7 +150,7 @@ HRL_FILES= \
 	../include/qlc.hrl \
 	../include/zip.hrl
 
-INTERNAL_HRL_FILES= dets.hrl erl_tar.hrl otp_internal.hrl json.hrl
+INTERNAL_HRL_FILES= dets.hrl erl_tar.hrl otp_internal.hrl json.hrl swar_ascii.hrl
 
 ERL_FILES= $(MODULES:%=%.erl)
 

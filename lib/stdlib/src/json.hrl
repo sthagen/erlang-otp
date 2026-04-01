@@ -179,50 +179,7 @@
     Byte =:= 127
 ).
 
-%% SWAR (SIMD Within A Register) check for 7 bytes of plain ASCII at once.
-%%
-%% Instead of matching 8 individual bytes and checking each against
-%% is_ascii_plain/1 (which the JIT compiles to 8 jump table lookups
-%% with indirect branches), we match a single 56-bit integer and use
-%% bitwise arithmetic to validate all 7 bytes in parallel.
-%%
-%% We use 56 bits (7 bytes) because it is the largest value that fits
-%% in a BEAM small integer (59-bit on 64-bit). This ensures all
-%% bitwise and arithmetic guard operations (band, bor, bxor, +, -)
-%% compile to single native instructions with no type checks or
-%% bignum fallback calls. Benchmarks showed 4/6/7-byte variants all
-%% outperform the original, with 7 bytes winning on string-heavy
-%% inputs (up to 55% faster) due to its larger stride.
-%%
-%% The byte-by-byte is_ascii_plain fallback path handles any remaining
-%% bytes (< 7) and is always entered when the SWAR check fails, so
-%% correctness does not depend on the SWAR path.
-
--define(SWAR_MASK80, 16#80808080808080).
--define(SWAR_MASK01, 16#01010101010101).
-
-%% Detect if any byte in a 56-bit word is zero (Mycroft's trick).
-%%
-%% This is a simplified variant that omits the standard (bnot V) term.
-%% The full formula is: ((V - 0x01..01) band (bnot V) band 0x80..80).
-%% The (bnot V) term filters out false positives from bytes >= 0x80,
-%% where subtracting 0x01 does not clear the high bit. This term is
-%% unnecessary here: check 1 in are_all_ascii_plain_swar/1 proves all
-%% bytes of W are < 128 before no_zero_byte is reached (thanks to
-%% andalso short-circuit evaluation), and XOR of two 7-bit values is
-%% still 7-bit, so no byte in V can have bit 7 set.
-%%
-%% We also avoid bnot because the JIT lacks an always_small fast path
-%% for it, emitting runtime type checks and bignum fallback calls even
-%% when the result provably fits in a small.
-%%
-%% Borrow propagation between bytes may cause rare false positives
-%% (a non-zero byte adjacent to a zero byte detected as zero), but
-%% these are harmless: we simply fall through to the byte-by-byte
-%% path which is always correct.
--define(no_zero_byte(V),
-    ((V) - ?SWAR_MASK01) band ?SWAR_MASK80 =:= 0
-).
+-include("swar_ascii.hrl").
 
 %% SWAR check: all 7 bytes (in one 56-bit word) are "plain ASCII"
 %% i.e., in [32, 127] and not $" (0x22) or $\\ (0x5C).
