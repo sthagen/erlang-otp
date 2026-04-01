@@ -135,6 +135,15 @@ length(_) ->
     InvalidUTF8 = <<192,192>>,
     ?assertError({badarg, _}, string:length(InvalidUTF8)),
     ?assertError({badarg, _}, string:length(<<$a, InvalidUTF8/binary, $z>>)),
+    %% SWAR fast path: long ASCII; controls other than $\r; $\r forces slow path but length is correct
+    LongAscii = list_to_binary(lists:duplicate(200, $a)),
+    200 = string:length(LongAscii),
+    9 = string:length(<<"\t\n\v\f\n", $a, $b, $\r, $c>>),
+    12 = string:length(<<"abcdefg", $\r, "1234">>),
+    %% $\r in the 7-byte SWAR window (inside the 56-bit word after the first byte of an 8-byte step)
+    17 = string:length(<<"1234567", $\r, "123456789">>),
+    %% Non-ASCII after a SWAR-sized ASCII run (8 ASCII bytes then UTF-8 for ß)
+    9 = string:length(<<$a, $b, $c, $d, $e, $f, $g, $h, 195, 159>>),
     ok.
 
 equal(_) ->
@@ -273,6 +282,20 @@ slice(_) ->
     ?TEST("aåäöbcd", [3,2], "öb"),
     ?TEST([<<"aå"/utf8>>,"äöbcd"], [3,3], "öbc"),
     ?TEST([<<"aåä"/utf8>>,"öbcd"], [3,10], "öbcd"),
+
+    %% Ensure binary slice fast/slow paths are exercised:
+    %% - SWAR fast path in slice_lb/slice_bin (long ASCII, N/Length > 8)
+    ?TEST(<<"abcdefghijklmnopqrstuv">>, [9], "jklmnopqrstuv"),
+    ?TEST(<<"abcdefghijklmnopqrstuv">>, [2, 12], "cdefghijklmn"),
+    %% - ASCII fallback path in slice_lb/slice_bin (small N/Length <= 8)
+    ?TEST(<<"abcdefghijkl">>, [3], "defghijkl"),
+    ?TEST(<<"abcdefghijkl">>, [3, 5], "defgh"),
+    %% - SWAR guard rejection by CR (forces fallback path)
+    ?TEST(<<"abc\rdefghijklmnop">>, [2], "c\rdefghijklmnop"),
+    ?TEST(<<"abc\rdefghijklmnop">>, [2, 8], "c\rdefghi"),
+    %% - Non-ASCII fallback path
+    ?TEST(<<"abcdefghßijkl"/utf8>>, [8], [$ß,$i,$j,$k,$l]),
+    ?TEST(<<"abcdefghßijkl"/utf8>>, [7, 3], [$h,$ß,$i]),
 
     InvalidUTF8 = <<192,192>>,
     [$b, $c|InvalidUTF8] = string:slice(["abc", InvalidUTF8], 1),
