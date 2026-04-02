@@ -63,3 +63,10 @@ The following features of archives will be removed:
 The functionality to use a single archive file in Escripts is **not**
 deprecated and will continue to work.  However, to access files in the
 archive, the `escript:extract/2` function has to be used.
+
+### LEGACY (D)TLS Versions TLS-1.0, TLS-1.1 and DTLS-1.0
+
+TLS 1.0 and 1.1 and DTLS 1.0 are effectively end-of-life, with major
+industry players disabling them by late 2025 due to security
+vulnerabilities, hence we plan to remove support for these protocol
+versions in OTP 30.

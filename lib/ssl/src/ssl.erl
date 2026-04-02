@@ -314,13 +314,15 @@ DTLS protocol version.
 
 -doc(#{group => <<"Socket">>}).
 -doc """
-A TLS protocol version that are no longer supported by default for security reasons.
+A TLS protocol version that are no longer supported by default for security reasons
+and scheduled for removal in OTP 30.
 """.
 -type tls_legacy_version()       ::  tlsv1 | 'tlsv1.1' .
 
 -doc(#{group => <<"Socket">>}).
 -doc """
-A DTLS protocol version that are no longer supported by default for security reasons.
+A DTLS protocol version that are no longer supported by default for security reasons
+and scheduled for removal in OTP 30.
 """.
 -type dtls_legacy_version()      :: 'dtlsv1'.
 
