@@ -893,6 +893,7 @@ int sys_chars_to_double(char*, double*);
 int sys_double_to_chars(double, char*, size_t);
 int sys_double_to_chars_ext(double, char*, size_t, size_t);
 int sys_double_to_chars_fast(double, char*, int, int, int);
+int sys_double_to_chars_short(double, char*, int);
 void sys_get_pid(char *, size_t);
 int sys_get_hostname(char *buf, size_t size);
 

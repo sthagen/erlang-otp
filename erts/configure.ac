@@ -1263,11 +1263,13 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
 [ case "$enableval" in
     no)
       builtin_errno_id=yes
+      builtin_ryu=yes
       builtin_zstd=yes
       builtin_zlib=yes
       ;;
     *)
       builtin_errno_id=no
+      builtin_ryu=no
       builtin_zstd=no
       builtin_zlib=no
       ;;
@@ -1304,6 +1306,20 @@ AS_IF([test "$builtin_errno_id" != "no"],
 
 ERTS_USE_BUILTIN_ERRNO_ID=$builtin_errno_id
 AC_SUBST(ERTS_USE_BUILTIN_ERRNO_ID)
+
+dnl -------------
+dnl ryu (float to short string)
+dnl -------------
+
+AC_ARG_ENABLE(builtin-ryu,
+AS_HELP_STRING([--enable-builtin-ryu],
+               [use our own built-in ryu for float to short string (default)])
+AS_HELP_STRING([--disable-builtin-ryu],
+               [use C++17 as an alternative for built-in ryu]),
+  [case "$enableval" in
+      no) builtin_ryu=no ;;
+      *)  builtin_ryu=yes ;;
+   esac])
 
 dnl -------------
 dnl zstd
@@ -3050,9 +3066,11 @@ AS_IF([test ${enable_jit} != no],
            fi
            ;;
    esac
+  ])
 
-   AS_IF([test ${enable_jit} != no],
-     [
+dnl Test for C++17
+AS_IF([test ${enable_jit} != no -o "$builtin_ryu" = "no"],
+  [
        AS_IF([test "$CXX" != false],
          [
           AC_LANG_PUSH(C++)
@@ -3068,27 +3086,46 @@ AS_IF([test ${enable_jit} != no],
                HAVE_CXX17=true],
               [AC_MSG_CHECKING([for C++17 support])
                AC_MSG_RESULT([no])
+               CXXFLAGS=$old_CXXFLAGS
                HAVE_CXX17=false])
           AC_LANG_POP()
          ])
        if test "$CXX" = false -o "$HAVE_CXX17" = false; then
+         # C++17 not found
+         if test "$builtin_ryu" = "no"; then
+           AC_MSG_ERROR([Alternative to builtin ryu needs C++17 support])
+         else
+           builtin_ryu=yes
+         fi
          if test ${enable_jit} = yes; then
            AC_MSG_ERROR([JIT needs a C++ compiler with C++17 support])
-         else
+         fi
+         if test ${enable_jit} != no; then
            enable_jit=no
            cat >> $ERL_TOP/erts/CONF_INFO <<EOF
 
                  JIT disabled due to lack of compiler with C++17 support
 EOF
            AC_MSG_WARN([JIT disable due to lack of C++ compiler with C++17 support])
-        fi
-     fi
-    ])
-
-   if test ${enable_jit} != no; then
-     enable_jit=yes
-   fi
+         fi
+       else
+         # C++17 found
+         if test ${enable_jit} != no; then
+           enable_jit=yes
+         fi
+       fi
   ])
+
+AS_IF([test "$builtin_ryu" = "no"],
+      [
+        ERTS_USE_BUILTIN_RYU=no
+      ],
+      [
+        AC_DEFINE(ERTS_USE_BUILTIN_RYU, [1], [Define if builtin ryu should be used])
+        ERTS_USE_BUILTIN_RYU=yes
+      ])
+AC_SUBST(ERTS_USE_BUILTIN_RYU)
+
 
 dnl Test if we can use the native stack for Erlang code
 AS_IF([test ${enable_jit} != no],
