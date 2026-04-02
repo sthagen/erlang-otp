@@ -623,6 +623,5 @@ start_additional_data(Type, Version, Epoch, SeqNo) ->
 
 
 sufficient_dtlsv1_2_crypto_support() ->
-    CryptoSupport = crypto:supports(),
-    proplists:get_bool(sha256, proplists:get_value(hashs, CryptoSupport)).
+    proplists:get_bool(sha256, crypto:supports(hashs)).
 

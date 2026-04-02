@@ -51,7 +51,7 @@ tls_1_3_tests() ->
 
 init_per_suite(Config0) ->
     Config1 = ssl_test_lib:init_per_suite(Config0, openssl),
-    case proplists:get_bool(ecdh, proplists:get_value(public_keys, crypto:supports()))
+    case proplists:get_bool(ecdh, crypto:supports(public_keys))
     of
         true ->
             ssl_test_lib:make_ecdsa_cert(Config1);

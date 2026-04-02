@@ -306,12 +306,12 @@ init_per_group(GroupName, Config) ->
             ssl_test_lib:init_per_group(GroupName, [{client_type, erlang},
                                                     {server_type, erlang},
                                                     {version, GroupName} | Config]);
-        false -> 
+        false ->
             do_init_per_group(GroupName, Config)
     end.
 
-do_init_per_group(GroupName, Config) when GroupName == ecdhe_1_3_rsa_cert ->    
-    case proplists:get_bool(ecdh, proplists:get_value(public_keys, crypto:supports())) of
+do_init_per_group(GroupName, Config) when GroupName == ecdhe_1_3_rsa_cert ->
+    case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
         true ->
             init_certs(GroupName, Config);
         false ->
@@ -320,14 +320,14 @@ do_init_per_group(GroupName, Config) when GroupName == ecdhe_1_3_rsa_cert ->
 do_init_per_group(GroupName, Config) when GroupName == ecdh_anon;
                                        GroupName == ecdhe_rsa;
                                        GroupName == ecdhe_psk ->
-    case proplists:get_bool(ecdh, proplists:get_value(public_keys, crypto:supports())) of
+    case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
         true ->
             init_certs(GroupName, Config);
         false ->
             {skip, "Missing EC crypto support"}
     end;
 do_init_per_group(ecdhe_ecdsa = GroupName, Config) ->
-    PKAlg = proplists:get_value(public_keys, crypto:supports()),
+    PKAlg = crypto:supports(public_keys),
     case lists:member(ecdh, PKAlg) andalso lists:member(ecdsa, PKAlg) of
         true ->
             init_certs(GroupName, Config);
@@ -335,7 +335,7 @@ do_init_per_group(ecdhe_ecdsa = GroupName, Config) ->
             {skip, "Missing EC crypto support"}
     end;
 do_init_per_group(dhe_dss = GroupName, Config) ->
-    PKAlg = proplists:get_value(public_keys, crypto:supports()),
+    PKAlg = crypto:supports(public_keys),
     case lists:member(dss, PKAlg) andalso lists:member(dh, PKAlg) of
         true ->
             init_certs(GroupName, Config);
@@ -343,7 +343,7 @@ do_init_per_group(dhe_dss = GroupName, Config) ->
             {skip, "Missing DSS crypto support"}
     end;
 do_init_per_group(srp_dss = GroupName, Config) ->
-    PKAlg = proplists:get_value(public_keys, crypto:supports()),
+    PKAlg = crypto:supports(public_keys),
     case lists:member(dss, PKAlg) andalso lists:member(srp, PKAlg) of
         true ->
             init_certs(GroupName, Config);
@@ -352,7 +352,7 @@ do_init_per_group(srp_dss = GroupName, Config) ->
     end;
 do_init_per_group(GroupName, Config) when GroupName == srp_anon;
                                           GroupName == srp_rsa ->
-    PKAlg = proplists:get_value(public_keys, crypto:supports()),
+    PKAlg = crypto:supports(public_keys),
     case lists:member(srp, PKAlg) of
         true ->
             init_certs(GroupName, Config);
@@ -360,7 +360,7 @@ do_init_per_group(GroupName, Config) when GroupName == srp_anon;
             {skip, "Missing SRP crypto support"}
     end;
 do_init_per_group(dhe_psk = GroupName, Config) ->
-    PKAlg = proplists:get_value(public_keys, crypto:supports()),
+    PKAlg = crypto:supports(public_keys),
     case lists:member(dh, PKAlg) of
         true ->
             init_certs(GroupName, Config);
@@ -388,7 +388,7 @@ init_per_testcase(TestCase, Config) when TestCase == psk_3des_ede_cbc;
                                          TestCase == dh_anon_3des_ede_cbc;
                                          TestCase == ecdh_anon_3des_ede_cbc;
                                          TestCase == ecdhe_ecdsa_3des_ede_cbc ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
     case lists:member(des_ede3_cbc, SupCiphers) of
         true ->
             ct:timetrap(?TIMEOUT),
@@ -404,7 +404,7 @@ init_per_testcase(TestCase, Config) when TestCase == psk_rc4_128;
                                          TestCase == ecdhe_rsa_rc4_128;
                                          TestCase == ecdhe_ecdsa_rc4_128;
                                          TestCase == dh_anon_rc4_128 ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
     case lists:member(rc4, SupCiphers) of
         true ->
             ct:timetrap(?TIMEOUT),
@@ -415,7 +415,7 @@ init_per_testcase(TestCase, Config) when TestCase == psk_rc4_128;
 init_per_testcase(TestCase, Config) when TestCase == psk_aes_128_ccm_8;
                                          TestCase == dhe_psk_aes_128_ccm_8;
                                          TestCase == ecdhe_psk_aes_128_ccm_8 ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
+        SupCiphers = crypto:supports(ciphers),
     case lists:member(aes_128_ccm, SupCiphers) of
         true ->
             ct:timetrap(?TIMEOUT),
@@ -427,7 +427,7 @@ init_per_testcase(TestCase, Config) when TestCase == psk_aes_256_ccm_8;
                                          TestCase == psk_aes_256_ccm_8;
                                          TestCase == dhe_psk_aes_256_ccm_8;
                                          TestCase == ecdhe_psk_aes_256_ccm_8 ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
     case lists:member(aes_256_ccm, SupCiphers) of
         true ->
             ct:timetrap(?TIMEOUT),
@@ -436,8 +436,8 @@ init_per_testcase(TestCase, Config) when TestCase == psk_aes_256_ccm_8;
             {skip, "Missing AES_256_CCM crypto support"}
     end;
 init_per_testcase(aes_256_gcm_sha384, Config) ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
-      SupHashs = proplists:get_value(hashs, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
+    SupHashs = crypto:supports(hashs),
     case (lists:member(aes_256_gcm, SupCiphers)) andalso
         (lists:member(sha384, SupHashs))
     of
@@ -448,20 +448,20 @@ init_per_testcase(aes_256_gcm_sha384, Config) ->
             {skip, "Missing AES_256_GCM_SHA384 crypto support"}
     end;
 init_per_testcase(aes_128_gcm_sha256, Config) ->
-      SupCiphers = proplists:get_value(ciphers, crypto:supports()),
-      SupHashs = proplists:get_value(hashs, crypto:supports()),
-      case (lists:member(aes_128_gcm, SupCiphers)) andalso
-          (lists:member(sha256, SupHashs))
-      of
+    SupCiphers = crypto:supports(ciphers),
+    SupHashs = crypto:supports(hashs),
+    case (lists:member(aes_128_gcm, SupCiphers)) andalso
+        (lists:member(sha256, SupHashs))
+    of
         true ->
             ct:timetrap(?TIMEOUT),
             Config;
-          _ ->
+        _ ->
             {skip, "Missing AES_128_GCM_SHA256 crypto support"}
     end;
 init_per_testcase(chacha20_poly1305_sha256, Config) ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
-    SupHashs = proplists:get_value(hashs, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
+    SupHashs = crypto:supports(hashs),
     case (lists:member(chacha20_poly1305, SupCiphers)) andalso
         (lists:member(sha256, SupHashs))
     of
@@ -472,8 +472,8 @@ init_per_testcase(chacha20_poly1305_sha256, Config) ->
             {skip, "Missing chacha20_poly1305_sha256 crypto support"}
     end;
 init_per_testcase(aes_128_ccm_sha256, Config) ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
-    SupHashs = proplists:get_value(hashs, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
+    SupHashs = crypto:supports(hashs),
     case (lists:member(aes_128_ccm, SupCiphers)) andalso
         (lists:member(sha256, SupHashs)) of
         true ->
@@ -483,8 +483,8 @@ init_per_testcase(aes_128_ccm_sha256, Config) ->
             {skip, "Missing AES_128_CCM_SHA256 crypto support"}
     end;
 init_per_testcase(aes_128_ccm_8_sha256, Config) ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
-    SupHashs = proplists:get_value(hashs, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
+    SupHashs = crypto:supports(hashs),
     case (lists:member(aes_128_ccm, SupCiphers)) andalso
         (lists:member(sha256, SupHashs)) of
         true ->
@@ -495,7 +495,7 @@ init_per_testcase(aes_128_ccm_8_sha256, Config) ->
     end;
 init_per_testcase(TestCase, Config) when TestCase == ecdhe_ecdsa_with_aes_128_ccm;
                                          TestCase == ecdhe_ecdsa_with_aes_128_ccm_8->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
     case lists:member(aes_128_ccm, SupCiphers) of
         true ->
             ct:timetrap(?TIMEOUT),
@@ -505,7 +505,7 @@ init_per_testcase(TestCase, Config) when TestCase == ecdhe_ecdsa_with_aes_128_cc
     end;
 init_per_testcase(TestCase, Config) when TestCase == ecdhe_ecdsa_with_aes_256_ccm;
                                          TestCase == ecdhe_ecdsa_with_aes_256_ccm_8 ->
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
     case lists:member(aes_256_ccm, SupCiphers) of
         true ->
             ct:timetrap(?TIMEOUT),
@@ -515,7 +515,7 @@ init_per_testcase(TestCase, Config) when TestCase == ecdhe_ecdsa_with_aes_256_cc
     end;
 init_per_testcase(TestCase, Config) ->
     Cipher = ssl_test_lib:test_cipher(TestCase, Config),
-    SupCiphers = proplists:get_value(ciphers, crypto:supports()),
+    SupCiphers = crypto:supports(ciphers),
     case lists:member(Cipher, SupCiphers) of
         true ->
             ct:timetrap(?TIMEOUT),

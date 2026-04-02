@@ -71,7 +71,7 @@ init_per_suite(Config0) ->
     case application:ensure_started(crypto) of
         ok ->
             ssl_test_lib:clean_start(),
-            case proplists:get_bool(ecdh, proplists:get_value(public_keys, crypto:supports())) of
+            case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
                 true ->
                     ssl_test_lib:make_ecdsa_cert(Config0);
                 false ->
