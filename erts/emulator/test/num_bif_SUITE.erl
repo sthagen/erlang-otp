@@ -23,6 +23,7 @@
 -module(num_bif_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% Tests the BIFs:
 %% 	abs/1
@@ -265,14 +266,14 @@ t_float_to_string(Config) when is_list(Config) ->
     ok.
 
 test_fts(Expect, Float) ->
-    Expect = float_to_list(Float),
+    ?assertEqual(Expect, float_to_list(Float)),
     BinExpect = list_to_binary(Expect),
-    BinExpect = float_to_binary(Float).
+    ?assertEqual(BinExpect, float_to_binary(Float)).
 
 test_fts(Expect, Float, Args) ->
-    Expect = float_to_list(Float,Args),
+    ?assertEqual(Expect, float_to_list(Float,Args)),
     BinExpect = list_to_binary(Expect),
-    BinExpect = float_to_binary(Float,Args).
+    ?assertEqual(BinExpect, float_to_binary(Float,Args)).
 
 
 rand_float_reasonable() ->
