@@ -252,12 +252,51 @@ scan(_Config) ->
                                              [{enabled,true}, {color,true}]))).
 
 doctests(Config) ->
+    SkipTests = case os:type() of
+        {unix, freebsd} ->
+            Colors = [
+                "black",
+                "blue",
+                "cyan",
+                "green",
+                "magenta",
+                "red",
+                "white",
+                "yellow"],
+            [moduledoc,
+            {function, alternate_character_set_mode,0},
+            {function, reset,0},
+            {function,alternate_screen_off,0},
+            {function,alternate_screen,0},
+            {function,background,1},
+            {function,color,1},
+            {function,cursor_horizontal_absolute,1},
+            {function,cursor_vertical_absolute,1},
+            {function,format,3},
+            {function,hyperlink_start,2},
+            {function,modify_color,4},
+            {function,scroll_backward,0},
+            {function,scroll_backward,1},
+            {function,scroll_forward,0},
+            {function,scroll_forward,1},
+            {function,tab_backward,0},
+            {function,tput,2}
+            ]++
+            [{function,list_to_atom(Color), 0},
+             {function,list_to_atom("light_"++Color),0},
+             {function,list_to_atom(Color++"_background"),0},
+             {function,list_to_atom("light_"++Color++"_background"),0} || Color <- Colors];
+        _ -> []
+    end,
     %% Runs shell_docs doctests for io_ansi examples.
     Term = shell_test_lib:setup_tty([{env, [{"TERM","xterm-256color"}, {"NO_COLOR",""}]}|Config]),
     try
         shell_test_lib:rpc(Term, fun() ->
             group_leader(whereis(user), self()),
-            ct_doctest:module(io_ansi, [])
+            ct_doctest:module(io_ansi, [
+                {skipped_blocks,0},
+                {missing_tests, [{cursor_get_position,0},{cursor_next_line,0}]},
+                {skip_tests, SkipTests}])
         end)
     after
         shell_test_lib:stop_tty(Term)

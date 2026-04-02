@@ -16603,10 +16603,17 @@ fi
 fi
 
 
+
 ac_fn_c_check_header_compile "$LINENO" "termcap.h" "ac_cv_header_termcap_h" "$ac_includes_default"
 if test "x$ac_cv_header_termcap_h" = xyes
 then :
   printf "%s\n" "#define HAVE_TERMCAP_H 1" >>confdefs.h
+
+fi
+ac_fn_c_check_header_compile "$LINENO" "ncurses/curses.h" "ac_cv_header_ncurses_curses_h" "$ac_includes_default"
+if test "x$ac_cv_header_ncurses_curses_h" = xyes
+then :
+  printf "%s\n" "#define HAVE_NCURSES_CURSES_H 1" >>confdefs.h
 
 fi
 ac_fn_c_check_header_compile "$LINENO" "curses.h" "ac_cv_header_curses_h" "$ac_includes_default"

@@ -1951,6 +1951,21 @@ int enif_get_atom_length(ErlNifEnv* env, Eterm atom, unsigned* len,
     return 0;
 }
 
+int enif_get_atom_cache_index(ErlNifEnv* env, ERL_NIF_TERM atom, unsigned* index)
+{
+    if (is_not_atom(atom) || index == NULL) {
+        return 0;
+    }
+
+    *index = (unsigned) erts_debug_atom_to_out_cache_index(atom);
+    return 1;
+}
+
+unsigned enif_max_atom_cache_index(void)
+{
+    return (unsigned) erts_debug_max_atom_out_cache_index();
+}
+
 int enif_get_list_cell(ErlNifEnv* env, Eterm term, Eterm* head, Eterm* tail)
 {
     Eterm* val;

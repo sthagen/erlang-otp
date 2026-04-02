@@ -44,13 +44,18 @@
 #include <stdio.h>
 #include <signal.h>
 #include <locale.h>
-#if defined(HAVE_TERMCAP) && defined(HAVE_CURSES_H) && defined(HAVE_TERM_H)
+#if defined(HAVE_TERMCAP)
 #include <termios.h>
+#if defined(HAVE_NCURSES_CURSES_H)
+#include <ncurses/curses.h>
+#include <ncurses/term.h>
+#elif defined(HAVE_CURSES_H) && defined(HAVE_TERM_H)
 #include <curses.h>
 #include <term.h>
 #else
 /* We detected TERMCAP support, but could not find the correct headers to include */
 #undef HAVE_TERMCAP
+#endif
 #endif
 #ifndef __WIN32__
 #include <unistd.h>
@@ -785,10 +790,11 @@ static ERL_NIF_TERM tty_setupterm_nif(ErlNifEnv* env, int argc, const ERL_NIF_TE
 #endif
 }
 
+#ifdef HAVE_TERMCAP
 static ERL_NIF_TERM tty_tinfo_make_map(ErlNifEnv* env,
-                                       const char * const* names,
-                                       const char * const* codes,
-                                       const char * const* fnames) {
+                                       NCURSES_CONST char * const* names,
+                                       NCURSES_CONST char * const* codes,
+                                       NCURSES_CONST char * const* fnames) {
     ERL_NIF_TERM res = enif_make_list(env, 0);
     ERL_NIF_TERM ks[3] = {
         enif_make_atom(env, "name"),
@@ -807,6 +813,7 @@ static ERL_NIF_TERM tty_tinfo_make_map(ErlNifEnv* env,
     }
     return res;
 }
+#endif
 
 static ERL_NIF_TERM tty_tinfo_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 #ifdef HAVE_TERMCAP
@@ -817,9 +824,9 @@ static ERL_NIF_TERM tty_tinfo_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     };
 
     ERL_NIF_TERM vs[3] = {
-        tty_tinfo_make_map(env, boolnames, boolcodes, boolfnames),
-        tty_tinfo_make_map(env, numnames, numcodes, numfnames),
-        tty_tinfo_make_map(env, strnames, strcodes, strfnames)
+        tty_tinfo_make_map(env, (const char * const*)boolnames, (const char * const*)boolcodes, (const char * const*)boolfnames),
+        tty_tinfo_make_map(env, (const char * const*)numnames, (const char * const*)numcodes, (const char * const*)numfnames),
+        tty_tinfo_make_map(env, (const char * const*)strnames, (const char * const*)strcodes, (const char * const*)strfnames)
     };
     ERL_NIF_TERM res;
     

@@ -438,6 +438,7 @@ server(Config) when is_list(Config) ->
     %% test live trace
     1 = tprof:set_pattern(?MODULE, dispatch, '_'),
     _ = tprof:set_pattern(pg, '_', '_'),
+    _ = tprof:set_pattern(data_publisher, '_', '_'),
     %% watch for pg traces and for our process
     2 = tprof:enable_trace([Pid, Name]),
     %% run the traced operation
@@ -448,7 +449,7 @@ server(Config) when is_list(Config) ->
     %%  and at least something from pg in two processes
     ?assertNotEqual([], FirstProfile),
     ?assertEqual({?MODULE, dispatch, 2, [{Pid, 1, 3}]}, lists:keyfind(?MODULE, 1, FirstProfile)),
-    ?assertMatch({pg, handle_call, 3, [{Scope, _, _}]}, lists:keyfind(handle_call, 2, FirstProfile)),
+    ?assertMatch({data_publisher, handle_call, 3, [{Scope, _, _}]}, lists:keyfind(handle_call, 2, FirstProfile)),
     ?assertMatch({pg, join, 3, [{Pid, _, _}]}, lists:keyfind(join, 2, FirstProfile)),
     %% pause tracing
     ok = tprof:pause(),
