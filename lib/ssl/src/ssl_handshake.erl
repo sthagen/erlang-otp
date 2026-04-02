@@ -43,10 +43,12 @@
 
 -type oid()               :: tuple().
 -type public_key_params() :: #'Dss-Parms'{} |  {namedCurve, oid()} | #'ECParameters'{} | term().
--type public_key_info()   :: {oid(), #'RSAPublicKey'{} | integer() | #'ECPoint'{}, public_key_params()}.
+-type public_key_info()   :: {oid(), #'RSAPublicKey'{} | integer() |
+                              #'ECPoint'{}, public_key_params()}.
 -type ssl_handshake_history() :: {iodata(), iodata()}.
 
--type ssl_handshake() :: #server_hello{} | #server_hello_done{} | #certificate{} | #certificate_request{} |
+-type ssl_handshake() :: #server_hello{} | #server_hello_done{} | #certificate{} |
+                         #certificate_request{} |
 			 #client_key_exchange{} | #finished{} | #certificate_verify{} |
 			 #hello_request{} | #next_protocol{} | #end_of_early_data{}.
 

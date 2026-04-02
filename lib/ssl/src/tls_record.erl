@@ -349,7 +349,7 @@ is_higher(_, _) ->
 
 
 %%--------------------------------------------------------------------
--spec supported_protocol_versions() -> [tls_version()].					 
+-spec supported_protocol_versions() -> [tls_version()].
 %%
 %% Description: Protocol versions supported
 %%--------------------------------------------------------------------

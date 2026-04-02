@@ -922,7 +922,7 @@ signature_algs(?TLS_1_2, HashSigns) ->
 default_signature_algs([?TLS_1_3]) ->
     default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3);
 default_signature_algs([?TLS_1_3, ?TLS_1_2 | _]) ->
-    default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3) 
+    default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3)
         ++ default_pre_1_3_signature_algs_only();
 default_signature_algs([?TLS_1_2 = Version |_]) ->
     Default = [%% SHA2 ++ PSS
@@ -1120,7 +1120,8 @@ hkdf_expand(Algo, PseudoRandKey, ContextInfo, Length, N, N, Prev, Acc) ->
     binary:part(<<Acc/binary, Keyingmaterial/binary>>, {0, Length});
 hkdf_expand(Algo, PseudoRandKey, ContextInfo, Length, M, N, Prev, Acc) ->
     Keyingmaterial = hmac_hash(Algo, PseudoRandKey, <<Prev/binary, ContextInfo/binary, ?BYTE(M)>>),
-    hkdf_expand(Algo, PseudoRandKey, ContextInfo, Length, M + 1, N, Keyingmaterial, <<Acc/binary, Keyingmaterial/binary>>).
+    hkdf_expand(Algo, PseudoRandKey, ContextInfo, Length, M + 1, N,
+                Keyingmaterial, <<Acc/binary, Keyingmaterial/binary>>).
 
 %%%% HMAC and the Pseudorandom Functions RFC 2246 & 4346 - 5.%%%%
 hmac_hash(?NULL, _, _) ->
