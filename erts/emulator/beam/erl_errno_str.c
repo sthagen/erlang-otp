@@ -27,16 +27,18 @@
 #include "erl_errno.h"
 #include "sys.h"
 
-#if !defined(ERTS_USE_BUILTIN_ERRNO_ID)
-
 #include <string.h>
 #include "hash.h"
 #include "erl_driver.h"
 #include "erl_alloc.h"
 
-static char *unknown = "unknown";
+#define ERTS_UNKNOWN_ERRNO_FORMAT "errno_%d"
+#define ERTS_UNKNOWN_ERRNO_BUF_SZ 30 /* Big enough even if errno should be 64-bit integer */
+
+#if !defined(ERTS_USE_BUILTIN_ERRNO_ID)
 static char **errno_map;
 static int max_errno = 0;
+#endif
 static erts_rwmtx_t errno_rwmtx;
 static int hash_initialized = 0;
 static Hash *errno_table = NULL;
@@ -187,6 +189,15 @@ init_hash_table(void)
     }
 }
 
+static void
+write_unknown_errno(char *buf, size_t buf_sz, int eno)
+{
+    erts_snprintf(&buf[0], buf_sz, ERTS_UNKNOWN_ERRNO_FORMAT, eno);
+}
+
+
+#if !defined(ERTS_USE_BUILTIN_ERRNO_ID)
+
 static const char *errno_name(int eno)
 {
 #define ERTS_ERRNO_CASE(ENO) case ENO: return #ENO
@@ -329,19 +340,31 @@ static const char *errno_name(int eno)
 #undef ERTS_ERRNO_CASE
 }
 
+#endif /* !defined(ERTS_USE_BUILTIN_ERRNO_ID) */
+
 void
 erts_errno_init(void)
 {
     /* Allocators have been initialized... */
+#if !defined(ERTS_USE_BUILTIN_ERRNO_ID)
     int eno;
-    size_t tot_sz = 0, arr_sz;
+    size_t tot_sz = 0, unknown_sz, arr_sz;
     char *ptr, *end_ptr;
+    char unknown_buf[ERTS_UNKNOWN_ERRNO_BUF_SZ];
 
-    for (eno = 0; eno < ERTS_MAX_CACHED_ERRNO; eno++) {
+    write_unknown_errno(&unknown_buf[0], sizeof(unknown_buf), 0);
+    unknown_sz = strlen(&unknown_buf[0]) + 1;
+
+    for (eno = 1; eno < ERTS_MAX_CACHED_ERRNO; eno++) {
         const char *str = errno_name(eno);
         if (str) {
             max_errno = eno;
-            tot_sz += strlen(str) + 1;
+            tot_sz += unknown_sz + strlen(str) + 1;
+            unknown_sz = 0;
+        }
+        else {
+            write_unknown_errno(&unknown_buf[0], sizeof(unknown_buf), eno);
+            unknown_sz += strlen(&unknown_buf[0]) + 1;
         }
     }
 
@@ -354,17 +377,27 @@ erts_errno_init(void)
 
     ptr += arr_sz;
 
-    errno_map[0] = unknown;
+    errno_map[0] = ptr;
+    write_unknown_errno(ptr, end_ptr - ptr, 0);
+    ptr += strlen(ptr) + 1;
+
     for (eno = 1; eno <= max_errno; eno++) {
         const char *str = errno_name(eno);
-        if (!str) {
-            errno_map[eno] = unknown;
-        }
-        else {
-            errno_map[eno] = ptr;
+        errno_map[eno] = ptr;
+        if (str) {
             ptr = tolower_copy_estring(ptr, end_ptr, str);
         }
+        else {
+            write_unknown_errno(ptr, end_ptr - ptr, eno);
+            ptr += strlen(ptr) + 1;
+        }
     }
+
+#if 0
+    for (eno = 0; eno <= max_errno; eno++)
+        fprintf(stderr, "%d - %s\r\n", eno, errno_map[eno]);
+#endif
+#endif /* !defined(ERTS_USE_BUILTIN_ERRNO_ID) */
 
     init_done = !0;
 }
@@ -404,12 +437,15 @@ static void rwlock(void)
         erts_rwmtx_rwlock(&errno_rwmtx);
     }
 }
+
 static void rwunlock(void)
 {
     if (late_init_done) {
         erts_rwmtx_rwunlock(&errno_rwmtx);
     }
 }
+
+#if !defined(ERTS_USE_BUILTIN_ERRNO_ID)
 
 char *
 erl_errno_id(int eno)
@@ -418,7 +454,31 @@ erl_errno_id(int eno)
      * Note! Returned strings must not move or be deallocated
      * during the runtime systems lifetime.
      */
-    char *res, *str;
+    if (!init_done) {
+        /*
+         * Alloc-util allocators have not yet been initialized so we will go
+         * for malloc/free instead of erts_alloc/erts_free from now on.
+         *
+         * This scenario is very unlikely, but might happen on a fatal error
+         * during initialization of the emulator.
+         */
+        used_before_init = !0;
+        erts_errno_init();
+    }
+
+    if (0 <= eno && eno <= max_errno) {
+        return errno_map[eno];
+    }
+
+    return erl_errno_id_unknown((char *) errno_name(eno), eno);
+}
+
+#endif /* !defined(ERTS_USE_BUILTIN_ERRNO_ID) */
+
+char *
+erl_errno_id_unknown(char *str, int eno)
+{
+    char *res;
     ErtsErrnoEntry *hash_res;
     ErtsErrnoEntry tmpl;
 
@@ -431,15 +491,7 @@ erl_errno_id(int eno)
          * during initialization of the emulator.
          */
         used_before_init = !0;
-    }
-
-    if (0 <= eno && eno <= max_errno) {
-        return errno_map[eno];
-    }
-
-    str = (char *) errno_name(eno);
-    if (!str) {
-        return unknown;
+        erts_errno_init();
     }
 
     rlock();
@@ -463,7 +515,16 @@ erl_errno_id(int eno)
         res = &hash_res->str[0];
     }
     else {
-        ErtsErrnoEntry *entry = make_errno_entry(eno, str);
+        ErtsErrnoEntry *entry;
+        char buf[ERTS_UNKNOWN_ERRNO_BUF_SZ];
+
+        if (!str) {
+            write_unknown_errno(&buf[0], sizeof(buf), eno);
+            str = &buf[0];
+        }
+
+        entry = make_errno_entry(eno, str);
+
         rwlock();
         hash_res = hash_put(errno_table, entry);
         if (hash_res != entry) {
@@ -481,5 +542,3 @@ erl_errno_id(int eno)
 
     return res;
 }
-
-#endif /* !defined(ERTS_USE_BUILTIN_ERRNO_ID) */

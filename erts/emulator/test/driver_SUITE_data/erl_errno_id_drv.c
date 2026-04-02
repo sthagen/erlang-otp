@@ -120,10 +120,18 @@ send_error(ErlDrvData drv_data,
     }
 }
 
+#if 0
+#define DEBUG_PRINT(ENO, ENOSTR, STR) \
+    fprintf(stderr, "%d | %s | %s\r\n", ENO, ENOSTR, STR)
+#else
+#define DEBUG_PRINT(ENO, ENOSTR, STR)
+#endif
+
 #define TEST_ERRNO_IMPL(Eno, EnoStr, Alt1, Alt2, Alt3)                  \
     do {                                                                \
         char *res = erl_errno_id(Eno);                                  \
         char *exp = to_lower_str(EnoStr);                               \
+        DEBUG_PRINT(Eno, EnoStr, res);                                  \
         if (!exp) {                                                     \
             driver_failure_posix((ErlDrvPort) drv_data, ENOMEM);        \
             return;                                                     \
@@ -151,8 +159,19 @@ send_error(ErlDrvData drv_data,
 #define TEST_ERRNO_ALT2(Eno, Alt1, Alt2) TEST_ERRNO_IMPL(Eno, #Eno, Alt1, Alt2, NULL)
 #define TEST_ERRNO_ALT3(Eno, Alt1, Alt2, Alt3) TEST_ERRNO_IMPL(Eno, #Eno, Alt1, Alt2, Alt3)
 
+#define TEST_ERRNO_UNKNOWN(RES, INT)                            \
+    do {                                                        \
+        RES = erl_errno_id(INT);                                \
+        DEBUG_PRINT(INT, #INT, RES);                            \
+        if (strcmp(RES, "errno_" #INT) != 0) {                  \
+            send_error(drv_data, #INT, "errno_" #INT, RES);     \
+            return;                                             \
+        }                                                       \
+    } while (0)
+
 static void output(ErlDrvData drv_data, char *buf, ErlDrvSizeT len)
 {
+    char *neg_4711_res, *res;
     /* Test all POSIX.1-2017 errno names... */
 #ifdef E2BIG
     TEST_ERRNO(E2BIG);
@@ -398,12 +417,16 @@ static void output(ErlDrvData drv_data, char *buf, ErlDrvSizeT len)
     TEST_ERRNO(EXDEV);
 #endif
 
-    {
-        char *res = erl_errno_id(-1);
-        if (strcmp(res, "unknown") != 0) {
-            send_error(drv_data, "unknown", "unknown", res);
-            return;
-        }
+    TEST_ERRNO_UNKNOWN(res, -4711);
+    neg_4711_res = res;
+    TEST_ERRNO_UNKNOWN(res, -1);
+    TEST_ERRNO_UNKNOWN(res, 0);
+    TEST_ERRNO_UNKNOWN(res, 4711);
+
+    if (neg_4711_res != erl_errno_id(-4711)) {
+        driver_failure_atom((ErlDrvPort) drv_data,
+                            "result for -4711 moved");
+        return;
     }
 
     send_ok(drv_data);
