@@ -900,6 +900,9 @@
 /* Define if setsockopt() accepts multicast options */
 #undef HAVE_MULTICAST_SUPPORT
 
+/* Define to 1 if you have the <ncurses/curses.h> header file. */
+#undef HAVE_NCURSES_CURSES_H
+
 /* Define to 1 if you have the <ndir.h> header file, and it defines 'DIR'. */
 #undef HAVE_NDIR_H
 
