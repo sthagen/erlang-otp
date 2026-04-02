@@ -790,10 +790,11 @@ static ERL_NIF_TERM tty_setupterm_nif(ErlNifEnv* env, int argc, const ERL_NIF_TE
 #endif
 }
 
+#ifdef HAVE_TERMCAP
 static ERL_NIF_TERM tty_tinfo_make_map(ErlNifEnv* env,
-                                       const char * const* names,
-                                       const char * const* codes,
-                                       const char * const* fnames) {
+                                       NCURSES_CONST char * const* names,
+                                       NCURSES_CONST char * const* codes,
+                                       NCURSES_CONST char * const* fnames) {
     ERL_NIF_TERM res = enif_make_list(env, 0);
     ERL_NIF_TERM ks[3] = {
         enif_make_atom(env, "name"),
@@ -812,6 +813,7 @@ static ERL_NIF_TERM tty_tinfo_make_map(ErlNifEnv* env,
     }
     return res;
 }
+#endif
 
 static ERL_NIF_TERM tty_tinfo_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 #ifdef HAVE_TERMCAP
