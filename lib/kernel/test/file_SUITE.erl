@@ -4153,7 +4153,16 @@ do_large_file(Name) ->
             ok;
         {eof, 4} ->
             %% Cannot read such large files on 32-bit
-            ok
+            ok;
+        {{error,enomem}, 8} ->
+            case memsize() of
+                MemSize when MemSize < 12_000_000_000 ->
+                    %% Expected memory fail.
+                    ok;
+                _ ->
+                    %% Memory should be sufficient.
+                    error(enomem)
+            end
     end,
     ok = ?FILE_MODULE:close(F2),
 
