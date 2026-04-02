@@ -234,8 +234,7 @@ rsa_config(Config0) ->
                    lists:delete(server_cert_opts,
                                 lists:delete(client_cert_opts, Config))])].
 rsa_pss_config(Alg, Config) ->
-    Supports = crypto:supports(),
-    RSAOpts = proplists:get_value(rsa_opts, Supports),
+    RSAOpts = crypto:supports(rsa_opts),
     Version = ssl_test_lib:n_version(proplists:get_value(version, Config)),
 
     case lists:member(rsa_pkcs1_pss_padding, RSAOpts)

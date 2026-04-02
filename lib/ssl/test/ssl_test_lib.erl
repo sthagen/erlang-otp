@@ -462,7 +462,7 @@ openssl_support_rsa_kex() ->
 
 ecdsa_conf() ->
     [{key, {namedCurve, ?DEFAULT_CURVE}},
-     {digest, appropriate_sha(crypto:supports())}].
+     {digest, appropriate_sha(crypto:supports(hashs))}].
 
 eddsa_conf() ->
     [{key, {namedCurve, ed25519}}].
@@ -1586,9 +1586,8 @@ cert_options(Config) ->
                        {certfile, ServerCertFile}, {keyfile, BadKeyFile}]}
     | Config].
 
-make_dsa_cert(Config) ->  
-    CryptoSupport = crypto:supports(),
-    case proplists:get_bool(dss, proplists:get_value(public_keys, CryptoSupport)) of
+make_dsa_cert(Config) ->
+    case proplists:get_bool(dss, crypto:supports(public_keys)) of
         true ->
             ClientChain = proplists:get_value(client_chain, Config, default_cert_chain_conf()),
             ServerChain = proplists:get_value(server_chain, Config, default_cert_chain_conf()),
@@ -1649,17 +1648,16 @@ make_ecc_cert_chains(UserConf, Config, Suffix) ->
     ClientFileBase = filename:join([proplists:get_value(priv_dir, Config), "ecdsa" ++ Suffix]),
     ServerFileBase = filename:join([proplists:get_value(priv_dir, Config), "ecdsa" ++ Suffix]),
     GenCertData = public_key:pkix_test_data(CertChainConf),
-    [{server_config, ServerConf}, 
-     {client_config, ClientConf}] = 
-        x509_test:gen_pem_config_files(GenCertData, ClientFileBase, ServerFileBase),               
+    [{server_config, ServerConf},
+     {client_config, ClientConf}] =
+        x509_test:gen_pem_config_files(GenCertData, ClientFileBase, ServerFileBase),
     {[{verify, verify_peer} | ClientConf],
      [{reuseaddr, true}, {verify, verify_peer} | ServerConf]
     }.
 
 
-make_dsa_cert_chains(UserConf, Config, Suffix) ->  
-    CryptoSupport = crypto:supports(),
-    case proplists:get_bool(dss, proplists:get_value(public_keys, CryptoSupport)) of
+make_dsa_cert_chains(UserConf, Config, Suffix) ->
+    case proplists:get_bool(dss, crypto:supports(public_keys)) of
         true ->
             ClientChain = proplists:get_value(client_chain, UserConf, default_cert_chain_conf()),
             ServerChain = proplists:get_value(server_chain, UserConf, default_cert_chain_conf()),
@@ -1710,7 +1708,7 @@ make_rsa_pss_pem(Alg, _UserConf, Config, Suffix) ->
       client_config => CConf}.
 
 make_rsa_sni_configs() ->
-    Sha = appropriate_sha(crypto:supports()),
+    Sha = appropriate_sha(crypto:supports(hashs)),
     HostName = net_adm:localhost(),
     HostConf = make_sni_conf(HostName, Sha),
     LocalHostConf = make_sni_conf("localhost", Sha),
@@ -1779,49 +1777,49 @@ conf_tag(Role) ->
     list_to_atom(Role ++ "_chain").
 
 chain_spec(_Role, ecdh_rsa, Curve) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     CurveOid = pubkey_cert_records:namedCurves(Curve),
      [[Digest, {key, {namedCurve, CurveOid}}],
       [Digest, {key, hardcode_rsa_key(1)}],
       [Digest, {key, {namedCurve, CurveOid}}]];
 
 chain_spec(_Role, ecdhe_ecdsa, Curve) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     CurveOid = pubkey_cert_records:namedCurves(Curve),
     [[Digest, {key, {namedCurve, CurveOid}}],
      [Digest, {key, {namedCurve, CurveOid}}],
      [Digest, {key, {namedCurve, CurveOid}}]];
 
 chain_spec(_Role, ecdh_ecdsa, Curve) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     CurveOid = pubkey_cert_records:namedCurves(Curve),
     [[Digest, {key, {namedCurve, CurveOid}}],
      [Digest, {key, {namedCurve, CurveOid}}],
      [Digest, {key, {namedCurve, CurveOid}}]];
 chain_spec(_Role, ecdhe_rsa, _) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     [[Digest, {key, hardcode_rsa_key(1)}],
      [Digest, {key, hardcode_rsa_key(2)}],
      [Digest, {key, hardcode_rsa_key(3)}]];
 chain_spec(_Role, ecdsa, Curve) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     CurveOid = pubkey_cert_records:namedCurves(Curve),
     [[Digest, {key, {namedCurve, CurveOid}}],
      [Digest, {key, {namedCurve, CurveOid}}],
      [Digest, {key, {namedCurve, CurveOid}}]];
 chain_spec(_Role, eddsa, Curve) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     CurveOid = pubkey_cert_records:namedCurves(Curve),
     [[Digest, {key, {namedCurve, CurveOid}}],
      [Digest, {key, {namedCurve, CurveOid}}],
      [Digest, {key, {namedCurve, CurveOid}}]];
 chain_spec(_Role, rsa, _) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     [[Digest, {key, hardcode_rsa_key(1)}],
      [Digest, {key, hardcode_rsa_key(2)}],
      [Digest, {key, hardcode_rsa_key(3)}]];
 chain_spec(_Role, 'rsa-1024', _) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     [[Digest, {key, hardcode_rsa_1024_key(1)}],
      [Digest, {key, hardcode_rsa_1024_key(2)}],
      [Digest, {key, hardcode_rsa_1024_key(3)}]];
@@ -1846,7 +1844,7 @@ chain_spec(server, rsa_pss_pss, _) ->
      [Digest, {rsa_padding, rsa_pss_pss}, {key, {hardcode_rsa_key(5),  pss_params(sha256)}}],
      [Digest, {rsa_padding, rsa_pss_pss}, {key, {hardcode_rsa_key(6),  pss_params(sha256)}}]];
 chain_spec(_Role, dsa, _) ->
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     [[Digest, {key, hardcode_dsa_key(1)}],
      [Digest, {key, hardcode_dsa_key(2)}],
      [Digest, {key, hardcode_dsa_key(3)}]];
@@ -1881,47 +1879,48 @@ merge_spec(User, Default, [Conf | Rest], Acc) ->
 
 make_mix_cert(Config) ->
     Ext = x509_test:extensions([{key_usage, [digitalSignature]}]),
-    Digest = {digest, appropriate_sha(crypto:supports())},
+    Digest = {digest, appropriate_sha(crypto:supports(hashs))},
     CurveOid = pubkey_cert_records:namedCurves(?DEFAULT_CURVE),
     Mix = proplists:get_value(mix, Config, peer_ecc),
     ClientChainType =ServerChainType = mix,
     {ClientChain, ServerChain} = mix(Mix, Digest, CurveOid, Ext),
     CertChainConf = gen_conf(ClientChainType, ServerChainType, ClientChain, ServerChain),
-    ClientFileBase = filename:join([proplists:get_value(priv_dir, Config), "mix" ++ atom_to_list(Mix)]),
-    ServerFileBase = filename:join([proplists:get_value(priv_dir, Config), "mix" ++ atom_to_list(Mix)]),
+    ClientFileBase =
+        filename:join([proplists:get_value(priv_dir, Config), "mix" ++ atom_to_list(Mix)]),
+    ServerFileBase =
+        filename:join([proplists:get_value(priv_dir, Config), "mix" ++ atom_to_list(Mix)]),
     GenCertData = public_key:pkix_test_data(CertChainConf),
-    [{server_config, ServerConf}, 
-     {client_config, ClientConf}] = 
-        x509_test:gen_pem_config_files(GenCertData, ClientFileBase, ServerFileBase),               
+    [{server_config, ServerConf},
+     {client_config, ClientConf}] =
+        x509_test:gen_pem_config_files(GenCertData, ClientFileBase, ServerFileBase),
     {[{verify, verify_peer} | ClientConf],
      [{reuseaddr, true}, {verify, verify_peer} | ServerConf]
     }.
 
 mix(peer_ecc, Digest, CurveOid, Ext) ->
-    ClientChain =  [[Digest, {key, {namedCurve, CurveOid}}], 
-                    [Digest, {key, hardcode_rsa_key(1)}], 
+    ClientChain =  [[Digest, {key, {namedCurve, CurveOid}}],
+                    [Digest, {key, hardcode_rsa_key(1)}],
                     [Digest, {key, {namedCurve, CurveOid}}, {extensions, Ext}]
                    ],
-    ServerChain =  [[Digest, {key, {namedCurve, CurveOid}}], 
-                    [Digest, {key,  hardcode_rsa_key(2)}], 
+    ServerChain =  [[Digest, {key, {namedCurve, CurveOid}}],
+                    [Digest, {key,  hardcode_rsa_key(2)}],
                     [Digest, {key, {namedCurve, CurveOid}},{extensions, Ext}]
                    ],
     {ClientChain, ServerChain};
 
 mix(peer_rsa, Digest, CurveOid, Ext) ->
-    ClientChain =  [[Digest, {key, {namedCurve, CurveOid}}], 
-                    [Digest, {key, {namedCurve, CurveOid}}], 
+    ClientChain =  [[Digest, {key, {namedCurve, CurveOid}}],
+                    [Digest, {key, {namedCurve, CurveOid}}],
                     [Digest, {key, hardcode_rsa_key(1)}, {extensions, Ext}]
                    ],
-    ServerChain =  [[Digest, {key, {namedCurve, CurveOid}}], 
-                    [Digest, {key, {namedCurve, CurveOid}}], 
+    ServerChain =  [[Digest, {key, {namedCurve, CurveOid}}],
+                    [Digest, {key, {namedCurve, CurveOid}}],
                     [Digest, {key,  hardcode_rsa_key(2)},{extensions, Ext}]
                    ],
     {ClientChain, ServerChain}.
 
 make_ecdsa_cert(Config) ->
-    CryptoSupport = crypto:supports(),
-    case proplists:get_bool(ecdsa, proplists:get_value(public_keys, CryptoSupport)) of
+    case proplists:get_bool(ecdsa, crypto:supports(public_keys)) of
         true ->
             ClientFileBase = filename:join([proplists:get_value(priv_dir, Config), "ecdsa"]),
             ServerFileBase = filename:join([proplists:get_value(priv_dir, Config), "ecdsa"]),
@@ -1942,8 +1941,7 @@ make_ecdsa_cert(Config) ->
 	    Config
     end.
 make_rsa_cert(Config) ->
-    CryptoSupport = crypto:supports(),
-    case proplists:get_bool(rsa, proplists:get_value(public_keys, CryptoSupport)) of
+    case proplists:get_bool(rsa, crypto:supports(public_keys)) of
         true ->
             ClientFileBase = filename:join([proplists:get_value(priv_dir, Config), "rsa"]),
             ServerFileBase = filename:join([proplists:get_value(priv_dir, Config), "rsa"]),
@@ -2000,8 +1998,7 @@ make_rsa_cert_with_protected_keyfile(Config0, Password) ->
     | Config1].
 
 make_rsa_1024_cert(Config) ->
-    CryptoSupport = crypto:supports(),
-    case proplists:get_bool(rsa, proplists:get_value(public_keys, CryptoSupport)) of
+    case proplists:get_bool(rsa, crypto:supports(public_keys)) of
         true ->
             ClientFileBase = filename:join([proplists:get_value(priv_dir, Config), "rsa-1024"]),
             ServerFileBase = filename:join([proplists:get_value(priv_dir, Config), "rsa-1024"]),
@@ -2026,8 +2023,7 @@ make_rsa_1024_cert(Config) ->
 	    Config
     end.
 
-appropriate_sha(CryptoSupport) ->
-    Hashes = proplists:get_value(hashs, CryptoSupport),
+appropriate_sha(Hashes) ->
     case portable_cmd("openssl", ["version"]) of
         "OpenSSL 0.9.8" ++  _ ->
             sha;
@@ -2045,8 +2041,7 @@ appropriate_sha(CryptoSupport) ->
 %%    This key exchange algorithm is the same as ECDH_ECDSA except that the
 %%    server's certificate MUST be signed with RSA rather than ECDSA.
 make_ecdh_rsa_cert(Config) ->
-    CryptoSupport = crypto:supports(),
-    case proplists:get_bool(ecdh, proplists:get_value(public_keys, CryptoSupport)) of
+    case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
 	true ->
             ClientFileBase = filename:join([proplists:get_value(priv_dir, Config), "ecdh_rsa"]),
             ServerFileBase = filename:join([proplists:get_value(priv_dir, Config), "ecdh_rsa"]),
@@ -2068,8 +2063,7 @@ make_ecdh_rsa_cert(Config) ->
     end.
 
 make_rsa_ecdsa_cert(Config, Curve) ->
-    CryptoSupport = crypto:supports(),
-    case proplists:get_bool(ecdh, proplists:get_value(public_keys, CryptoSupport)) of
+    case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
 	true ->
             ClientFileBase = filename:join([proplists:get_value(priv_dir, Config),
                                             "rsa_ecdsa_" ++ atom_to_list(Curve)]),
@@ -3024,16 +3018,13 @@ add_transport(_, Config0) ->
 
 sufficient_crypto_support(Version)
   when Version == 'tlsv1.3' ->
-    CryptoSupport = crypto:supports(),
-    lists:member(rsa_pkcs1_pss_padding, proplists:get_value(rsa_opts, CryptoSupport)) andalso
-    lists:member(x448, proplists:get_value(curves, CryptoSupport));
+    lists:member(rsa_pkcs1_pss_padding, crypto:supports(rsa_opts)) andalso
+        lists:member(x448, crypto:supports(curves));
 sufficient_crypto_support(Version)
   when Version == 'tlsv1.2'; Version == 'dtlsv1.2' ->
-    CryptoSupport = crypto:supports(),
-    proplists:get_bool(sha256, proplists:get_value(hashs, CryptoSupport));
-sufficient_crypto_support(cipher_ec) -> 
-    CryptoSupport = crypto:supports(),
-    proplists:get_bool(ecdh, proplists:get_value(public_keys, CryptoSupport));
+    proplists:get_bool(sha256, crypto:supports(hashs));
+sufficient_crypto_support(cipher_ec) ->
+    proplists:get_bool(ecdh, crypto:supports(public_keys));
 sufficient_crypto_support(_) ->
     true.
 

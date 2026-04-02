@@ -426,27 +426,25 @@ all_filters({Value, Filters}) ->
     lists:all(fun (FilterFn) -> FilterFn(Value) end, Filters).
 
 crypto_support_filters() ->
-    Algos = crypto:supports(),
-    Hashs =  proplists:get_value(hashs, Algos),
-    #{key_exchange_filters => 
+    Hashs = crypto:supports(hashs),
+    PubKeys = crypto:supports(public_keys),
+    Ciphers = crypto:supports(ciphers),
+    #{key_exchange_filters =>
           [fun(KeyExchange) ->
-                  is_acceptable_keyexchange(KeyExchange,  
-                                            proplists:get_value(public_keys, Algos))
+                   is_acceptable_keyexchange(KeyExchange, PubKeys)
            end],
-      cipher_filters => 
+      cipher_filters =>
           [fun(Cipher) ->
-                  is_acceptable_cipher(Cipher,  
-                                       proplists:get_value(ciphers, Algos))
+                   is_acceptable_cipher(Cipher, Ciphers)
            end],
-      mac_filters => 
+      mac_filters =>
           [fun(Hash) ->
-                  is_acceptable_hash(Hash, Hashs)
-          end],
-      prf_filters => 
+                   is_acceptable_hash(Hash, Hashs)
+           end],
+      prf_filters =>
           [fun(Prf) ->
-                  is_acceptable_prf(Prf,  
-                                    proplists:get_value(hashs, Algos))
-          end]}.
+                   is_acceptable_prf(Prf, Hashs)
+           end]}.
 
 is_acceptable_keyexchange(KeyExchange, _Algos) when KeyExchange == psk;
                                                     KeyExchange == null;

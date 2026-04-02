@@ -293,6 +293,5 @@ drop_unassigned_signature_algorithms(_Config) ->
 %%--------------------------------------------------------------------
 
 is_supported(Hash) ->
-    Algos = crypto:supports(),
-    Hashs = proplists:get_value(hashs, Algos), 
+    Hashs = crypto:supports(hashs),
     lists:member(Hash, Hashs).

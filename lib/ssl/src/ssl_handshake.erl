@@ -2071,9 +2071,7 @@ certificate_types(Version) when ?TLS_LTE(Version, ?TLS_1_2) ->
 
 %% Returns encoded certificate_type if algorithm is supported
 supported_cert_type_or_empty(Algo, Type) ->
-    case proplists:get_bool(
-           Algo,
-           proplists:get_value(public_keys, crypto:supports())) of
+    case proplists:get_bool(Algo, crypto:supports(public_keys)) of
         true ->
             <<?BYTE(Type)>>;
         false ->
@@ -3760,8 +3758,7 @@ convert_hostname(SNI) ->
     SNI.
 
 client_ecc_extensions(SupportedECCs) ->
-    CryptoSupport = proplists:get_value(public_keys, crypto:supports()),
-    case proplists:get_bool(ecdh, CryptoSupport) of
+    case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
 	true ->
             %% RFC 8422 - 5.1.  Client Hello Extensions
             %% Clients SHOULD send both the Supported Elliptic Curves Extension and the
@@ -3776,8 +3773,7 @@ client_ecc_extensions(SupportedECCs) ->
     end.
 
 server_ecc_extension(_Version, EcPointFormats) ->
-    CryptoSupport = proplists:get_value(public_keys, crypto:supports()),
-    case proplists:get_bool(ecdh, CryptoSupport) of
+    case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
 	true ->
 	    handle_ecc_point_fmt_extension(EcPointFormats);
 	false ->
