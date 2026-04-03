@@ -100,45 +100,48 @@ init([Manager, ConfigDB, AcceptTimeout]) ->
     %%link(Manager), 
     %% At this point the function httpd_request_handler:start/2 will return.
     proc_lib:init_ack({ok, self()}),
-    {SocketType, Socket} = await_socket_ownership_transfer(AcceptTimeout),
-    ServerName =
-        case httpd_util:lookup(ConfigDB, server_name) of
-            undefined ->
-                %% ERIERL-1190 workaround - on some rare occassions
-                %% server_name can't be read from ets table
-                net_adm:localhost();
-            EtsValue ->
-                EtsValue
-        end,
-    ServerNameBin = erlang:iolist_to_binary(ServerName),
-    Protocol = protocol(SocketType),
-    proc_lib:set_label({Protocol, ServerNameBin}),
-    
-    Peername = http_transport:peername(SocketType, Socket),
-    Sockname = http_transport:sockname(SocketType, Socket),
- 
-    %%Timeout value is in seconds we want it in milliseconds
-    KeepAliveTimeOut = 1000 * httpd_util:lookup(ConfigDB, keep_alive_timeout, 150),
-    
-    case http_transport:negotiate(SocketType, Socket, ?HANDSHAKE_TIMEOUT) of
-	{error, {tls_alert, {_, AlertDesc}} = Error} ->
-            ModData = #mod{config_db = ConfigDB, init_data = #init_data{peername = Peername,
-                                                                        sockname = Sockname}},
-            httpd_util:error_log(ConfigDB, httpd_logger:error_report('TLS', AlertDesc, 
-                                                                     ModData, ?LOCATION)),
-	    exit({shutdown, Error}); 
-        {error, _Reason} = Error ->
-            %% This happens if the peer closes the connection 
-            %% or the handshake is timed out. This is not
-            %% an error condition of the server and client will
-            %% retry in the timeout situation.  
-            exit({shutdown, Error}); 
-        {ok, TLSSocket} ->
-	    continue_init(Manager, ConfigDB, SocketType, TLSSocket, 
-                          Peername, Sockname, KeepAliveTimeOut);
-        ok  ->
-            continue_init(Manager, ConfigDB, SocketType, Socket, 
-                          Peername, Sockname, KeepAliveTimeOut)
+    case await_socket_ownership_transfer(AcceptTimeout) of
+        {error, Reason} -> {stop, Reason};
+        {SocketType, Socket} ->
+            ServerName =
+                case httpd_util:lookup(ConfigDB, server_name) of
+                    undefined ->
+                        %% ERIERL-1190 workaround - on some rare occassions
+                        %% server_name can't be read from ets table
+                        net_adm:localhost();
+                    EtsValue ->
+                        EtsValue
+                end,
+            ServerNameBin = erlang:iolist_to_binary(ServerName),
+            Protocol = protocol(SocketType),
+            proc_lib:set_label({Protocol, ServerNameBin}),
+
+            Peername = http_transport:peername(SocketType, Socket),
+            Sockname = http_transport:sockname(SocketType, Socket),
+
+            %%Timeout value is in seconds we want it in milliseconds
+            KeepAliveTimeOut = 1000 * httpd_util:lookup(ConfigDB, keep_alive_timeout, 150),
+
+            case http_transport:negotiate(SocketType, Socket, ?HANDSHAKE_TIMEOUT) of
+                {error, {tls_alert, {_, AlertDesc}} = Error} ->
+                    ModData = #mod{config_db = ConfigDB, init_data = #init_data{peername = Peername,
+                                                                                sockname = Sockname}},
+                    httpd_util:error_log(ConfigDB, httpd_logger:error_report('TLS', AlertDesc,
+                                                                             ModData, ?LOCATION)),
+                    exit({shutdown, Error});
+                {error, _Reason} = Error ->
+                    %% This happens if the peer closes the connection
+                    %% or the handshake is timed out. This is not
+                    %% an error condition of the server and client will
+                    %% retry in the timeout situation.
+                    exit({shutdown, Error});
+                {ok, TLSSocket} ->
+                    continue_init(Manager, ConfigDB, SocketType, TLSSocket,
+                                  Peername, Sockname, KeepAliveTimeOut);
+                ok  ->
+                    continue_init(Manager, ConfigDB, SocketType, Socket,
+                                  Peername, Sockname, KeepAliveTimeOut)
+            end
     end.
 
 continue_init(Manager, ConfigDB, SocketType, Socket, Peername, Sockname,
@@ -389,7 +392,7 @@ await_socket_ownership_transfer(AcceptTimeout) ->
 	{socket_ownership_transfered, SocketType, Socket} ->
 	    {SocketType, Socket}
     after AcceptTimeout ->
-	    exit(accept_socket_timeout)
+            {error, accept_socket_timeout}
     end.
 
 
