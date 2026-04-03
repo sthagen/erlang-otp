@@ -24,19 +24,13 @@
 -module(ssh_eqc_client_server).
 
 -compile(export_all).
- 
--ifndef(PROPER).
--else.
-%% Only use proper
-%% 
-%% Previously only EQC was supported, but the changes to support PROPER is not
-%% just a wrapper. Since we do not have access to eqc we can't test the changes
-%% so therefore eqc is disabeled.
-%% However, with access to eqc it ought to be quite easy to re-enable eqc by
-%% studying the diff.
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("common_test/include/ct_property_test.hrl").
+
+-ifdef(EQC).
+-include_lib("eqc/include/eqc_statem.hrl").
+-endif.
 
 
 %% Limit the testing time on CI server... this needs to be improved in % from total budget.
@@ -501,5 +495,3 @@ erase_dir(Dir) ->
 	_ -> ok
     end,
     file:del_dir(Dir).
-
--endif.
