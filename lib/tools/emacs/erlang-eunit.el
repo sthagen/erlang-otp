@@ -24,30 +24,34 @@
 ;;;
 ;;; Author: Klas Johansson
 
-(eval-when-compile
-  (require 'cl-lib))
+(require 'cl-lib)
 (require 'erlang)
 
-(defvar erlang-eunit-src-candidate-dirs '("../src" ".")
-  "*Name of directories which to search for source files matching
-an EUnit test file.  The first directory in the list will be used,
-if there is no match.")
+(defcustom erlang-eunit-src-candidate-dirs '("../src" ".")
+  "Directories to search for source files matching an EUnit test file.
+The first directory in the list will be used if there is no match."
+  :type '(repeat string)
+  :group 'erlang)
 
-(defvar erlang-eunit-test-candidate-dirs '("../test" ".")
-  "*Name of directories which to search for EUnit test files matching
-a source file.  The first directory in the list will be used,
-if there is no match.")
+(defcustom erlang-eunit-test-candidate-dirs '("../test" ".")
+  "Directories to search for EUnit test files matching a source file.
+The first directory in the list will be used if there is no match."
+  :type '(repeat string)
+  :group 'erlang)
 
-(defvar erlang-eunit-autosave nil
-  "*Set to non-nil to automatically save unsaved buffers before running tests.
-This is useful, reducing the save-compile-load-test cycle to one keychord.")
+(defcustom erlang-eunit-autosave nil
+  "Non-nil means automatically save unsaved buffers before running tests."
+  :type 'boolean
+  :group 'erlang)
 
 (defvar erlang-eunit-recent-info '((mode . nil) (module . nil) (test . nil) (cover . nil))
   "Info about the most recent running of an EUnit test representation.")
 
-(defvar erlang-error-regexp-alist
+(defcustom erlang-error-regexp-alist
   '(("^\\([^:( \t\n]+\\)[:(][ \t]*\\([0-9]+\\)[:) \t]" . (1 2)))
-  "*Patterns for matching Erlang errors.")
+  "Patterns for matching Erlang errors."
+  :type '(alist :key-type regexp :value-type sexp)
+  :group 'erlang)
 
 ;;;
 ;;; Switch between src/EUnit test buffers
@@ -108,9 +112,9 @@ buffer and vice versa"
 (defun erlang-eunit-buddy-file-path (orig-file-path buddy-dir-name)
   (let* ((orig-dir-name   (file-name-directory orig-file-path))
          (buddy-dir-name  (file-truename
-                           (erlang-eunit-filename-join orig-dir-name buddy-dir-name)))
+                           (expand-file-name buddy-dir-name orig-dir-name)))
          (buddy-base-name (erlang-eunit-buddy-basename orig-file-path)))
-    (erlang-eunit-filename-join buddy-dir-name buddy-base-name)))
+    (expand-file-name buddy-base-name buddy-dir-name)))
 
 ;;; Return the basename of the buddy file:
 ;;;     /tmp/foo/src/x.erl        --> x_tests.erl
@@ -146,13 +150,6 @@ buffer and vice versa"
 (defun erlang-eunit-module-name (file-path)
   (file-name-sans-extension (file-name-nondirectory file-path)))
 
-
-;;; Join filenames
-(defun erlang-eunit-filename-join (dir file)
-  (if (or (= (elt file 0) ?/)
-          (= (car (last (append dir nil))) ?/))
-      (concat dir file)
-    (concat dir "/" file)))
 
 ;;; Get info about the most recent running of EUnit
 (defun erlang-eunit-recent (key)
@@ -256,17 +253,12 @@ code along with the coverage analysis results."
     ;; analysis from a file into a new buffer (or an old, if one with
     ;; the specified name already exists).  Also we want the erlang-mode
     ;; *and* view-mode to be enabled.
-    (save-excursion
-      (let ((buf (get-buffer-create (format "*%s coverage*" module-name))))
-        (set-buffer buf)
+    (let ((buf (get-buffer-create (format "*%s coverage*" module-name))))
+      (with-current-buffer buf
         (setq buffer-read-only nil)
         (insert-file-contents tmp-filename nil nil nil t)
         (if (= (buffer-size) 0)
             (kill-buffer buf)
-          ;; FIXME: this would be a good place to enable (emacs-mode)
-          ;;        to get some nice syntax highlighting in the
-          ;;        coverage report, but it doesn't play well with
-          ;;        flymake.  Leave it off for now.
           (view-buffer buf))))
     (delete-file tmp-filename)))
 
@@ -390,13 +382,7 @@ With prefix arg, compiles for debug and runs tests with the verbose flag set."
    "[0-9]+: Warning:"
    (buffer-substring (line-beginning-position) (line-end-position))))
 
-(defun erlang-eunit-all-list-elems-fulfill-p (pred list)
-  (let ((matches-p t))
-    (while (and list matches-p)
-      (if (not (funcall pred (car list)))
-          (setq matches-p nil))
-      (setq list (cdr list)))
-    matches-p))
+(defalias 'erlang-eunit-all-list-elems-fulfill-p #'cl-every)
 
 ;;; Evaluate a command in an erlang buffer
 (defun erlang-eunit-inferior-erlang-send-command (command)
