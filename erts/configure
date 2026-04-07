@@ -671,7 +671,6 @@ SYSTEMD_DAEMON_LIBS
 SOCKET_LIBS
 Z_LIB
 LIBZSTD
-ERTS_USE_BUILTIN_ERRNO_ID
 TERMCAP_LIB
 THR_DEFS
 THR_LIBS
@@ -854,7 +853,6 @@ with_with_sparc_memory_order
 enable_ppc_lwsync_instruction
 with_threadnames
 enable_use_embedded_3pp_alternatives
-enable_builtin_errno_id
 enable_builtin_zstd
 enable_builtin_zlib
 enable_esock
@@ -1606,11 +1604,6 @@ Optional Features:
                           3pps
   --disable-use-embedded-3pp-alternatives
                           do not use any alternatives to embedded 3pps
-  --enable-builtin-errno-id
-                          force use of our own built-in errno-id
-  --disable-builtin-errno-id
-                          try to find an alternative on the system to use for
-                          errno-id
   --enable-builtin-zstd   force use of our own built-in zstd
   --disable-builtin-zstd  try to find a static libzstd on the system to use
   --enable-builtin-zlib   force use of our own built-in zlib
@@ -16677,14 +16670,12 @@ if test ${enable_use_embedded_3pp_alternatives+y}
 then :
   enableval=$enable_use_embedded_3pp_alternatives;  case "$enableval" in
     no)
-      enable_builtin_errno_id=yes
       enable_builtin_zstd=yes
       enable_builtin_zlib=yes
       use_embedded_3pp_alts=no
       use_embedded_3pp_alts_val=0
       ;;
     *)
-      enable_builtin_errno_id=no
       enable_builtin_zstd=no
       enable_builtin_zlib=no
       use_embedded_3pp_alts=yes
@@ -16694,7 +16685,6 @@ then :
 
 else case e in #(
   e)
-  enable_builtin_errno_id=no
   enable_builtin_zstd=no
   enable_builtin_zlib=no
   use_embedded_3pp_alts=default
@@ -16706,42 +16696,6 @@ fi
 
 
 printf "%s\n" "#define ERTS_USE_EMBEDDED_3PP_ALTS $use_embedded_3pp_alts_val" >>confdefs.h
-
-
-
-# Check whether --enable-builtin-errno-id was given.
-if test ${enable_builtin_errno_id+y}
-then :
-  enableval=$enable_builtin_errno_id; case "$enableval" in
-      no) enable_builtin_errno_id=no ;;
-      *)  enable_builtin_errno_id=yes ;;
-    esac
-fi
-
-
-ac_fn_c_check_func "$LINENO" "strerrorname_np" "ac_cv_func_strerrorname_np"
-if test "x$ac_cv_func_strerrorname_np" = xyes
-then :
-  printf "%s\n" "#define HAVE_STRERRORNAME_NP 1" >>confdefs.h
-
-fi
-
-
-if test "$ac_cv_func_strerrorname_np" != "yes"
-then :
-  enable_builtin_errno_id=yes
-fi
-
-if test $enable_builtin_errno_id = yes
-then :
-
-
-printf "%s\n" "#define ERTS_USE_BUILTIN_ERRNO_ID 1" >>confdefs.h
-
-
-fi
-
-ERTS_USE_BUILTIN_ERRNO_ID=$enable_builtin_errno_id
 
 
 
@@ -21566,6 +21520,12 @@ ac_fn_c_check_func "$LINENO" "strerror_r" "ac_cv_func_strerror_r"
 if test "x$ac_cv_func_strerror_r" = xyes
 then :
   printf "%s\n" "#define HAVE_STRERROR_R 1" >>confdefs.h
+
+fi
+ac_fn_c_check_func "$LINENO" "strerrorname_np" "ac_cv_func_strerrorname_np"
+if test "x$ac_cv_func_strerrorname_np" = xyes
+then :
+  printf "%s\n" "#define HAVE_STRERRORNAME_NP 1" >>confdefs.h
 
 fi
 ac_fn_c_check_func "$LINENO" "strncasecmp" "ac_cv_func_strncasecmp"

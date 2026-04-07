@@ -1301,8 +1301,6 @@ create_vendor_relations(NewVendorPackages, #{~"packages" := Packages, ~"relation
                                           create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-asmjit" ->
                                           create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
-                                      ~"SPDXRef-otp-erts-tcl" ->
-                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-autoconf" ->
                                           %% hard-code that erts-autoconf is a build tool of
                                           create_spdx_relation('BUILD_TOOL_OF', ID, RootId);
@@ -2302,7 +2300,7 @@ root_vendor_packages() ->
 minimum_vendor_packages() ->
     %% self-contained
     root_vendor_packages() ++
-        [~"tcl", ~"STL", ~"json-test-suite", ~"Autoconf", ~"wxwidgets", ~"jquery", ~"jquery-migrate", ~"tablesorter"].
+        [~"STL", ~"json-test-suite", ~"Autoconf", ~"wxwidgets", ~"jquery", ~"jquery-migrate", ~"tablesorter"].
 
 test_copyright_not_empty(#{~"packages" := Packages}) ->
     true = lists:all(fun (#{~"copyrightText" := Copyright}) -> Copyright =/= ~"" end, Packages),
@@ -2569,7 +2567,7 @@ test_download_location(#{~"packages" := Packages}) ->
 %% see generate_osv_query/1.
 test_download_vendor_location(#{~"packages" := Packages}) ->
     %% update list below if new runtime dependencies without git repo appear.
-    KnownExcludedNames = [~"Autoconf", ~"tcl", ~"Unicode Character Database"],
+    KnownExcludedNames = [~"Autoconf", ~"Unicode Character Database"],
     true = lists:all(fun (#{~"downloadLocation" := Loc, ~"name" := Name}) ->
                              lists:member(Name, KnownExcludedNames)
                                  orelse string:prefix(Loc, ~"https://github.com") =/= nomatch
