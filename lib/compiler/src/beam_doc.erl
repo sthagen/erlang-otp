@@ -511,7 +511,7 @@ extract_moduledoc0({attribute, ModuleDocAnno, moduledoc, false}, State) ->
    extract_moduledoc0({attribute, ModuleDocAnno, moduledoc, hidden}, State);
 extract_moduledoc0({attribute, ModuleDocAnno, moduledoc, hidden}, State) ->
    State#docs{moduledoc = {ModuleDocAnno, create_module_doc(hidden)}};
-extract_moduledoc0({attribute, ModuleDocAnno, moduledoc, ModuleDoc}, State) when is_list(ModuleDoc) ->
+extract_moduledoc0({attribute, ModuleDocAnno, moduledoc, ModuleDoc}, State) when is_list(ModuleDoc); is_binary(ModuleDoc) ->
    Doc = unicode:characters_to_binary(string:trim(ModuleDoc)),
    State#docs{moduledoc = {set_file_anno(ModuleDocAnno, State), create_module_doc(Doc)}};
 extract_moduledoc0({attribute, ModuleDocAnno, moduledoc, Meta}, State) when is_map(Meta) ->
