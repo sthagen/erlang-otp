@@ -423,7 +423,7 @@ init_per_testcase(handshake_continue_tls13_client, Config) ->
             {skip, "Missing crypto support: TLS 1.3 not supported"}
     end;
 init_per_testcase(connection_information_with_srp, Config) ->
-    PKAlg = proplists:get_value(public_keys, crypto:supports()),
+    PKAlg = crypto:supports(public_keys),
     case lists:member(srp, PKAlg) of
         true ->
             Config;
@@ -431,7 +431,7 @@ init_per_testcase(connection_information_with_srp, Config) ->
             {skip, "Missing SRP crypto support"}
     end;
 init_per_testcase(conf_signature_algs, Config) ->
-    case ssl_test_lib:appropriate_sha(crypto:supports()) of
+    case ssl_test_lib:appropriate_sha(crypto:supports(hashs)) of
         sha256 ->
             ssl_test_lib:ct_log_supported_protocol_versions(Config),
             ct:timetrap({seconds, 10}),
