@@ -1154,8 +1154,9 @@ be done by [`install_release/1,2`](`install_release/1`).
                                App :: atom(),
                                ToVsn :: string(),
                                ToDir :: string(),
-                               Unpurged :: [Module],
+                               Unpurged :: [{Module, PurgeMethod}],
                                Module :: atom(),
+                               PurgeMethod :: term(),
                                Reason :: term().
 eval_appup_script(App, ToVsn, ToDir, Script) ->
     EnvBefore = application_controller:prep_config_change(),
