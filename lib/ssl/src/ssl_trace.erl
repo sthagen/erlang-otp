@@ -455,7 +455,7 @@ trace_profiles() ->
                       {status, 2}, {match_single_response, 4},
                       {designated_for_ocsp_signing, 1}]},
        {ssl_config, [{opt_stapling, 3}]},
-       {ssl_certificate, [{verify_cert_extensions, 5}]},
+       {ssl_certificate, [{verify_cert_extensions, 4}]},
        {ssl_test_lib, [{init_openssl_server, 3}, {openssl_server_loop, 3}]},
        {tls_client_connection, [{wait_stapling, 3}]},
        {dtls_client_connection, [{initial_hello, 3}, {hello, 3}, {connection, 3}]},
