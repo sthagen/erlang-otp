@@ -21,6 +21,27 @@ limitations under the License.
 -->
 # SNMP Release Notes
 
+## SNMP 5.20.2
+
+### Improvements and New Features
+
+- The SNMP manager now propagates `msgAuthoritativeEngineID` and
+    `msgUserName` from USM security parameters through to the
+    `snmpm_user:handle_error/3` callback when an incoming message is
+    discarded due to an unknown EngineID (`usmStatsUnknownEngineIDs`).
+  
+    This enables users to programmatically discover the correct
+    authoritative EngineID from the error callback and re-register
+    USM credentials, supporting SNMPv3 USM EngineID discovery as
+    described in RFC 3414, Section 4.
+  The failed_processing_message variant has been added to the
+    `snmpm:user:handle_error/3` callback type specification.
+
+  Own Id: OTP-20056 Aux Id: [GH-7156], ERIERL-1312, [PR-10911]
+
+[GH-7156]: https://github.com/erlang/otp/issues/7156
+[PR-10911]: https://github.com/erlang/otp/pull/10911
+
 ## SNMP 5.20.1
 
 ### Improvements and New Features

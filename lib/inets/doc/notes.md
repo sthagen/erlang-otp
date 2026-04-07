@@ -21,6 +21,28 @@ limitations under the License.
 -->
 # Inets Release Notes
 
+## Inets 9.6.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed authentication bypass in `httpd` when `script_alias` maps a URL to a directory outside `document_root` with `mod_auth` directory-based access controls. The `mod_alias:which_alias/1` function now includes `script_alias` entries so authorization is evaluated against the correct path before CGI execution. CVE-2026-28808.
+
+  Own Id: OTP-20068
+
+### Improvements and New Features
+
+- Fixed typo in `http_server.md` guide
+
+  Own Id: OTP-20044 Aux Id: [GH-10785], [PR-10867]
+
+- Expected error `accept_socket_timeout` in httpd_request_handler now exits gracefully, without generating a crash and supervisor reports.
+
+  Own Id: OTP-20052 Aux Id: ERIERL-1310, [PR-10893]
+
+[GH-10785]: https://github.com/erlang/otp/issues/10785
+[PR-10867]: https://github.com/erlang/otp/pull/10867
+[PR-10893]: https://github.com/erlang/otp/pull/10893
+
 ## Inets 9.6.1
 
 ### Fixed Bugs and Malfunctions
