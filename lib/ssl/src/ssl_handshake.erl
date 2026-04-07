@@ -2026,9 +2026,14 @@ extension_value(#psk_key_exchange_modes{ke_modes = Modes}) ->
 extension_value(#cookie{cookie = Cookie}) ->
     Cookie.
 
+%% Extension value mapping (from decode_extensions/4):
+%%   'false'     - extension absent from ServerHello (maps:get default)
+%%   'undefined' - extension present with empty body (RFC 6066: server
+%%                 MUST include status_request with empty extension_data
+%%                 to indicate willingness to send CertificateStatus)
 handle_cert_status_extension(#{stapling := _Stapling}, Extensions) ->
     case maps:get(status_request, Extensions, false) of
-        undefined -> %% status_request received in server hello
+        undefined ->
             #{configured => true,
               status => negotiated};
         false ->
@@ -2312,11 +2317,14 @@ cert_status_check(_OtpCert,
                                         status := StaplingStatus}},
                   _VerifyResult, _CertPath, _LogLevel)
   when StaplingStatus == not_negotiated; StaplingStatus == not_received ->
-    %% RFC6066 section 8
-    %% Servers that receive a client hello containing the "status_request"
-    %% extension MAY return a suitable certificate status response to the
-    %% client along with their certificate.
-    valid.
+    %% Hard-fail (TLS 1.2 and TLS 1.3): client requested OCSP stapling
+    %% but server did not provide a staple. Erlang/OTP has no fallback
+    %% to direct OCSP queries or CRL checking when stapling is
+    %% configured, so accepting a missing staple would skip revocation
+    %% checking entirely.
+    %% Note: {bad_cert, _} tuple is required for apply_user_fun/8 to
+    %% deliver the failure to a custom verify_fun.
+    {bad_cert, missing_ocsp_staple}.
 
 
 maybe_check_crl(_, #{crl_check := false}, _, _, _) ->
