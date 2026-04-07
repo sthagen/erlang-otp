@@ -884,9 +884,8 @@ rsa_exclusive(_) ->
 signature_algs(?TLS_1_3, HashSigns) ->
     signature_algs(?TLS_1_2, HashSigns);
 signature_algs(?TLS_1_2, HashSigns) ->
-    CryptoSupports =  crypto:supports(),
-    Hashes = proplists:get_value(hashs, CryptoSupports),
-    PubKeys = proplists:get_value(public_keys, CryptoSupports),
+    Hashes = crypto:supports(hashs),
+    PubKeys = crypto:supports(public_keys),
     Schemes =  rsa_schemes(),
     Supported = lists:foldl(fun({Hash, dsa = Sign} = Alg, Acc) ->
 				    case proplists:get_bool(dss, PubKeys)
@@ -922,7 +921,7 @@ signature_algs(?TLS_1_2, HashSigns) ->
 default_signature_algs([?TLS_1_3]) ->
     default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3);
 default_signature_algs([?TLS_1_3, ?TLS_1_2 | _]) ->
-    default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3) 
+    default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3)
         ++ default_pre_1_3_signature_algs_only();
 default_signature_algs([?TLS_1_2 = Version |_]) ->
     Default = [%% SHA2 ++ PSS
@@ -956,12 +955,11 @@ legacy_signature_algs_pre_13() ->
 
 signature_schemes(Version, [_|_] =SignatureSchemes) when is_tuple(Version)
                                                          andalso ?TLS_GTE(Version, ?TLS_1_2) ->
-    CryptoSupports =  crypto:supports(),
-    Hashes = proplists:get_value(hashs, CryptoSupports),
-    PubKeys = proplists:get_value(public_keys, CryptoSupports),
-    Curves = proplists:get_value(curves, CryptoSupports),
-    RSAPSSSupported = lists:member(rsa_pkcs1_pss_padding,
-                                   proplists:get_value(rsa_opts, CryptoSupports)),
+    Hashes = crypto:supports(hashs),
+    PubKeys = crypto:supports(public_keys),
+    Curves = crypto:supports(curves),
+    RSAOpts = crypto:supports(rsa_opts),
+    RSAPSSSupported = lists:member(rsa_pkcs1_pss_padding, RSAOpts),
     Fun = fun(mldsa44 = Scheme, Acc)->
                   [Scheme | Acc];
              (mldsa65 = Scheme, Acc)->
@@ -1081,9 +1079,7 @@ legacy_signature_schemes(Version) ->
     signature_schemes(Version, LegacySchemes).
 
 rsa_schemes() ->
-    Supports = crypto:supports(),
-    RSAOpts = proplists:get_value(rsa_opts, Supports),
-
+    RSAOpts = crypto:supports(rsa_opts),
     case lists:member(rsa_pkcs1_pss_padding, RSAOpts)
         andalso lists:member(rsa_pss_saltlen, RSAOpts)
         andalso lists:member(rsa_mgf1_md, RSAOpts) of
@@ -1120,7 +1116,8 @@ hkdf_expand(Algo, PseudoRandKey, ContextInfo, Length, N, N, Prev, Acc) ->
     binary:part(<<Acc/binary, Keyingmaterial/binary>>, {0, Length});
 hkdf_expand(Algo, PseudoRandKey, ContextInfo, Length, M, N, Prev, Acc) ->
     Keyingmaterial = hmac_hash(Algo, PseudoRandKey, <<Prev/binary, ContextInfo/binary, ?BYTE(M)>>),
-    hkdf_expand(Algo, PseudoRandKey, ContextInfo, Length, M + 1, N, Keyingmaterial, <<Acc/binary, Keyingmaterial/binary>>).
+    hkdf_expand(Algo, PseudoRandKey, ContextInfo, Length, M + 1, N,
+                Keyingmaterial, <<Acc/binary, Keyingmaterial/binary>>).
 
 %%%% HMAC and the Pseudorandom Functions RFC 2246 & 4346 - 5.%%%%
 hmac_hash(?NULL, _, _) ->

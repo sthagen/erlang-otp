@@ -340,7 +340,7 @@ legacy_tls12_client_tls_server() ->
     [{doc,"Test that a TLS 1.2 client can connect to a TLS 1.3 server."}].
 
 legacy_tls12_client_tls_server(Config) when is_list(Config) ->
-    SHA = ssl_test_lib:appropriate_sha(crypto:supports()),
+    SHA = ssl_test_lib:appropriate_sha(crypto:supports(hashs)),
     ClientOpts = [{versions, ['tlsv1.1', 'tlsv1.2']}, {signature_algs, [{SHA, rsa}, {SHA, ecdsa}]} |
                   ssl_test_lib:ssl_options(client_cert_opts, Config)],
     ServerOpts =  [{versions, ['tlsv1.3', 'tlsv1.2']},
