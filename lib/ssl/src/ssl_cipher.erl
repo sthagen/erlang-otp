@@ -699,6 +699,8 @@ signature_schemes_1_2(SigAlgs) ->
                                                                     MLDSA == mldsa65;
                                                                     MLDSA == mldsa87 ->
                                           Acc;
+                                      {_, slhdsa, undefined} ->
+                                          Acc;
                                       {Hash, Sign, undefined} ->
                                           [{Hash, format_sign(Sign)} | Acc];
                                       {_, _, _} ->
