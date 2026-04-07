@@ -29,6 +29,7 @@
 
 -export([decode_cert/1,
          transform/2,
+         encode_supportedPublicKey/1,
          supportedPublicKeyAlgorithms/1,
 	 supportedCurvesTypes/1,
          namedCurves/1,
