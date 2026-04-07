@@ -196,6 +196,17 @@ limitations under the License.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9774]: https://github.com/erlang/otp/pull/9774
 
+## Public_Key 1.17.1.2
+
+### Fixed Bugs and Malfunctions
+
+- OCSP designated responder certificate verification now checks the CA's cryptographic signature on the responder certificate. Previously, only the issuer DN match and id-kp-OCSPSigning EKU were verified, which meant a forged self-signed certificate with the CA's subject DN would be accepted as a valid designated responder (Case 2 in RFC 6960 §4.2.2.2).
+
+  Own Id: OTP-20042 Aux Id: [CVE-2026-32144], [PR-10873]
+
+[CVE-2026-32144]: https://nvd.nist.gov/vuln/detail/2026-32144
+[PR-10873]: https://github.com/erlang/otp/pull/10873
+
 ## Public_Key 1.17.1.1
 
 ### Fixed Bugs and Malfunctions
