@@ -154,6 +154,8 @@ zone_dir(TC) ->
     end.
 
 init_per_testcase(Func, Config) ->
+    _ = application:load(crypto),  % Enable DNS request ID and port randomness
+    %% inet_db:res_option(random, false), % Disable the above
 
     ?P("init_per_testcase -> entry with"
        "~n      Func:   ~p"
