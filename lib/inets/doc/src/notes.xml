@@ -33,7 +33,27 @@
     <file>notes.xml</file>
   </header>
   
-  <section><title>Inets 9.1.0.5</title>
+  <section><title>Inets 9.1.0.6</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p> Fixed authentication bypass in <c>httpd</c> when
+	    <c>script_alias</c> maps a URL to a directory outside
+	    <c>document_root</c> with <c>mod_auth</c> directory-based
+	    access controls. The <c>mod_alias:which_alias/1</c>
+	    function now includes <c>script_alias</c> entries so
+	    authorization is evaluated against the correct path
+	    before CGI execution. CVE-2026-28808. </p>
+          <p>
+	    Own Id: OTP-20068 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 9.1.0.5</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
       <list>
