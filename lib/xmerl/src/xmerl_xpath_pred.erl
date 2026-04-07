@@ -25,6 +25,12 @@
 -module(xmerl_xpath_pred).
 -moduledoc false.
 
+-compile([{nowarn_unsafe_function, {xmerl_scan, accumulate_whitespace, 4}},
+          {nowarn_unsafe_function, {xmerl_scan, file, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, file, 2}},
+          {nowarn_unsafe_function, {xmerl_scan, string, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, string, 2}}]).
+
 %% API
 -export([eval/2]).
 

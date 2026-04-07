@@ -32,6 +32,8 @@ parallel.
 -author('siri@erix.ericsson.se').
 -author('bartlomiej.puzon@erlang-solutions.com').
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %% API
 -export([tracer/0,tracer/1,tracer/2,p/2,stop/0,stop/1,start_trace/4]).
 -export([get_et_handler/0]).

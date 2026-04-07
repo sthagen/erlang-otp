@@ -202,6 +202,9 @@ source code.
 `m:epp`, `m:erl_expand_records`, `m:erl_id_trans`, `m:erl_lint`, `m:beam_lib`
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %% High-level interface.
 -export([file/1,file/2,noenv_file/2,format_error/1]).
 -export([forms/1,forms/2,noenv_forms/2]).

@@ -30,6 +30,7 @@ The module `snmp` contains interface functions to the SNMP toolkit.
 calendar(3)
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
 
 %%----------------------------------------------------------------------
 %% This module contains the user interface to the snmp toolkit.

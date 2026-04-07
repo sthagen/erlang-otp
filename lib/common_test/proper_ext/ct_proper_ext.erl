@@ -35,6 +35,8 @@
 -module(ct_proper_ext).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -export([existing_atom/0]).
 -export([safe_any/0]).
 -export([safe_atom/0]).

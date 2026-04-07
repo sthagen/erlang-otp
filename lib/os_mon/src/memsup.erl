@@ -107,6 +107,8 @@ value of configuration parameters.
 """.
 -behaviour(gen_server).
 
+-compile([{nowarn_unsafe_function, {os, cmd, 1}}]).
+
 %% API
 -export([start_link/0]). % for supervisor
 -export([get_memory_data/0, get_system_memory_data/0,

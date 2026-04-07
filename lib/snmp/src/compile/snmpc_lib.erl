@@ -23,6 +23,9 @@
 -module(snmpc_lib).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %% Avoid warning for local functions error/2,3 clashing
 %% with autoimported BIFs.
 -compile({no_auto_import, [error/2, error/3]}).

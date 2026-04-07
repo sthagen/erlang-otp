@@ -32,6 +32,8 @@ Main API of the Megaco application
 Interface module for the Megaco application
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 %%-----------------------------------------------------------------
 %% Public interface
 %%-----------------------------------------------------------------

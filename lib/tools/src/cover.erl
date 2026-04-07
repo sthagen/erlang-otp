@@ -105,6 +105,9 @@ alive during the disconnected period, cover data from before and during this
 period will be included in the analysis.
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %%
 %% This module implements the Erlang coverage tool.
 %%

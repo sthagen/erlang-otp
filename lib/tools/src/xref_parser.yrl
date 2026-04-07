@@ -110,6 +110,9 @@ type     -> '$empty' : unknown.
 Erlang code.
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -export([t2s/1]).
 
 -import(lists, [concat/1, flatten/1]).

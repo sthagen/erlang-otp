@@ -46,7 +46,9 @@
 
 -define(XREF_SERVER, systools_make).
 
--compile({inline,[{badarg,2}]}).
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}},
+          {nowarn_possibly_unsafe_function, {file, consult, 1}},
+          {inline,[{badarg,2}]}]).
 
 -define(ESOCK_MODS, [prim_net,prim_socket,socket_registry]).
 

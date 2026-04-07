@@ -27,6 +27,8 @@
 -module(ct_master_logs).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -export([start/2, make_all_runs_index/0, log/3, nodedir/2,
 	 stop/0]).
 

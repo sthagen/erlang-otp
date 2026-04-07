@@ -69,6 +69,8 @@ all other files in the current directory should be compiled with only the
 [The Compiler Application](`m:compile`)
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -export([all_or_nothing/0,all/0,all/1,files/1,files/2]).
 
 -include_lib("kernel/include/file.hrl").

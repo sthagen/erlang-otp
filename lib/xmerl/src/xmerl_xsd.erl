@@ -31,6 +31,12 @@ XML Schema please study [part 0](http://www.w3.org/TR/xmlschema-0/).
 An XML structure is validated by [`xmerl_xsd:validate/[2,3]`](`validate/2`).
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, file, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, file, 2}},
+          {nowarn_unsafe_function, {xmerl_scan, string, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, string, 2}}]).
+
 %%----------------------------------------------------------------------
 %% Include files
 %%----------------------------------------------------------------------

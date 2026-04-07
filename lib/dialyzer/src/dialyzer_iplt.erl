@@ -33,6 +33,9 @@
 -module(dialyzer_iplt).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -export([check_incremental_plt/3,
          included_modules/1,
          from_file/1,

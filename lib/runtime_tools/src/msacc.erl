@@ -88,6 +88,9 @@ can easily calculate the time spent in each state by multiplying
 1 spent in the emulator state we do `1000513us * 0.13% = 1300us`.
 """.
 -moduledoc(#{since => "OTP 19.0"}).
+
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -export([available/0, start/0, start/1, stop/0, reset/0, to_file/1,
          from_file/1, stats/0, stats/2, print/0, print/1, print/2,
          print/3]).

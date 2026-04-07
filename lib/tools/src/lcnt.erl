@@ -62,6 +62,8 @@ enables this behavior during profiling.
 -behaviour(gen_server).
 -author("Björn-Egil Dahlberg").
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %% gen_server callbacks
 -export([init/1,
          handle_call/3,

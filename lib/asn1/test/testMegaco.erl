@@ -23,6 +23,8 @@
 
 -module(testMegaco).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -export([compile/3,main/2]).
 
 -include_lib("common_test/include/ct.hrl").

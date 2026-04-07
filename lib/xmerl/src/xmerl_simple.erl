@@ -27,6 +27,11 @@
 -module(xmerl_simple).
 -moduledoc false.
 
+-compile([{nowarn_unsafe_function, {xmerl_scan, event_state, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, event_state, 2}},
+          {nowarn_unsafe_function, {xmerl_scan, file, 2}},
+          {nowarn_unsafe_function, {xmerl_scan, string, 2}}]).
+
 -export([file/2,
 	 string/2]).
 

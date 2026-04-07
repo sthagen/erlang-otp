@@ -47,6 +47,9 @@ ASN.1 data (encoded as `BER` or `PER`).
 > `legacy_erlang_types`.
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          {nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 %% Compile Time functions for ASN.1 (e.g ASN.1 compiler).
 
 %% Public exports

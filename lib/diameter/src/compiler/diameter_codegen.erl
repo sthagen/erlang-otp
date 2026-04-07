@@ -23,6 +23,8 @@
 -module(diameter_codegen).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 %%
 %% This module generates erl/hrl files for encode/decode modules from
 %% the orddict parsed from a dictionary file by diameter_dict_util.

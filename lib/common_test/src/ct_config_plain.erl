@@ -26,6 +26,9 @@
 %%----------------------------------------------------------------------
 -module(ct_config_plain).
 -moduledoc false.
+
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -export([read_config/1, check_parameter/1]).
 
 read_config(ConfigFile) ->

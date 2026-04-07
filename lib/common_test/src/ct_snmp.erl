@@ -152,6 +152,8 @@ parameter `config`). This set of defaults is merged with the parameters
 specified by the user. The user values override `ct_snmp` defaults.
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -include("snmp_types.hrl").
 -include("inet.hrl").
 -include("ct.hrl").

@@ -31,6 +31,8 @@
 -module(tls_dtls_client_connection).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 2}}]).
+
 -include_lib("public_key/include/public_key.hrl").
 
 -include("ssl_connection.hrl").

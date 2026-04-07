@@ -27,6 +27,8 @@
 -module(mnesia_lib).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -include("mnesia.hrl").
 -include_lib("kernel/include/file.hrl").
 

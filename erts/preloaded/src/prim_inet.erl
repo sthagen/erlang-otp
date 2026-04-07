@@ -27,6 +27,8 @@
 -module(prim_inet).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 %% Primitive inet_drv interface
 
 -export([open/3, open/4, fdopen/4, fdopen/5, close/1]).

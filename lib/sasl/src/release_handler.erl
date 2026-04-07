@@ -221,6 +221,10 @@ release_handler does.
 
 -include_lib("kernel/include/file.hrl").
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}},
+          {nowarn_possibly_unsafe_function, {file, consult, 1}},
+          {nowarn_possibly_unsafe_function, {file, path_consult, 2}}]).
+
 %% External exports
 -export([start_link/0,
 	 create_RELEASES/1, create_RELEASES/2, create_RELEASES/3, create_RELEASES/4,
