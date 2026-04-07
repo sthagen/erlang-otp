@@ -70,6 +70,8 @@
          unsupported_sign_algo_client_auth/1,
          unsupported_sign_algo_cert_client_auth/0,
          unsupported_sign_algo_cert_client_auth/1,
+         certs_keys_signature_algs_selection/0,
+         certs_keys_signature_algs_selection/1,
          hello_retry_request/0,
          hello_retry_request/1,
          custom_groups/0,
@@ -234,8 +236,7 @@ rsa_config(Config0) ->
                    lists:delete(server_cert_opts,
                                 lists:delete(client_cert_opts, Config))])].
 rsa_pss_config(Alg, Config) ->
-    Supports = crypto:supports(),
-    RSAOpts = proplists:get_value(rsa_opts, Supports),
+    RSAOpts = crypto:supports(rsa_opts),
     Version = ssl_test_lib:n_version(proplists:get_value(version, Config)),
 
     case lists:member(rsa_pkcs1_pss_padding, RSAOpts)
@@ -825,6 +826,66 @@ unsupported_sign_algo_client_auth(Config) ->
                   {fail_if_no_peer_cert, true}|ServerOpts0],
     ClientOpts = [{versions, ['tlsv1.2','tlsv1.3']}|ClientOpts0],
     ssl_test_lib:basic_alert(ClientOpts, ServerOpts, Config, insufficient_security).
+%%--------------------------------------------------------------------
+%% Test that when a server is configured with multiple certificates via certs_keys,
+%% it correctly selects the appropriate certificate based on the client's
+%% advertised signature_algorithms.
+certs_keys_signature_algs_selection() ->
+    [{doc,"TLS 1.3: Test certs_keys certificate selection based on signature_algorithms"}].
+
+certs_keys_signature_algs_selection(Config) ->
+    RSARootKey = ssl_test_lib:hardcode_rsa_key(1),
+    RSARoot = public_key:pkix_test_root_cert("RSA Test CA",
+                                              [{key, RSARootKey},
+                                               {digest, sha256}]),
+    #{cert := RsaCACertDER} = RSARoot,
+
+    ClientChain = #{root => RSARoot,
+                    intermediates => [],
+                    peer => [{key, ssl_test_lib:hardcode_rsa_key(3)},
+                             {digest, sha256}]},
+
+    %% ECDSA leaf cert signed by RSA CA
+    #{server_config := ECDSAServerConf} =
+        public_key:pkix_test_data(
+          #{server_chain =>
+                #{root => RSARoot,
+                  intermediates => [],
+                  peer => [{key, {namedCurve, secp256r1}},
+                           {digest, sha256}]},
+            client_chain => ClientChain}),
+
+    %% RSA leaf cert signed by RSA CA
+    #{server_config := RSAServerConf} =
+        public_key:pkix_test_data(
+          #{server_chain =>
+                #{root => RSARoot,
+                  intermediates => [],
+                  peer => [{key, ssl_test_lib:hardcode_rsa_key(2)},
+                           {digest, sha256}]},
+            client_chain => ClientChain}),
+
+    %% Server with both ECDSA and RSA certs (ECDSA listed first)
+    ServerOpts = [{versions, ['tlsv1.3']},
+                  {verify, verify_none},
+                  {certs_keys, [#{cert => proplists:get_value(cert, ECDSAServerConf),
+                                  key => proplists:get_value(key, ECDSAServerConf)},
+                                #{cert => proplists:get_value(cert, RSAServerConf),
+                                  key => proplists:get_value(key, RSAServerConf)}]},
+                  {cacerts, [RsaCACertDER]}],
+
+    BaseClientOpts = [{versions, ['tlsv1.3']},
+                      {verify, verify_peer},
+                      {signature_algs_cert, [rsa_pkcs1_sha256, rsa_pss_rsae_sha256]},
+                      {cacerts, [RsaCACertDER]}],
+
+    %% RSA-only client: server must skip ECDSA cert and pick RSA cert
+    ssl_test_lib:basic_test([{signature_algs, [rsa_pss_rsae_sha256]} | BaseClientOpts],
+                            ServerOpts, Config),
+
+    %% ECDSA-only client: server should pick ECDSA cert
+    ssl_test_lib:basic_test([{signature_algs, [ecdsa_secp256r1_sha256]} | BaseClientOpts],
+                            ServerOpts, Config).
 %%--------------------------------------------------------------------
 hello_retry_client_auth() ->
     [{doc, "TLS 1.3 (HelloRetryRequest): Test client authentication."}].

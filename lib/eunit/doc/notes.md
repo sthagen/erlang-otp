@@ -23,6 +23,16 @@ limitations under the License.
 
 This document describes the changes made to the EUnit application.
 
+## Eunit 2.10.3
+
+### Fixed Bugs and Malfunctions
+
+- Fixed EUnit {node, ...} instantiation by passing node name (instead of pid) and restored net_kernel auto-start for non-distributed nodes.
+
+  Own Id: OTP-20047 Aux Id: [PR-10788]
+
+[PR-10788]: https://github.com/erlang/otp/pull/10788
+
 ## Eunit 2.10.2
 
 ### Improvements and New Features

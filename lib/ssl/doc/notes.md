@@ -23,6 +23,28 @@ limitations under the License.
 
 This document describes the changes made to the SSL application.
 
+## SSL 11.5.4
+
+### Fixed Bugs and Malfunctions
+
+- Server supporting TLS-1.3 and TLS-1.2, with SLH-DSA algorithms for TLS-1.3, now correctly filter out those algorithms if client is TLS-1.2 only, instead of failing with internal error.
+
+  Own Id: OTP-20046 Aux Id: [PR-10874], ERIERL-1311
+
+- When OCSP stapling is enabled via the \{stapling, staple\} or \{stapling, #\{...\}\} options, the handshake now fails if the server does not provide an OCSP stapled response.
+  
+  Previously, a missing OCSP staple was silently accepted (soft-fail). Since Erlang/OTP only supports OCSP via stapling with no fallback to direct OCSP queries or CRL checking, soft-fail meant no revocation check at all.
+  
+  Applications that need the previous soft-fail behavior can use a custom verify_fun that accepts \{bad_cert, missing_ocsp_staple\}.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20064 Aux Id: [PR-10941], [CVE-2026-32144]
+
+[PR-10874]: https://github.com/erlang/otp/pull/10874
+[PR-10941]: https://github.com/erlang/otp/pull/10941
+[CVE-2026-32144]: https://nvd.nist.gov/vuln/detail/2026-32144
+
 ## SSL 11.5.3
 
 ### Fixed Bugs and Malfunctions
@@ -323,6 +345,23 @@ This document describes the changes made to the SSL application.
 [PR-9563]: https://github.com/erlang/otp/pull/9563
 [PR-9511]: https://github.com/erlang/otp/pull/9511
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## SSL 11.2.12.7
+
+### Fixed Bugs and Malfunctions
+
+- When OCSP stapling is enabled via the \{stapling, staple\} or \{stapling, #\{...\}\} options, the handshake now fails if the server does not provide an OCSP stapled response.
+  
+  Previously, a missing OCSP staple was silently accepted (soft-fail). Since Erlang/OTP only supports OCSP via stapling with no fallback to direct OCSP queries or CRL checking, soft-fail meant no revocation check at all.
+  
+  Applications that need the previous soft-fail behavior can use a custom verify_fun that accepts \{bad_cert, missing_ocsp_staple\}.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20064 Aux Id: [PR-10941], [CVE-2026-32144]
+
+[PR-10941]: https://github.com/erlang/otp/pull/10941
+[CVE-2026-32144]: https://nvd.nist.gov/vuln/detail/2026-32144
 
 ## SSL 11.2.12.6
 

@@ -23,6 +23,27 @@ limitations under the License.
 
 This document describes the changes made to the Kernel application.
 
+## Kernel 10.6.2
+
+### Fixed Bugs and Malfunctions
+
+- Before this patch, the Erlang/OTP built-in DNS resolver (`inet_res`) used a sequential, process-global 16-bit transaction ID for UDP queries and did not implement source port randomization. Response validation relied almost entirely on this ID. Together, this made DNS cache poisoning practical for an attacker who can observe one query or predict the next ID. The design conflicted with RFC 5452 recommendations for mitigating forged DNS answers.
+  
+  `inet_res` is intended for use in trusted network environments and with trusted recursive resolvers. Earlier documentation did not clearly state this deployment assumption, which could lead users to deploy the resolver in environments where faked DNS responses are possible.
+  
+  Therefore, the documentation is been updated to clarify that `inet_res` should only be used in trusted networks and with trusted recursive resolvers.
+  
+  The implementation is also improved to use strong random DNS transaction IDs and source ports for every DNS transaction. This should give ample protection against brute forcing fake DNS replies, known as DNS cache poisoning, but it still does not protect against, for example, an adversary in the path of the DNS transaction that can observe the random values before faking malicious replies, an attack known as DNS spoofing.
+  
+  For randomization to happen, the Crypto application has to be loaded, which most probably already should be the case for an Erlang node in an exposed network.
+  
+  If performance should become an issue, for applications within safe network environments, the previous light weight behaviour can be configured by setting the resolver option `random` to `false`.
+
+  Own Id: OTP-20037 Aux Id: [CVE-2026-28810], [PR-10864]
+
+[CVE-2026-28810]: https://nvd.nist.gov/vuln/detail/2026-28810
+[PR-10864]: https://github.com/erlang/otp/pull/10864
+
 ## Kernel 10.6.1
 
 ### Fixed Bugs and Malfunctions
@@ -388,6 +409,27 @@ This document describes the changes made to the Kernel application.
 [PR-8670]: https://github.com/erlang/otp/pull/8670
 [PR-9334]: https://github.com/erlang/otp/pull/9334
 [PR-9604]: https://github.com/erlang/otp/pull/9604
+
+## Kernel 10.2.7.4
+
+### Fixed Bugs and Malfunctions
+
+- Before this patch, the Erlang/OTP built-in DNS resolver (`inet_res`) used a sequential, process-global 16-bit transaction ID for UDP queries and did not implement source port randomization. Response validation relied almost entirely on this ID. Together, this made DNS cache poisoning practical for an attacker who can observe one query or predict the next ID. The design conflicted with RFC 5452 recommendations for mitigating forged DNS answers.
+  
+  `inet_res` is intended for use in trusted network environments and with trusted recursive resolvers. Earlier documentation did not clearly state this deployment assumption, which could lead users to deploy the resolver in environments where faked DNS responses are possible.
+  
+  Therefore, the documentation is been updated to clarify that `inet_res` should only be used in trusted networks and with trusted recursive resolvers.
+  
+  The implementation is also improved to use strong random DNS transaction IDs and source ports for every DNS transaction. This should give ample protection against brute forcing fake DNS replies, known as DNS cache poisoning, but it still does not protect against, for example, an adversary in the path of the DNS transaction that can observe the random values before faking malicious replies, an attack known as DNS spoofing.
+  
+  For randomization to happen, the Crypto application has to be loaded, which most probably already should be the case for an Erlang node in an exposed network.
+  
+  If performance should become an issue, for applications within safe network environments, the previous light weight behaviour can be configured by setting the resolver option `random` to `false`.
+
+  Own Id: OTP-20037 Aux Id: [CVE-2026-28810], [PR-10864]
+
+[CVE-2026-28810]: https://nvd.nist.gov/vuln/detail/2026-28810
+[PR-10864]: https://github.com/erlang/otp/pull/10864
 
 ## Kernel 10.2.7.3
 
@@ -936,6 +978,24 @@ This document describes the changes made to the Kernel application.
 [PR-8103]: https://github.com/erlang/otp/pull/8103
 [#6724]: https://github.com/erlang/otp/issues/6724
 [PR-8396]: https://github.com/erlang/otp/pull/8396
+
+## Kernel 9.2.4.11
+
+### Fixed Bugs and Malfunctions
+
+* Before this patch, the Erlang/OTP built-in DNS resolver (`inet_res`) used a sequential, process-global 16-bit transaction ID for UDP queries and did not implement source port randomization. Response validation relied almost entirely on this ID. Together, this made DNS cache poisoning practical for an attacker who can observe one query or predict the next ID. The design conflicted with RFC 5452 recommendations for mitigating forged DNS answers.
+
+  `inet_res` is intended for use in trusted network environments and with trusted recursive resolvers. Earlier documentation did not clearly state this deployment assumption, which could lead users to deploy the resolver in environments where faked DNS responses are possible.
+
+  Therefore, the documentation is been updated to clarify that `inet_res` should only be used in trusted networks and with trusted recursive resolvers.
+
+  The implementation is also improved to use strong random DNS transaction IDs and source ports for every DNS transaction. This should give ample protection against brute forcing fake DNS replies, known as DNS cache poisoning, but it still does not protect against, for example, an adversary in the path of the DNS transaction that can observe the random values before faking malicious replies, an attack known as DNS spoofing.
+
+  For randomization to happen, the Crypto application has to be loaded, which most probably already should be the case for an Erlang node in an exposed network.
+
+  If performance should become an issue, for applications within safe network environments, the previous light weight behaviour can be configured by setting the resolver option `random` to `false`.
+
+  Own Id: OTP-20037 Aux Id: CVE-2026-28810, PR-10864
 
 ## Kernel 9.2.4.10
 

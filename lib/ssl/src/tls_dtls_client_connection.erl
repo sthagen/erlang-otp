@@ -132,7 +132,11 @@ wait_stapling(internal, #certificate_status{} = CertStatus,
                        stapling_state =
                            StaplingState#{status => received_staple,
                                           staple => CertStatus}}}};
-%% Server did not send OCSP staple message
+%% TLS 1.2 only: server negotiated stapling (included status_request
+%% in ServerHello) but sent a different message instead of
+%% CertificateStatus. Mark as not_received and postpone the message
+%% for the certify state. Hard-fail is enforced later by
+%% cert_status_check/5 in ssl_handshake.
 wait_stapling(internal, Msg,
                    #state{static_env = #static_env{protocol_cb = _Connection},
                           handshake_env = #handshake_env{
@@ -178,9 +182,11 @@ certify(internal, #certificate{asn1_certificates = DerCerts},
                connection_env = #connection_env{
                                    negotiated_version = Version},
                ssl_options = Opts} = State)
-  when StaplingStatus == not_negotiated; StaplingStatus == received_staple ->
-    %% this clause handles also scenario with stapling disabled, so
-    %% 'not_negotiated' appears in guard
+  when StaplingStatus == not_negotiated; StaplingStatus == received_staple;
+       StaplingStatus == not_received ->
+    %% not_negotiated covers two cases: stapling disabled (configured=false)
+    %% and stapling enabled but server did not include status_request in
+    %% ServerHello. Hard-fail for the latter is enforced by cert_status_check/5.
     Certs = try [#cert{der=DerCert, otp=public_key:pkix_decode_cert(DerCert, otp)}
                  || DerCert <- DerCerts]
             catch
@@ -873,6 +879,7 @@ ext_info(#{status := received_staple, staple := CertStatus} = StaplingState,
          #cert{otp = PeerCert}) ->
     #{cert_ext => #{public_key:pkix_subject_id(PeerCert) => [CertStatus]},
       stapling_state => StaplingState};
-ext_info(#{status := not_negotiated} = StaplingState, #cert{otp = PeerCert}) ->
+ext_info(#{status := StaplingStatus} = StaplingState, #cert{otp = PeerCert})
+  when StaplingStatus == not_negotiated; StaplingStatus == not_received ->
     #{cert_ext => #{public_key:pkix_subject_id(PeerCert) => []},
       stapling_state => StaplingState}.

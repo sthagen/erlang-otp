@@ -437,6 +437,14 @@ property list.
   Access to http://your.server.org/cgi-bin/foo would cause the server to run the
   script /web/cgi-bin/foo.
 
+  > #### Note {: .info }
+  >
+  > When using `script_alias` with directory-based authentication
+  > (see [`directory`](`m:httpd#prop_dri`)), ensure that authentication
+  > rules reference the actual filesystem path (RealName), not the URL path (Alias).
+  > The server correctly resolves script_alias paths for authentication checks.
+  >
+
 - [](){: #prop_script_re_write } **`{script_re_write, {Re, Replacement}}`**  
   `Re = string()` and `Replacement = string()`. Have the same behavior as
   property `re_write`, except that they also mark the target directory as

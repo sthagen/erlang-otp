@@ -404,7 +404,6 @@ do_handle_client_hello(#client_hello{cipher_suites = ClientCiphers,
         #state{connection_states = ConnectionStates0,
                session = Session0,
                ssl_options = #{ciphers := ServerCiphers,
-                               signature_algs := ServerSignAlgs,
                                supported_groups := ServerGroups0,
                                alpn_preferred_protocols := ALPNPreferredProtocols,
                                honor_cipher_order := HonorCipherOrder},
@@ -444,16 +443,10 @@ do_handle_client_hello(#client_hello{cipher_suites = ClientCiphers,
         Maybe(validate_client_key_share(ClientGroups,
                                         ClientShares#key_share_client_hello.client_shares)),
         CertKeyPairs = ssl_certificate:available_cert_key_pairs(CertKeyAlts, ?TLS_1_3),
-        #session{own_certificates = [Cert|_]} = Session =
+        #session{sign_alg = ProtocolSignAlg} = Session =
             Maybe(select_server_cert_key_pair(Session0, CertKeyPairs, ClientSignAlgs,
                                               ClientSignAlgsCert, CertAuths, State0,
                                               undefined)),
-        {PublicKeyAlgo, _, _, RSAKeySize, Curve} = tls_handshake_1_3:get_certificate_params(Cert),
-
-        %% Select signature algorithm (used in CertificateVerify message).
-        SelectedSignAlg = Maybe(tls_handshake_1_3:select_sign_algo(PublicKeyAlgo,
-                                                                   RSAKeySize, ClientSignAlgs,
-                                                                   ServerSignAlgs, Curve)),
 
         %% Select client public key. If no public key found in ClientShares or
         %% ClientShares is empty, trigger HelloRetryRequest as we were able
@@ -487,7 +480,7 @@ do_handle_client_hello(#client_hello{cipher_suites = ClientCiphers,
                                                         key_share => KeyShare,
                                                         session_id => SessionId,
                                                         group => Group,
-                                                        sign_alg => SelectedSignAlg,
+                                                        sign_alg => ProtocolSignAlg,
                                                         peer_public_key => ClientPubKey,
                                                         alpn => ALPNProtocol,
                                                         random => Random}),
@@ -698,10 +691,25 @@ select_server_cert_key_pair(_,[], _,_,_,_, #session{}=Session) ->
     %% Conformant Cert-Key pair with advertised signature algorithm is
     %% selected.
     {ok, Session};
-select_server_cert_key_pair(_,[], _,_,_,_, {fallback, #session{}=Session}) ->
+select_server_cert_key_pair(_,[], _,_,_,_,
+                            {fallback, #session{sign_alg = Alg} = Session}) when Alg =/= undefined->
     %% Use fallback Cert-Key pair as no conformant pair to the advertised
     %% signature algorithms was found.
     {ok, Session};
+select_server_cert_key_pair(_,[], ClientSignAlgs,_,_,
+                            #state{ssl_options = #{signature_algs := ServerSignAlgs}},
+                            {fallback, #session{own_certificates = [Cert|_]}=Session}) ->
+    {PublicKeyAlgo, _, _, RSAKeySize, Curve} =
+        tls_handshake_1_3:get_certificate_params(Cert),
+    case tls_handshake_1_3:select_sign_algo(PublicKeyAlgo, RSAKeySize,
+                                                    ClientSignAlgs, ServerSignAlgs, Curve) of
+        {ok, ProtocolSignAlg} ->
+            %% Use fallback Cert-Key pair as no conformant pair to the advertised
+            %% signature algorithms was found.
+            {ok, Session#session{sign_alg = ProtocolSignAlg}};
+        {error, _} = Error ->
+            Error
+    end;
 select_server_cert_key_pair(_,[], _,_,_,_, undefined) ->
     {error, ?ALERT_REC(?FATAL, ?HANDSHAKE_FAILURE, unable_to_supply_acceptable_cert)};
 select_server_cert_key_pair(Session, [#{private_key := Key, certs := [Cert| _] = Certs} | Rest],
@@ -709,25 +717,39 @@ select_server_cert_key_pair(Session, [#{private_key := Key, certs := [Cert| _] =
                             #state{static_env = #static_env{cert_db = CertDbHandle,
                                                             cert_db_ref = CertDbRef}} = State,
                             Default0) ->
-    {_, SignAlgo, SignHash, _, _} = tls_handshake_1_3:get_certificate_params(Cert),
-    %% TODO: We do validate the signature algorithm and signature hash
-    %% but we could also check if the signing cert has a key on a
-    %% curve supported by the client for ECDSA/EDDSA certs
+    #{signature_algs := ServerSignAlgs} = State#state.ssl_options,
+    {PublicKeyAlgo, SignAlgo, SignHash, RSAKeySize, Curve} =
+        tls_handshake_1_3:get_certificate_params(Cert),
     case tls_handshake_1_3:check_cert_sign_algo(SignAlgo, SignHash,
                                                 ClientSignAlgs, ClientSignAlgsCert) of
         ok ->
-            case ssl_certificate:handle_cert_auths(Certs, CertAuths, CertDbHandle, CertDbRef) of
-                {ok, EncodeChain} -> %% Chain fullfills certificate_authorities extension
-                    {ok, Session#session{own_certificates = EncodeChain, private_key = Key}};
-                {error, EncodeChain, not_in_auth_domain} ->
-                    %% If this is the first chain to fulfill the
-                    %% signing requirement, use it as default, if not
-                    %% later alternative also fulfills
-                    %% certificate_authorities extension
-                    Default = Session#session{own_certificates = EncodeChain, private_key = Key},
+            case tls_handshake_1_3:select_sign_algo(PublicKeyAlgo, RSAKeySize,
+                                                    ClientSignAlgs, ServerSignAlgs, Curve) of
+                {ok, ProtocolSignAlg} ->
+                    case ssl_certificate:handle_cert_auths(Certs, CertAuths, CertDbHandle, CertDbRef) of
+                        {ok, EncodeChain} -> %% Chain fullfills certificate_authorities extension
+                            {ok, Session#session{own_certificates = EncodeChain,
+                                                 sign_alg = ProtocolSignAlg,
+                                                 private_key = Key}};
+                        {error, EncodeChain, not_in_auth_domain} ->
+                            %% If this is the first chain to fulfill the
+                            %% signing requirement, use it as default, if not
+                            %% later alternative also fulfills
+                            %% certificate_authorities extension
+                            Default = Session#session{own_certificates = EncodeChain,
+                                                      sign_alg = ProtocolSignAlg,
+                                                      private_key = Key},
+                            select_server_cert_key_pair(Session, Rest, ClientSignAlgs,
+                                                        ClientSignAlgsCert,
+                                                        CertAuths, State,
+                                                        default_or_fallback(Default0, Default))
+                    end;
+                {error, _} ->
+                    Fallback = {fallback,
+                                Session#session{own_certificates = Certs, private_key = Key}},
                     select_server_cert_key_pair(Session, Rest, ClientSignAlgs, ClientSignAlgsCert,
                                                 CertAuths, State,
-                                                default_or_fallback(Default0, Default))
+                                                default_or_fallback(Default0, Fallback))
             end;
         _ ->
             %% If the server cannot produce a certificate chain that

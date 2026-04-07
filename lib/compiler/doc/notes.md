@@ -23,6 +23,29 @@ limitations under the License.
 
 This document describes the changes made to the Compiler application.
 
+## Compiler 9.0.6
+
+### Fixed Bugs and Malfunctions
+
+- The type inference for `maps:from_list/1` was incorrect: when the provided list was statically known to be bogus when non-empty (e.g. a list of atoms), the compiler assumed it would also fail when the list was empty.
+
+  Own Id: OTP-19506 Aux Id: [GH-9476], [PR-9481]
+
+- Fixed a bug in the type analysis pass that could erroneously eliminate code blocks.
+
+  Own Id: OTP-19931 Aux Id: [GH-10562], [PR-10569]
+
+- A binary as the value of a `-moduledoc()` attribute would be silently ignored.
+
+  Own Id: OTP-20065 Aux Id: [GH-10901], [PR-10904]
+
+[GH-9476]: https://github.com/erlang/otp/issues/9476
+[PR-9481]: https://github.com/erlang/otp/pull/9481
+[GH-10562]: https://github.com/erlang/otp/issues/10562
+[PR-10569]: https://github.com/erlang/otp/pull/10569
+[GH-10901]: https://github.com/erlang/otp/issues/10901
+[PR-10904]: https://github.com/erlang/otp/pull/10904
+
 ## Compiler 9.0.5
 
 ### Fixed Bugs and Malfunctions
@@ -439,6 +462,29 @@ This document describes the changes made to the Compiler application.
 [PR-8670]: https://github.com/erlang/otp/pull/8670
 [PR-9334]: https://github.com/erlang/otp/pull/9334
 [PR-9604]: https://github.com/erlang/otp/pull/9604
+
+## Compiler 8.6.1.4
+
+### Fixed Bugs and Malfunctions
+
+- The type inference for `maps:from_list/1` was incorrect: when the provided list was statically known to be bogus when non-empty (e.g. a list of atoms), the compiler assumed it would also fail when the list was empty.
+
+  Own Id: OTP-19506 Aux Id: [GH-9476], [PR-9481]
+
+- Fixed a bug in the type analysis pass that could erroneously eliminate code blocks.
+
+  Own Id: OTP-19931 Aux Id: [GH-10562], [PR-10569]
+
+- A binary as the value of a `-moduledoc()` attribute would be silently ignored.
+
+  Own Id: OTP-20065 Aux Id: [GH-10901], [PR-10904]
+
+[GH-9476]: https://github.com/erlang/otp/issues/9476
+[PR-9481]: https://github.com/erlang/otp/pull/9481
+[GH-10562]: https://github.com/erlang/otp/issues/10562
+[PR-10569]: https://github.com/erlang/otp/pull/10569
+[GH-10901]: https://github.com/erlang/otp/issues/10901
+[PR-10904]: https://github.com/erlang/otp/pull/10904
 
 ## Compiler 8.6.1.3
 

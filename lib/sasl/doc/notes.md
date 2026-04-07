@@ -23,6 +23,16 @@ limitations under the License.
 
 This document describes the changes made to the SASL application.
 
+## SASL 4.3.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed the typespec of release_handler:eval_appup_script/4.
+
+  Own Id: OTP-20053 Aux Id: [PR-10906]
+
+[PR-10906]: https://github.com/erlang/otp/pull/10906
+
 ## SASL 4.3.1
 
 ### Improvements and New Features
@@ -72,6 +82,16 @@ This document describes the changes made to the SASL application.
 
 [PR-8973]: https://github.com/erlang/otp/pull/8973
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## SASL 4.2.2.1
+
+### Fixed Bugs and Malfunctions
+
+- Fixed the typespec of release_handler:eval_appup_script/4.
+
+  Own Id: OTP-20053 Aux Id: [PR-10906]
+
+[PR-10906]: https://github.com/erlang/otp/pull/10906
 
 ## SASL 4.2.2
 

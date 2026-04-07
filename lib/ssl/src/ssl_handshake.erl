@@ -43,10 +43,12 @@
 
 -type oid()               :: tuple().
 -type public_key_params() :: #'Dss-Parms'{} |  {namedCurve, oid()} | #'ECParameters'{} | term().
--type public_key_info()   :: {oid(), #'RSAPublicKey'{} | integer() | #'ECPoint'{}, public_key_params()}.
+-type public_key_info()   :: {oid(), #'RSAPublicKey'{} | integer() |
+                              #'ECPoint'{}, public_key_params()}.
 -type ssl_handshake_history() :: {iodata(), iodata()}.
 
--type ssl_handshake() :: #server_hello{} | #server_hello_done{} | #certificate{} | #certificate_request{} |
+-type ssl_handshake() :: #server_hello{} | #server_hello_done{} | #certificate{} |
+                         #certificate_request{} |
 			 #client_key_exchange{} | #finished{} | #certificate_verify{} |
 			 #hello_request{} | #next_protocol{} | #end_of_early_data{}.
 
@@ -2025,9 +2027,14 @@ extension_value(#psk_key_exchange_modes{ke_modes = Modes}) ->
 extension_value(#cookie{cookie = Cookie}) ->
     Cookie.
 
+%% Extension value mapping (from decode_extensions/4):
+%%   'false'     - extension absent from ServerHello (maps:get default)
+%%   'undefined' - extension present with empty body (RFC 6066: server
+%%                 MUST include status_request with empty extension_data
+%%                 to indicate willingness to send CertificateStatus)
 handle_cert_status_extension(#{stapling := _Stapling}, Extensions) ->
     case maps:get(status_request, Extensions, false) of
-        undefined -> %% status_request received in server hello
+        undefined ->
             #{configured => true,
               status => negotiated};
         false ->
@@ -2066,9 +2073,7 @@ certificate_types(Version) when ?TLS_LTE(Version, ?TLS_1_2) ->
 
 %% Returns encoded certificate_type if algorithm is supported
 supported_cert_type_or_empty(Algo, Type) ->
-    case proplists:get_bool(
-           Algo,
-           proplists:get_value(public_keys, crypto:supports())) of
+    case proplists:get_bool(Algo, crypto:supports(public_keys)) of
         true ->
             <<?BYTE(Type)>>;
         false ->
@@ -2327,11 +2332,14 @@ cert_status_check(_OtpCert,
                                         status := StaplingStatus}},
                   _VerifyResult, _CertPath, _LogLevel)
   when StaplingStatus == not_negotiated; StaplingStatus == not_received ->
-    %% RFC6066 section 8
-    %% Servers that receive a client hello containing the "status_request"
-    %% extension MAY return a suitable certificate status response to the
-    %% client along with their certificate.
-    valid.
+    %% Hard-fail (TLS 1.2 and TLS 1.3): client requested OCSP stapling
+    %% but server did not provide a staple. Erlang/OTP has no fallback
+    %% to direct OCSP queries or CRL checking when stapling is
+    %% configured, so accepting a missing staple would skip revocation
+    %% checking entirely.
+    %% Note: {bad_cert, _} tuple is required for apply_user_fun/8 to
+    %% deliver the failure to a custom verify_fun.
+    {bad_cert, missing_ocsp_staple}.
 
 
 maybe_check_crl(_, #{crl_check := false}, _, _, _) ->
@@ -3752,8 +3760,7 @@ convert_hostname(SNI) ->
     SNI.
 
 client_ecc_extensions(SupportedECCs) ->
-    CryptoSupport = proplists:get_value(public_keys, crypto:supports()),
-    case proplists:get_bool(ecdh, CryptoSupport) of
+    case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
 	true ->
             %% RFC 8422 - 5.1.  Client Hello Extensions
             %% Clients SHOULD send both the Supported Elliptic Curves Extension and the
@@ -3768,8 +3775,7 @@ client_ecc_extensions(SupportedECCs) ->
     end.
 
 server_ecc_extension(_Version, EcPointFormats) ->
-    CryptoSupport = proplists:get_value(public_keys, crypto:supports()),
-    case proplists:get_bool(ecdh, CryptoSupport) of
+    case proplists:get_bool(ecdh, crypto:supports(public_keys)) of
 	true ->
 	    handle_ecc_point_fmt_extension(EcPointFormats);
 	false ->

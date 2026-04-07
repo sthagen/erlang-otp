@@ -170,6 +170,6 @@
         ]},
   {mod, {kernel, []}},
   {runtime_dependencies, ["erts-@OTP-19834@", "stdlib-@OTP-20028@",
-                          "sasl-3.0", "crypto-5.0"]}
+                          "sasl-3.0", "crypto-5.8"]}
   ]
 }.

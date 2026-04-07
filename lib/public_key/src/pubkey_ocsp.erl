@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2008-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -231,7 +231,9 @@ is_authorized_responder(CombinedResponderCert = #cert{otp = ResponderCert},
         %%      issue OCSP responses for that CA (id-kp-OCSPSigning)
         fun() ->
                 public_key:pkix_is_issuer(ResponderCert, IssuerCert) andalso
-                                 designated_for_ocsp_signing(ResponderCert)
+                    designated_for_ocsp_signing(ResponderCert) andalso
+                    public_key:pkix_verify(CombinedResponderCert#cert.der,
+                                           get_public_key_rec(IssuerCert))
         end,
     Case3 =
         %% a Trusted Responder whose public key is trusted by the requestor

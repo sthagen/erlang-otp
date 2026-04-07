@@ -23,6 +23,27 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 16.3.1
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a JIT bug that miscompiled expressions like `X * X + X * X`.
+
+  Own Id: OTP-19889 Aux Id: [GH-10454], [PR-10456]
+
+- Fixed bug on windows that made tools dialyzer, erlc and typer unusable in powershell or cmd.exe, when there are spaces in the installation path.
+
+  Own Id: OTP-20027 Aux Id: [PR-10620]
+
+- Fixed a bug with prim_tty that could occur on windows if we cannot get the console mode, mark the TTY as unavailable. This can happen when the input handle is a pipe, but the output handle is a console.
+
+  Own Id: OTP-20060 Aux Id: [PR-10899]
+
+[GH-10454]: https://github.com/erlang/otp/issues/10454
+[PR-10456]: https://github.com/erlang/otp/pull/10456
+[PR-10620]: https://github.com/erlang/otp/pull/10620
+[PR-10899]: https://github.com/erlang/otp/pull/10899
+
 ## Erts 16.3
 
 ### Fixed Bugs and Malfunctions
@@ -706,6 +727,22 @@ This document describes the changes made to the ERTS application.
 [PR-9775]: https://github.com/erlang/otp/pull/9775
 [PR-9759]: https://github.com/erlang/otp/pull/9759
 [PR-9809]: https://github.com/erlang/otp/pull/9809
+
+## Erts 15.2.7.7
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a JIT bug that miscompiled expressions like `X * X + X * X`.
+
+  Own Id: OTP-19889 Aux Id: [GH-10454], [PR-10456]
+
+- Fixed bug on windows that made tools dialyzer, erlc and typer unusable in powershell or cmd.exe, when there are spaces in the installation path.
+
+  Own Id: OTP-20027 Aux Id: [PR-10620]
+
+[GH-10454]: https://github.com/erlang/otp/issues/10454
+[PR-10456]: https://github.com/erlang/otp/pull/10456
+[PR-10620]: https://github.com/erlang/otp/pull/10620
 
 ## Erts 15.2.7.6
 

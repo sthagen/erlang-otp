@@ -1,4 +1,4 @@
-SASL_VSN = 4.3.1
+SASL_VSN = 4.3.2
 
 # %CopyrightBegin%
 #

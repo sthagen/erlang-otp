@@ -3955,13 +3955,14 @@ gethostbyaddr_tm_native(Addr, Timer, Opts) ->
 	{'ok', port()} | {'error', posix()}.
 
 open(Fd, BAddr, BPort, Opts, Protocol, Family, Type, Module)
-  when is_integer(Fd), 0 =< Fd ->
+  when is_integer(Fd), 0 =< Fd, is_integer(BPort) ->
     open_fd(Fd, BAddr, BPort, Opts, Protocol, Family, Type, Module);
-open(Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module) ->
+open(Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module)
+  when is_integer(BPort) ->
     open_opts(
       Fd_or_OpenOpts,
       if
-          BAddr =:= undefined, BPort =/= 0 ->
+          BAddr =:= undefined, BPort > 0 ->
               translate_ip(any, Family);
           true ->
               BAddr
@@ -4010,14 +4011,15 @@ open(Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module) ->
                        {'ok', port()} | {'error', posix()}.
 
 open_bind(Fd, BAddr, BPort, Opts, Protocol, Family, Type, Module)
-  when is_integer(Fd), 0 =< Fd ->
+  when is_integer(Fd), 0 =< Fd, is_integer(BPort) ->
     %% ?DBG([{fd, Fd},
     %%       {baddr, BAddr}, {bport, BPort},
     %%       {opts, Opts}, {proto, Protocol}, {fam, Family},
     %%       {type, Type}, {mod, Module}]),
     open_fd(Fd, BAddr, BPort, Opts, Protocol, Family, Type, Module);
 open_bind(
-  Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module) ->
+  Fd_or_OpenOpts, BAddr, BPort, Opts, Protocol, Family, Type, Module)
+  when is_integer(BPort) ->
     %% ?DBG([{fd_or_openopts, Fd_or_OpenOpts},
     %%       {baddr, BAddr}, {bport, BPort},
     %%       {opts, Opts}, {proto, Protocol}, {fam, Family},
@@ -4103,11 +4105,39 @@ open_setopts(S, BAddr, BPort, Opts, Module) ->
 
 
 
-bind(S, Addr, Port) when is_list(Addr) ->
+bind(S, Addr, Port) when is_list(Addr), is_integer(Port) ->
     bindx(S, Addr, Port);
-bind(S, Addr, Port) ->
-    %% ?DBG([{s, S}, {addr, Addr}, {port, Port}]),
-    prim_inet:bind(S, Addr, Port).
+bind(S, Addr, -1) ->
+    bind_random(S, Addr);
+bind(S, Addr, Port) when is_integer(Port) ->
+    do_bind(S, Addr, Port).
+
+do_bind(S, Addr, Port) ->
+    Result = prim_inet:bind(S, Addr, Port),
+    %% ?DBG([{s, S}, {addr, Addr}, {port, Port}, Result]),
+    Result.
+
+bind_random(S, Addr) ->
+    Cnt = 3,
+    bind_random(S, Addr, Cnt).
+%%
+bind_random(S, Addr, 0 = _Cnt) ->
+    Port = 0,
+    do_bind(S, Addr, Port);
+bind_random(S, Addr, Cnt) when is_integer(Cnt), 0 < Cnt ->
+    Port = inet_db:res_option(random_port),
+    bind_random(S, Addr, Cnt, Port).
+%%
+bind_random(S, Addr, _Cnt, 0 = Port) ->
+    do_bind(S, Addr, Port);
+bind_random(S, Addr, Cnt, Port) when ?port(Port) ->
+    case prim_inet:bind(S, Addr, Port) of
+        {ok, _} = OK ->
+            %% ?DBG([{s, S}, {addr, Addr}, {port, Port}, OK]),
+            OK;
+        {error, _} ->
+            bind_random(S, Addr, Cnt - 1)
+    end.
 
 bindx(S, [Addr], Port0) ->
     {IP, Port} = set_bindx_port(Addr, Port0),

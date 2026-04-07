@@ -1091,11 +1091,9 @@ behaviour.")
 
 
 (defvar erlang-skel-file "erlang-skels"
-  "The type of erlang-skeletons that should be used, default
-   uses edoc type, for the old type, standard comments,
-   set \"erlang-skels-old\" in your .emacs and restart.
-
-   Or define your own and set the variable to that file.")
+  "The skeleton file to load.
+The default uses EDoc-style skeletons.  Set to a different file
+name to use custom skeletons.")
 
 ;; Tempo skeleton templates:
 (load erlang-skel-file)
@@ -4654,15 +4652,12 @@ In the completion list, `module:tag' and `module:' shows up."
 
 (defun erlang-complete-tag ()
   "Perform tags completion on the text around point.
-Completes to the set of names listed in the current tags table.
-
-Should the Erlang tags system be installed this command knows
-about Erlang modules."
+Completes to the set of names listed in the current tags table,
+including module-qualified names."
   (interactive)
   (require 'etags)
   (let ((erlang-replace-etags-tags-completion-table t))
     (complete-tag)))
-
 
 (defun erlang-find-tag-for-completion ()
   (let ((start (save-excursion
@@ -5254,8 +5249,6 @@ Also see the description of `ielm-prompt-read-only'."
 
 (defvar erlang-shell-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map "\M-\t"    'erlang-complete-tag)
-
     ;; Normally the other way around.
     (define-key map "\C-a"     'comint-bol)
     (define-key map "\C-c\C-a" 'beginning-of-line)
@@ -5325,39 +5318,45 @@ Selects Comint or Compilation mode command as appropriate."
 ;;; Inferior Erlang -- Run an Erlang shell as a subprocess.
 ;;;
 
-(defvar inferior-erlang-display-buffer-any-frame nil
-  "When nil, `inferior-erlang-display-buffer' use only selected frame.
-When t, all frames are searched.  When \='raise, the frame is raised.")
+(defcustom inferior-erlang-display-buffer-any-frame nil
+  "How to find the inferior Erlang buffer when displaying it.
+When nil, use only the selected frame.  When t, search all frames.
+When `raise', search all frames and raise the frame containing the buffer."
+  :type '(choice (const :tag "Selected frame only" nil)
+                 (const :tag "Search all frames" t)
+                 (const :tag "Search and raise" raise))
+  :group 'erlang)
 
-(defvar inferior-erlang-shell-type 'newshell
-  "The type of Erlang shell to use.
+(defcustom inferior-erlang-machine "erl"
+  "The command to start the Erlang shell."
+  :type 'string
+  :group 'erlang)
 
-When this variable is set to the atom `oldshell', the old shell is used.
-When set to `newshell' the new shell is used.  Should the variable be
-nil, the default shell is used.
+(defcustom inferior-erlang-machine-options '()
+  "Additional options for the Erlang shell command.
+This must be a list of strings."
+  :type '(repeat string)
+  :group 'erlang)
 
-This variable influence the setting of other variables.")
+(defcustom inferior-erlang-process-name "inferior-erlang"
+  "The name of the inferior Erlang process."
+  :type 'string
+  :group 'erlang)
 
-(defvar inferior-erlang-machine "erl"
-  "The name of the Erlang shell.")
+(defcustom inferior-erlang-buffer-name erlang-shell-buffer-name
+  "The name of the inferior Erlang buffer."
+  :type 'string
+  :group 'erlang)
 
-(defvar inferior-erlang-machine-options '()
-  "The options used when activating the Erlang shell.
-
-This must be a list of strings.")
-
-(defvar inferior-erlang-process-name "inferior-erlang"
-  "The name of the inferior Erlang process.")
-
-(defvar inferior-erlang-buffer-name erlang-shell-buffer-name
-  "The name of the inferior Erlang buffer.")
-
-(defvar inferior-erlang-prompt-timeout 60
+(defcustom inferior-erlang-prompt-timeout 60
   "Number of seconds before `inferior-erlang-wait-prompt' timeouts.
-
 The time specified is waited after every output made by the inferior
 Erlang shell.  When this variable is t, we assume that we always have
-a prompt.  When nil, we will wait forever, or until \\[keyboard-quit].")
+a prompt.  When nil, we will wait forever, or until \\[keyboard-quit]."
+  :type '(choice integer
+                 (const :tag "Always assume prompt" t)
+                 (const :tag "Wait forever" nil))
+  :group 'erlang)
 
 (defvar inferior-erlang-process nil
   "Process of last invoked inferior Erlang, or nil.")
@@ -5395,11 +5394,7 @@ editing control characters:
         (setq cmd "sh"
               opts (list "-c" command))
       (setq cmd inferior-erlang-machine
-            opts inferior-erlang-machine-options)
-      (cond ((eq inferior-erlang-shell-type 'oldshell)
-             (setq opts (cons "-oldshell" opts)))
-            ((eq inferior-erlang-shell-type 'newshell)
-             (setq opts (append '("-newshell" "-env" "TERM" "vt100") opts)))))
+            opts inferior-erlang-machine-options))
 
     ;; Using create-file-buffer and list-buffers-directory in this way
     ;; makes uniquify give each buffer a unique name based on the
@@ -5420,9 +5415,8 @@ editing control characters:
   (if erlang-inferior-shell-split-window
       (switch-to-buffer-other-window inferior-erlang-buffer)
     (switch-to-buffer inferior-erlang-buffer))
-  (if (and (not (eq system-type 'windows-nt))
-           (eq inferior-erlang-shell-type 'newshell))
-      (setq comint-process-echoes t))
+  (unless (eq system-type 'windows-nt)
+    (setq comint-process-echoes t))
   (erlang-shell-mode))
 
 
@@ -5460,7 +5454,7 @@ frame will become deselected before the next command."
             (switch-to-buffer-other-window inferior-erlang-buffer)
             (setq win (selected-window)))
           (select-window old-win))
-      (if (and window-system
+      (if (and (display-graphic-p)
                (or select
                    (eq inferior-erlang-display-buffer-any-frame 'raise))
                (not (eq (selected-frame) (window-frame win))))

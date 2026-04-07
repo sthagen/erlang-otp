@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2011-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -45,7 +45,9 @@
          staple_with_nonce/0, staple_with_nonce/1,
          cert_status_revoked/0, cert_status_revoked/1,
          cert_status_undetermined/0, cert_status_undetermined/1,
-         staple_missing/0, staple_missing/1
+         staple_missing/0, staple_missing/1,
+         staple_missing_atom/0, staple_missing_atom/1,
+         staple_missing_verify_fun/0, staple_missing_verify_fun/1
         ]).
 
 %% spawn export
@@ -85,7 +87,9 @@ negative() ->
      staple_wrong_issuer,
      cert_status_revoked,
      cert_status_undetermined,
-     staple_missing].
+     staple_missing,
+     staple_missing_atom,
+     staple_missing_verify_fun].
 
 %%--------------------------------------------------------------------
 init_per_suite(Config0) ->
@@ -198,17 +202,13 @@ staple_with_nonce(Config)
   when is_list(Config) ->
     stapling_helper(Config, #{ocsp_nonce => true}).
 
-staple_missing() ->
-    [{doc, "Verify OCSP stapling works with a missing OCSP response."}].
-staple_missing(Config)
-  when is_list(Config) ->
-    %% Start a server that will not include an OCSP response.
-    stapling_helper(Config, openssl,  #{ocsp_nonce => true}).
-
 stapling_helper(Config, StaplingOpt) ->
     stapling_helper(Config, openssl_ocsp, StaplingOpt).
 
 stapling_helper(Config, ServerType, StaplingOpt) ->
+    stapling_helper(Config, ServerType, StaplingOpt, []).
+
+stapling_helper(Config, ServerType, StaplingOpt, ExtraClientOpts) ->
     %% ok = logger:set_application_level(ssl, debug),
     PrivDir = proplists:get_value(priv_dir, Config),
     CACertsFile = filename:join(PrivDir, "a.server/cacerts.pem"),
@@ -222,7 +222,7 @@ stapling_helper(Config, ServerType, StaplingOpt) ->
     ClientOpts = ssl_test_lib:ssl_options([{verify, verify_peer},
                                            {cacertfile, CACertsFile},
                                            {server_name_indication, disable},
-                                           {stapling, StaplingOpt}],
+                                           {stapling, StaplingOpt}] ++ ExtraClientOpts,
                                           Config),
     Client = ssl_test_lib:start_client(erlang,
                                        [{port, Port},
@@ -234,6 +234,49 @@ stapling_helper(Config, ServerType, StaplingOpt) ->
     ssl_test_lib:close(Client).
 
 %%--------------------------------------------------------------------
+staple_missing() ->
+    [{doc, "Verify that missing OCSP staple causes handshake failure."}].
+staple_missing(Config)
+  when is_list(Config) ->
+    %% Start a server (openssl) that will not include an OCSP response
+    stapling_negative_helper(Config, "a.server/cacerts.pem",
+                             openssl, handshake_failure).
+
+staple_missing_atom() ->
+    [{doc, "Verify that missing OCSP staple causes handshake failure "
+      "with {stapling, staple} atom shorthand."}].
+staple_missing_atom(Config)
+  when is_list(Config) ->
+    stapling_negative_helper(Config, "a.server/cacerts.pem",
+                             openssl, handshake_failure, staple).
+
+staple_missing_verify_fun() ->
+    [{doc, "Verify that a custom verify_fun can be used for accepting missing OCSP staple."}].
+staple_missing_verify_fun(Config)
+  when is_list(Config) ->
+    VerifyFun =
+        {fun(_, _, {bad_cert, missing_ocsp_staple}, UserState) ->
+                 ?CT_LOG("verify_fun: got missing_ocsp_staple, accepting", []),
+                 {valid, [staple_missing_seen | UserState]};
+            (_, _, {bad_cert, _} = Reason, _) ->
+                 ?CT_LOG("verify_fun: got ~p, rejecting", [Reason]),
+                 {fail, Reason};
+            (_, _, {extension, _} = Ext, UserState) ->
+                 ?CT_LOG("verify_fun: got extension ~p", [Ext]),
+                 {unknown, UserState};
+            (_, _, valid, UserState) ->
+                 ?CT_LOG("verify_fun: got valid", []),
+                 {valid, UserState};
+            (_, _, valid_peer, UserState) ->
+                 ?CT_LOG("verify_fun: got valid_peer, state=~p", [UserState]),
+                 case lists:member(staple_missing_seen, UserState) of
+                     true -> {valid, UserState};
+                     false -> {fail, {bad_cert, missing_staple_not_reported}}
+                 end
+         end, []},
+    stapling_helper(Config, openssl, #{ocsp_nonce => false},
+                    [{verify_fun, VerifyFun}]).
+
 staple_not_designated() ->
     [{doc,"Verify OCSP stapling works without nonce."
       "Response signed with certificate issued directly by issuer of server "
@@ -268,6 +311,9 @@ cert_status_undetermined(Config)
                                   openssl_ocsp_undetermined, bad_certificate).
 
 stapling_negative_helper(Config, CACertsPath, ServerVariant, ExpectedError) ->
+    stapling_negative_helper(Config, CACertsPath, ServerVariant, ExpectedError, #{ocsp_nonce => true}).
+
+stapling_negative_helper(Config, CACertsPath, ServerVariant, ExpectedError, StaplingOpt) ->
     PrivDir = proplists:get_value(priv_dir, Config),
     CACertsFile = filename:join(PrivDir, CACertsPath),
     GroupName = undefined,
@@ -280,7 +326,7 @@ stapling_negative_helper(Config, CACertsPath, ServerVariant, ExpectedError) ->
     ClientOpts = ssl_test_lib:ssl_options([{verify, verify_peer},
                                            {server_name_indication, disable},
                                            {cacertfile, CACertsFile},
-                                           {stapling, #{ocsp_nonce => true}}],
+                                           {stapling, StaplingOpt}],
                                           Config),
     Client = ssl_test_lib:start_client_error([{node, ClientNode},{port, Port},
                                               {host, Hostname}, {from, self()},

@@ -21,6 +21,31 @@ limitations under the License.
 -->
 # Public_Key Release Notes
 
+## Public_Key 1.20.3
+
+### Fixed Bugs and Malfunctions
+
+- OCSP designated responder certificate verification now checks the CA's cryptographic signature on the responder certificate. Previously, only the issuer DN match and id-kp-OCSPSigning EKU were verified, which meant a forged self-signed certificate with the CA's subject DN would be accepted as a valid designated responder (Case 2 in RFC 6960 §4.2.2.2).
+
+  Own Id: OTP-20042 Aux Id: [CVE-2026-32144], [PR-10873]
+
+- Update handling of encoding 'OTPSubjectPublicKeyInfo' in public_key:pkix_encode/3, so that it works for update spec added in OTP-28.
+
+  Own Id: OTP-20050 Aux Id: [PR-10889], [GH-10876]
+
+[CVE-2026-32144]: https://nvd.nist.gov/vuln/detail/2026-32144
+[PR-10873]: https://github.com/erlang/otp/pull/10873
+[PR-10889]: https://github.com/erlang/otp/pull/10889
+[GH-10876]: https://github.com/erlang/otp/issues/10876
+
+### Improvements and New Features
+
+- Relax upper bound of common names in certificates for pragmatic interoperability reasons.
+
+  Own Id: OTP-20049 Aux Id: [PR-10866], GH10606
+
+[PR-10866]: https://github.com/erlang/otp/pull/10866
+
 ## Public_Key 1.20.2
 
 ### Fixed Bugs and Malfunctions
@@ -170,6 +195,17 @@ limitations under the License.
 [PR-9677]: https://github.com/erlang/otp/pull/9677
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9774]: https://github.com/erlang/otp/pull/9774
+
+## Public_Key 1.17.1.2
+
+### Fixed Bugs and Malfunctions
+
+- OCSP designated responder certificate verification now checks the CA's cryptographic signature on the responder certificate. Previously, only the issuer DN match and id-kp-OCSPSigning EKU were verified, which meant a forged self-signed certificate with the CA's subject DN would be accepted as a valid designated responder (Case 2 in RFC 6960 §4.2.2.2).
+
+  Own Id: OTP-20042 Aux Id: [CVE-2026-32144], [PR-10873]
+
+[CVE-2026-32144]: https://nvd.nist.gov/vuln/detail/2026-32144
+[PR-10873]: https://github.com/erlang/otp/pull/10873
 
 ## Public_Key 1.17.1.1
 
