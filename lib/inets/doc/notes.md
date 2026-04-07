@@ -352,6 +352,14 @@ limitations under the License.
 [PR-8029]: https://github.com/erlang/otp/pull/8029
 [PR-8026]: https://github.com/erlang/otp/pull/8026
 
+## Inets 9.1.0.6
+
+### Fixed Bugs and Malfunctions
+
+* Fixed authentication bypass in `httpd` when `script_alias` maps a URL to a directory outside `document_root` with `mod_auth` directory-based access controls. The `mod_alias:which_alias/1` function now includes `script_alias` entries so authorization is evaluated against the correct path before CGI execution. CVE-2026-28808.
+
+  Own Id: OTP-20068
+
 ## Inets 9.1.0.5
 
 ### Fixed Bugs and Malfunctions
