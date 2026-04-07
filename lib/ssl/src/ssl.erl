@@ -1512,9 +1512,32 @@ different semantics for the client and server.
   > #### Note {: .info }
   >
   > Even if requested by the client, the OCSP response might not be
-  > provided by the server. In such event, SSL will proceed with
-  > the handshake and generate a `{missing, stapling_response}` logger
-  > event.
+  > provided by the server. In such event, the certificate validation
+  > will fail with reason `missing_ocsp_staple`. Capturing this
+  > failure with a custom `verify_fun` enables the user to implement
+  > their own fallback validation, for example by performing a direct
+  > OCSP query or a CRL check. Note however that accepting
+  > `{bad_cert, missing_ocsp_staple}` without performing alternative
+  > revocation checking is insecure, as it allows a MITM attacker to
+  > suppress revocation information by omitting the OCSP staple.
+  >
+  > ```erlang
+  > {verify_fun, {fun(_, _, {bad_cert, missing_ocsp_staple} = R, _St) ->
+  >                       %% Implement fallback revocation check here,
+  >                       %% e.g. a direct OCSP query or CRL check.
+  >                       %% Simply returning {valid, St} skips
+  >                       %% revocation checking entirely.
+  >                       {fail, R};
+  >                  (_, _, {bad_cert, _} = R, _) ->
+  >                       {fail, R};
+  >                  (_, _, {extension, _}, St) ->
+  >                       {unknown, St};
+  >                  (_, _, valid, St) ->
+  >                       {valid, St};
+  >                  (_, _, valid_peer, St) ->
+  >                       {valid, St}
+  >               end, []}}
+  > ```
 
   When `Stapling` is given as a map, boolean `ocsp_nonce` key can
   indicate whether an OCSP nonce should be requested by the client
