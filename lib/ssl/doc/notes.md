@@ -346,6 +346,23 @@ This document describes the changes made to the SSL application.
 [PR-9511]: https://github.com/erlang/otp/pull/9511
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 
+## SSL 11.2.12.7
+
+### Fixed Bugs and Malfunctions
+
+- When OCSP stapling is enabled via the \{stapling, staple\} or \{stapling, #\{...\}\} options, the handshake now fails if the server does not provide an OCSP stapled response.
+  
+  Previously, a missing OCSP staple was silently accepted (soft-fail). Since Erlang/OTP only supports OCSP via stapling with no fallback to direct OCSP queries or CRL checking, soft-fail meant no revocation check at all.
+  
+  Applications that need the previous soft-fail behavior can use a custom verify_fun that accepts \{bad_cert, missing_ocsp_staple\}.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20064 Aux Id: [PR-10941], [CVE-2026-32144]
+
+[PR-10941]: https://github.com/erlang/otp/pull/10941
+[CVE-2026-32144]: https://nvd.nist.gov/vuln/detail/2026-32144
+
 ## SSL 11.2.12.6
 
 ### Fixed Bugs and Malfunctions
