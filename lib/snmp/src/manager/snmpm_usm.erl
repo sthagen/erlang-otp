@@ -96,7 +96,8 @@ process_incoming_msg(Packet, Data, SecParams, SecLevel) ->
 	false ->
             ?vlog("Unknown USM engine id: "
                   "~n      ~p", [MsgAuthEngineID]),
-	    SecData1 = [MsgUserName],
+            SecData1 = [{msgUserName, MsgUserName},
+                        {msgAuthoritativeEngineID, MsgAuthEngineID}],
 	    error(usmStatsUnknownEngineIDs, 
 		  ?usmStatsUnknownEngineIDs_instance,
 		  undefined, [{sec_data, SecData1}])
