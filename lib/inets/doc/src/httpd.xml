@@ -526,6 +526,10 @@ Transport: TLS
 
 	<p>Access to http://your.server.org/cgi-bin/foo would cause
 	the server to run the script /web/cgi-bin/foo.</p>
+        <note><p>When using <c>script_alias</c> with directory-based authentication
+            <seeerl marker="#prop_dri">directory</seeerl>, ensure that authentication
+            rules reference the actual filesystem path (RealName), not the URL path (Alias).
+            The server correctly resolves script_alias paths for authentication checks.</p></note>
       </item>
 
       <tag><marker id="prop_script_re_write"></marker>{script_re_write, {Re, Replacement}}</tag>
