@@ -30,7 +30,9 @@
 {"%VSN%",
  [{<<"^4\\.2$">>,[restart_new_emulator]},
   {<<"^4\\.2\\.0(?:\\.[0-9]+)+$">>,[restart_new_emulator]},
-  {<<"^4\\.2\\.1(?:\\.[0-9]+)*$">>,[restart_new_emulator]}],
+  {<<"^4\\.2\\.1(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
+  {<<"^4\\.2\\.2(?:\\.[0-9]+)*$">>,[restart_new_emulator]}],
  [{<<"^4\\.2$">>,[restart_new_emulator]},
   {<<"^4\\.2\\.0(?:\\.[0-9]+)+$">>,[restart_new_emulator]},
-  {<<"^4\\.2\\.1(?:\\.[0-9]+)*$">>,[restart_new_emulator]}]}.
+  {<<"^4\\.2\\.1(?:\\.[0-9]+)*$">>,[restart_new_emulator]},
+  {<<"^4\\.2\\.2(?:\\.[0-9]+)*$">>,[restart_new_emulator]}]}.

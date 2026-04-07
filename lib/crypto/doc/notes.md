@@ -21,6 +21,16 @@ limitations under the License.
 
 This document describes the changes made to the Crypto application.
 
+## Crypto 5.5.3.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed bug that could cause runtime crash after ~2 billion calls to `crypto:mac_init` due to a double EVP_MAC_free.
+
+  Own Id: OTP-20041 Aux Id: [PR-10859]
+
+[PR-10859]: https://github.com/erlang/otp/pull/10859
+
 ## Crypto 5.5.3.1
 
 ### Fixed Bugs and Malfunctions
