@@ -16670,32 +16670,22 @@ if test ${enable_use_embedded_3pp_alternatives+y}
 then :
   enableval=$enable_use_embedded_3pp_alternatives;  case "$enableval" in
     no)
-      enable_builtin_zstd=yes
-      enable_builtin_zlib=yes
-      use_embedded_3pp_alts=no
-      use_embedded_3pp_alts_val=0
+      builtin_zstd=yes
+      builtin_zlib=yes
       ;;
     *)
-      enable_builtin_zstd=no
-      enable_builtin_zlib=no
-      use_embedded_3pp_alts=yes
-      use_embedded_3pp_alts_val=1
+      builtin_zstd=no
+      builtin_zlib=no
       ;;
   esac
 
 else case e in #(
   e)
-  enable_builtin_zstd=no
-  enable_builtin_zlib=no
-  use_embedded_3pp_alts=default
-  use_embedded_3pp_alts_val=-1
+  builtin_zstd=no
+  builtin_zlib=no
  ;;
 esac
 fi
-
-
-
-printf "%s\n" "#define ERTS_USE_EMBEDDED_3PP_ALTS $use_embedded_3pp_alts_val" >>confdefs.h
 
 
 
@@ -16703,15 +16693,15 @@ printf "%s\n" "#define ERTS_USE_EMBEDDED_3PP_ALTS $use_embedded_3pp_alts_val" >>
 if test ${enable_builtin_zstd+y}
 then :
   enableval=$enable_builtin_zstd;  case "$enableval" in
-      no) enable_builtin_zstd=no ;;
-      *)  enable_builtin_zstd=yes ;;
+      no) builtin_zstd=no ;;
+      *)  builtin_zstd=yes ;;
     esac
 fi
 
 
 LIBZSTD=
 
-if test "$enable_builtin_zstd" = "no"
+if test "$builtin_zstd" = "no"
 then :
 
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for static libzstd of version 1.5.6 or higher" >&5
@@ -16779,15 +16769,15 @@ fi
 if test ${enable_builtin_zlib+y}
 then :
   enableval=$enable_builtin_zlib;  case "$enableval" in
-      no) enable_builtin_zlib=no ;;
-      *)  enable_builtin_zlib=yes ;;
+      no) builtin_zlib=no ;;
+      *)  builtin_zlib=yes ;;
     esac
 fi
 
 
 Z_LIB=
 
-if test "x$enable_builtin_zlib" = "xyes"
+if test "x$builtin_zlib" = "xyes"
 then :
 
 

@@ -84,10 +84,6 @@
 /* Define if builtin zstd should be used */
 #undef ERTS_USE_BUILTIN_ZSTD
 
-/* Define to 1 if alternatives to embedded 3pps should be used, 0 if not, and
-   -1 to use the default */
-#undef ERTS_USE_EMBEDDED_3PP_ALTS
-
 /* Define if poll() should be used instead of select() */
 #undef ERTS_USE_POLL
 
