@@ -400,7 +400,8 @@ are checked, and finally, the default value is chosen.
         {'storage_properties', [{Backend::module(), [BackendProp::_]}]} |
         {'type', 'set' | 'ordered_set' | 'bag'} |
         {'local_content', boolean()} |
-        {'user_properties', proplists:proplist()}.
+        {'user_properties', proplists:proplist()} |
+        {'frag_properties', [frag_prop()]}.
 
 -type t_result(Res) :: {'atomic', Res} | {'aborted', Reason::term()}.
 -type result() :: 'ok' | {'error', Reason::term()}.
@@ -413,6 +414,20 @@ are checked, and finally, the default value is chosen.
 -type write_locks() :: 'write' | 'sticky_write'.
 -type read_locks() :: 'read'.
 -type lock_kind() :: write_locks() | read_locks().
+-type frag_prop() :: {'n_fragments', pos_integer()} |
+                     {'node_pool', [node()]} |
+                     {'n_ram_copies', non_neg_integer()} |
+                     {'n_disc_copies', non_neg_integer()} |
+                     {'n_disc_only_copies', non_neg_integer()} |
+                     {'foreign_key', 'undefined' | {table(), atom()}} |
+                     {'hash_module', atom()} |
+                     {'hash_state', term()}.
+-type change_frag_prop() :: 'deactivate' |
+                            {'activate', [frag_prop()]} |
+                            {'add_frag', [node()] | [{node(), non_neg_integer()}]} |
+                            'del_frag' |
+                            {'add_node', node()} |
+                            {'del_node', node()}.
 -type select_continuation() :: term().
 -type snmp_struct() :: [{atom(), snmp_type() | tuple_of(snmp_type())}].
 -type snmp_type() :: 'fix_string' | 'string' | 'integer'.
@@ -4486,6 +4501,15 @@ allowed:
 
 - `{local_content, Bool}`, where `Bool` is `true` or `false`. Default is
   `false`.
+- `{user_properties, PropList}`, where `PropList` is a list of user-defined
+  properties associated with the table. The property is a tuple
+  where the first element is the property key. These properties can be read and modified
+  using `mnesia:read_table_property/2`, `mnesia:write_table_property/2`, and
+  `mnesia:delete_table_property/2`. Default is `[]`.
+- `{frag_properties, FragProps}`, where `FragProps` is a list of fragmentation
+  properties for the table.
+  See [Fragmentation Properties](mnesia_chap5.md#fragmentation-properties)
+  for details on fragmentation options.
 
 For example, the following call creates the `person` table (defined earlier) and
 replicates it on two nodes:
@@ -4695,17 +4719,42 @@ clear_table(Tid, Ts, Tab, Obj) when element(1, Tid) =:= tid ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Table mgt - user properties
--doc false.
+-doc """
+Read a user-defined table property.
+
+Reads a user-defined property associated with a table. User-defined properties
+are set when creating a table with the `user_properties` option in
+`mnesia:create_table/2`, or can be added later with
+`mnesia:write_table_property/2`.
+
+Returns the property tuple if it exists, otherwise raises an exception.
+""".
+-doc #{since => ~"OTP @OTP-20038@"}.
 -spec read_table_property(Tab::table(), PropKey::term()) -> Res::tuple().
 read_table_property(Tab, PropKey) ->
     val({Tab, user_property, PropKey}).
 
--doc false.
+-doc """
+Write a user-defined table property.
+
+Writes or updates a user-defined property for a table. The property is a tuple
+where the first element is the property key. User-defined properties can be read
+with `mnesia:read_table_property/2` and deleted with
+`mnesia:delete_table_property/2`.
+""".
+-doc #{since => ~"OTP @OTP-20038@"}.
 -spec write_table_property(Tab::table(), Prop::tuple()) -> t_result('ok').
 write_table_property(Tab, Prop) ->
     mnesia_schema:write_table_property(Tab, Prop).
 
--doc false.
+-doc """
+Delete a user-defined table property.
+
+Deletes a user-defined property from a table if such property exists.
+The property is identified by its key. User-defined properties can be read
+with `mnesia:read_table_property/2` and written with `mnesia:write_table_property/2`.
+""".
+-doc #{since => ~"OTP @OTP-20038@"}.
 -spec delete_table_property(Tab::table(), PropKey::term()) -> t_result('ok').
 delete_table_property(Tab, PropKey) ->
     mnesia_schema:delete_table_property(Tab, PropKey).
@@ -4736,8 +4785,9 @@ Argument `FragProp` should have one of the following values:
   `NodesOrDist` is assumed to be a sorted list with the best nodes to host new
   replicas first in the list. The new fragment gets the same number of replicas
   as the first fragment (see `n_ram_copies`, `n_disc_copies`, and
-  `n_disc_only_copies`). The `NodesOrDist` list must at least contain one
-  element for each replica that needs to be allocated.
+  `n_disc_only_copies` in [Fragmentation Properties](mnesia_chap5.md#fragmentation-properties)).
+  The `NodesOrDist` list must at least contain one element for each replica that
+  needs to be allocated.
 
 - **`del_frag`** - Deletes a fragment from a fragmented table. All records in
   the last fragment are moved to one of the other fragments. All other
@@ -4754,7 +4804,7 @@ Argument `FragProp` should have one of the following values:
   [mnesia:table_info(Tab, frag_dist)](`mnesia:table_info/2`).
 
 """.
--spec change_table_frag(Tab::table(), FragProp::term()) -> t_result('ok').
+-spec change_table_frag(Tab::table(), FragProp::change_frag_prop()) -> t_result('ok').
 change_table_frag(Tab, FragProp) ->
     mnesia_schema:change_table_frag(Tab, FragProp).
 

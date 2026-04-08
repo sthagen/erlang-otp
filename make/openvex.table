@@ -1,6 +1,24 @@
 {
   "otp-26": [
     {
+      "pkg:otp/kernel@9.0": "CVE-2026-28810",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/kernel@9.2.4.11",
+        "fixed": [
+          "pkg:otp/kernel@9.2.4.11"
+        ]
+      }
+    },
+    {
+      "pkg:otp/inets@9.0": "CVE-2026-28808",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/inets@9.1.0.6",
+        "fixed": [
+          "pkg:otp/inets@9.1.0.6"
+        ]
+      }
+    },
+    {
       "pkg:otp/ssh@5.0": "CVE-2026-23942",
       "status": {
         "affected": "Update to any of the following versions: pkg:otp/ssh@5.1.4.14",
@@ -303,6 +321,42 @@
   ],
   "otp-27": [
     {
+      "pkg:otp/kernel@10.0": "CVE-2026-28810",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/kernel@10.2.7.4",
+        "fixed": [
+          "pkg:otp/kernel@10.2.7.4"
+        ]
+      }
+    },
+    {
+      "pkg:otp/inets@9.2": "CVE-2026-28808",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/inets@9.3.2.4",
+        "fixed": [
+          "pkg:otp/inets@9.3.2.4"
+        ]
+      }
+    },
+    {
+      "pkg:otp/public_key@1.16": "CVE-2026-32144",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/public_key@1.17.1.2",
+        "fixed": [
+          "pkg:otp/public_key@1.17.1.2"
+        ]
+      }
+    },
+    {
+      "pkg:otp/ssl@11.2": "CVE-2026-32144",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/ssl@11.2.12.7",
+        "fixed": [
+          "pkg:otp/ssl@11.2.12.7"
+        ]
+      }
+    },
+    {
       "pkg:otp/ssh@5.2": "CVE-2026-23942",
       "status": {
         "affected": "Update to any of the following versions: pkg:otp/ssh@5.2.11.6",
@@ -595,6 +649,42 @@
     }
   ],
   "otp-28": [
+    {
+      "pkg:otp/kernel@10.3": "CVE-2026-28810",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/kernel@10.6.2",
+        "fixed": [
+          "pkg:otp/kernel@10.6.2"
+        ]
+      }
+    },
+    {
+      "pkg:otp/inets@9.4": "CVE-2026-28808",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/inets@9.6.2",
+        "fixed": [
+          "pkg:otp/inets@9.6.2"
+        ]
+      }
+    },
+    {
+      "pkg:otp/public_key@1.18": "CVE-2026-32144",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/public_key@1.20.3",
+        "fixed": [
+          "pkg:otp/public_key@1.20.3"
+        ]
+      }
+    },
+    {
+      "pkg:otp/ssl@11.3": "CVE-2026-32144",
+      "status": {
+        "affected": "Update to any of the following versions: pkg:otp/ssl@11.5.4",
+        "fixed": [
+          "pkg:otp/ssl@11.5.4"
+        ]
+      }
+    },
     {
       "pkg:otp/ssh@5.3": "CVE-2026-23942",
       "status": {

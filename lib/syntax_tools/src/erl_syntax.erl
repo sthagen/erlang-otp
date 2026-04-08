@@ -7513,16 +7513,26 @@ is_literal(T) ->
     end.
 
 is_literal_binary_field(F) ->
+    case is_literal_binary_field_type(F) of
+        true ->
+            B = binary_field_body(F),
+            case type(B) of
+                size_qualifier ->
+                    is_literal(size_qualifier_body(B)) andalso
+                        is_literal(size_qualifier_argument(B));
+                _ ->
+                    is_literal(B)
+            end;
+        false ->
+            false
+    end.
+
+is_literal_binary_field_type(F) ->
     case binary_field_types(F) of
-	[] -> B = binary_field_body(F),
-              case type(B) of
-                  size_qualifier ->
-                      is_literal(size_qualifier_body(B)) andalso
-                          is_literal(size_qualifier_argument(B));
-                  _ ->
-                      is_literal(B)
-              end;
-	_  -> false
+        [] ->
+            true;
+        [Type] ->
+            is_literal(Type) andalso concrete(Type) =:= utf8
     end.
 
 is_literal_map_field(F) ->

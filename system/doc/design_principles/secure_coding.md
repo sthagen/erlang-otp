@@ -1091,8 +1091,8 @@ when thrown because of its use of `catch`.
 Instead, the modern [`try ... catch ... end`](`e:system:expressions.html`)
 construct should be used.
 
-The compiler can raise warnings for this by enabling the
-`warn_deprecated_catch` option.
+Starting from Erlang/OTP 29, the compiler will by default raise
+warnings for uses of the legacy `catch` construct.
 
 [Rule priority:] `Recommendation`
 
@@ -1134,6 +1134,9 @@ booleans, for example `X and Y =:= Z` being parsed as `(X and Y) =:= Z`.
 
 Instead, either use the modern `andalso` and `orelse` operators, or use `,`
 and `;`, respectively.
+
+Starting from Erlang/OTP 29, the compiler can raise warnings for `and`
+and `or` by enabling the `warn_obsolete_bool_op` option.
 
 [Rule priority:] `Recommendation`
 
