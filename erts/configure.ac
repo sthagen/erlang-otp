@@ -1260,28 +1260,19 @@ AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
                [do not use any alternatives to embedded 3pps]),
 [ case "$enableval" in
     no)
-      enable_builtin_zstd=yes
-      enable_builtin_zlib=yes
-      use_embedded_3pp_alts=no
-      use_embedded_3pp_alts_val=0
+      builtin_zstd=yes
+      builtin_zlib=yes
       ;;
     *)
-      enable_builtin_zstd=no
-      enable_builtin_zlib=no
-      use_embedded_3pp_alts=yes
-      use_embedded_3pp_alts_val=1
+      builtin_zstd=no
+      builtin_zlib=no
       ;;
   esac
 ],
 [
-  enable_builtin_zstd=no
-  enable_builtin_zlib=no
-  use_embedded_3pp_alts=default
-  use_embedded_3pp_alts_val=-1
+  builtin_zstd=no
+  builtin_zlib=no
 ])
-
-AC_DEFINE_UNQUOTED(ERTS_USE_EMBEDDED_3PP_ALTS, $use_embedded_3pp_alts_val,
-  [Define to 1 if alternatives to embedded 3pps should be used, 0 if not, and -1 to use the default])
 
 dnl -------------
 dnl zstd
@@ -1293,13 +1284,13 @@ AS_HELP_STRING([--enable-builtin-zstd],
 AS_HELP_STRING([--disable-builtin-zstd],
                [try to find a static libzstd on the system to use]),
   [ case "$enableval" in
-      no) enable_builtin_zstd=no ;;
-      *)  enable_builtin_zstd=yes ;;
+      no) builtin_zstd=no ;;
+      *)  builtin_zstd=yes ;;
     esac ])
 
 LIBZSTD=
 
-AS_IF([test "$enable_builtin_zstd" = "no"],
+AS_IF([test "$builtin_zstd" = "no"],
  [
   AC_MSG_CHECKING(for static libzstd of version 1.5.6 or higher)
   zstd_save_LIBS=$LIBS
@@ -1346,13 +1337,13 @@ AS_HELP_STRING([--enable-builtin-zlib],
 AS_HELP_STRING([--disable-builtin-zlib],
                [try to find a zlib on the system to use]),
   [ case "$enableval" in
-      no) enable_builtin_zlib=no ;;
-      *)  enable_builtin_zlib=yes ;;
+      no) builtin_zlib=no ;;
+      *)  builtin_zlib=yes ;;
     esac ])
 
 Z_LIB=
 
-AS_IF([test "x$enable_builtin_zlib" = "xyes"],
+AS_IF([test "x$builtin_zlib" = "xyes"],
  [
   AC_DEFINE(HAVE_ZLIB_INFLATEGETDICTIONARY, 1,
             [Define if your zlib version defines inflateGetDictionary.])
