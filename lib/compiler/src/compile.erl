@@ -717,6 +717,15 @@ value are listed.
   expressions of the form `catch Expr` instead of the modern `try ... catch
   ... end`.
 
+- **`warn_obsolete_bool_op`** - Turns on warnings for use of the `and` and
+  `or` boolean operators.
+
+- **`nowarn_match_alias_pats`** - Turns off warnings for matches that
+    unify constructors, such as the following: `m({a,B} = {Y,Z}) -> . . .`
+
+- **`nowarn_export_var_subexpr`** - Turns off warnings for exporting
+  variables out of subexpressions.
+
 - **`nowarn_removed`** - Turns off warnings for calls to functions that have
   been removed. Default is to emit warnings for every call to a function known
   by the compiler to have been recently removed from Erlang/OTP.
