@@ -43,7 +43,8 @@
          t_abstract_type/1,t_erl_parse_type/1,t_type/1,
          t_epp_dodger/1,t_epp_dodger_clever/1,
          t_comment_scan/1,t_prettypr/1,test_named_fun_bind_ann/1,
-         test_maybe_expr_ann/1,test_mc_ann/1,test_zip_ann/1]).
+         test_maybe_expr_ann/1,test_mc_ann/1,test_zip_ann/1,
+         is_literal/1]).
 
 suite() -> [{ct_hooks,[ts_install_cth]}].
 
@@ -54,7 +55,8 @@ all() ->
      t_abstract_type,t_erl_parse_type,t_type,
      t_epp_dodger,t_epp_dodger_clever,
      t_comment_scan,t_prettypr,test_named_fun_bind_ann,
-     test_maybe_expr_ann,test_mc_ann,test_zip_ann].
+     test_maybe_expr_ann,test_mc_ann,test_zip_ann,
+     is_literal].
 
 groups() ->
     [].
@@ -754,6 +756,16 @@ validate_special_type(list,Node) ->
 	    ok
     end;
 validate_special_type(_,_) ->
+    ok.
+
+is_literal(_Config) ->
+    true = erl_syntax:is_literal(string_to_expr(~s'<<"abc">>')),
+    true = erl_syntax:is_literal(string_to_expr(~s'<<"abc"/utf8>>')),
+    true = erl_syntax:is_literal(string_to_expr(~s'~"abc"')),
+    true = erl_syntax:is_literal(string_to_expr(
+                                   ~s'~"""
+                                      abc
+                                      """')),
     ok.
 
 %%% scan_and_parse

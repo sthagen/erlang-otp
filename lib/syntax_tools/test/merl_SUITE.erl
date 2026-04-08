@@ -92,6 +92,11 @@ merl_smoke_test(Config) when is_list(Config) ->
                            ?Q("{foo, _@Bar, '@Baz'}") -> ?Q("{_@Bar, _@Baz}")
                        end
                    end)),
+    ?assertEqual("42",
+                 f(begin
+                       Answer = 42,
+                       ?Q(~"_@Answer@")
+                   end)),
     ok.
 
 transform_parse_error_test(_Config) ->
