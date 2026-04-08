@@ -1353,10 +1353,12 @@ opt_renegotiate(UserOpts, #{versions := Versions} = Opts, _Env) ->
     {_, RA0} = get_opt_pos_int(renegotiate_at, ?DEFAULT_RENEGOTIATE_AT, UserOpts, Opts),
     RA = min(RA0, ?DEFAULT_RENEGOTIATE_AT),  %% Override users choice without notifying ??
 
-    {Where3, SR} = get_opt_bool(secure_renegotiate, true, UserOpts, Opts),
+    {Where3, _} = disable_insecure_fallback(UserOpts, Opts),
     assert_version_dep(Where3 =:= new, secure_renegotiate, Versions, ['tlsv1','tlsv1.1','tlsv1.2']),
 
-    Opts#{secure_renegotiate => SR, key_update_at => KUA, renegotiate_at => RA}.
+    %% Do not include secure_renegotiate as option is no longer needed,
+    %% that is, it is treated as always set to true
+    Opts#{key_update_at => KUA, renegotiate_at => RA}.
 
 opt_reuse_sessions(UserOpts, #{versions := Versions} = Opts, #{role := client}) ->
     {Where1, RUSS} = get_opt_of(reuse_sessions, [true, false, save], true, UserOpts, Opts),
@@ -1388,6 +1390,15 @@ opt_identity(UserOpts, Opts, _Env) ->
     Lookup = handle_user_lookup(UserOpts, Opts),
     Opts#{psk_identity => PSK, srp_identity => SRP, user_lookup_fun => Lookup}.
 
+disable_insecure_fallback(UserOpts, Opts) ->
+    case get_opt_bool(secure_renegotiate, true, UserOpts, Opts) of
+        {_, true} = Result ->
+            Result;
+        {_, What} ->
+            option_error(secure_renegotiate,
+                         {What,
+                          fallback_to_insecure_renegotiation_no_longer_supported})
+    end.
 
 handle_psk(UserOpts, #{versions := Versions} = Opts) ->
     case get_opt_list(psk_identity, undefined, UserOpts, Opts) of

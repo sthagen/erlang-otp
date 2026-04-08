@@ -953,15 +953,13 @@ Options common to client and server side prior to TLS-1.3.
 
   Elliptic curves that can be used in pre TLS-1.3 key exchange.
 
-- **`{secure_renegotiate, SecureRenegotiate}`** - Inter-operate trade-off option
+- **`{secure_renegotiate, SecureRenegotiate}`** - Previous interoperability option
 
-  Specifies whether to reject renegotiation attempt that does not live
-  up to [RFC 5746](http://www.ietf.org/rfc/rfc5746.txt). By default,
-  `SecureRenegotiate` is `true`, meaning that secure renegotiation is
-  enforced. If `SecureRenegotiate` is `false` secure renegotiation
-  will still be used if possible, but it falls back to insecure
-  renegotiation if the peer does not support if [RFC
-  5746](http://www.ietf.org/rfc/rfc5746.txt).
+ Since OTP 29.0 setting this option to false will fail, that is accepting
+ possible fallback to insecure behavior preceding implementation of
+ [RFC 5746](http://www.ietf.org/rfc/rfc5746.txt) is no longer supported.
+ Setting it to true will continue to work but is not necessary, as the default
+ of `true` will now always be enforced.
 
 - **`{user_lookup_fun, {LookupFun, UserState}}`** - PSK/SRP cipher suite option
 
@@ -988,7 +986,7 @@ Options common to client and server side prior to TLS-1.3.
 """.
 
 -type common_option_pre_tls13() :: {eccs, NamedCurves::[named_curve()]} |
-                                   {secure_renegotiate, SecureRenegotiate::boolean()} |
+                                   {secure_renegotiate, SecureRenegotiate::true} |
                                    {user_lookup_fun, {Lookupfun :: fun(), UserState :: any()}}.
 
 -doc(#{group => 
