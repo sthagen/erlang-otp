@@ -2167,7 +2167,7 @@ out odd numbers:
 
 ```
 1> [{P,Q} || P <:- [a,b,c] && Q <:- [1,2,3], Q rem 2 =:= 0].
-[{a,1},{b,2},{c,3}]
+[{b,2}]
 ```
 
 Filtering out non-matching elements from two lists.
