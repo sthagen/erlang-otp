@@ -98,7 +98,7 @@ loss(SystemTime, native) -> loss(erlang:convert_time_unit(SystemTime, native, na
 gregorian_days_roundtrip() ->
     ?FORALL(
         Days,
-        integer(-1_000_000, 4_000_000),  % Covers year ~-2738 to ~10950
+        ?CT_RANGE(-1_000_000, 4_000_000),  % Covers year ~-2738 to ~10950
         begin
             Date = calendar:gregorian_days_to_date(Days),
             Days =:= calendar:date_to_gregorian_days(Date)
@@ -124,7 +124,7 @@ gregorian_days_monotonic() ->
 day_of_week_cycle() ->
     ?FORALL(
         Days,
-        integer(-500_000, 1_000_000),
+        ?CT_RANGE(-500_000, 1_000_000),
         begin
             DOW1 = calendar:day_of_the_week(calendar:gregorian_days_to_date(Days)),
             DOW2 = calendar:day_of_the_week(calendar:gregorian_days_to_date(Days + 7)),
@@ -137,7 +137,7 @@ day_of_week_cycle() ->
 year_length() ->
     ?FORALL(
         Year,
-        integer(-2000, 10000),
+        ?CT_RANGE(-2000, 10000),
         begin
             Jan1 = calendar:date_to_gregorian_days(Year, 1, 1),
             Dec31 = calendar:date_to_gregorian_days(Year, 12, 31),
@@ -152,9 +152,9 @@ year_length() ->
 
 %% Generator for valid dates (including negative years)
 valid_date() ->
-    ?LET(Year, integer(-2000, 9999),
-         ?LET(Month, integer(1, 12),
-              ?LET(Day, integer(1, calendar:last_day_of_the_month(Year, Month)),
+    ?LET(Year, ?CT_RANGE(-2000, 9999),
+         ?LET(Month, ?CT_RANGE(1, 12),
+              ?LET(Day, ?CT_RANGE(1, calendar:last_day_of_the_month(Year, Month)),
                    {Year, Month, Day}))).
 
 %% Helper: compute next day
@@ -173,7 +173,7 @@ next_day(Year, Month, Day) ->
 negative_leap_year() ->
     ?FORALL(
         Year,
-        integer(-10000, -1),
+        ?CT_RANGE(-10000, -1),
         begin
             IsLeap = calendar:is_leap_year(Year),
             Expected = (Year rem 4 =:= 0) andalso
@@ -186,7 +186,7 @@ negative_leap_year() ->
 gregorian_seconds_roundtrip() ->
     ?FORALL(
         Secs,
-        integer(-100_000_000, 100_000_000),
+        ?CT_RANGE(-100_000_000, 100_000_000),
         begin
             DateTime = calendar:gregorian_seconds_to_datetime(Secs),
             Secs =:= calendar:datetime_to_gregorian_seconds(DateTime)
