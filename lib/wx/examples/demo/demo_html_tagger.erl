@@ -21,6 +21,8 @@
 
 -module(demo_html_tagger).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 %% You will notice that this program has very few type declarations
 %% That's because this program uses some pretty dodgy techniques to
 %% get at the data it requires.

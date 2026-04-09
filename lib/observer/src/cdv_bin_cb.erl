@@ -21,6 +21,8 @@
 -module(cdv_bin_cb).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -export([get_details/2,
 	 detail_pages/0]).
 

@@ -24,6 +24,8 @@
 -module(mnesia_config_backup).
 -author('peterl@erix.ericsson.se').
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 %% This module is used for testing the backup module config parameter.

@@ -29,6 +29,8 @@
 -module(diameter_dict_util).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -export([parse/2,
          format_error/1,
          format/1]).

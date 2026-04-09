@@ -62,6 +62,8 @@ processes that terminate as a result of this process terminating.
 `m:logger`
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 %% This module is used to set some initial information
 %% in each created process. 
 %% Then a process terminates the Reason is checked and

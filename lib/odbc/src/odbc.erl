@@ -59,6 +59,8 @@ See also http://msdn.microsoft.com/
 
 -behaviour(gen_server).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -include("odbc_internal.hrl").
 
 -define(ODBC_PORT_TIMEOUT, 5000).

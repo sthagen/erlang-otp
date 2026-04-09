@@ -31,6 +31,10 @@ The [**Tracing in Erlang with dbg Users guide**](`e:runtime_tools:dbg_guide.md`)
 explains how to quickly get started on tracing function calls, complex systems
 and more.
 """.
+
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}},
+          {nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 %% Exports that use `dbg:session/1`.
 -export([start/0, stop/0, stop_clear/0,
          tracer/0, tracer/2, tracer/3, get_tracer/0, get_tracer/1,

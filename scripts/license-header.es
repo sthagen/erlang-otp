@@ -26,6 +26,9 @@
 -include_lib("kernel/include/file.hrl").
 -export([read_file_info/1, read_link_info/1, list_dir/1]).
 
+-compile([{nowarn_unsafe_function, {os, cmd, 1}},
+          {nowarn_unsafe_function, {os, cmd, 2}}]).
+
 main(Args) ->
     argparse:run(Args, cli(), #{ progname => 'license-header' }).
 

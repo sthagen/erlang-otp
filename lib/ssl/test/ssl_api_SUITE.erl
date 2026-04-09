@@ -2233,7 +2233,8 @@ customize_defaults(Opts, Role, Host) ->
                end,
     case proplists:get_value(protocol, Opts, tls) of
         dtls ->
-            {ok, #config{ssl=DOpts}} = ssl_config:handle_options([{protocol, dtls}|NoVerify], Role, Host),
+            {ok, #config{ssl=DOpts}} =
+                ssl_config:handle_options([{protocol, dtls}|NoVerify], Role, Host),
             {DOpts, DefOpts ++ Opts};
         tls ->
             {ok, #config{ssl=DOpts}} = ssl_config:handle_options(NoVerify, Role, Host),
@@ -2959,7 +2960,7 @@ options_fallback(_Config) ->
     ok.
 
 options_handshake(_Config) -> %% handshake
-    ?OK(#{handshake := full, max_handshake_size := 131072},
+    ?OK(#{handshake := full, max_handshake_size := 262144},
         [], client),
     ?OK(#{handshake := hello, max_handshake_size := 123800},
         [{handshake, hello}, {max_handshake_size, 123800}], client),
@@ -3018,17 +3019,23 @@ options_debug(_Config) -> %% debug  log_level keep_secrets
     ok.
 
 options_renegotiate(_Config) -> %% key_update_at   renegotiate_at  secure_renegotiate
-    ?OK(#{key_update_at := ?KEY_USAGE_LIMIT_AES_GCM, renegotiate_at := 268435456, secure_renegotiate := true},
+    ?OK(#{key_update_at := ?KEY_USAGE_LIMIT_AES_GCM, renegotiate_at := 268435456},
         [], server),
-    ?OK(#{key_update_at := 123456, renegotiate_at := 64000, secure_renegotiate := false},
-        [{key_update_at, 123456}, {renegotiate_at, 64000}, {secure_renegotiate, false}],
+    ?OK(#{key_update_at := 123456, renegotiate_at := 64000},
+        [{key_update_at, 123456}, {renegotiate_at, 64000}, {secure_renegotiate, true}],
         server),
 
     %% Errors
     ?ERR({options, incompatible, [key_update_at, {versions, _}]},
          [{key_update_at, 123456}, {versions, ['tlsv1.2']}], server),
-    ?ERR({options, incompatible, [secure_renegotiate, {versions, _}]},
-         [{secure_renegotiate, true}, {versions, ['tlsv1.3']}], server),
+    ?ERR({options,
+          {secure_renegotiate,
+           {false,
+            fallback_to_insecure_renegotiation_no_longer_supported}
+          }},
+         [{secure_renegotiate, false}], client),
+     ?ERR({options, {no_supported_algorithms, {signature_algs,[]}}},
+          [{signature_algs, []}], client),
 
     ?ERR({key_update_at, -1}, [{key_update_at, -1}], server),
     ?ERR({renegotiate_at, not_a_int}, [{renegotiate_at, not_a_int}], server),
@@ -3689,7 +3696,7 @@ invalid_options_tls13(Config) when is_list(Config) ->
           {options, incompatible, [reuse_sessions, {versions,['tlsv1.3']}]},
           common},
 
-         {{secure_renegotiate, false},
+         {{secure_renegotiate, true},
           {options, incompatible, [secure_renegotiate, {versions,['tlsv1.3']}]},
           common},
 

@@ -133,6 +133,8 @@ that should handle it. `io_ansi:fwrite/4` works across nodes and will use the
 -export([color_name_to_index/1]).
 -import(lists, [concat/1]).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -doc "The format string that can be passed to `format/3` and `fwrite/4`".
 -type format() :: [string() | vts()].
 

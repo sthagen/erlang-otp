@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2007-2023. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@
 %%
 
 -module(shell_test_lib).
+
+-compile([{nowarn_unsafe_function, {os, cmd, 1}}]).
 
 -include("shell_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").

@@ -31,6 +31,8 @@
 -module(dialyzer_callgraph).
 -moduledoc false.
 
+-compile([{nowarn_unsafe_function, {os, cmd, 1}}]).
+
 -export([add_edges/2,
 	 add_edges/3,
 	 all_nodes/1,

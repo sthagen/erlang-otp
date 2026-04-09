@@ -310,6 +310,8 @@ should not be tested
 """".
 -moduledoc(#{since => ~"OTP @OTP-20034@"}).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -include_lib("kernel/include/eep48.hrl").
 
 -export([module/1, module/2, module/3, file/1, file/2, file/3]).

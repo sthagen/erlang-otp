@@ -66,6 +66,8 @@ Module:format_error(ErrorDescriptor)
 `m:erl_parse`
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 %% An Erlang code preprocessor.
 
 -export([open/1,open/2,open/3,close/1,format_error/1]).

@@ -361,7 +361,7 @@ available_cert_key_pairs(CertKeyGroups) ->
 %% Create the prioritized list of cert key pairs that
 %% are availble for use in the negotiated version
 available_cert_key_pairs(CertKeyGroups, ?TLS_1_3) ->
-    RevAlgos = [slhdsa, mldsa, rsa, rsa_pss_pss, ecdsa, eddsa],
+    RevAlgos = [rsa, rsa_pss_pss, ecdsa, eddsa, slhdsa, mldsa],
     cert_key_group_to_list(RevAlgos, CertKeyGroups, []);
 available_cert_key_pairs(CertKeyGroups, ?TLS_1_2) ->
      RevAlgos = [dsa, rsa, rsa_pss_pss, ecdsa],

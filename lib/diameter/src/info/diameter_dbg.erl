@@ -27,6 +27,8 @@
 -module(diameter_dbg).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -export([table/1,
          tables/0,
          fields/1,

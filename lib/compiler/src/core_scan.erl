@@ -48,6 +48,9 @@
 -module(core_scan).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_atom, 2}}]).
+
 -export([string/1, string/2, format_error/1]).
 
 -import(lists, [reverse/1]).

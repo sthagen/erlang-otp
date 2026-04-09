@@ -29,6 +29,8 @@ by the error logger handler `m:log_mf_h` in STDLIB.
 
 -behaviour(gen_server).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %% External exports
 -export([start/0, start/1, stop/0, rescan/0, rescan/1]).
 -export([list/0, list/1, log_list/0, log_list/1, show/0, show/1, grep/1, filter/1, filter/2, start_log/1, stop_log/0]).

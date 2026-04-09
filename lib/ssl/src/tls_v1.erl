@@ -1045,24 +1045,24 @@ signature_schemes(_, _) ->
     [].
 
 default_signature_schemes(Version) ->
-    Default = [eddsa_ed25519,
-               eddsa_ed448,
-               ecdsa_secp521r1_sha512,
-               ecdsa_secp384r1_sha384,
-               ecdsa_secp256r1_sha256,
-               ecdsa_brainpoolP512r1tls13_sha512,
-               ecdsa_brainpoolP384r1tls13_sha384,
-               ecdsa_brainpoolP256r1tls13_sha256,
-               rsa_pss_pss_sha512,
-               rsa_pss_pss_sha384,
-               rsa_pss_pss_sha256,
-               rsa_pss_rsae_sha512,
-               rsa_pss_rsae_sha384,
-               rsa_pss_rsae_sha256,
-               mldsa44,
+    Default = [mldsa87,
                mldsa65,
-               mldsa87
-              ],
+               mldsa44] ++ slh_dsa_schemes() ++
+        [eddsa_ed25519,
+         eddsa_ed448,
+         ecdsa_secp521r1_sha512,
+         ecdsa_secp384r1_sha384,
+         ecdsa_secp256r1_sha256,
+         ecdsa_brainpoolP512r1tls13_sha512,
+         ecdsa_brainpoolP384r1tls13_sha384,
+         ecdsa_brainpoolP256r1tls13_sha256,
+         rsa_pss_pss_sha512,
+         rsa_pss_pss_sha384,
+         rsa_pss_pss_sha256,
+         rsa_pss_rsae_sha512,
+         rsa_pss_rsae_sha384,
+         rsa_pss_rsae_sha256
+        ],
     signature_schemes(Version, Default).
 
 legacy_signature_schemes(Version) ->
@@ -1248,48 +1248,37 @@ ecc_curves(Version) when is_tuple(Version) ->
     ecc_curves(TLSCurves);
 ecc_curves(TLSCurves) ->
     [pubkey_cert_records:namedCurves(Curve) || Curve <- TLSCurves].
-    
+ 
 groups() ->
     TLSGroups = groups(all),
     groups(TLSGroups).
 
 -spec groups(all | default | TLSGroups :: list()) -> [ssl:group()].
 groups(all) ->
-    [x25519,
-     x448,
-     secp521r1,
-     secp384r1,
-     secp256r1,
-     brainpoolP256r1tls13,
-     brainpoolP384r1tls13,
-     brainpoolP512r1tls13,
-     mlkem512,
-     mlkem768,
-     mlkem1024,
-     x25519mlkem768,
-     secp384r1mlkem1024,
-     secp256r1mlkem768,
-     ffdhe2048,
-     ffdhe3072,
-     ffdhe4096,
-     ffdhe6144,
-     ffdhe8192];
+    default_pqc_hybrid_groups() ++
+        [x25519,
+         x448,
+         secp521r1,
+         secp384r1,
+         secp256r1,
+         brainpoolP256r1tls13,
+         brainpoolP384r1tls13,
+         brainpoolP512r1tls13
+         ] ++
+        other_pqc_hybrid_groups() ++
+        pqc_plain_groups() ++
+        dhe_groups();
 groups(default) ->
-    [x25519,
-     x448,
-     secp521r1,
-     secp384r1,
-     secp256r1,
-     brainpoolP512r1tls13,
-     brainpoolP384r1tls13,
-     brainpoolP256r1tls13,
-     mlkem512,
-     mlkem768,
-     mlkem1024,
-     x25519mlkem768,
-     secp384r1mlkem1024,
-     secp256r1mlkem768
-    ];
+    default_pqc_hybrid_groups() ++
+        [x25519,
+         x448,
+         secp521r1,
+         secp384r1,
+         secp256r1,
+         brainpoolP512r1tls13,
+         brainpoolP384r1tls13,
+         brainpoolP256r1tls13
+        ];
 groups(TLSGroups) when is_list(TLSGroups) ->
     CryptoGroups = crypto_supported_groups(),
     lists:filter(fun(x25519mlkem768) ->
@@ -1304,6 +1293,25 @@ groups(TLSGroups) when is_list(TLSGroups) ->
                     (Group) ->
                          proplists:get_bool(maybe_group_to_curve(Group), CryptoGroups)
                  end, TLSGroups).
+
+default_pqc_hybrid_groups() ->
+    [x25519mlkem768].
+
+other_pqc_hybrid_groups()->
+    [secp384r1mlkem1024,
+     secp256r1mlkem768].
+
+pqc_plain_groups() ->
+    [mlkem1024,
+     mlkem768,
+     mlkem512].
+
+dhe_groups() ->
+    [ffdhe2048,
+     ffdhe3072,
+     ffdhe4096,
+     ffdhe6144,
+     ffdhe8192].
 
 default_groups() ->
     TLSGroups = groups(default),

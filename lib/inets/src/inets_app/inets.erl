@@ -46,6 +46,8 @@ Type definitions that are used more than once in this module:
 `m:httpc`, `m:httpd`
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 %% API
 -export([start/0, start/1, start/2, start/3,  
 	 stop/0, stop/2, 

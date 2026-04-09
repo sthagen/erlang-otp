@@ -314,13 +314,15 @@ DTLS protocol version.
 
 -doc(#{group => <<"Socket">>}).
 -doc """
-A TLS protocol version that are no longer supported by default for security reasons.
+A TLS protocol version that are no longer supported by default for security reasons
+and scheduled for removal in OTP 30.
 """.
 -type tls_legacy_version()       ::  tlsv1 | 'tlsv1.1' .
 
 -doc(#{group => <<"Socket">>}).
 -doc """
-A DTLS protocol version that are no longer supported by default for security reasons.
+A DTLS protocol version that are no longer supported by default for security reasons
+and scheduled for removal in OTP 30.
 """.
 -type dtls_legacy_version()      :: 'dtlsv1'.
 
@@ -693,8 +695,7 @@ Options common to both client and server side.
   Used to limit the size of valid TLS handshake packets to avoid DoS
   attacks.
 
-  Integer (24 bits, unsigned). Defaults to `256*1024` before OTP-26 or if SLH-DSA algorithms
-  are configured, otherwise the default is `256*1024`/2.
+  Integer (24 bits, unsigned). Defaults to `262144` since OTP 29.0
 
 - **`{hibernate_after, HibernateTimeout}`** - Hibernate inactive connection processes.
 
@@ -751,7 +752,7 @@ Common certificate related options to both client and server.
   connection will be selected.
 
   The different signature algorithms are prioritized in the following
-  order: `eddsa`, `ecdsa`, `rsa_pss_pss`, `rsa`, and `dsa`. If more
+  order: `mldsa`, `slhdsa`, `eddsa`, `ecdsa`, `rsa_pss_pss`, `rsa`, and `dsa`. If more
   than one key is supplied for the same signature algorithm, they will
   be prioritized by strength (except for _engine keys_; see the next
   paragraph). This offers flexibility to, for instance, configure a
@@ -769,7 +770,7 @@ Common certificate related options to both client and server.
 
   > #### Note {: .info }
   >
-  > `eddsa` certificates are only supported by TLS-1.3 implementations that do not support `dsa`
+  > `mldsa`, `slhdsa`, `eddsa` certificates are only supported by TLS-1.3 implementations that do not support `dsa`
   > certificates. `rsa_pss_pss` (RSA certificates using Probabilistic Signature
   > Scheme) are supported in TLS-1.2 and TLS-1.3, but some TLS-1.2 implementations
   > do not support `rsa_pss_pss`.
@@ -954,15 +955,13 @@ Options common to client and server side prior to TLS-1.3.
 
   Elliptic curves that can be used in pre TLS-1.3 key exchange.
 
-- **`{secure_renegotiate, SecureRenegotiate}`** - Inter-operate trade-off option
+- **`{secure_renegotiate, SecureRenegotiate}`** - Previous interoperability option
 
-  Specifies whether to reject renegotiation attempt that does not live
-  up to [RFC 5746](http://www.ietf.org/rfc/rfc5746.txt). By default,
-  `SecureRenegotiate` is `true`, meaning that secure renegotiation is
-  enforced. If `SecureRenegotiate` is `false` secure renegotiation
-  will still be used if possible, but it falls back to insecure
-  renegotiation if the peer does not support if [RFC
-  5746](http://www.ietf.org/rfc/rfc5746.txt).
+ Since OTP 29.0 setting this option to false will fail, that is accepting
+ possible fallback to insecure behavior preceding implementation of
+ [RFC 5746](http://www.ietf.org/rfc/rfc5746.txt) is no longer supported.
+ Setting it to true will continue to work but is not necessary, as the default
+ of `true` will now always be enforced.
 
 - **`{user_lookup_fun, {LookupFun, UserState}}`** - PSK/SRP cipher suite option
 
@@ -989,7 +988,7 @@ Options common to client and server side prior to TLS-1.3.
 """.
 
 -type common_option_pre_tls13() :: {eccs, NamedCurves::[named_curve()]} |
-                                   {secure_renegotiate, SecureRenegotiate::boolean()} |
+                                   {secure_renegotiate, SecureRenegotiate::true} |
                                    {user_lookup_fun, {Lookupfun :: fun(), UserState :: any()}}.
 
 -doc(#{group => 
@@ -1392,7 +1391,7 @@ The following options are specific to the client side, or have
 different semantics for the client and server:
 
 - **`{psk_groups, Groups}`** - key exchange groups that the client
-will send pre share keys for, defaults to first group in
+will send pre shared keys for, defaults to the first group in
 supported_groups. Must be a subset of supported_groups and will
 be sent in the same order as they appear in supported_groups.
 
@@ -1445,7 +1444,7 @@ different semantics for the client and server.
   > #### Change {: .info }
   >
   > The default for `Verify` was changed to `verify_peer` in
-  > Erlang/OTP 26.
+  > Erlang/OTP 26.0.
 
 - **`{cacerts, CACerts}`** - Trusted certificates
 
@@ -1864,7 +1863,7 @@ Certificate related options for a server.
   `true`, the server fails if the client does not have a certificate to send, that
   is, sends an empty certificate. If set to `false`, it fails only if the client
   sends an invalid certificate (an empty certificate is considered valid).
-  Defaults to `true`, the default value was changed in OTP-26.0.
+  Defaults to `true`, the default value was changed in OTP 26.0.
 
 - **`{certificate_authorities, ServerCertAuth}`** - Inter-operate hint option
 
@@ -3047,25 +3046,29 @@ Example:
 
 ```erlang
 1> ssl:signature_algs(default, 'tlsv1.3').
-[eddsa_ed25519,eddsa_ed448,ecdsa_secp521r1_sha512,
- ecdsa_secp384r1_sha384,ecdsa_secp256r1_sha256,
- ecdsa_brainpoolP512r1tls13_sha512,
- ecdsa_brainpoolP384r1tls13_sha384,
- ecdsa_brainpoolP256r1tls13_sha256,rsa_pss_pss_sha512,
- rsa_pss_pss_sha384,rsa_pss_pss_sha256,rsa_pss_rsae_sha512,
- rsa_pss_rsae_sha384,rsa_pss_rsae_sha256,mldsa44,mldsa65,
- mldsa87,rsa_pkcs1_sha512,rsa_pkcs1_sha384,rsa_pkcs1_sha256,
+[mldsa87,mldsa65,mldsa44,slh_dsa_shake_256f,slh_dsa_shake_256s,
+ slh_dsa_sha2_256f,slh_dsa_sha2_256s,slh_dsa_shake_192f,slh_dsa_shake_192s,
+ slh_dsa_sha2_192f,slh_dsa_sha2_192s,slh_dsa_shake_128f,slh_dsa_shake_128s,
+ slh_dsa_sha2_128f,slh_dsa_sha2_128s,eddsa_ed25519,eddsa_ed448,
+ ecdsa_secp521r1_sha512,ecdsa_secp384r1_sha384,ecdsa_secp256r1_sha256,
+ ecdsa_brainpoolP512r1tls13_sha512,ecdsa_brainpoolP384r1tls13_sha384,
+ ecdsa_brainpoolP256r1tls13_sha256,rsa_pss_pss_sha512,rsa_pss_pss_sha384,
+ rsa_pss_pss_sha256,rsa_pss_rsae_sha512,rsa_pss_rsae_sha384,
+ rsa_pss_rsae_sha256,rsa_pkcs1_sha512,rsa_pkcs1_sha384,rsa_pkcs1_sha256,
  {sha512,ecdsa},
  {sha384,ecdsa},
- {sha256,ecdsa}]
+ {sha256,ecdsa}].
 
 2> ssl:signature_algs(all, 'tlsv1.3').
-[eddsa_ed25519,eddsa_ed448,ecdsa_secp521r1_sha512,ecdsa_secp384r1_sha384,
- ecdsa_secp256r1_sha256,ecdsa_brainpoolP512r1tls13_sha512,
- ecdsa_brainpoolP384r1tls13_sha384,ecdsa_brainpoolP256r1tls13_sha256,
- rsa_pss_pss_sha512,rsa_pss_pss_sha384,rsa_pss_pss_sha256,rsa_pss_rsae_sha512,
- rsa_pss_rsae_sha384,rsa_pss_rsae_sha256,mldsa44,mldsa65,mldsa87,
- rsa_pkcs1_sha512,rsa_pkcs1_sha384,rsa_pkcs1_sha256,
+[mldsa87,mldsa65,mldsa44,slh_dsa_shake_256f,slh_dsa_shake_256s,
+ slh_dsa_sha2_256f,slh_dsa_sha2_256s,slh_dsa_shake_192f,slh_dsa_shake_192s,
+ slh_dsa_sha2_192f,slh_dsa_sha2_192s,slh_dsa_shake_128f,slh_dsa_shake_128s,
+ slh_dsa_sha2_128f,slh_dsa_sha2_128s,eddsa_ed25519,eddsa_ed448,
+ ecdsa_secp521r1_sha512,ecdsa_secp384r1_sha384,ecdsa_secp256r1_sha256,
+ ecdsa_brainpoolP512r1tls13_sha512,ecdsa_brainpoolP384r1tls13_sha384,
+ ecdsa_brainpoolP256r1tls13_sha256,rsa_pss_pss_sha512,rsa_pss_pss_sha384,
+ rsa_pss_pss_sha256,rsa_pss_rsae_sha512,rsa_pss_rsae_sha384,
+ rsa_pss_rsae_sha256,rsa_pkcs1_sha512,rsa_pkcs1_sha384,rsa_pkcs1_sha256,
  {sha512,ecdsa},
  {sha384,ecdsa},
  {sha256,ecdsa},
@@ -3078,15 +3081,15 @@ Example:
  {sha,dsa}]
 
 3> [ssl:signature_algs(exclusive, 'tlsv1.3').
-[eddsa_ed25519,eddsa_ed448,ecdsa_secp521r1_sha512,ecdsa_secp384r1_sha384,
- ecdsa_secp256r1_sha256,ecdsa_brainpoolP512r1tls13_sha512,
- ecdsa_brainpoolP384r1tls13_sha384,ecdsa_brainpoolP256r1tls13_sha256,
- rsa_pss_pss_sha512,rsa_pss_pss_sha384,rsa_pss_pss_sha256,rsa_pss_rsae_sha512,
- rsa_pss_rsae_sha384,rsa_pss_rsae_sha256,mldsa44,mldsa65,mldsa87,
- rsa_pkcs1_sha512,rsa_pkcs1_sha384,rsa_pkcs1_sha256,slh_dsa_shake_256f,
- slh_dsa_shake_256s,slh_dsa_sha2_256f,slh_dsa_sha2_256s,slh_dsa_shake_192f,
- slh_dsa_shake_192s,slh_dsa_sha2_192f,slh_dsa_sha2_192s,slh_dsa_shake_128f,
- slh_dsa_shake_128s,slh_dsa_sha2_128f,slh_dsa_sha2_128s]
+[mldsa87,mldsa65,mldsa44,slh_dsa_shake_256f,slh_dsa_shake_256s,
+ slh_dsa_sha2_256f,slh_dsa_sha2_256s,slh_dsa_shake_192f,slh_dsa_shake_192s,
+ slh_dsa_sha2_192f,slh_dsa_sha2_192s,slh_dsa_shake_128f,slh_dsa_shake_128s,
+ slh_dsa_sha2_128f,slh_dsa_sha2_128s,eddsa_ed25519,eddsa_ed448,
+ ecdsa_secp521r1_sha512,ecdsa_secp384r1_sha384,ecdsa_secp256r1_sha256,
+ ecdsa_brainpoolP512r1tls13_sha512,ecdsa_brainpoolP384r1tls13_sha384,
+ ecdsa_brainpoolP256r1tls13_sha256,rsa_pss_pss_sha512,rsa_pss_pss_sha384,
+ rsa_pss_pss_sha256,rsa_pss_rsae_sha512,rsa_pss_rsae_sha384,
+ rsa_pss_rsae_sha256,rsa_pkcs1_sha512,rsa_pkcs1_sha384,rsa_pkcs1_sha256]
 ```
 
 > #### Note {: .info }
@@ -3112,15 +3115,13 @@ signature_algs(default, 'tlsv1.2') ->
 signature_algs(all, 'tlsv1.3') ->
     tls_v1:default_signature_algs([tls_record:protocol_version_name('tlsv1.3'),
                                    tls_record:protocol_version_name('tlsv1.2')]) ++
-        tls_v1:slh_dsa_schemes() ++
         [ecdsa_sha1, rsa_pkcs1_sha1 | tls_v1:legacy_signature_algs_pre_13()] --
         [{sha, ecdsa}, {sha, rsa}];
 signature_algs(all, 'tlsv1.2') ->
     tls_v1:default_signature_algs([tls_record:protocol_version_name('tlsv1.2')]) ++
         tls_v1:legacy_signature_algs_pre_13();
 signature_algs(exclusive, 'tlsv1.3') ->
-    tls_v1:default_signature_algs([tls_record:protocol_version_name('tlsv1.3')]) ++
-        tls_v1:slh_dsa_schemes();
+    tls_v1:default_signature_algs([tls_record:protocol_version_name('tlsv1.3')]);
 signature_algs(exclusive, 'tlsv1.2') ->
     Algs = tls_v1:default_signature_algs([tls_record:protocol_version_name('tlsv1.2')]),
     Algs ++ tls_v1:legacy_signature_algs_pre_13();
@@ -3178,7 +3179,7 @@ eccs(Other) ->
 -doc """
 Returns all supported groups in TLS 1.3.
 
-Existed since OTP 22.0; documented as of OTP 27.
+Existed since OTP 22.0; documented as of OTP 27.0.
 """.
 -spec groups() -> [group()].
 %%--------------------------------------------------------------------
@@ -3193,7 +3194,7 @@ groups() ->
 -doc """
 Returns default supported groups in TLS 1.3.
 
-Existed since OTP 22.0; documented as of OTP 27.
+Existed since OTP 22.0; documented as of OTP 27.0.
 """.
 
 %%--------------------------------------------------------------------

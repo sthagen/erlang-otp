@@ -23,6 +23,9 @@
 -module(diameter_types).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_atom, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_atom, 2}}]).
+
 %%
 %% Encode/decode of RFC 3588 Data Formats, Basic (section 4.2) and
 %% Derived (section 4.3).

@@ -21,6 +21,8 @@
 
 -module(ex_dialogs).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -behaviour(wx_object).
 
 %% Client API

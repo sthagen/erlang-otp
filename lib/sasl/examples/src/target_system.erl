@@ -23,6 +23,8 @@
 -module(target_system).
 -export([create/1, create/2, install/2]).
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 %% Note: RelFileName below is the *stem* without trailing .rel,
 %% .script etc.
 %%

@@ -52,6 +52,6 @@ jobs:
         env:
           ERLANG_ORG_TOKEN: ${{ secrets.TRIGGER_ERLANG_ORG_BUILD }}
         run: |
-          pip install mdformat mdformat-gfm
+          pip install --require-hashes -r .github/requirements/mdformat.txt
           .github/scripts/sync-github-releases.sh ${{ github.repository }} \
             "Bearer ${{ secrets.GITHUB_TOKEN }}" "^[2-9][1-9]\\..*" 25m

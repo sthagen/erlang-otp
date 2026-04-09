@@ -31,6 +31,8 @@ details about this mechanism is described in
 """.
 -moduledoc(#{since => "OTP 24.0"}).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 %% Supported and documented exported functions in this module.
 -export([format_exception/3, format_exception/4]).
 

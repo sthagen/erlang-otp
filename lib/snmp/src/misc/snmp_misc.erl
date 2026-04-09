@@ -23,6 +23,8 @@
 -module(snmp_misc).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %% need definition of mib record
 -include("snmp_types.hrl").
 -include("snmpc_misc.hrl").

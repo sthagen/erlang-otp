@@ -32,6 +32,8 @@
 -module(ct_make).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -export([all/0,all/1,files/1,files/2]).
 
 -include_lib("kernel/include/file.hrl").

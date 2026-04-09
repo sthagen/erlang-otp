@@ -32,6 +32,13 @@ Each front-end contains more elaborate settings of
 -vsn('0.19').
 -date('03-09-17').
 
+-compile([{nowarn_unsafe_function, {xmerl_scan, cont_state, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, cont_state, 2}},
+          {nowarn_unsafe_function, {xmerl_scan, file, 2}},
+          {nowarn_unsafe_function, {xmerl_scan, string, 2}},
+          {nowarn_unsafe_function, {xmerl_scan, user_state, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, user_state, 2}}]).
+
 -export([stream/2,stream_sax/4, file_sax/4, string_sax/4]).
 
 % -export([cont/3, rules_read/3,rules_write/4,fetch/2,close/1]).

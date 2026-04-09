@@ -25,6 +25,8 @@
 -module(ssh_options).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -include("ssh.hrl").
 -include_lib("kernel/include/file.hrl").
 

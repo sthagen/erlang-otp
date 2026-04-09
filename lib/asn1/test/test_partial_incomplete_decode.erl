@@ -22,6 +22,8 @@
 %%
 -module(test_partial_incomplete_decode).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -export([test/1]).
 
 -include_lib("common_test/include/ct.hrl").

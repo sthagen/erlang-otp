@@ -184,6 +184,13 @@ end
             ]).
 
 %%%----------------------------------------------------------------
+%% Unsafe functions
+-unsafe([{public_encrypt, 4, possibly},
+         {public_decrypt, 4, possibly},
+         {private_encrypt, 4, possibly},
+         {private_decrypt, 4, possibly}]).
+
+%%%----------------------------------------------------------------
 %% Removed functions.
 %%
 %% Old interface. Now implemented with the New interface.

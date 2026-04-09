@@ -25,6 +25,8 @@
 -module(ssl_config).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -include("ssl_internal.hrl").
 -include("ssl_connection.hrl").
 -include_lib("public_key/include/public_key.hrl").
@@ -1351,10 +1353,12 @@ opt_renegotiate(UserOpts, #{versions := Versions} = Opts, _Env) ->
     {_, RA0} = get_opt_pos_int(renegotiate_at, ?DEFAULT_RENEGOTIATE_AT, UserOpts, Opts),
     RA = min(RA0, ?DEFAULT_RENEGOTIATE_AT),  %% Override users choice without notifying ??
 
-    {Where3, SR} = get_opt_bool(secure_renegotiate, true, UserOpts, Opts),
+    {Where3, _} = disable_insecure_fallback(UserOpts, Opts),
     assert_version_dep(Where3 =:= new, secure_renegotiate, Versions, ['tlsv1','tlsv1.1','tlsv1.2']),
 
-    Opts#{secure_renegotiate => SR, key_update_at => KUA, renegotiate_at => RA}.
+    %% Do not include secure_renegotiate as option is no longer needed,
+    %% that is, it is treated as always set to true
+    Opts#{key_update_at => KUA, renegotiate_at => RA}.
 
 opt_reuse_sessions(UserOpts, #{versions := Versions} = Opts, #{role := client}) ->
     {Where1, RUSS} = get_opt_of(reuse_sessions, [true, false, save], true, UserOpts, Opts),
@@ -1386,6 +1390,15 @@ opt_identity(UserOpts, Opts, _Env) ->
     Lookup = handle_user_lookup(UserOpts, Opts),
     Opts#{psk_identity => PSK, srp_identity => SRP, user_lookup_fun => Lookup}.
 
+disable_insecure_fallback(UserOpts, Opts) ->
+    case get_opt_bool(secure_renegotiate, true, UserOpts, Opts) of
+        {_, true} = Result ->
+            Result;
+        {_, What} ->
+            option_error(secure_renegotiate,
+                         {What,
+                          fallback_to_insecure_renegotiation_no_longer_supported})
+    end.
 
 handle_psk(UserOpts, #{versions := Versions} = Opts) ->
     case get_opt_list(psk_identity, undefined, UserOpts, Opts) of
@@ -1469,10 +1482,10 @@ opt_supported_groups(UserOpts, #{versions := TlsVsns} = Opts, Env) ->
 
 opt_psk_groups(undefined, _,  _, _) ->
     undefined;
-opt_psk_groups(#supported_groups{supported_groups = SupportedGroups},  UserOpts, Opts, _Env) ->
+opt_psk_groups(#supported_groups{supported_groups = [First| _] = SupportedGroups},
+               UserOpts, Opts, _Env) ->
     %% Version dependency already asserted when SupportedGroups is supported
-    %% so is psk_groups
-    First = hd(SupportedGroups),
+    %% hence so is psk_groups
     case get_opt_list(psk_groups, [First], UserOpts, Opts) of
         {default, Default} ->
             Default;
@@ -1495,29 +1508,10 @@ opt_crl(UserOpts, Opts, _Env) ->
 opt_handshake(UserOpts, Opts, _Env) ->
     {_, HS} = get_opt_of(handshake, [hello, full], full, UserOpts, Opts),
 
-    DefaultMaxHS = default_max_hs(Opts),
-
-    {_, MHSS} = get_opt_int(max_handshake_size, 1, ?MAX_UNIT24 , DefaultMaxHS,
+    {_, MHSS} = get_opt_int(max_handshake_size, 1, ?MAX_UNIT24 , ?DEFAULT_MAX_HANDSHAKE_SIZE,
                             UserOpts, Opts),
 
     Opts#{handshake => HS, max_handshake_size => MHSS}.
-
-default_max_hs(#{signature_algs:= undefined}) ->
-    ?DEFAULT_MAX_HANDSHAKE_SIZE;
-default_max_hs(#{signature_algs:= Algs}) ->
-    %%% In OTP-26 max handshake_size was lowered by half for most
-    %%% handshakes would fit that size and OpenSSL had a lower default
-    Set = sets:intersection(sets:from_list(Algs, [{version, 2}]),
-                            sets:from_list(tls_v1:slh_dsa_schemes(),
-                                           [{version, 2}])),
-    case sets:is_empty(Set) of
-        true ->
-            ?DEFAULT_MAX_HANDSHAKE_SIZE;
-        false ->
-            %% SLH_DSA creates fairly big handshake sizes so raise limit back
-            %% if these algorithms are supported,
-            ?DEFAULT_MAX_HANDSHAKE_SIZE * 2
-    end.
 
 opt_use_srtp(UserOpts, #{protocol := Protocol} = Opts, _Env) ->
     UseSRTP = case get_opt_map(use_srtp, undefined, UserOpts, Opts) of

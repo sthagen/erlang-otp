@@ -26,6 +26,8 @@
 -module(xmerl_xlate).
 -moduledoc false.
 
+-compile([{nowarn_unsafe_function, {xmerl_scan, hook_state, 1}},
+          {nowarn_unsafe_function, {xmerl_scan, string, 2}}]).
 
 -export([file/3,
 	 string/3]).

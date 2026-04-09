@@ -39,6 +39,9 @@ miscellaneous utility functions.
 
 `m:httpd`
 """.
+
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -export([ip_address/2,
          lookup/2, 
          lookup/3,
