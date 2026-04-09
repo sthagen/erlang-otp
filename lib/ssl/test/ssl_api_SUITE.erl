@@ -2233,7 +2233,8 @@ customize_defaults(Opts, Role, Host) ->
                end,
     case proplists:get_value(protocol, Opts, tls) of
         dtls ->
-            {ok, #config{ssl=DOpts}} = ssl_config:handle_options([{protocol, dtls}|NoVerify], Role, Host),
+            {ok, #config{ssl=DOpts}} =
+                ssl_config:handle_options([{protocol, dtls}|NoVerify], Role, Host),
             {DOpts, DefOpts ++ Opts};
         tls ->
             {ok, #config{ssl=DOpts}} = ssl_config:handle_options(NoVerify, Role, Host),
@@ -2959,7 +2960,7 @@ options_fallback(_Config) ->
     ok.
 
 options_handshake(_Config) -> %% handshake
-    ?OK(#{handshake := full, max_handshake_size := 131072},
+    ?OK(#{handshake := full, max_handshake_size := 262144},
         [], client),
     ?OK(#{handshake := hello, max_handshake_size := 123800},
         [{handshake, hello}, {max_handshake_size, 123800}], client),
