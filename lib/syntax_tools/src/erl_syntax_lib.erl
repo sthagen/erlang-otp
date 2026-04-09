@@ -38,7 +38,8 @@ This module contains utility functions for working with the abstract data type
 defined in the module `m:erl_syntax`.
 """.
 
--compile(nowarn_deprecated_catch).
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          nowarn_deprecated_catch]).
 
 -export([analyze_application/1, analyze_attribute/1,
          analyze_export_attribute/1, analyze_file_attribute/1,

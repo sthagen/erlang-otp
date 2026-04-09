@@ -24,6 +24,7 @@
 
 -behaviour(snmpa_mib_storage).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
 
 %%%-----------------------------------------------------------------
 %%% This module implements the snmpa_mib_storage behaviour. 

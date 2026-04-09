@@ -24,6 +24,8 @@
 -module(mnesia_tm).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -export([
 	 start/0,
 	 init/1,

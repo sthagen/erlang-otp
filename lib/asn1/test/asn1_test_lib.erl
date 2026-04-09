@@ -22,6 +22,8 @@
 %%
 -module(asn1_test_lib).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -export([compile/3,compile_all/3,compile_erlang/3,
 	 rm_dirs/1,
 	 hex_to_bin/1,
@@ -91,7 +93,10 @@ module(F0) ->
 %%    filename:join(CaseDir, F ++ ".beam").
 
 compile_file(File, Options0) ->
-    Options = [warn_export_vars,warnings_as_errors|Options0],
+    Options = [warn_export_vars,warnings_as_errors,
+               {nowarn_possibly_unsafe_function, {erlang, binary_to_atom, 1}},
+               {nowarn_possibly_unsafe_function, {erlang, binary_to_atom, 2}}
+               | Options0],
     try
         ok = asn1ct:compile(File, Options),
         ok = compile_maps(File, Options)

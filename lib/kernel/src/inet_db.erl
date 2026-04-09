@@ -23,6 +23,9 @@
 -module(inet_db).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %% Store info about ip addresses, names, aliases host files resolver
 %% options.
 %% Also miscellaneous "stuff" related to sockets.

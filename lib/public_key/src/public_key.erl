@@ -45,6 +45,11 @@ macros described here and in the User's Guide:
 
 -include("public_key_internal.hrl").
 
+-compile([{nowarn_unsafe_function, {crypto, private_decrypt, 4}},
+          {nowarn_unsafe_function, {crypto, public_decrypt, 4}},
+          {nowarn_unsafe_function, {crypto, private_encrypt, 4}},
+          {nowarn_unsafe_function, {crypto, public_encrypt, 4}}]).
+
 -export([pem_decode/1, pem_encode/1, 
 	 der_decode/2, der_encode/2,
 	 pem_entry_decode/1,
@@ -91,6 +96,16 @@ macros described here and in the User's Guide:
 	]).
 %% Tracing
 -export([handle_trace/3]).
+
+-unsafe([{encrypt_private, 2},
+         {encrypt_private, 3, possibly},
+         {decrypt_private, 2},
+         {decrypt_private, 3, possibly},
+
+         {encrypt_public, 2},
+         {encrypt_public, 3, possibly},
+         {decrypt_public, 2},
+         {decrypt_public, 3, possibly}]).
 
 %%----------------
 %% Moved to ssh

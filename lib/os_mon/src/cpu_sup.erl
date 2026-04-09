@@ -71,6 +71,8 @@ accessible by `cpu_sup`. If it is not, `cpu_sup` will terminate.
 [os_mon(3)](os_mon_app.md)
 """.
 
+-compile([{nowarn_unsafe_function, {os, cmd, 1}}]).
+
 %% API
 -export([start_link/0, start/0, stop/0]).
 -export([nprocs/0, avg1/0, avg5/0, avg15/0, util/0, util/1]).

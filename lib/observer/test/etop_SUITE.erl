@@ -22,6 +22,8 @@
 
 -module(etop_SUITE).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_atom, 1}}]).
+
 -define(ERASE_ALL, <<"\e[;H\e[2J">>).
 -define(COOKED_ENDING, <<"Type Ctrl+G, then enter 'i' to interrupt etop.">>).
 -define(RAW_ENDING, <<"Press 'q' to stop etop.">>).

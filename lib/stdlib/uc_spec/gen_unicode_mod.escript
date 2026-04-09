@@ -25,6 +25,8 @@
 
 -mode(compile).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -record(cp, {name, class, dec, comp, cs, cat}).
 -define(MOD, "unicode_util").
 

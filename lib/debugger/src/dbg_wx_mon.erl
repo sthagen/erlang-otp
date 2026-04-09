@@ -24,6 +24,8 @@
 -module(dbg_wx_mon).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -include_lib("kernel/include/file.hrl").
 -include_lib("wx/include/wx.hrl").
 

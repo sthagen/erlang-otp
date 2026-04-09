@@ -23,6 +23,8 @@
 -moduledoc false.
 -author('siri@erix.ericsson.se').
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %%-compile(export_all).
 -export([setup_tracer/1,stop_tracer/1,reader/1]).
 -import(etop,[getopt/2]).

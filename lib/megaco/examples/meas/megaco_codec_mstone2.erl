@@ -63,6 +63,8 @@ application.
 """.
 
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 %% Exports
 -export([
 	 start/0, start/1, start/2, start/3, start/4, start/5

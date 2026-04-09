@@ -127,6 +127,8 @@ OS messages are formatted as a tuple
 """.
 -behaviour(gen_server).
 
+-compile([{nowarn_unsafe_function, {os, cmd, 1}}]).
+
 %% API
 -export([start_link/1, start/0, stop/0]).
 -export([error_report/2]).

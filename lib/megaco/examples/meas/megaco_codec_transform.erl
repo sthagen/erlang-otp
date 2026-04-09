@@ -68,6 +68,9 @@ application.
 [](){: #export_messages }
 """.
 
+
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -include_lib("kernel/include/file.hrl").
 
 -export([

@@ -252,6 +252,32 @@ obsolete(zlib, inflateChunk, 2) ->
     {removed, "use zlib:safeInflate/2 instead"};
 obsolete(zlib, setBufSize, 2) ->
     {removed, "this function has been removed"};
+obsolete(crypto, private_decrypt, 4) ->
+    {unsafe, possibly};
+obsolete(crypto, private_encrypt, 4) ->
+    {unsafe, possibly};
+obsolete(crypto, public_decrypt, 4) ->
+    {unsafe, possibly};
+obsolete(crypto, public_encrypt, 4) ->
+    {unsafe, possibly};
+obsolete(erlang, list_to_atom, 1) ->
+    {unsafe, possibly};
+obsolete(public_key, decrypt_private, 2) ->
+    {unsafe, undefined};
+obsolete(public_key, decrypt_private, 3) ->
+    {unsafe, possibly};
+obsolete(public_key, decrypt_public, 2) ->
+    {unsafe, undefined};
+obsolete(public_key, decrypt_public, 3) ->
+    {unsafe, possibly};
+obsolete(public_key, encrypt_private, 2) ->
+    {unsafe, undefined};
+obsolete(public_key, encrypt_private, 3) ->
+    {unsafe, possibly};
+obsolete(public_key, encrypt_public, 2) ->
+    {unsafe, undefined};
+obsolete(public_key, encrypt_public, 3) ->
+    {unsafe, possibly};
 obsolete(auth, node_cookie, _) ->
     {deprecated, "use erlang:set_cookie/2 and net_adm:ping/1 instead"};
 obsolete(asn1ct, decode, _) ->
@@ -272,6 +298,16 @@ obsolete(mnesia_registry, create_table, _) ->
     {removed, "use mnesia:create_table/2 instead"};
 obsolete(ssl, ssl_accept, _) ->
     {removed, "use ssl:handshake/1,2,3 instead"};
+obsolete(erlang, binary_to_atom, _) ->
+    {unsafe, possibly};
+obsolete(erlang, binary_to_term, _) ->
+    {unsafe, possibly};
+obsolete(file, consult, _) ->
+    {unsafe, possibly};
+obsolete(file, path_consult, _) ->
+    {unsafe, possibly};
+obsolete(os, cmd, _) ->
+    {unsafe, "use open_port/2 with {spawn_executable, _} argument"};
 obsolete(ct_ftp, _, _) ->
     {deprecated, "Legacy protocol support will be dropped in OTP-30", "OTP 30"};
 obsolete(ct_slave, _, _) ->
@@ -292,6 +328,10 @@ obsolete(os_mon_mib, _, _) ->
     {removed, "this module was removed in OTP 22.0"};
 obsolete(pg2, _, _) ->
     {removed, "this module was removed in OTP 24. Use 'pg' instead"};
+obsolete(http_uri, _, _) ->
+    {unsafe, "use uri_string instead"};
+obsolete(xmerl_scan, _, _) ->
+    {unsafe, "this module cannot be used with untrusted input, use xmerl_sax_parser instead"};
 obsolete(_,_,_) -> no.
 
 -dialyzer({no_match, obsolete_type/3}).

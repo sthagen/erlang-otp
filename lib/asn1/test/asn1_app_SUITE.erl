@@ -28,7 +28,9 @@
          init_per_suite/1,end_per_suite/1,
          appup/1,fields/1,modules/1,export_all/1,app_depend/1]).
 
--compile(nowarn_deprecated_catch).
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          {nowarn_possibly_unsafe_function, {file, consult, 1}},
+          nowarn_deprecated_catch]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

@@ -34,6 +34,8 @@
 -module(eunit_data).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -include("eunit.hrl").
 -include("eunit_internal.hrl").
 

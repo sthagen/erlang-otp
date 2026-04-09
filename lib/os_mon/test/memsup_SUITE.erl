@@ -22,6 +22,9 @@
 -module(memsup_SUITE).
 -include_lib("common_test/include/ct.hrl").
 
+-compile([{nowarn_unsafe_function, {os, cmd, 1}},
+          nowarn_deprecated_catch]).
+
 %% Test server specific exports
 -export([all/0, suite/0]).
 -export([init_per_suite/1, end_per_suite/1]).

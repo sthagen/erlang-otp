@@ -25,6 +25,8 @@
 
 -module(ex_webview).
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
+
 -include_lib("wx/include/wx.hrl").
 
 -behaviour(wx_object).

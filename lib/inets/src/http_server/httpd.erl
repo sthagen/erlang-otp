@@ -807,6 +807,8 @@ The fields of record `mod` have the following meaning:
 [RFC 2616](http://www.ietf.org/rfc/rfc2616.txt), `m:inets`, `m:ssl`
 """.
 
+-compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
+
 -behaviour(inets_service).
 
 -include("httpd_internal.hrl").

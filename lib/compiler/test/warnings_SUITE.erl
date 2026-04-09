@@ -1150,7 +1150,8 @@ inlining(Config) ->
 tuple_calls(Config) ->
     %% Make sure that no spurious warnings are generated.
     Ts = [{inlining_1,
-           <<"-compile(tuple_calls).
+           <<"-compile([tuple_calls,
+                        {nowarn_unsafe_function,{erlang, list_to_atom, 1}}]).
               dispatch(X) ->
                 (list_to_atom(\"prefix_\" ++
                 atom_to_list(suffix))):doit(X).

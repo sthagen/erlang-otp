@@ -26,6 +26,8 @@
 -module(mnesia_loader).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 %% Mnesia internal stuff
 -export([disc_load_table/3,
 	 net_load_table/4,

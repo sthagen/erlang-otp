@@ -38,6 +38,9 @@
 -module(dialyzer_cplt).
 -moduledoc false.
 
+-compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+
 -export([check_plt/3,
 	 compute_md5_from_files/1,
 	 included_files/1,
