@@ -68,13 +68,17 @@ all() ->
 groups() ->
     [{'tlsv1.3', [], ocsp_tests()},
      {'tlsv1.3_issuer_nonce', [], [staple_by_issuer, staple_with_nonce]},
-     {no_next_update, [], [{group, 'tlsv1.3'}]},
+     {'tlsv1.3_no_next_update', [], no_next_update_tests()},
+     {no_next_update, [], [{group, 'tlsv1.3_no_next_update'}]},
      {no_resp_certs, [], [{group, 'tlsv1.3_issuer_nonce'}]},
      {'tlsv1.2', [], ocsp_tests()},
      {'dtlsv1.2', [], ocsp_tests()}].
 
 ocsp_tests() ->
     positive() ++ negative().
+
+no_next_update_tests() ->
+    positive() ++ [cert_status_revoked, cert_status_undetermined].
 
 positive() ->
     [staple_by_issuer,
@@ -113,14 +117,18 @@ end_per_suite(Config) ->
 %%--------------------------------------------------------------------
 init_per_group(no_next_update, Config) ->
     Config;
-init_per_group('tlsv1.3_issuer_nonce', Config) ->
+init_per_group(GroupName, Config)
+  when GroupName =:= 'tlsv1.3_issuer_nonce';
+       GroupName =:= 'tlsv1.3_no_next_update' ->
     ssl_test_lib:init_per_group_openssl('tlsv1.3', Config);
 init_per_group(GroupName, Config) ->
     ssl_test_lib:init_per_group_openssl(GroupName, Config).
 
 end_per_group(no_next_update, Config) ->
     Config;
-end_per_group('tlsv1.3_issuer_nonce', Config) ->
+end_per_group(GroupName, Config)
+  when GroupName =:= 'tlsv1.3_issuer_nonce';
+       GroupName =:= 'tlsv1.3_no_next_update' ->
     ssl_test_lib:end_per_group('tlsv1.3', Config);
 end_per_group(GroupName, Config) ->
     ssl_test_lib:end_per_group(GroupName, Config).
@@ -135,15 +143,22 @@ init_per_testcase(Testcase, Config) ->
 
 init_per_testcase_helper(Testcase, Config0) ->
     ct:timetrap({seconds, 10}),
-    Default = "otpCA",
-    TestcaseMapping = #{staple_by_issuer => Default,
-                        staple_by_trusted => "erlangCA",
-                        staple_by_designated => "b.server",
-                        staple_not_designated => "a.server",
-                        staple_wrong_issuer => "localhost"},
-    ResponderFolder = maps:get(Testcase, TestcaseMapping, Default),
-    Config = start_ocsp_responder(
-               [{responder_folder, ResponderFolder} | Config0]) ++ Config0,
+    NeedsResponder = not lists:member(Testcase,
+        [staple_missing, staple_missing_atom, staple_missing_verify_fun]),
+    Config = case NeedsResponder of
+        true ->
+            Default = "otpCA",
+            TestcaseMapping = #{staple_by_issuer => Default,
+                                staple_by_trusted => "erlangCA",
+                                staple_by_designated => "b.server",
+                                staple_not_designated => "a.server",
+                                staple_wrong_issuer => "localhost"},
+            ResponderFolder = maps:get(Testcase, TestcaseMapping, Default),
+            start_ocsp_responder(
+                [{responder_folder, ResponderFolder} | Config0]) ++ Config0;
+        false ->
+            Config0
+    end,
     ssl_test_lib:ct_log_supported_protocol_versions(Config),
     Config.
 
@@ -154,10 +169,30 @@ end_per_testcase(_Testcase, Config) ->
     end_per_testcase_helper(Config).
 
 end_per_testcase_helper(Config) ->
-    ResponderPid = ?config(responder_pid, Config),
-    ssl_test_lib:close(ResponderPid),
+    case ?config(responder_pid, Config) of
+        undefined -> ok;
+        ResponderPid -> ssl_test_lib:close(ResponderPid)
+    end,
+    log_wsl_process_count(),
+    ssl_test_lib:kill_openssl(),
+    log_wsl_process_count(),
     [ssl_test_lib:ct_pal_file(?OCSP_RESPONDER_LOG) || ?config(debug, Config)],
     Config.
+
+log_wsl_process_count() ->
+    try
+        case os:type() of
+            {win32, _} ->
+                WslRes = os:cmd("tasklist | find /c \"wsl.exe\""),
+                CmdRes = os:cmd("tasklist | find /c \"cmd.exe\""),
+                ?CT_LOG("wsl.exe: ~s, cmd.exe: ~s",
+                        [string:trim(WslRes), string:trim(CmdRes)]);
+            _ ->
+                ok
+        end
+    catch C:E ->
+            ?CT_LOG("log_wsl_process_count failed: ~p:~p", [C, E])
+    end.
 
 %%--------------------------------------------------------------------
 %% Test Cases --------------------------------------------------------
@@ -332,7 +367,8 @@ stapling_negative_helper(Config, CACertsPath, ServerVariant, ExpectedError, Stap
                                               {host, Hostname}, {from, self()},
                                               {options, ClientOpts}]),
     true = is_pid(Client),
-    ssl_test_lib:check_client_alert(Client, ExpectedError).
+    ssl_test_lib:check_client_alert(Client, ExpectedError),
+    ssl_test_lib:close(Server).
 
 %%--------------------------------------------------------------------
 %% Internal functions -----------------------------------------------
@@ -388,12 +424,14 @@ ocsp_responder_loop(Port, {Status, Starter} = State) ->
     receive
         close ->
             ?CT_LOG("OCSP responder: received close", []),
+            try erlang:port_close(Port) catch _:_ -> ok end,
             ok;
 	{Port, closed} ->
 	    ?CT_LOG("OCSP responder: Port = ~p Closed", [Port]),
 	    ok;
 	{'EXIT', Sender, _Reason} ->
 	    ?CT_LOG("OCSP responder: Sender = ~p Closed",[Sender]),
+            try erlang:port_close(Port) catch _:_ -> ok end,
 	    ok;
 	{Port, {data, Msg}} when Status == new ->
             ?CT_LOG("OCSP responder: Msg = ~p", [Msg]),

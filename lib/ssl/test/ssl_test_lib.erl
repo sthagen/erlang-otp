@@ -4204,15 +4204,17 @@ digest() ->
     end.
 
 kill_openssl() ->
-    case os:type() of
-        {win32, _} ->
-            case os:getenv("WSLENV") of
-                false -> os:cmd("cmd.exe /C \"taskkill /IM openssl.exe /F\"");
-                _ -> os:cmd("wsl pkill openssl")
-            end;
-        _ ->
-            os:cmd("pkill openssl")
-    end.
+    Res = case os:type() of
+              {win32, _} ->
+                  case os:getenv("WSLENV") of
+                      false -> os:cmd("cmd.exe /C \"taskkill /IM openssl.exe /F\"");
+                      _ -> os:cmd("wsl pkill openssl")
+                  end;
+              _ ->
+                  os:cmd("pkill openssl")
+          end,
+    ?CT_LOG("kill_openssl: ~s", [Res]),
+    Res.
 
 hostname_format(Hostname) ->
     case lists:member($., Hostname) of
