@@ -541,7 +541,8 @@ jobs:
       actions: read
       contents: read
     name: Vendor Vulnerability Scanning
-    uses: ./.github/workflows/reusable-vendor-vulnerability-scanner.yml
+    # This is an internal and trusted workflow.
+    uses: ./.github/workflows/reusable-vendor-vulnerability-scanner.yml # zizmor: ignore[secrets-inherit]
     with:
       fail_if_cve: false
       checkout: true
