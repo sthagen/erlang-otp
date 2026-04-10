@@ -143,7 +143,7 @@ jobs:
             ALL_APPS: ${{ steps.apps.outputs.all }}
             CHANGED_APPS: ${{ steps.app-changes.outputs.changes }}
         run: |
-          if ${{ env.FULL_BUILD_AND_CHECK }}; then
+          if [ "${FULL_BUILD_AND_CHECK}" = "true" ]; then
               echo "changes=${ALL_APPS}" >> "$GITHUB_OUTPUT"
           else
               echo "changes=${CHANGED_APPS}" >> "$GITHUB_OUTPUT"
@@ -531,7 +531,7 @@ jobs:
       - name: Get modified vendor files
         id: vendor-files
         run: |
-          echo "MODIFIED_FILES=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep 'vendor\.info$' | wc -l || 1)" >> $GITHUB_OUTPUT
+          echo "MODIFIED_FILES=$(git diff --name-only "origin/${GITHUB_BASE_REF}" HEAD | grep 'vendor\.info$' | wc -l || 1)" >> $GITHUB_OUTPUT
 
   # this is a call to a workflow_call
   pr-vendor-vulnerability-analysis:
@@ -759,16 +759,18 @@ jobs:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
       - name: Run tests
         id: run-tests
+        env:
+          MATRIX_TYPE: ${{ matrix.type }}
         run: |
           set -x
           mkdir $PWD/make_test_dir
-          APP="${{ matrix.type }}"
+          APP="${MATRIX_TYPE}"
           ## Need to specialize for epmd, emulator and debug
           case "${APP}" in
             emulator) DIR=erts/emulator/ ;;
             epmd) DIR=erts/epmd ;;
             debug) DIR=lib/os_mon; APP=os_mon; TYPE=debug ;;
-            *) DIR=lib/${{ matrix.type }} ;;
+            *) DIR=lib/${MATRIX_TYPE} ;;
           esac
           ## Remove systemd-coredump
           ! sudo apt remove systemd-coredump
@@ -779,20 +781,22 @@ jobs:
           docker run --ulimit core=-1 --ulimit nofile=5000:5000 --pids-limit 1024 \
             -e CTRUN_TIMEOUT=90 -e SPEC_POSTFIX=gh \
             -e TEST_NEEDS_RELEASE=true -e "RELEASE_ROOT=/buildroot/otp/Erlang ∅⊤℞" \
-            -e EXTRA_ARGS="-ct_hooks cth_surefire [{path,\"/buildroot/otp/$DIR/make_test_dir/${{ matrix.type }}_junit.xml\"}]" \
+            -e EXTRA_ARGS="-ct_hooks cth_surefire [{path,\"/buildroot/otp/$DIR/make_test_dir/${MATRIX_TYPE}_junit.xml\"}]" \
             -v "$PWD/make_test_dir:/buildroot/otp/$DIR/make_test_dir" \
             -v "$PWD/scripts:/buildroot/otp/scripts" \
             otp "./otp_build download_gdb_tools && make emulator && make TYPE=${TYPE} && make ${APP}_test TYPE=${TYPE}"
           ## Rename os_mon to debug for debug build
-          if [ "$APP" != "${{ matrix.type }}" ]; then
-            mv make_test_dir/${APP}_test "make_test_dir/${{ matrix.type }}_test"
+          if [ "$APP" != "${MATRIX_TYPE}" ]; then
+            mv make_test_dir/${APP}_test "make_test_dir/${MATRIX_TYPE}_test"
           fi
       - name: Cleanup tests
         if: ${{ !cancelled() }}
+        env:
+          MATRIX_TYPE: ${{ matrix.type }}
         run: |
           rm -rf make_test_dir/otp || true
           sudo bash -c "chown -R `whoami` make_test_dir && chmod -R +r make_test_dir"
-          tar czf ${{ matrix.type }}_test_results.tar.gz make_test_dir
+          tar czf ${MATRIX_TYPE}_test_results.tar.gz make_test_dir
       - name: Upload test results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled() }}
@@ -1136,7 +1140,9 @@ jobs:
       ## We add the correct version name into the file names
       ## and create the hash files for all assets
       - name: Create pre-build and doc archives
-        run: .github/scripts/create-artifacts.sh artifacts ${{ steps.tag.outputs.tag }}
+        env:
+          STEPS_TAG_OUTPUTS_TAG: ${{ steps.tag.outputs.tag }}
+        run: .github/scripts/create-artifacts.sh artifacts "${STEPS_TAG_OUTPUTS_TAG}"
 
       ## Create hash files
       - name: Create pre-build and doc archives

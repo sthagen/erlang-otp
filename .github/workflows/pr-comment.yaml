@@ -54,9 +54,10 @@ jobs:
         id: pr-number
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          GITHUB_EVENT_WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
            .github/scripts/get-pr-number.es erlang/otp \
-             "${{ github.event.workflow_run.head_sha }}"
+             "${GITHUB_EVENT_WORKFLOW_RUN_HEAD_SHA}"
 
   starting-tests:
     runs-on: ubuntu-latest
@@ -71,11 +72,13 @@ jobs:
           persist-credentials: false
       ## We create an initial comment with some useful help to the user
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          PR_NUMBER: ${{ needs.pr-number.outputs.result }}
         with:
           script: |
             const script = require('./.github/scripts/pr-comment.js');
             return await script({github, context, state: 'starting',
-                   pr_number: ${{ needs.pr-number.outputs.result }} });
+                   pr_number: parseInt(process.env.PR_NUMBER) });
 
   finished-tests:
     runs-on: ubuntu-latest
@@ -98,10 +101,11 @@ jobs:
         id: extract
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          GITHUB_EVENT_WORKFLOW_RUN_ARTIFACTS_URL: ${{ github.event.workflow_run.artifacts_url }}
         run: |
            mkdir -p artifacts && cd artifacts
 
-           artifacts_url=${{ github.event.workflow_run.artifacts_url }}
+           artifacts_url="${GITHUB_EVENT_WORKFLOW_RUN_ARTIFACTS_URL}"
 
            gh api "$artifacts_url" --paginate -q '.artifacts[] | [.name, .archive_download_url] | @tsv' | while read artifact
            do
@@ -132,8 +136,10 @@ jobs:
         ## Publish CT Test Results
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         if: always()
+        env:
+          PR_NUMBER: ${{ needs.pr-number.outputs.result }}
         with:
           script: |
             const script = require('./.github/scripts/pr-comment.js');
             return await script({github, context, state: 'finished',
-                pr_number: ${{ needs.pr-number.outputs.result }} });
+                pr_number: parseInt(process.env.PR_NUMBER) });
