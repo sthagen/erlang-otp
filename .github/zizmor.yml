@@ -22,3 +22,6 @@ rules:
   # Windows CMD shell is needed to test Windows-specific behavior.
   misfeature:
     disable: true
+  # TODO: Add dedicated environments for secrets used in cross-repo triggers and bot authentication.
+  secrets-outside-env:
+    disable: true
