@@ -1194,17 +1194,17 @@ jobs:
           path: "attestations/*.sigstore"
 
       - name: Upload pre-built and doc tar archives
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
-        with:
-          name: OTP ${{ steps.tag.outputs.vsn }}
-          files: |
-            artifacts/*.tar.gz
-            artifacts/*.txt
-            attestations/*.sigstore
-            scan-report-web-app.html
-            bom.*
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VSN: ${{ steps.tag.outputs.vsn }}
+        run: |
+          gh release create "${TAG}" --title "OTP ${VSN}" \
+            artifacts/*.tar.gz \
+            artifacts/*.txt \
+            attestations/*.sigstore \
+            scan-report-web-app.html \
+            bom.*
       - name: Deploy on erlang.org
         env:
           GITHUB_TOKEN: ${{ secrets.TRIGGER_ERLANG_ORG_BUILD }}
