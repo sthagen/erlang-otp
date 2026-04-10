@@ -30,7 +30,7 @@ This module contains functions for creating and inspecting native records.
 > The main purpose of the functions in this module is for debugging,
 > implementing library functions (such as printing of native records),
 > and implementing tools (such as the Debugger). Use with care in
-> applications.
+> production code.
 """.
 -moduledoc(#{since => ~"OTP @OTP-19785@"}).
 
