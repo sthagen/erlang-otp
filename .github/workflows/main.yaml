@@ -56,7 +56,6 @@ env:
 permissions:
   contents: read
   pull-requests: read
-  security-events: write
 
 jobs:
 
@@ -530,6 +529,7 @@ jobs:
     if: ${{ needs.modified-vendor-files.outputs.vendor-files == 'true' && github.event_name == 'pull_request' && github.repository == 'erlang/otp'}}
     permissions:
       actions: read
+      contents: read
     name: Vendor Vulnerability Scanning
     uses: ./.github/workflows/reusable-vendor-vulnerability-scanner.yml
     with:
@@ -704,6 +704,9 @@ jobs:
     name: Run static analysis
     runs-on: ubuntu-latest
     needs: pack
+    permissions:
+      contents: read
+      security-events: write   # needed for SARIF upload
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/build-base-image

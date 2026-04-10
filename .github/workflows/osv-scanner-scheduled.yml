@@ -34,6 +34,8 @@ permissions:
 jobs:
   schedule-scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: github.event_name == 'schedule' && github.repository == 'erlang/otp'
     # if: github.event_name != 'workflow_dispatch' # used for testing
     outputs:

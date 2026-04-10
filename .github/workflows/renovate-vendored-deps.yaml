@@ -26,12 +26,14 @@ on:
       - '**/vendor.info'
 
 permissions:
-  contents: write   # Required to push commits
-  pull-requests: read
+  contents: read
 
 jobs:
   update-vendored-deps:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # Required to push commits
+      pull-requests: write
     if: >
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.title, 'update dependency') &&
