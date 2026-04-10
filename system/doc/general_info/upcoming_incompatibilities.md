@@ -25,6 +25,20 @@ limitations under the License.
 
 This document lists planned upcoming potential incompatibilities in Erlang/OTP.
 
+## OTP 30
+
+### erlang:fun_info(Fun, pid)
+
+As of OTP 27, the functions
+[`erlang:fun_info/1,2`](`erlang:fun_info/1`) always say that the
+local `init` process created all funs, regardless of which process or
+node the fun was originally created on.
+
+In OTP 30, the `{pid,_}` element will be removed altogether. That is,
+`erlang:fun_info(Fun, pid)` will raise a `badarg` exception, and
+`erlang:fun_info(Fun)` will no longer include a `{pid,Pid}` item in
+the returned list. (This was originally scheduled to occur in OTP 28.)
+
 ## OTP 27
 
 ### Fun creator pid will always be local init process
