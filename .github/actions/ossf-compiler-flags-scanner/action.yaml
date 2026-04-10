@@ -33,6 +33,7 @@ runs:
             repository: ossf/wg-best-practices-os-developers
             sparse-checkout: docs/Compiler-Hardening-Guides/compiler-options-scraper
             path: ossf
+            persist-credentials: false
     
       - name: Setup compiler options scraper
         shell: bash -eo pipefail {0}

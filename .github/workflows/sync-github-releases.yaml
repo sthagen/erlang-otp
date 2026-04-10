@@ -44,6 +44,8 @@ jobs:
         actions: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       ## We need to login to the package registry in order to pull
       ## the base debian image.
       - name: Docker login
