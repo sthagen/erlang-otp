@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # Required to push commits
-      pull-requests: read
+      pull-requests: write
     if: >
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.title, 'update dependency') &&
