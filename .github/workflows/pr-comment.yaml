@@ -22,7 +22,12 @@ name: Update PR details
 
 # read-write repo token
 # access to secrets
-on:
+
+# workflow_run is required to comment on PRs from forks with write permissions.
+# This is safe because we only checkout the base repo (not fork code) and don't
+# execute any code from the PR. Be careful when adapting this workflow to not
+# introduce code execution from untrusted sources.
+on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: ["Build and check Erlang/OTP"]
     types:
