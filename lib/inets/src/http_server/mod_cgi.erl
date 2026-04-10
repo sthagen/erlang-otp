@@ -23,6 +23,8 @@
 %% Implements  The WWW Common Gateway Interface Version 1.1
 
 -module(mod_cgi).
+
+-deprecated([{'_','_',"use 'mod_esi' for dynamic page generation"}]).
 -moduledoc false.
 
 -export([env/3]).

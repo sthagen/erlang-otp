@@ -21,6 +21,8 @@
 %%
 %%
 -module(mod_actions).
+
+-deprecated([{'_','_',"use 'mod_esi' for dynamic page generation"}]).
 -moduledoc false.
 -export([do/1, store/2]).
 
