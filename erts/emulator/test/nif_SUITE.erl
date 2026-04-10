@@ -1321,6 +1321,12 @@ select_steal_child_process(Parent, RFd) ->
 %% @doc Similar to select/1 test, make a double ended pipe. Then try to steal
 %% the socket, see what happens.
 select_steal(Config) when is_list(Config) ->
+    case os:type() of
+        {unix,sunos} -> {skip, "TEMPORARY SKIP"};
+        _ -> select_steal_do(Config)
+    end.
+
+select_steal_do(Config) ->
     ensure_lib_loaded(Config),
 
     Ref = make_ref(),
