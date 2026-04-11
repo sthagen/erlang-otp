@@ -609,6 +609,7 @@ same_time_list_lookup(ErtsHLTimer *root, ErtsHLTimer *x)
 #define ERTS_RBT_WANT_DELETE
 #define ERTS_RBT_WANT_INSERT
 #define ERTS_RBT_WANT_LOOKUP
+#define ERTS_RBT_WANT_FOREACH
 #define ERTS_RBT_WANT_FOREACH_DESTROY_YIELDING
 #define ERTS_RBT_UNDEF
 
@@ -707,14 +708,10 @@ port_timeout_common(Port *port, void *tmr)
     return 0;
 }
 
-static ERTS_INLINE erts_aint_t
-init_btm_specifics(ErtsSchedulerData *esdp,
-                   ErtsBifTimer *tmr, Eterm msg,
-                   Uint32 *refn
-    )
+static ERTS_INLINE void
+init_btm_message(ErtsBifTimer *tmr, Eterm msg)
 {
     Uint hsz = is_immed(msg) ? ((Uint) 0) : size_object(msg);
-    int refc;
     if (!hsz) {
         tmr->btm.message = msg;
         tmr->btm.bp = NULL;
@@ -725,7 +722,16 @@ init_btm_specifics(ErtsSchedulerData *esdp,
         tmr->btm.message = copy_struct(msg, hsz, &hp, &bp->off_heap);
         tmr->btm.bp = bp;
     }
-    refc = 0;
+}
+
+static ERTS_INLINE erts_aint_t
+init_btm_specifics(ErtsSchedulerData *esdp,
+                   ErtsBifTimer *tmr, Eterm msg,
+                   Uint32 *refn
+    )
+{
+    int refc = 0;
+    init_btm_message(tmr, msg);
     tmr->btm.refn[0] = refn[0];
     tmr->btm.refn[1] = refn[1];
     tmr->btm.refn[2] = refn[2];
@@ -962,6 +968,18 @@ create_tw_timer(ErtsSchedulerData *esdp,
 /*
  * Paused proc timers
  */
+
+static ERTS_INLINE Sint64
+time_left_for_timer_in_msec(ErtsTimer* tmr, ErtsSchedulerData *esdp)
+{
+    ErtsMonotonicTime timeout_pos;
+    int is_hlt = !!(tmr->head.roflgs & ERTS_TMR_ROFLG_HLT);
+    timeout_pos = (is_hlt
+            ? tmr->hlt.timeout
+            : erts_tweel_read_timeout(&tmr->twt.u.tw_tmr));
+    return get_time_left(esdp, timeout_pos);
+}
+
 static ERTS_INLINE ErtsPausedProcTimer *
 create_paused_proc_timer(Process *c_p)
 {
@@ -973,13 +991,10 @@ create_paused_proc_timer(Process *c_p)
         ErtsTimer *tmr = (ErtsTimer *)itmr;
 
         if (tmr->head.roflgs & ERTS_TMR_ROFLG_PAUSED) {
-            // The process timer was already paused, reuse the paused timer
+            /* The process timer was already paused, reuse the paused timer */
             ErtsPausedProcTimer *pptmr = (ErtsPausedProcTimer*) tmr;
             pptmr->count++;
         } else {
-            int is_hlt = !!(tmr->head.roflgs & ERTS_TMR_ROFLG_HLT);
-            ErtsMonotonicTime timeout_pos;
-
             ASSERT(tmr->head.roflgs & ERTS_TMR_ROFLG_PROC);
 
             result = erts_alloc(ERTS_ALC_T_PAUSED_TIMER,
@@ -988,10 +1003,7 @@ create_paused_proc_timer(Process *c_p)
             erts_atomic32_init_nob(&result->head.refc, 1);
             result->head.receiver.proc = tmr->head.receiver.proc;
 
-            timeout_pos = (is_hlt
-                       ? tmr->hlt.timeout
-                       : erts_tweel_read_timeout(&tmr->twt.u.tw_tmr));
-            result->time_left_in_msec = get_time_left(esdp, timeout_pos);
+            result->time_left_in_msec = time_left_for_timer_in_msec(tmr, esdp);
             result->count = 1;
         }
     }
