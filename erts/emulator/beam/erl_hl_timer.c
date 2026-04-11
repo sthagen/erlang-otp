@@ -214,6 +214,17 @@ typedef struct {
     Sint count;
 } ErtsPausedProcTimer;
 
+typedef struct ErtsPausedBifTimer_ {
+    ErtsBifTimer tmr;
+    Sint64 time_left_in_msec;
+    struct ErtsPausedBifTimer_ *next;
+} ErtsPausedBifTimer;
+
+struct ErtsPausedBifTimers_ {
+    ErtsPausedBifTimer *list;
+    Sint count;
+};
+
 typedef ErtsTimer *(*ErtsCreateTimerFunc)(ErtsSchedulerData *esdp,
                                           ErtsMonotonicTime timeout_pos,
                                           int short_time, ErtsTmrType type,
@@ -966,7 +977,7 @@ create_tw_timer(ErtsSchedulerData *esdp,
 }
 
 /*
- * Paused proc timers
+ * Paused bif timers
  */
 
 static ERTS_INLINE Sint64
@@ -980,6 +991,31 @@ time_left_for_timer_in_msec(ErtsTimer* tmr, ErtsSchedulerData *esdp)
     return get_time_left(esdp, timeout_pos);
 }
 
+static ERTS_INLINE void
+create_paused_bif_timer(ErtsBifTimer *tmr, Process *c_p, ErtsSchedulerData *esdp)
+{
+    ErtsPausedBifTimer *pbtmr = erts_alloc(ERTS_ALC_T_PAUSED_TIMER,
+        sizeof(ErtsPausedBifTimer));
+
+    ASSERT(c_p->paused_bif_timers->count > 0);
+
+    ASSERT(!(tmr->type.head.roflgs & ERTS_TMR_ROFLG_PAUSED));
+
+    init_btm_message(&pbtmr->tmr, tmr->btm.message);
+
+    pbtmr->tmr.type.head.roflgs = tmr->type.head.roflgs | ERTS_TMR_ROFLG_PAUSED;
+    erts_atomic32_init_nob(&pbtmr->tmr.type.head.refc, 1);
+    pbtmr->tmr.type.head.receiver.proc = tmr->type.head.receiver.proc;
+
+    pbtmr->time_left_in_msec = time_left_for_timer_in_msec((ErtsTimer *) tmr, esdp);
+
+    pbtmr->next = c_p->paused_bif_timers->list;
+    c_p->paused_bif_timers->list = pbtmr;
+}
+
+/*
+ * Paused proc timers
+ */
 static ERTS_INLINE ErtsPausedProcTimer *
 create_paused_proc_timer(Process *c_p)
 {
@@ -1739,7 +1775,7 @@ continue_cancel_ptimer(ErtsSchedulerData *esdp, ErtsTimer *tmr)
         return;
     }
 
-    if (esdp->no != sid)
+   if (esdp->no != sid)
 	queue_canceled_timer(esdp, sid, tmr);
     else
 	cleanup_sched_local_canceled_timer(esdp, tmr);
@@ -1789,7 +1825,16 @@ setup_bif_timer(Process *c_p, int twheel, ErtsMonotonicTime timeout_pos,
 	Process *proc = erts_pid2proc_opt(c_p, ERTS_PROC_LOCK_MAIN,
 					  rcvr, ERTS_PROC_LOCK_BTM,
 					  ERTS_P2P_FLG_INC_REFC);
-	if (!proc) {
+        if (proc) {
+            tmr->type.head.receiver.proc = proc;
+            if (proc->paused_bif_timers) {
+                create_paused_bif_timer(tmr, proc, esdp);
+            } else {
+                proc_btm_rbt_insert(&proc->bif_timers, tmr);
+            }
+            erts_proc_unlock(proc, ERTS_PROC_LOCK_BTM);
+        }
+        if (!proc || proc->paused_bif_timers) {
             if (tmr->btm.tree.parent != ERTS_HLT_PFIELD_NOT_IN_TABLE) {
                 btm_rbt_delete(&esdp->timer_service->btm_tree, tmr);
                 tmr->btm.tree.parent = ERTS_HLT_PFIELD_NOT_IN_TABLE;
@@ -1801,11 +1846,6 @@ setup_bif_timer(Process *c_p, int twheel, ErtsMonotonicTime timeout_pos,
             else
                 hlt_delete_timer(esdp, &tmr->type.hlt);
             timer_destroy((ErtsTimer *) tmr, twheel, 1);
-	}
-	else {
-	    proc_btm_rbt_insert(&proc->bif_timers, tmr);
-	    erts_proc_unlock(proc, ERTS_PROC_LOCK_BTM);
-            tmr->type.head.receiver.proc = proc;
 	}
     }
 
@@ -1819,11 +1859,12 @@ badarg:
 }
 
 static int
-cancel_bif_timer(ErtsBifTimer *tmr)
+cancel_bif_timer(ErtsBifTimer *tmr, ErtsProcLocks c_p_locks)
 {
     erts_aint_t state;
     Uint32 roflgs;
     int res;
+    int proc_lock_btm_held = c_p_locks & ERTS_PROC_LOCK_BTM;
 
     state = erts_atomic32_cmpxchg_acqb(&tmr->btm.state,
 					   ERTS_TMR_STATE_CANCELED,
@@ -1843,7 +1884,9 @@ cancel_bif_timer(ErtsBifTimer *tmr)
         proc = tmr->type.head.receiver.proc;
 	ERTS_HLT_ASSERT(!(tmr->type.head.roflgs & ERTS_TMR_ROFLG_REG_NAME));
 
-	erts_proc_lock(proc, ERTS_PROC_LOCK_BTM);
+        if (!proc_lock_btm_held) {
+            erts_proc_lock(proc, ERTS_PROC_LOCK_BTM);
+        }
 	/*
 	 * If process is exiting, let it clean up
 	 * the btm tree by itself (it may be in
@@ -1855,14 +1898,16 @@ cancel_bif_timer(ErtsBifTimer *tmr)
 	    tmr->btm.proc_tree.parent = ERTS_HLT_PFIELD_NOT_IN_TABLE;
 	    res = 1;
 	}
-	erts_proc_unlock(proc, ERTS_PROC_LOCK_BTM);
+        if (!proc_lock_btm_held) {
+            erts_proc_unlock(proc, ERTS_PROC_LOCK_BTM);
+        }
     }
 
     return res;
 }
 
 static ERTS_INLINE Sint64
-access_btm(ErtsBifTimer *tmr, Uint32 sid, ErtsSchedulerData *esdp, int cancel)
+access_btm(ErtsBifTimer *tmr, Uint32 sid, ErtsSchedulerData *esdp, int cancel, ErtsProcLocks c_p_locks)
 {
     int cncl_res;
     Sint64 time_left;
@@ -1884,7 +1929,7 @@ access_btm(ErtsBifTimer *tmr, Uint32 sid, ErtsSchedulerData *esdp, int cancel)
         return -1;
     }
 
-    cncl_res = cancel_bif_timer(tmr);
+    cncl_res = cancel_bif_timer(tmr, c_p_locks);
     if (!cncl_res)
         return -1;
 
@@ -2048,11 +2093,6 @@ access_sched_local_btm(Process *c_p, Eterm pid,
 
     tmr = btm_rbt_lookup(srv->btm_tree, trefn);
 
-    time_left = access_btm(tmr, (Uint32) esdp->no, esdp, cancel);
-
-    if (async && !info)
-        return am_ok;
-
     if (c_p) {
         proc = c_p;
         proc_locks = ERTS_PROC_LOCK_MAIN;
@@ -2061,6 +2101,11 @@ access_sched_local_btm(Process *c_p, Eterm pid,
         proc = erts_proc_lookup(pid);
         proc_locks = 0;
     }
+
+    time_left = access_btm(tmr, (Uint32) esdp->no, esdp, cancel, proc_locks);
+
+    if (async && !info)
+        return am_ok;
 
     if (!async) {
         if (c_p) {
@@ -2135,7 +2180,7 @@ try_access_sched_remote_btm(ErtsSchedulerData *esdp,
     if (!tmr)
 	return 0;
 
-    time_left = access_btm(tmr, sid, esdp, cancel);
+    time_left = access_btm(tmr, sid, esdp, cancel, ERTS_PROC_LOCK_MAIN);
 
     if (!info)
 	*resp = am_ok;
@@ -2805,6 +2850,59 @@ erts_pause_proc_timer(Process *c_p)
     erts_atomic_set_nob(&c_p->common.timer, (erts_aint_t) pptmr);
 }
 
+static ERTS_INLINE int
+add_bif_timer_to_worklist(ErtsBifTimer *tmr, void *arg, Sint reds)
+{
+    ErtsWStack *s = (ErtsWStack *) arg;
+    WSTACK_PUSH((*s), (UWord) tmr);
+    return 1;
+}
+
+void
+erts_pause_bif_timers(Process *c_p, ErtsProcLocks c_p_locks)
+{
+    ErtsSchedulerData *esdp = erts_proc_sched_data(c_p);
+    int must_release_btm_lock = 0;
+
+    ASSERT(c_p_locks & ERTS_PROC_LOCK_MAIN);
+    ERTS_LC_ASSERT(ERTS_PROC_LOCK_MAIN & erts_proc_lc_my_proc_locks(c_p));
+
+    if (!(c_p_locks & ERTS_PROC_LOCK_BTM)) {
+        erts_proc_lock(c_p, ERTS_PROC_LOCK_BTM);
+        c_p_locks |= ERTS_PROC_LOCK_BTM;
+        must_release_btm_lock = 1;
+    }
+    ERTS_LC_ASSERT(ERTS_PROC_LOCK_BTM & erts_proc_lc_my_proc_locks(c_p));
+
+    if (c_p->paused_bif_timers) {
+        ASSERT(c_p->paused_bif_timers->count > 0);
+        c_p->paused_bif_timers->count++;
+    }
+    else {
+        WSTACK_DECLARE(bif_timers_worklist);
+        c_p->paused_bif_timers = erts_alloc(ERTS_ALC_T_PAUSED_TIMER,
+                                            sizeof(ErtsPausedBifTimers));
+        c_p->paused_bif_timers->list = NULL;
+        c_p->paused_bif_timers->count = 1;
+        /*
+         * It would be better in theory to use a yielding version of foreach here,
+         * but it would be a lot more complex, and since this function is only
+         * used by the debugger potential loss in responsiveness is acceptable.
+         */
+        proc_btm_rbt_foreach(c_p->bif_timers, add_bif_timer_to_worklist, &bif_timers_worklist);
+        while (!WSTACK_ISEMPTY(bif_timers_worklist)) {
+            ErtsBifTimer *tmr = (ErtsBifTimer *) WSTACK_POP(bif_timers_worklist);
+            Uint32 sid = (tmr->type.head.roflgs & ERTS_TMR_ROFLG_SID_MASK);
+            create_paused_bif_timer(tmr, c_p, esdp);
+            access_btm(tmr, sid, esdp, /* cancel = */ 1, c_p_locks);
+        }
+        WSTACK_DESTROY(bif_timers_worklist);
+    }
+    if (must_release_btm_lock) {
+        erts_proc_unlock(c_p, ERTS_PROC_LOCK_BTM);
+    }
+}
+
 void
 erts_resume_paused_proc_timer(Process *c_p)
 {
@@ -2833,6 +2931,90 @@ erts_resume_paused_proc_timer(Process *c_p)
             paused_proc_timer_dec_refc(pptmr);
         }
     }
+}
+
+void
+erts_resume_paused_bif_timers(Process *c_p)
+{
+    ErtsSchedulerData *esdp = erts_proc_sched_data(c_p);
+    ErtsPausedBifTimer *paused_bif_timer;
+
+    ERTS_LC_ASSERT(ERTS_PROC_LOCK_MAIN & erts_proc_lc_my_proc_locks(c_p));
+    ERTS_LC_ASSERT(!(ERTS_PROC_LOCK_BTM & erts_proc_lc_my_proc_locks(c_p)));
+    erts_proc_lock(c_p, ERTS_PROC_LOCK_BTM);
+
+    ASSERT(c_p->paused_bif_timers);
+    ASSERT(c_p->paused_bif_timers->count > 0);
+
+    if (--c_p->paused_bif_timers->count > 0) {
+        /* Other suspends still active; leave them paused... */
+        erts_proc_unlock(c_p, ERTS_PROC_LOCK_BTM);
+        return;
+    }
+
+    paused_bif_timer = c_p->paused_bif_timers->list;
+
+    while (paused_bif_timer != NULL) {
+        ErtsPausedBifTimer *old_timer = paused_bif_timer;
+        ErtsMonotonicTime timeout_pos;
+        ErtsBifTimer *tmr;
+        Eterm ref;
+        UWord tmo;
+        ErtsCreateTimerFunc create_timer;
+        void *hp;
+
+        tmo = (UWord) paused_bif_timer->time_left_in_msec;
+        timeout_pos = get_timeout_pos(erts_get_monotonic_time(esdp), (ErtsMonotonicTime) tmo);
+
+        /* Lifted from setup_bif_timer */
+        hp = HAlloc(c_p, ERTS_REF_THING_SIZE);
+        ref = erts_sched_make_ref_in_buffer(esdp, hp);
+        create_timer = (tmo < ERTS_TIMER_WHEEL_MSEC
+                ? create_tw_timer
+                : create_hl_timer);
+        tmr = (ErtsBifTimer *) create_timer(esdp, timeout_pos,
+                tmo < ERTS_BIF_TIMER_SHORT_TIME, ERTS_TMR_BIF,
+                NULL, c_p->common.id, paused_bif_timer->tmr.btm.message,
+                internal_ordinary_ref_numbers(ref),
+                NULL, NULL);
+        proc_btm_rbt_insert(&c_p->bif_timers, tmr);
+        tmr->type.head.receiver.proc = c_p;
+
+        check_canceled_queue(esdp, esdp->timer_service);
+
+        paused_bif_timer = paused_bif_timer->next;
+        erts_free(ERTS_ALC_T_PAUSED_TIMER, old_timer);
+
+        /* We correctly decrement the refc in the pausing of the bif timer, but for some reason recreating it does not increment it */
+        /* So we do it manually here */
+        erts_proc_inc_refc(c_p);
+    }
+
+    erts_free(ERTS_ALC_T_PAUSED_TIMER, c_p->paused_bif_timers);
+    c_p->paused_bif_timers = NULL;
+
+    erts_proc_unlock(c_p, ERTS_PROC_LOCK_BTM);
+}
+
+void
+erts_destroy_paused_bif_timers(Process *c_p)
+{
+    ErtsPausedBifTimer *ptmr, *free_ptmr;
+
+    erts_proc_lock(c_p, ERTS_PROC_LOCK_BTM);
+
+    ptmr = c_p->paused_bif_timers->list;
+
+    while (ptmr) {
+        free_ptmr = ptmr;
+        ptmr = ptmr->next;
+        erts_free(ERTS_ALC_T_PAUSED_TIMER, free_ptmr);
+    }
+
+    erts_free(ERTS_ALC_T_PAUSED_TIMER, c_p->paused_bif_timers);
+
+    c_p->paused_bif_timers = NULL;
+    erts_proc_unlock(c_p, ERTS_PROC_LOCK_BTM);
 }
 
 void
