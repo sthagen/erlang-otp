@@ -23,6 +23,7 @@
 -module(num_bif_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% Tests the BIFs:
 %% 	abs/1
@@ -221,21 +222,21 @@ t_float_to_string(Config) when is_list(Config) ->
     % test switching logic between decimal and scientific
     test_fts("1.0e-6", 1.0e-6, [short]),
     test_fts("1.0e-5", 1.0e-5, [short]),
-    test_fts("0.0001", 1.0e-4, [short]),
+    test_fts_2x("0.0001", "1.0e-4", 1.0e-4, [short]),
     test_fts("0.001", 1.0e-3, [short]),
     test_fts("0.01", 1.0e-2, [short]),
     test_fts("0.1", 1.0e-1, [short]),
     test_fts("1.0", 1.0e0, [short]),
     test_fts("10.0", 1.0e1, [short]),
     test_fts("100.0", 1.0e2, [short]),
-    test_fts("1.0e3", 1.0e3, [short]),
-    test_fts("1.0e4", 1.0e4, [short]),
+    test_fts_2x("1.0e3", "1000.0", 1.0e3, [short]),
+    test_fts_2x("1.0e4", "10000.0", 1.0e4, [short]),
     test_fts("1.0e5", 1.0e5, [short]),
     test_fts("1.0e6", 1.0e6, [short]),
     test_fts("1.0e7", 1.0e7, [short]),
     test_fts("1.234e-6", 1.234e-6, [short]),
     test_fts("1.234e-5", 1.234e-5, [short]),
-    test_fts("1.234e-4", 1.234e-4, [short]),
+    test_fts_2x("1.234e-4", "0.0001234", 1.234e-4, [short]),
     test_fts("0.001234", 1.234e-3, [short]),
     test_fts("0.01234", 1.234e-2, [short]),
     test_fts("0.1234", 1.234e-1, [short]),
@@ -244,8 +245,8 @@ t_float_to_string(Config) when is_list(Config) ->
     test_fts("123.4", 1.234e2, [short]),
     test_fts("1234.0", 1.234e3, [short]),
     test_fts("12340.0", 1.234e4, [short]),
-    test_fts("1.234e5", 1.234e5, [short]),
-    test_fts("1.234e6", 1.234e6, [short]),
+    test_fts_2x("1.234e5", "123400.0", 1.234e5, [short]),
+    test_fts_2x("1.234e6", "1234000.0", 1.234e6, [short]),
 
     % test the switch to subnormals
     test_fts("2.2250738585072014e-308", 2.2250738585072014e-308, [short]),
@@ -265,15 +266,23 @@ t_float_to_string(Config) when is_list(Config) ->
     ok.
 
 test_fts(Expect, Float) ->
-    Expect = float_to_list(Float),
+    ?assertEqual(Expect, float_to_list(Float)),
     BinExpect = list_to_binary(Expect),
-    BinExpect = float_to_binary(Float).
+    ?assertEqual(BinExpect, float_to_binary(Float)).
 
 test_fts(Expect, Float, Args) ->
-    Expect = float_to_list(Float,Args),
+    ?assertEqual(Expect, float_to_list(Float,Args)),
     BinExpect = list_to_binary(Expect),
-    BinExpect = float_to_binary(Float,Args).
+    ?assertEqual(BinExpect, float_to_binary(Float,Args)).
 
+%% When ryu and our own impl differ
+test_fts_2x(ExpRyu, ExpSTL, Float, Args) ->
+    #{included := Included} = erlang:system_info(embedded_3pps),
+    Expect = case lists:member(ryu, Included) of
+                 true -> ExpRyu;
+                 false -> ExpSTL
+             end,
+    test_fts(Expect, Float, Args).
 
 rand_float_reasonable() ->
     F = rand_float(),

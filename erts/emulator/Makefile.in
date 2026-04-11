@@ -37,6 +37,7 @@ Z_LIB=@Z_LIB@
 CROSS_COMPILING = @CROSS_COMPILING@
 NO_INLINE_FUNCTIONS=false
 USING_VC=@MIXED_VC@
+ERTS_USE_BUILTIN_RYU=@ERTS_USE_BUILTIN_RYU@
 
 OPCODE_TABLES = \
     $(ERL_TOP)/lib/compiler/src/genop.tab \
@@ -386,12 +387,14 @@ endif
 EPCRE_LIB = $(ERL_TOP)/erts/emulator/pcre/obj/$(TARGET)/$(TYPE)/$(LIB_PREFIX)epcre$(LIB_SUFFIX)
 DEPLIBS += $(EPCRE_LIB)
 
+ifeq ($(ERTS_USE_BUILTIN_RYU),yes)
 DEPLIBS += $(RYU_LIBRARY)
 ifeq ($(TARGET),win32)
 LIBS += -L$(RYU_OBJDIR) -lryu
 else
 # Build on darwin fails if -lryu is used
 LIBS += $(RYU_LIBRARY)
+endif
 endif
 
 ifdef LIBZSTD
@@ -530,7 +533,9 @@ endif
 
 include zlib/zlib.mk
 include pcre/pcre.mk
+ifeq ($(ERTS_USE_BUILTIN_RYU),yes)
 include ryu/ryu.mk
+endif
 include zstd/zstd.mk
 
 $(ERTS_LIB):
@@ -848,7 +853,10 @@ endif
 ifndef LIBZSTD
 COMMON_INCLUDES += -Izstd
 endif
-COMMON_INCLUDES += -Ipcre -Iryu
+ifeq ($(ERTS_USE_BUILTIN_RYU),yes)
+COMMON_INCLUDES += -Iryu
+endif
+COMMON_INCLUDES += -Ipcre
 COMMON_INCLUDES += -I../include -I../include/$(TARGET)
 COMMON_INCLUDES += -I../include/internal -I../include/internal/$(TARGET)
 
@@ -957,6 +965,9 @@ $(OBJDIR)/%.o: sys/$(ERLANG_OSTYPE)/%.c
 
 $(OBJDIR)/%.o: sys/common/%.c
 	$(V_CC) $(subst $(space)-O2$(space), $(GEN_OPT_FLGS) , $(CFLAGS)) $(INCLUDES) -c $< -o $@
+
+$(OBJDIR)/%.o: sys/common/%.cpp
+	$(V_CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 $(OBJDIR)/%.o: drivers/common/%.c
 	$(V_CC) $(CFLAGS) -DLIBSCTP=$(LIBSCTP) $(INCLUDES) -Idrivers/common -Idrivers/$(ERLANG_OSTYPE) -c $< -o $@
@@ -1279,6 +1290,9 @@ OS_OBJS +=	$(OBJDIR)/erl_poll.o \
 ifeq ($(ERTS_BUILD_FALLBACK_POLL),yes)
 OS_OBJS += 	$(OBJDIR)/erl_poll.flbk.o
 endif
+ifneq ($(ERTS_USE_BUILTIN_RYU),yes)
+OS_OBJS += 	$(OBJDIR)/erl_float_short.o
+endif
 
 ifeq ($(JIT_ENABLED),yes)
 BASE_OBJS = $(JIT_OBJS)
@@ -1459,7 +1473,10 @@ $(TARGET)/gen_git_version.mk:
 # rebuild.
 	$(V_at)if utils/gen_git_version $@; then touch beam/erl_bif_info.c; fi
 
-DEPEND_DEPS=jit src drv nif sys target zlib ryu zstd
+DEPEND_DEPS=jit src drv nif sys target zlib zstd
+ifeq ($(ERTS_USE_BUILTIN_RYU),yes)
+DEPEND_DEPS += ryu
+endif
 
 $(TTF_DIR)/src.depend.mk: $(TTF_DIR)/GENERATED $(PRELOAD_SRC)
 	$(gen_verbose)

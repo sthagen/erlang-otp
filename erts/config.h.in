@@ -78,6 +78,9 @@
    64-bit alignment will be forced. */
 #undef ERTS_STRUCTURE_ALIGNED_ALLOC
 
+/* Define if builtin ryu should be used */
+#undef ERTS_USE_BUILTIN_RYU
+
 /* Define if builtin zlib should be used */
 #undef ERTS_USE_BUILTIN_ZLIB
 

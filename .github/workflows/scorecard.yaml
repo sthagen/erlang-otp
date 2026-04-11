@@ -29,7 +29,9 @@ on:
     branches:
       - master
 
-permissions: read-all
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   analysis:
@@ -52,4 +54,3 @@ jobs:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
-          config_file: .github/scorecard.yaml

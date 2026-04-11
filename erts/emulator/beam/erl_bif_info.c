@@ -3595,13 +3595,15 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
 #endif
         xtra -= 2;
 
-        hp = erts_produce_heap(&hfact, 2, xtra);
+        hp = erts_produce_heap(&hfact, 4, xtra);
+#ifdef ERTS_USE_BUILTIN_RYU
         included = CONS(hp, AM_STL, included);
-        xtra -= 2;
-
-        hp = erts_produce_heap(&hfact, 2, xtra);
-        included = CONS(hp, AM_ryu, included);
-        xtra -= 2;
+        included = CONS(hp+2, AM_ryu, included);
+#else
+        excluded = CONS(hp, AM_STL, excluded);
+        excluded = CONS(hp+2, AM_ryu, excluded);
+#endif
+        xtra -= 4;
 
         hp = erts_produce_heap(&hfact, 2, xtra);
         included = CONS(hp, AM_pcre2, included);

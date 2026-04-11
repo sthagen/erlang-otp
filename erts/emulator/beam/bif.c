@@ -52,7 +52,9 @@
 #include "erl_msacc.h"
 #include "erl_proc_sig_queue.h"
 #include "erl_fun.h"
-#include "ryu.h"
+#ifdef ERTS_USE_BUILTIN_RYU
+#  include "ryu.h"
+#endif
 #include "jit/beam_asm.h"
 #include "erl_global_literals.h"
 #include "beam_load.h"
@@ -3414,11 +3416,15 @@ static int do_float_to_charbuf(Process *p, Eterm efloat, Eterm list,
     GET_DOUBLE(efloat, f);
 
     if (fmt_type == FMT_SHORT) {
+#ifdef ERTS_USE_BUILTIN_RYU
         const int index = d2s_buffered_n(f.fd, fbuf);
 
         /* Terminate the string. */
         fbuf[index] = '\0';
         return index;
+#else
+        return sys_double_to_chars_short(f.fd, fbuf, sizeof_fbuf);
+#endif
     } else if (fmt_type == FMT_FIXED) {
         return sys_double_to_chars_fast(f.fd, fbuf, sizeof_fbuf,
                 decimals, compact);
