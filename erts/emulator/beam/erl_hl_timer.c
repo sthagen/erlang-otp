@@ -2793,11 +2793,10 @@ erts_pause_proc_timer(Process *c_p)
     erts_atomic_set_nob(&c_p->common.timer, (erts_aint_t) pptmr);
 }
 
-int
+void
 erts_resume_paused_proc_timer(Process *c_p)
 {
     erts_aint_t timer;
-    int resumed_timer = 0;
 
     ERTS_LC_ASSERT(ERTS_PROC_LOCK_MAIN & erts_proc_lc_my_proc_locks(c_p));
 
@@ -2809,10 +2808,10 @@ erts_resume_paused_proc_timer(Process *c_p)
 
         ASSERT(pptmr->head.roflgs & ERTS_TMR_ROFLG_PAUSED);
 
-        erts_atomic_set_nob(&c_p->common.timer, ERTS_PTMR_NONE);
-
         pptmr->count -= 1;
         if (pptmr->count == 0) {
+            erts_atomic_set_nob(&c_p->common.timer, ERTS_PTMR_NONE);
+
             if (pptmr->time_left_in_msec > 0) {
                 ASSERT((pptmr->time_left_in_msec >> 32) == 0);
                 tmo = (UWord) pptmr->time_left_in_msec;
@@ -2820,11 +2819,8 @@ erts_resume_paused_proc_timer(Process *c_p)
 
             erts_set_proc_timer_uword(c_p, tmo);
             paused_proc_timer_dec_refc(pptmr);
-            resumed_timer = 1;
         }
     }
-
-    return resumed_timer;
 }
 
 void

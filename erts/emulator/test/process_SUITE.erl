@@ -60,6 +60,7 @@
          process_info_dict_lookup/1,
          process_info_label/1,
          suspend_process_pausing_proc_timer/1,
+         suspend_process_pausing_proc_timer_multi_suspend/1,
 	 bump_reductions/1, low_prio/1, binary_owner/1, yield/1, yield2/1,
 	 otp_4725/1, dist_unlink_ack_exit_leak/1, bad_register/1,
          garbage_collect/1, otp_6237/1,
@@ -193,7 +194,8 @@ groups() ->
        process_info_dict_lookup,
        process_info_label]},
      {suspend_process_bif, [],
-      [suspend_process_pausing_proc_timer]},
+      [suspend_process_pausing_proc_timer,
+       suspend_process_pausing_proc_timer_multi_suspend]},
      {otp_7738, [],
       [otp_7738_waiting, otp_7738_suspended,
        otp_7738_resume]},
@@ -1833,6 +1835,64 @@ suspend_process_pausing_proc_timer_aux(BeforeSuspend, AfterResume) ->
     true = erlang:suspend_process(Pid),
     true = erlang:resume_process(Pid),
     AfterResume(Pid),
+    WaitForSync(),
+    ok.
+
+suspend_process_pausing_proc_timer_multi_suspend(_Config) ->
+    TcProc = self(),
+    Child = erlang:spawn_link(
+        fun() ->
+            TcProc ! {sync, self()},
+            receive go -> ok
+            after 2_000 -> exit(timer_not_paused)
+            end,
+            TcProc ! {sync, self()},
+            receive _ -> error(unexpected)
+            after 2_000 -> ok
+            end,
+            TcProc ! {sync, self()}
+        end
+    ),
+
+    WaitForSync = fun () ->
+        receive {sync, Child} -> ok
+        after 10_000 -> error(timeout)
+        end
+    end,
+    EnsureWaiting = fun() ->
+        wait_until(fun () -> process_info(Child, status) == {status, waiting} end)
+    end,
+
+    WaitForSync(),
+    EnsureWaiting(),
+
+    Suspender = erlang:spawn_link(fun() ->
+        true = erlang:suspend_process(Child),
+        TcProc ! {suspended, self()},
+        receive do_resume -> true = erlang:resume_process(Child) end
+    end),
+    receive {suspended, Suspender} -> ok after 10_000 -> error(timeout) end,
+
+    true = erlang:suspend_process(Child),
+    timer:sleep(5_000),
+    true = erlang:resume_process(Child),
+    timer:sleep(1_000),
+    Child ! go,
+    Suspender ! do_resume,
+
+    WaitForSync(),
+    EnsureWaiting(),
+
+    Suspender2 = erlang:spawn_link(fun() ->
+        true = erlang:suspend_process(Child),
+        TcProc ! {suspended, self()},
+        receive do_resume -> true = erlang:resume_process(Child) end
+    end),
+    receive {suspended, Suspender2} -> ok after 10_000 -> error(timeout) end,
+
+    true = erlang:suspend_process(Child),
+    true = erlang:resume_process(Child),
+    Suspender2 ! do_resume,
     WaitForSync(),
     ok.
 
