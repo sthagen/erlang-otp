@@ -251,6 +251,8 @@ server(Addr, Port) ->
 """.
 -moduledoc(#{since => "OTP 22.0"}).
 
+-unsafe([{open, '_', possibly}]).
+
 -compile({no_auto_import, [error/1, monitor/1]}).
 
 %% Administrative and "global" utility functions

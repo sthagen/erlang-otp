@@ -59,6 +59,7 @@
 -define(DFLAG_ALIAS,        (16#08 bsl 32)).
 -define(DFLAG_LOCAL_EXT,    (16#10 bsl 32)). %% only used internally
 -define(DFLAG_ALTACT_SIG,   (16#20 bsl 32)).
+-define(DFLAG_NATIVE_RECORDS, (16#40 bsl 32)).
 
 %% The following flags are mandatory in OTP 25. OTP 25 and higher
 %% will accept ?DFLAG_MANDATORY_25_DIGEST as a shorthand for all those

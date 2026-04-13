@@ -407,7 +407,7 @@ default(server) ->
     (default(common))
         #{
       subsystems =>
-          #{default => [ssh_sftpd:subsystem_spec([])],
+          #{default => [],
             chk => fun(L) ->
                            is_list(L) andalso
                                lists:all(fun(SubSystem = {Name,{CB,Args}}) ->
@@ -423,7 +423,7 @@ default(server) ->
            },
 
       shell =>
-          #{default => ?DEFAULT_SHELL,
+          #{default => disabled,
             chk => fun({M,F,A}) -> is_atom(M) andalso is_atom(F) andalso is_list(A);
                       (disabled) -> true;
                       (V) -> check_function1(V) orelse
@@ -433,9 +433,10 @@ default(server) ->
            },
 
       exec =>
-          #{default => undefined,
+          #{default => disabled,
             chk => fun({direct, V}) ->  check_function1(V) orelse check_function2(V) orelse check_function3(V);
                       (disabled) -> true;
+                      (erlang_eval) -> true; % Enable Erlang term evaluation
                       %% Compatibility (undocumented):
                       ({M,F,A}) -> is_atom(M) andalso is_atom(F) andalso is_list(A);
                       (V) -> check_function1(V) orelse check_function2(V) orelse check_function3(V)

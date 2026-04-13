@@ -50,7 +50,7 @@ a program to run on most platforms.
          perf_counter/1, set_signal/2, system_time/0,
          system_time/1, timestamp/0]).
 
--unsafe([{cmd, '_', "use open_port/2 with {spawn_executable, _} argument"}]).
+-unsafe([{cmd, '_', possibly}]).
 
 -doc """
 All characters needs to be valid characters on the specific OS using

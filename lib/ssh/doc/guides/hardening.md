@@ -26,6 +26,10 @@ limitations under the License.
 The Erlang/OTP SSH application is intended to be used in other applications as a
 library.
 
+Ensure the Erlang VM runs as a non-root OS user. All SSH services (shell,
+exec, SFTP) inherit the OS-level rights of the VM process. See
+[Terminology](terminology.md) for details on the rights model.
+
 Different applications using this library may have very different requirements.
 One application could be running on a high performance server, while another is
 running on a small device with very limited cpu capacity. For example, the first
@@ -53,7 +57,7 @@ increase the resilence. The options to use are:
 
 - **[max_sessions](`m:ssh#hardening_daemon_options-max_sessions`)** - The
   maximum number of simultaneous sessions that are accepted at any time for this
-  daemon. This includes sessions that are being authorized. The default is that
+  daemon. This includes sessions that are being authenticated. The default is that
   an unlimited number of simultaneous sessions are allowed. It is a good
   candidate to set if the capacity of the server is low or a capacity margin is
   needed.
@@ -96,9 +100,19 @@ increase the resilence. The options to use are:
   receiving any message back. Alive messages are typically used to detect that a connection
   became unresponsive.
 
-A figure clarifies when a timeout is started and when it triggers:
+The following table clarifies when a timeout is started and when it triggers:
 
-![SSH server timeouts](assets/ssh_timeouts.jpg "SSH server timeouts")
+| # | Event | Timeout started | Timeout ended |
+|---|-------|-----------------|---------------|
+| 1 | TCP connected | `hello_timeout`, `negotiation_timeout` | |
+| 2 | First SSH message received | | `hello_timeout` |
+| 3 | Key Exchange finished | | |
+| 4 | Authenticated | `max_initial_idle_time` | `negotiation_timeout` |
+| 5 | Channel 1 opened | | `max_initial_idle_time` |
+| 6 | Channel *n* opened | | |
+| 7 | Channel *x_1* closed | | |
+| 8 | Channel *x_n* closed (all channels closed) | `idle_time` | |
+| 9 | Connection closed | | `idle_time` |
 
 ### Resilience to compression-based attacks
 
@@ -122,7 +136,7 @@ excessive memory consumption.
 
 ### SFTP Server Resource Limits
 
-When running an SFTP server via `ssh_sftpd:subsystem_spec/1`, additional
+When enabling the SFTP subsystem via `ssh_sftpd:subsystem_spec/1`, additional
 resource limits can be configured to protect against resource exhaustion attacks:
 
 #### max_handles
@@ -220,20 +234,18 @@ connect to and not an evil one impersonating the expected one using its own
 valid key-pair? There are two alternatives available with the default key
 handling plugin `m:ssh_file`. The alternatives are:
 
-- **Pre-store the host key** - \* For the default handler ssh_file, store the
+- **Pre-store the host key** - For the default handler ssh_file, store the
   valid host keys in the file [`known_hosts`](`m:ssh_file#FILE-known_hosts`) and
   set the option
   [silently_accept_hosts](`m:ssh#hardening_client_options-silently_accept_hosts`)
-  to `false`.
+  to `false`. Alternatively, write a specialized key handler using the
+  [SSH client key API](`m:ssh_client_key_api`) that accesses the pre-shared
+  key in some other way.
 
-  - or, write a specialized key handler using the
-    [SSH client key API](`m:ssh_client_key_api`) that accesses the pre-shared
-    key in some other way.
-
-- **Pre-store the "fingerprint" (checksum) of the host key** - \*
+- **Pre-store the "fingerprint" (checksum) of the host key** - Use
   [silently_accept_hosts](`m:ssh#hardening_client_options-silently_accept_hosts`)
-  - [`accept_callback()`](`t:ssh:accept_callback/0`)
-  - [`{HashAlgoSpec, accept_callback()}`](`t:ssh:accept_hosts/0`)
+  with a callback: [`accept_callback()`](`t:ssh:accept_callback/0`)
+  or [`{HashAlgoSpec, accept_callback()}`](`t:ssh:accept_hosts/0`).
 
 ## Verifying the remote client in a daemon (server)
 
@@ -303,11 +315,28 @@ _exec_ server-side service takes a string provided by the client, evaluates it
 and returns the result. The _shell_ function enables the client to open a shell
 in the shell host.
 
-Those service could - and should - be disabled when they are not needed. The
-options [exec](`t:ssh:exec_daemon_option/0`) and
-[shell](`t:ssh:shell_daemon_option/0`) are enabled per default but could be set
-to `disabled` if not needed. The same options could also install handlers for
+The options [exec](`t:ssh:exec_daemon_option/0`) and
+[shell](`t:ssh:shell_daemon_option/0`) are disabled per default.
+The same options could also install handlers for
 the string(s) passed from the client to the server.
+
+### Enabling the SFTP subsystem
+
+The SFTP subsystem is not enabled by default. When enabled, SFTP provides
+access to the file system with the rights of the OS process running the
+Erlang emulator, regardless of the authenticated SSH user. See the
+[Terminology](terminology.md) section for details.
+
+The [subsystems](`t:ssh:subsystem_daemon_option/0`) option controls which
+subsystems are available. To enable SFTP:
+
+```erlang
+ssh:daemon({192, 168, 1, 10}, Port,
+           [{subsystems, [ssh_sftpd:subsystem_spec([])]} | Options]).
+```
+
+Use the `root` option to restrict SFTP users to a specific directory
+tree (see [Root Directory Isolation](#root-directory-isolation) below).
 
 ### The id string
 
@@ -333,7 +362,7 @@ This brand and version may be changed with the option
 option:
 
 ```erlang
-	ssh:daemon(1234, [{id_string,"hi there"}, ... ]).
+        ssh:daemon({192, 168, 1, 10}, 1234, [{id_string,"hi there"}, ... ]).
 ```
 
 and the daemon will present itself as:
@@ -358,6 +387,10 @@ The negotiation (session setup time) time can be limited with the _parameter_
 
 ## SFTP Security
 
+Note that the SFTP server runs with the file access rights of the OS
+process running the Erlang emulator, regardless of the authenticated
+SSH user. See the [Terminology](terminology.md) section for details.
+
 ### Root Directory Isolation
 
 The `root` option (see `m:ssh_sftpd`) restricts SFTP users to a
@@ -380,3 +413,82 @@ using OS-level mechanisms (PAM chroot, containers, file permissions).
 **Defense-in-depth:** For high-security deployments, combine the `root` option
 with OS-level isolation mechanisms such as chroot jails, containers, or
 mandatory access control (SELinux, AppArmor).
+
+## Network-Level Security
+
+### IP Binding Restrictions
+
+`ssh:daemon/1` and `ssh:daemon/2` bind to **all network interfaces** by
+default. For hardened deployments, use `ssh:daemon/3` with an explicit
+IP address or `loopback`:
+
+```erlang
+ssh:daemon({192, 168, 1, 10}, 2222, Options).  % Specific interface
+ssh:daemon(loopback, 2222, Options).            % Localhost only
+```
+
+**Note**: In the examples above, `HostAddress` (1st argument) takes precedence
+over a potentially provided `{ip, Address}` in `Options` (3rd argument).
+
+## Advanced Authentication
+
+The following techniques provide enhanced authentication controls using
+custom callbacks. These require implementation specific to your environment.
+
+### Public Key Validation
+
+Use a custom [`key_cb`](`t:ssh:key_cb_common_option/0`) module implementing
+the `m:ssh_server_key_api` behaviour. The `is_auth_key` callback can enforce
+client key strength requirements (e.g. reject RSA keys shorter than 2048 bits)
+and log key usage for auditing. Enable
+[`pk_check_user`](`m:ssh#option-pk_check_user`) to verify that the username
+is known before accepting public key authentication.
+
+```erlang
+ssh:daemon({192, 168, 1, 10}, Port, [
+    {key_cb, {my_key_handler, []}},
+    {pk_check_user, true}
+]).
+```
+
+### Account Lockout Policies
+
+Use [`pwdfun`](`t:ssh:pwdfun_4/0`) with an ETS table to track failed
+attempts across connections and lock accounts after repeated failures.
+Return `disconnect` when the account is locked — this immediately
+terminates the connection with `SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE`:
+
+> #### Note {: .info }
+>
+> The lockout example below is conceptual. With
+> [`parallel_login`](`m:ssh#hardening_daemon_options-parallel_login`) enabled,
+> race conditions may reduce lockout accuracy.
+
+```erlang
+lockout_pwdfun(User, Password, _PeerAddr, State) ->
+    case ets:lookup(ssh_lockouts, {locked, User}) of
+        [_] ->
+            disconnect;
+        [] ->
+            case validate_password(User, Password) of
+                true ->
+                    ets:delete(ssh_lockouts, {attempts, User}),
+                    {true, State};
+                false ->
+                    N = ets:update_counter(ssh_lockouts,
+                            {attempts, User}, 1,
+                            {{attempts, User}, 0}),
+                    case N >= ?LOCKOUT_THRESHOLD of
+                        true ->
+                            ets:insert(ssh_lockouts,
+                                {{locked, User}, true}),
+                            ets:delete(ssh_lockouts,
+                                {attempts, User});
+                        false ->
+                            ok
+                    end,
+                    {false, State}
+            end
+    end.
+```
+

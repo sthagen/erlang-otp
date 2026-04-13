@@ -1172,6 +1172,8 @@ struct process {
     ErtsSchedulerData *scheduler_data;
     erts_atomic_t run_queue;
 
+    ErtsPausedBifTimers* paused_bif_timers; /* BIF timers paused during suspend */
+
 #ifdef USE_VM_PROBES
     Eterm dt_utag;              /* Place to store the dynamic trace user tag */
     Uint dt_utag_flags;         /* flag field for the dt_utag */
@@ -1199,6 +1201,7 @@ struct process {
 #ifdef DEBUG
     Uint debug_reds_in;
 #endif
+
 };
 
 extern Eterm erts_init_process_id; /* pid of init process */

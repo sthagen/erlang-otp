@@ -91,7 +91,10 @@
          daemon_replace_options_algs/1,
          daemon_replace_options_algs_connect/1,
          daemon_replace_options_algs_conf_file/1,
-         daemon_replace_options_not_found/1
+         daemon_replace_options_not_found/1,
+         daemon_loopback_binding/1,
+         pk_check_user_option/1,
+         pwdfun_lockout_ets/1
 	]).
 
 %%% Common test callbacks
@@ -176,7 +179,10 @@ groups() ->
 			    max_sessions_ssh_connect_sequential,
 			    max_sessions_sftp_start_channel_parallel,
 			    max_sessions_sftp_start_channel_sequential,
-                            max_sessions_drops_tcp_connects
+                            max_sessions_drops_tcp_connects,
+                            daemon_loopback_binding,
+                            pk_check_user_option,
+                            pwdfun_lockout_ets
 			   ]},
      {dir_options, [], [user_dir_option,
                         user_dir_fun_option,
@@ -1397,9 +1403,10 @@ ssh_connect_nonegtimeout_connected(Config, Parallel) ->
     ct:log("Parallel: ~p",[Parallel]),
    
     {_Pid, _Host, Port} = ssh_test_lib:daemon([{system_dir, SystemDir},{user_dir, UserDir},
-					       {parallel_login, Parallel},
-					       {negotiation_timeout, NegTimeOut},
-					       {failfun, fun ssh_test_lib:failfun/2}]),
+                                               {parallel_login, Parallel},
+                                               {negotiation_timeout, NegTimeOut},
+                                               {failfun, fun ssh_test_lib:failfun/2},
+                                               {shell, {shell, start, []}}]),
     ct:log("~p Listen ~p:~p",[_Pid,_Host,Port]),
     ct:sleep(500),
 
@@ -1550,7 +1557,8 @@ max_sessions(Config, ParallelLogin, Connect0) when is_function(Connect0,2) ->
 					     {user_dir, UserDir},
 					     {user_passwords, [{"carni", "meat"}]},
 					     {parallel_login, ParallelLogin},
-					     {max_sessions, MaxSessions}
+                                             {max_sessions, MaxSessions},
+                                             {subsystems, [ssh_sftpd:subsystem_spec([])]}
 					    ]),
     ct:log("~p Listen ~p:~p for max ~p sessions",[Pid,Host,Port,MaxSessions]),
     try [Connect(Host,Port) || _ <- lists:seq(1,MaxSessions)]
@@ -1981,7 +1989,8 @@ daemon_replace_options_algs_connect(Config) ->
 
     {Pid, Host, Port} =
         ssh_test_lib:std_daemon(Config,
-                                [{preferred_algorithms,[{kex,[A1]}]}
+                                [{exec, erlang_eval},
+                                 {preferred_algorithms,[{kex,[A1]}]}
                                 ]),
     [A1] = get_preferred_algorithms(Pid, kex),
 
@@ -2086,6 +2095,125 @@ daemon_replace_options_not_found(_Config) ->
     %% which is {error, bad_daemon_ref}
     Error = ssh:daemon_info(self()),
     Error = ssh:daemon_replace_options(self(), []).
+
+%%--------------------------------------------------------------------
+daemon_loopback_binding(Config) ->
+    %% Verify that daemon/3 with loopback binds to loopback address
+    SysDir = proplists:get_value(data_dir, Config),
+    UserDir = proplists:get_value(priv_dir, Config),
+    {Pid, _Host, Port} = ssh_test_lib:daemon(loopback, 0,
+                                             [{system_dir, SysDir},
+                                              {user_dir, UserDir},
+                                              {user_passwords, [{"usr1","pwd1"}]}]),
+    {ok, Info} = ssh:daemon_info(Pid),
+    ?CT_LOG("Daemon info: ~p", [Info]),
+    {127,0,0,1} = proplists:get_value(ip, Info),
+
+    %% Connect via loopback should succeed
+    {ok, C} = ssh:connect(loopback, Port,
+                          [{silently_accept_hosts, true},
+                           {user, "usr1"},
+                           {password, "pwd1"},
+                           {user_dir, UserDir}]),
+    ssh:close(C),
+    ssh:stop_daemon(Pid).
+
+%%--------------------------------------------------------------------
+pk_check_user_option(Config) ->
+    %% Verify that pk_check_user rejects unknown usernames even with
+    %% valid public key authentication.
+    PrivDir = proplists:get_value(priv_dir, Config),
+    SysDir = proplists:get_value(data_dir, Config),
+    UserDir = PrivDir,
+
+    {Pid, Host, Port} = ssh_test_lib:daemon(
+                           [{system_dir, SysDir},
+                            {user_dir, UserDir},
+                            {pk_check_user, true},
+                            {user_passwords, [{"usr1", "pwd1"}]},
+                            {failfun, fun ssh_test_lib:failfun/2}]),
+
+    ConnBase = [{silently_accept_hosts, true},
+                {user_dir, UserDir},
+                {user_interaction, false}],
+
+    %% Connect as "usr1" with pubkey — should succeed
+    ?CT_LOG("Connecting as 'usr1' (known user) with pubkey", []),
+    {ok, C1} = ssh:connect(Host, Port, [{user, "usr1"} | ConnBase]),
+    ?CT_LOG("Known user accepted", []),
+    ssh:close(C1),
+
+    %% Connect as "unknownuser" with same valid key — should fail
+    ?CT_LOG("Connecting as 'unknownuser' with pubkey", []),
+    {error, Reason} = ssh:connect(Host, Port, [{user, "unknownuser"} | ConnBase]),
+    ?CT_LOG("Unknown user rejected: ~p", [Reason]),
+
+    ssh:stop_daemon(Pid).
+
+%%--------------------------------------------------------------------
+pwdfun_lockout_ets(Config) ->
+    %% Verify cross-connection account lockout using ETS + pwdfun/4.
+    SysDir = proplists:get_value(data_dir, Config),
+    UserDir = proplists:get_value(priv_dir, Config),
+
+    Tab = ets:new(test_lockouts, [public, set]),
+    Threshold = 3,
+
+    PwdFun = fun(User, Password, _PeerAddr, State) ->
+                 case ets:lookup(Tab, {locked, User}) of
+                     [_] ->
+                         disconnect;
+                     [] ->
+                         case {User, Password} of
+                             {"usr1", "pwd1"} ->
+                                 ets:delete(Tab, {attempts, User}),
+                                 {true, State};
+                             _ ->
+                                 N = ets:update_counter(Tab, {attempts, User},
+                                                        1, {{attempts, User}, 0}),
+                                 case N >= Threshold of
+                                     true ->
+                                         ets:insert(Tab, {{locked, User}, true}),
+                                         ets:delete(Tab, {attempts, User});
+                                     false -> ok
+                                 end,
+                                 {false, State}
+                         end
+                 end
+             end,
+
+    {Pid, Host, Port} = ssh_test_lib:daemon(
+                           [{system_dir, SysDir},
+                            {user_dir, UserDir},
+                            {auth_methods, "password"},
+                            {pwdfun, PwdFun},
+                            {failfun, fun ssh_test_lib:failfun/2}]),
+
+    ConnOpts = fun(Pwd) ->
+                   [{silently_accept_hosts, true},
+                    {user, "usr1"},
+                    {password, Pwd},
+                    {user_dir, UserDir},
+                    {user_interaction, false}]
+               end,
+
+    ?CT_LOG("Verifying correct password works before lockout", []),
+    {ok, C0} = ssh:connect(Host, Port, ConnOpts("pwd1")),
+    ssh:close(C0),
+
+    ?CT_LOG("Sending ~p failed attempts to trigger lockout", [Threshold]),
+    [begin
+         {error, Reason} = ssh:connect(Host, Port, ConnOpts("wrong")),
+         ?CT_LOG("Attempt ~p failed: ~p", [I, Reason])
+     end || I <- lists:seq(1, Threshold)],
+
+    ?CT_LOG("Verifying account is locked — correct password should fail", []),
+    {error, LockedReason} = ssh:connect(Host, Port, ConnOpts("pwd1")),
+    ?CT_LOG("Locked account connect failed: ~p", [LockedReason]),
+
+    ?CT_LOG("Account lockout verified", []),
+    ets:delete(Tab),
+    ssh:stop_daemon(Pid).
 
 %%--------------------------------------------------------------------
 %% Internal functions ------------------------------------------------

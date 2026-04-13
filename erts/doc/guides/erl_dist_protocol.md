@@ -833,6 +833,11 @@ following capability flags are defined:
   [`ALTACT_SIG_SEND`](erl_dist_protocol.md#ALTACT_SIG_SEND) control messages.
   Introduced in OTP 28.
 
+- **`-define(DFLAG_NATIVE_RECORDS, (1 bsl 38)).`{: #DFLAG_NATIVE_RECORDS }** -
+  The node supports native record terms encoded with the
+  [`RECORD_EXT`](erl_ext_dist.md#record_ext) tag.
+  Introduced in OTP 29.
+
 There is also function `dist_util:strict_order_flags/0` returning all flags
 (bitwise or:ed together) corresponding to features that require strict ordering
 of data over distribution channels.
