@@ -58,6 +58,7 @@
 #include "erl_iolist.h"
 #include "erl_debugger.h"
 #include "erl_record.h"
+#include "erl_crash_dump.h"
 
 #include "jit/beam_asm.h"
 
@@ -1309,6 +1310,10 @@ erl_start(int argc, char **argv)
     ErtsTimeWarpMode time_warp_mode;
     int node_tab_delete_delay = ERTS_NODE_TAB_DELAY_GC_DEFAULT;
     ErtsDbSpinCount db_spin_count = ERTS_DB_SPNCNT_NORMAL;
+
+    /* Must be set up as early as possible for crash dump encryption to work
+     * properly. */
+    erl_crash_dump_init();
 
     set_default_time_adj(&time_correction,
 			 &time_warp_mode);

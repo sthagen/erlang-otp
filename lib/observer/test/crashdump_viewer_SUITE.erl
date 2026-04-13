@@ -46,6 +46,12 @@
 init_per_testcase(start_stop, Config) ->
     catch crashdump_viewer:stop(),
     try
+        case os:getenv("ERL_CRASH_DUMP_PUBLIC_KEY") of
+             false ->
+                ok;
+             _ ->
+                exit("Crashdump viewer does not support encrypted crash dumps")
+        end,
 	case os:type() of
 	    {unix,darwin} ->
 		exit("Can not test on MacOSX");
