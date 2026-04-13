@@ -566,17 +566,22 @@ unzip_traversal_exploit(Config) ->
 unzip_jar(Config) when is_list(Config) ->
     DataDir = get_value(data_dir, Config),
     PrivDir = get_value(priv_dir, Config),
+
+    JarContents = ["META-INF","test.txt"],
     JarFile = filename:join(DataDir, "test.jar"),
+
+    %% creates test.jar file
+    {ok, _} = zip:zip(JarFile, JarContents, [{cwd, DataDir}]),
 
     %% create a temp directory
     Subdir = filename:join(PrivDir, "jartest"),
     ok = file:make_dir(Subdir),
 
-    FList = ["META-INF/MANIFEST.MF","test.txt"],
-
+    %% tests unzip
     {ok, RetList} = zip:unzip(JarFile, [{cwd, Subdir}]),
 
     %% Verify.
+    FList = ["META-INF/MANIFEST.MF","test.txt"],
     lists:foreach(fun(F)-> {ok,B} = file:read_file(filename:join(DataDir, F)),
 			   {ok,B} = file:read_file(filename:join(Subdir, F)) end,
 		  FList),
