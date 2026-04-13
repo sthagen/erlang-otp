@@ -68,6 +68,8 @@
          rsa_schemes/0,
          groups/0,
          groups/1,
+         pqc_groups/0,
+         ec_groups/0,
          group_to_enum/1,
          enum_to_group/1,
          default_groups/0,
@@ -1248,7 +1250,7 @@ ecc_curves(Version) when is_tuple(Version) ->
     ecc_curves(TLSCurves);
 ecc_curves(TLSCurves) ->
     [pubkey_cert_records:namedCurves(Curve) || Curve <- TLSCurves].
- 
+
 groups() ->
     TLSGroups = groups(all),
     groups(TLSGroups).
@@ -1256,29 +1258,13 @@ groups() ->
 -spec groups(all | default | TLSGroups :: list()) -> [ssl:group()].
 groups(all) ->
     default_pqc_hybrid_groups() ++
-        [x25519,
-         x448,
-         secp521r1,
-         secp384r1,
-         secp256r1,
-         brainpoolP256r1tls13,
-         brainpoolP384r1tls13,
-         brainpoolP512r1tls13
-         ] ++
+        ec_groups() ++
         other_pqc_hybrid_groups() ++
         pqc_plain_groups() ++
         dhe_groups();
 groups(default) ->
     default_pqc_hybrid_groups() ++
-        [x25519,
-         x448,
-         secp521r1,
-         secp384r1,
-         secp256r1,
-         brainpoolP512r1tls13,
-         brainpoolP384r1tls13,
-         brainpoolP256r1tls13
-        ];
+        ec_groups();
 groups(TLSGroups) when is_list(TLSGroups) ->
     CryptoGroups = crypto_supported_groups(),
     lists:filter(fun(x25519mlkem768) ->
@@ -1293,6 +1279,21 @@ groups(TLSGroups) when is_list(TLSGroups) ->
                     (Group) ->
                          proplists:get_bool(maybe_group_to_curve(Group), CryptoGroups)
                  end, TLSGroups).
+ec_groups() ->
+     [x25519,
+      x448,
+      secp521r1,
+      secp384r1,
+      secp256r1,
+      brainpoolP512r1tls13,
+      brainpoolP384r1tls13,
+      brainpoolP256r1tls13
+     ].
+
+pqc_groups() ->
+    default_pqc_hybrid_groups() ++
+        other_pqc_hybrid_groups() ++
+        pqc_plain_groups().
 
 default_pqc_hybrid_groups() ->
     [x25519mlkem768].
