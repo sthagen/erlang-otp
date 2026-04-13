@@ -58,9 +58,10 @@ public_key:decrypt_private/2 unsafe=29
 public_key:decrypt_public/2 unsafe=29
 public_key:encrypt_private/2 unsafe=29
 public_key:encrypt_public/2 unsafe=29
+socket:open/_ unsafe=29
+xmerl_sax_parser:file/2 unsafe=29
+xmerl_sax_parser:stream/2 unsafe=29
 xmerl_scan:_/_ unsafe=29
-
-## Possibly unsafe
 public_key:decrypt_private/3 unsafe=29
 public_key:decrypt_public/3 unsafe=29
 public_key:encrypt_private/3 unsafe=29
