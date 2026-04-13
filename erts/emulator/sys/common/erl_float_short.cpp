@@ -31,6 +31,11 @@
 #include <charconv>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>
+extern "C"
+{
+#include "sys.h"
+}
 
 extern "C"
 int sys_double_to_chars_short(double f, char* fbuf, int sizeof_fbuf)
@@ -49,46 +54,137 @@ int sys_double_to_chars_short(double f, char* fbuf, int sizeof_fbuf)
         return 0;
     }
 
+
+    /* The output from std::to_chars() differ from what we want:
+     *
+     * 1. Integer fixed floats are missing trailing ".0"          Ex: "12345"
+     * 2. Single digit significands are missing ".0" before "e"   Ex: "1e-10"
+     * 3. Positive exponents have a redundant '+'                 Ex: "1.2e+10"
+     * 4. Single digit exponents have a redundant '0'             Ex: "1.2e-09"
+     *
+     * Any combinations of 2-4 are possible.
+     *
+     * To make things more complicated, the above differences in output can
+     * change which format is the shortest. So we sometimes have to change
+     * from fixed to scientific format or vice versa.
+     *
+     * The conversion logic that follows is pure string manipulation.
+     * We rely heavily on to_chars() giving us the right amount of significant
+     * digits AND in the shortest output format as described above.
+     */
+
     char* end = tcr.ptr;
-    bool add_dot0 = true;
+    char* p = fbuf;
 
-    for (char *p = fbuf+1; p < end; p++) {
-        if (*p == '.') {
-            add_dot0 = false;
-        }
-        else if (*p == 'e') {
-            if (add_dot0) {
-                memmove(p+2, p, end - p);
-                *p++ = '.';
-                *p++ = '0';
-                end += 2;
-                add_dot0 = false;
+    if (*p == '-') {
+        p++;
+    }
+    ASSERT(isdigit(*p));
+
+    if (end - p > 4) {
+        char *e = end - 4;
+
+        if (*e != 'e') {
+            --e;
+            if (*e != 'e') {
+                goto fixed;
             }
+        }
+        /*
+         * Scientific form
+         */
+        ASSERT(*e == 'e');
+        if (e == p+1) {
+            if (memcmp(e+1, "-04", 3) == 0) {
+                // Convert from Xe-04 to 0.000X
+                p[5] = p[0];
+                memcpy(p, "0.000", 5);
+                end++;
+                goto done;
+            }
+            // Insert ".0" before 'e'
+            memmove(e+2, e, end - e);
+            *e++ = '.';
+            *e++ = '0';
+            end += 2;
+        }
+
+        /*
+         * Simplify X.XXe+0Y to X.XXeY
+         */
+        e++;
+        if (*e == '-') {
+            e++;
+            p = e;
+        }
+        else {
+            ASSERT(*e == '+');
+            p = e + 1;
+        }
+        ASSERT(isdigit(*p));
+        if (*p == '0') {
             p++;
-            char* exp_dst = p;
-            if (*p == '+') {
-                p++;
+        }
+        if (p != e) {
+            memmove(e, p, end - p);
+            end -= p - e;
+        }
+    }
+    else {
+    fixed:
+        /*
+         * Fixed form
+         */
+        if (end - p > 3 && end[-1] == '0' && end[-2] == '0'
+            && (end - p < 11 || end[-3] == '0')) {
+            /*
+             * Convert from XXXXXX00 to X.XXXXXeYY
+             */
+            const int exp = (end - p) - 1;
+
+            for (end -= 3; *end == '0'; end--) {
+                ASSERT(end > p);
             }
-            else if (*p == '-') {
-                p++;
-                exp_dst++;
+            if (end == p) {
+                end++; // Keep one zero as decimal
             }
-            if (*p == '0') {
-                p++;
+            memmove(p + 2, p + 1, (end - p));
+            p[1] = '.';
+            end += 2;
+            end[0] = 'e';
+            if (exp < 10) {
+                end[1] = '0' + exp;
+                end += 2;
             }
-            if (p != exp_dst) {
-                memmove(exp_dst, p, end - p);
-                end -= p - exp_dst;
+            else {
+                end[1] = '0' + (exp / 10);
+                end[2] = '0' + exp % 10;
+                end += 3;
             }
-            break;
+        }
+        else if (memcmp(p, "0.000", 5) == 0) {
+            /*
+             * Convert from 0.000XXX to X.XXe-4
+             */
+            ASSERT(end - p >= 7);
+            ASSERT(p[5] != '0');
+            p[0] = p[5];
+            p[1] = '.';
+            memmove(p+2, p+6, (end - p) - 6);
+            end--;
+            memcpy(end-3, "e-4", 3);
+        }
+        else if (!memchr(p, '.', end - p)) {
+            /*
+             * Append ".0" to integers
+             */
+            end[0] = '.';
+            end[1] = '0';
+            end += 2;
         }
     }
 
-    if (add_dot0) {
-        *end++ = '.';
-        *end++ = '0';
-    }
-
+done:
     *end = '\0';
     return end - fbuf;
 }

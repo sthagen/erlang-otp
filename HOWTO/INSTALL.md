@@ -461,10 +461,7 @@ Some of the available `configure` options are:
     to embedded 3pps. Implies all `--enable-builtin-*` options. Can be overridden
     by individual `--disable-builtin-*` options.
 *   `--enable-builtin-ryu` - Use our own built-in ryu for float to short string.
-*   `--disable-builtin-ryu` - Use C++17 as an alternative for built-in ryu. May
-    cause slightly different results when converting floating point values to
-    strings using `float_to_list(F,[short])`, `float_to_binary(F,[short])` or
-    `io:format` with control sequences `~p` or `~w`.
+*   `--disable-builtin-ryu` - Use C++17 as an alternative for built-in ryu.
 *   `--enable-builtin-zstd` - Force use of our own built-in zstd.
 *   `--disable-builtin-zstd` - Find a static libzstd on the system to use.
 *   `--enable-builtin-zlib` - Force use of our own built-in zlib.
