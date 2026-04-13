@@ -2410,7 +2410,10 @@ config_template(Config, ServerRoot, ScriptPath, Modules) ->
      {script_alias, {"/htbin/", ScriptPath}},
      {script_alias, {"/cgi-bin/", ScriptPath}},
      {script_re_write, {"/cgi-([a-zA-Z-]*)bin/", ScriptPath}},
-     {erl_script_alias, {"/cgi-bin/erl", Modules}}
+     {erl_script_alias, {"/cgi-bin/erl", Modules}},
+     {modules, [mod_alias, mod_auth, mod_esi, mod_actions,
+                mod_cgi, mod_dir, mod_get, mod_head,
+                mod_log, mod_disk_log]}
     ] ++ custom_config_options(Config).
 
 custom_config_options([{Name, _} = Option | Rest]) when Name == erl_script_alias;

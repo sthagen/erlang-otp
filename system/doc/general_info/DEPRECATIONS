@@ -66,6 +66,8 @@ public_key:decrypt_private/3 unsafe=29
 public_key:decrypt_public/3 unsafe=29
 public_key:encrypt_private/3 unsafe=29
 public_key:encrypt_public/3 unsafe=29
+mod_cgi:_/_ since=29 remove=30
+mod_actions:_/_ since=29 remove=30
 
 #
 # Added in OTP 28.

@@ -322,6 +322,10 @@ obsolete(ftp, _, _) ->
     {deprecated, "Legacy protocol support will be dropped in OTP-30, use more modern approach for file transfer as for instance SFTP (SSH File Transfer Protocol).", "OTP 30"};
 obsolete(gen_fsm, _, _) ->
     {deprecated, "use the 'gen_statem' module instead"};
+obsolete(mod_actions, _, _) ->
+    {deprecated, "use 'mod_esi' for dynamic page generation", "OTP 30"};
+obsolete(mod_cgi, _, _) ->
+    {deprecated, "use 'mod_esi' for dynamic page generation", "OTP 30"};
 obsolete(odbc, _, _) ->
     {deprecated, "Legacy protocol support will be dropped in OTP-30, does not really provide backend transparency and known usage is low.", "OTP 30"};
 obsolete(random, _, _) ->
