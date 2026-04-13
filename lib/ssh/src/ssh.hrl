@@ -36,8 +36,6 @@
 
 -define(DEFAULT_TRANSPORT,  {tcp, gen_tcp, tcp_closed} ).
 
--define(DEFAULT_SHELL, {shell, start, []} ).
-
 -define(DEFAULT_TIMEOUT, 5000).
 
 -define(MAX_RND_PADDING_LEN, 15).
@@ -210,10 +208,13 @@ The `channel_callback` is the module that implements the `m:ssh_server_channel`
 [Creating a Subsystem](using_ssh.md#usersguide_creating_a_subsystem) in the
 User's Guide for more information and an example.
 
-If the subsystems option is not present, the value of
-`ssh_sftpd:subsystem_spec([])` is used. This enables the sftp subsystem by
-default. The option can be set to the empty list if you do not want the daemon
-to run any subsystems.
+If the subsystems option is not present, the default is an empty list
+and no subsystems are enabled.
+
+To enable the SFTP subsystem:
+```
+ssh:daemon(Port, [{subsystems, [ssh_sftpd:subsystem_spec([])]} | Options])
+```
 """.
 -doc(#{group => <<"Daemon Options">>}).
 -type subsystem_spec()        :: {Name::string(), mod_args()} .
@@ -842,6 +843,14 @@ risk.
 -type shell_daemon_option()     :: {shell, shell_spec()} .
 -doc(#{group => <<"Daemon Options">>}).
 -type shell_spec() :: mod_fun_args() | shell_fun() | disabled .
+-doc """
+The default is `disabled`.
+
+To enable the Erlang shell:
+```
+ssh:daemon(Port, [{shell, {shell, start, []}} | Options])
+```
+""".
 -doc(#{group => <<"Daemon Options">>,
        equiv => 'shell_fun/2'/0}).
 -type shell_fun() :: 'shell_fun/1'()  | 'shell_fun/2'() .
@@ -850,7 +859,7 @@ risk.
 -type 'shell_fun/1'() :: fun((User::string()) -> pid()) .
 -doc """
 Defines the read-eval-print loop used in a daemon when a shell is requested by
-the client. The default is to use the Erlang shell: `{shell, start, []}`
+the client.
 
 See the option [`exec-option`](`t:exec_daemon_option/0`) for a description of
 how the daemon executes shell-requests and exec-requests depending on the shell-
@@ -862,7 +871,23 @@ and exec-options.
 -doc(#{group => <<"Daemon Options">>}).
 -type exec_daemon_option()      :: {exec, exec_spec()} .
 -doc(#{group => <<"Daemon Options">>}).
--type exec_spec()               :: {direct, exec_fun()} | disabled | deprecated_exec_opt().
+-type exec_spec()               :: {direct, exec_fun()} | disabled | deprecated_exec_opt() | erlang_eval.
+-doc """
+The default is `disabled`.
+
+Value `erlang_eval` enables evaluation of Erlang terms via exec requests.
+This works when the shell option is either `disabled` (no shell) or
+`{shell, start, []}` (Erlang shell). It does not work with custom shells.
+
+To restore the behavior from OTP versions prior to OTP @OTP-19969@, configure:
+```
+ssh:daemon(Port, [{shell, {shell, start, []}},
+                  {exec, erlang_eval}
+                  | Options])
+```
+
+For new code, consider using `{direct, Fun}` for more controlled exec handling.
+""".
 -doc(#{group => <<"Daemon Options">>}).
 -type exec_fun()                :: 'exec_fun/1'() | 'exec_fun/2'() | 'exec_fun/3'().
 -doc(#{group => <<"Daemon Options">>}).
@@ -885,7 +910,7 @@ channel-type 0 and will in similar manner be piped to `stdout`. The exit-status
 code is set to 0 for success and 255 for errors. The exact results presented on
 the client side depends on the client and the client's operating system.
 
-In case of the `{direct, exec_fun()}` variant or no exec-option at all, all
+In case of the `{direct, exec_fun()}` variant or `erlang_eval`, all
 reads from `standard_input` will be from the received data-events of type 0.
 Those are sent by the client. Similarly all writes to `standard_output` will be
 sent as data-events to the client. An OS shell client like the command 'ssh'
@@ -895,9 +920,10 @@ The option cooperates with the daemon-option
 [`shell`](`t:shell_daemon_option/0`) in the following way:
 
 - **1\. If neither the [`exec-option`](`t:exec_daemon_option/0`) nor the
-  [`shell-option`](`t:shell_daemon_option/0`) is present:** - The default Erlang
-  evaluator is used both for exec and shell requests. The result is returned to
-  the client.
+  [`shell-option`](`t:shell_daemon_option/0`) is present:** - Both default to
+  `disabled`. No exec-requests or shell-requests are executed. This is the
+  default behavior since @OTP-19969@. To restore the previous
+  behavior, set `{shell, {shell, start, []}}` and `{exec, erlang_eval}`.
 
 - **2\. If the [`exec_spec`](`t:exec_daemon_option/0`)'s value is `disabled`
   (the [`shell-option`](`t:shell_daemon_option/0`) may or may not be
@@ -912,23 +938,23 @@ The option cooperates with the daemon-option
   the client. Shell-requests are not affected, they follow the
   [`shell_spec`](`t:shell_daemon_option/0`)'s value.
 
-- **4\. If the [`exec-option`](`t:exec_daemon_option/0`) is absent, and the
-  [`shell-option`](`t:shell_daemon_option/0`) is present with the default Erlang
-  shell as the [`shell_spec`](`t:shell_daemon_option/0`)'s value:** - The
-  default Erlang evaluator is used both for exec and shell requests. The result
-  is returned to the client.
+- **4\. If the [`exec_spec`](`t:exec_daemon_option/0`)'s value is
+  `erlang_eval`, and the [`shell-option`](`t:shell_daemon_option/0`) is
+  `disabled` or set to the default Erlang shell `{shell, start, []}`:** - The
+  default Erlang evaluator is used for exec requests. The result is returned to
+  the client. Shell-requests follow the
+  [`shell_spec`](`t:shell_daemon_option/0`)'s value.
 
-- **5\. If the [`exec-option`](`t:exec_daemon_option/0`) is absent, and the
-  [`shell-option`](`t:shell_daemon_option/0`) is present with a value that is
-  neither the default Erlang shell nor the value `disabled`:** - The
+- **5\. If the [`exec_spec`](`t:exec_daemon_option/0`)'s value is
+  `erlang_eval`, and the [`shell-option`](`t:shell_daemon_option/0`) is present
+  with a value that is neither the default Erlang shell nor `disabled`:** - The
   exec-request is not evaluated and an error message is returned to the client.
   Shell-requests are executed according to the value of the
   [`shell_spec`](`t:shell_daemon_option/0`).
 
-- **6\. If the [`exec-option`](`t:exec_daemon_option/0`) is absent, and the
-  [`shell_spec`](`t:shell_daemon_option/0`)'s value is `disabled`:** - Exec
-  requests are executed by the default shell, but shell-requests are not
-  executed.
+- **6\. If the [`exec-option`](`t:exec_daemon_option/0`) is absent (defaults to
+  `disabled`), and the [`shell_spec`](`t:shell_daemon_option/0`)'s value is
+  `disabled`:** - Neither exec-requests nor shell-requests are executed.
 
 If a custom CLI is installed (see the option
 [`ssh_cli`](`t:ssh_cli_daemon_option/0`)) the rules above are replaced by thoose
@@ -1018,7 +1044,7 @@ supporting ext-info.
        equiv => pwdfun_4/0}).
 -type pwdfun_2() :: fun((User::string(), Password::string()|pubkey) -> boolean()) .
 -doc """
-- **`auth_method_kb_interactive_data`** - Sets the text strings that the daemon
+- **`auth_method_kb_interactive_data`{: #option-auth_method_kb_interactive_data }** - Sets the text strings that the daemon
   sends to the client for presentation to the user when using
   `keyboard-interactive` authentication.
 

@@ -83,7 +83,9 @@ _Step 3._ Start the Erlang `ssh` daemon:
 1> ssh:start().
 ok
 2> {ok, Sshd} = ssh:daemon(8989, [{system_dir, "/tmp/ssh_daemon"},
-                                  {user_dir, "/tmp/otptest_user/.ssh"}]).
+                                  {user_dir, "/tmp/otptest_user/.ssh"},
+                                  {shell, {shell, start, []}},
+                                  {exec, erlang_eval}]).
 {ok,<0.54.0>}
 3>
 ```
@@ -163,7 +165,7 @@ To collect the channel messages in a program, use `receive...end` instead of
 ```erlang
 5> receive
 5>     {ssh_cm, ConnectionRef, {data, ChannelId, Type, Result}} when Type == 0 ->
-5>         {ok,Result}
+5>         {ok,Result};
 5>     {ssh_cm, ConnectionRef, {data, ChannelId, Type, Result}} when Type == 1 ->
 5>         {error,Result}
 5> end.
@@ -300,67 +302,17 @@ ok
 
 ### Configuring the server's (daemon's) command execution
 
-Every time a daemon [is started](using_ssh.md#running-an-erlang-ssh-daemon), it
-enables one-time execution of commands as described in the
-[previous section](using_ssh.md#simple-client-example) unless explicitly
-disabled.
+By default, one-time execution of commands is disabled — clients receive
+`"Prohibited."` on stderr with exit status 255. The daemon started in
+[Step 3](using_ssh.md#start-daemon-step3) above explicitly enables the built-in
+Erlang term evaluator with `{exec, erlang_eval}`.
 
-There is often a need to configure some other exec evaluator to tailor the input
-language or restrict the possible functions to call. There are two ways of doing
-this which will be shown with examples below. See
+To tailor the input language or restrict the possible functions to call, install
+an alternative evaluator with `{exec, {direct, Fun}}`. See
 [ssh:daemon/2,3](`ssh:daemon/2`) and
 [exec_daemon_option()](`t:ssh:exec_daemon_option/0`) for details.
 
-Examples of the two ways to configure the exec evaluator:
-
-1. Disable one-time execution.  
-   To modify the daemon start example above to reject one-time execution
-   requests, we change [Step 3](using_ssh.md#start-daemon-step3) by adding the
-   option `{exec, disabled}` to:
-
-```erlang
-1> ssh:start().
-ok
-2> {ok, Sshd} = ssh:daemon(8989, [{system_dir, "/tmp/ssh_daemon"},
-                                  {user_dir, "/tmp/otptest_user/.ssh"},
-                                  {exec, disabled}
-                                 ]).
-{ok,<0.54.0>}
-3>
-```
-
-A call to that daemon will return the text "Prohibited." on stderr (depending on
-the client and OS), and the exit status 255:
-
-```text
-$bash> ssh ssh.example.com -p 8989 "test."
-Prohibited.
-$bash> echo $?
-255
-$bash>
-```
-
-And the Erlang client library also returns the text "Prohibited." on data type 1
-instead of the normal 0 and exit status 255:
-
-```erlang
-2> {ok, ConnectionRef} = ssh:connect(loopback, 8989, []).
-{ok,<0.92.0>}
-3> {ok, ChannelId} = ssh_connection:session_channel(ConnectionRef, infinity).
-{ok,0}
-4> success = ssh_connection:exec(ConnectionRef, ChannelId, "test."
-success
-5> flush().
-Shell got {ssh_cm,<0.106.0>,{data,0,1,<<"Prohibited.">>}}
-Shell got {ssh_cm,<0.106.0>,{exit_status,0,255}}
-Shell got {ssh_cm,<0.106.0>,{eof,0}}
-Shell got {ssh_cm,<0.106.0>,{closed,0}}
-ok
-6>
-```
-
-1. Install an alternative evaluator.  
-   Start the damon with a reference to a `fun()` that handles the evaluation:
+Start the daemon with a reference to a `fun()` that handles the evaluation:
 
 ```erlang
 1> ssh:start().
@@ -407,7 +359,7 @@ The error return in the Erlang client (The text as data type 1 and exit_status
 {ok,<0.92.0>}
 3> {ok, ChannelId} = ssh_connection:session_channel(ConnectionRef, infinity).
 {ok,0}
-4> success = ssh_connection:exec(ConnectionRef, ChannelId, "1+ 2.").
+4> success = ssh_connection:exec(ConnectionRef, ChannelId, "1+ 2.", infinity).
 success
 5> flush().
 Shell got {ssh_cm,<0.106.0>,{data,0,1,<<"**Error** {bad_input,\"1+ 2.\"}">>}}
@@ -432,7 +384,8 @@ and `ClientAddress`). See the
 
 ## SFTP Server
 
-Start the Erlang `ssh` daemon with the SFTP subsystem:
+The SFTP subsystem is not enabled by default. To start an SSH daemon with
+SFTP, configure the `subsystems` option explicitly:
 
 ```erlang
 1> ssh:start().
@@ -612,7 +565,7 @@ described in Section
 1> ssh:start().
 ok
 2> ssh:daemon(8989, [{system_dir, "/tmp/ssh_daemon"},
-                     {user_dir, "/tmp/otptest_user/.ssh"}
+                     {user_dir, "/tmp/otptest_user/.ssh"},
                      {subsystems, [{"echo_n", {ssh_echo_server, [10]}}]}]).
 {ok,<0.54.0>}
 3>
