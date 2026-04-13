@@ -34,6 +34,8 @@ adopted API for XML in Java, and is a _de facto_ standard where there are
 versions for several programming language environments other than Java.
 """.
 
+-unsafe([{file, 2, possibly}, {stream, 2, possibly}]).
+
 %%----------------------------------------------------------------------
 %% Include files
 %%----------------------------------------------------------------------

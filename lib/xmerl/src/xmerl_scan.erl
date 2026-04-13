@@ -38,9 +38,7 @@ See also the
 
 -compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
 
--unsafe([{'_', '_',
-          "this module cannot be used with untrusted input, use "
-          "xmerl_sax_parser instead"}]).
+-unsafe([{'_', '_', possibly}]).
 
 %% main API
 -export([string/1, string/2,
