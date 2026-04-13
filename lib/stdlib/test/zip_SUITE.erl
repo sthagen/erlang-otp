@@ -567,11 +567,11 @@ unzip_jar(Config) when is_list(Config) ->
     DataDir = get_value(data_dir, Config),
     PrivDir = get_value(priv_dir, Config),
 
-    JarContents = ["META-INF","test.txt"],
     JarFile = filename:join(DataDir, "test.jar"),
 
-    %% creates test.jar file
-    {ok, _} = zip:zip(JarFile, JarContents, [{cwd, DataDir}]),
+    %% Create a jar file programatically
+    _ = os:cmd("jar -cvfm " ++ JarFile ++ " " ++ filename:join(DataDir, "META-INF/MANIFEST.MF")
+                ++ " " ++ filename:join(DataDir, "test.txt")),
 
     %% create a temp directory
     Subdir = filename:join(PrivDir, "jartest"),
@@ -581,10 +581,11 @@ unzip_jar(Config) when is_list(Config) ->
     {ok, RetList} = zip:unzip(JarFile, [{cwd, Subdir}]),
 
     %% Verify.
-    FList = ["META-INF/MANIFEST.MF","test.txt"],
-    lists:foreach(fun(F)-> {ok,B} = file:read_file(filename:join(DataDir, F)),
-			   {ok,B} = file:read_file(filename:join(Subdir, F)) end,
-		  FList),
+    FList = [filename:join(DataDir, X) || X <- ["META-INF/MANIFEST.MF","test.txt"]],
+    lists:foreach(fun(F)->
+                          {ok,B} = file:read_file(filename:join(DataDir, F)),
+                          {ok,B} = file:read_file(filename:join(Subdir, F)) end,
+                  FList),
     lists:foreach(fun(F)->
                           case lists:last(F) =:= $/ of
                               true -> ok = file:del_dir(F);
