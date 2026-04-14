@@ -23,6 +23,57 @@ limitations under the License.
 
 This document describes the changes made to the Syntax_Tools application.
 
+## Syntax_Tools 4.1
+
+### Fixed Bugs and Malfunctions
+
+- `merl:compile_and_load/1` could crash when compiling code containing comments.
+  
+  `merl:quote/2` would fail to handle literal UTF-8 encoded binaries.
+
+  Own Id: OTP-20077 Aux Id: [PR-10243], [PR-10962]
+
+[PR-10243]: https://github.com/erlang/otp/pull/10243
+[PR-10962]: https://github.com/erlang/otp/pull/10962
+
+### Improvements and New Features
+
+- The legacy `and` and `or` operators have been replaced with other language constructs.
+
+  Own Id: OTP-19744 Aux Id: [PR-10114], [PR-10554], [PR-10568], [PR-10579], [PR-10585], [PR-10598], [PR-10710], [PR-10718], [PR-10580], [PR-10730]
+
+- Multi-valued comprehensions according to [EEP 78](https://www.erlang.org/eeps/eep-0078) has been implemented.
+  
+  Example:
+  
+  ```erlang
+  > [I, -I || I <- lists:seq(1, 5)].
+  [1,-1,2,-2,3,-3,4,-4,5,-5]
+  ```
+
+  Own Id: OTP-19942 Aux Id: [PR-9374]
+
+- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
+  
+  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
+  
+  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
+
+  Own Id: OTP-20066 Aux Id: [PR-10839]
+
+[PR-10114]: https://github.com/erlang/otp/pull/10114
+[PR-10554]: https://github.com/erlang/otp/pull/10554
+[PR-10568]: https://github.com/erlang/otp/pull/10568
+[PR-10579]: https://github.com/erlang/otp/pull/10579
+[PR-10585]: https://github.com/erlang/otp/pull/10585
+[PR-10598]: https://github.com/erlang/otp/pull/10598
+[PR-10710]: https://github.com/erlang/otp/pull/10710
+[PR-10718]: https://github.com/erlang/otp/pull/10718
+[PR-10580]: https://github.com/erlang/otp/pull/10580
+[PR-10730]: https://github.com/erlang/otp/pull/10730
+[PR-9374]: https://github.com/erlang/otp/pull/9374
+[PR-10839]: https://github.com/erlang/otp/pull/10839
+
 ## Syntax_Tools 4.0.3
 
 ### Fixed Bugs and Malfunctions

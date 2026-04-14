@@ -2483,12 +2483,12 @@ select(Cont) ->
 
 % select_reverse
 -doc(#{equiv => select_reverse(Tab, MatchSpec, read)}).
--doc(#{since => <<"OTP @OTP-19611@">>}).
+-doc(#{since => <<"OTP 29.0">>}).
 -spec select_reverse(Tab, MatchSpec) -> [Match] when
       Tab::table(), MatchSpec::ets:match_spec(), Match::term().
 select_reverse(Tab, Pat) ->
     select_reverse(Tab, Pat, read).
--doc(#{since => <<"OTP @OTP-19611@">>}).
+-doc(#{since => <<"OTP 29.0">>}).
 -doc """
 Works like `select/3`, but for table type `ordered_set`, traversing is done
 starting at the last object in Erlang term order, and moves to the first. For
@@ -2546,7 +2546,7 @@ fun_select_reverse(Tid, Ts, Tab, Spec, LockKind, TabPat, SelectFun) ->
     end.
 
 %% Breakable Select Reverse
--doc(#{since => <<"OTP @OTP-19611@">>}).
+-doc(#{since => <<"OTP 29.0">>}).
 -doc """
 Select the objects in `Tab` against `MatchSpec` in reverse order.
 
@@ -2623,7 +2623,7 @@ fun_select_reverse(Tid, Ts, Tab, Spec, LockKind, TabPat, Init, NObjects, Node, S
 	    select_state(Init(Spec),Def)
     end.
 
--doc(#{since => <<"OTP @OTP-19611@">>}).
+-doc(#{since => <<"OTP 29.0">>}).
 -doc """
 Continue selecting objects.
 
@@ -3082,7 +3082,7 @@ remote_dirty_select(Tab, [{HeadPat,_, _}] = Spec, [Pos | Tail])
 remote_dirty_select(Tab, Spec, _) ->
     mnesia_lib:db_select(Tab, Spec).
 
--doc(#{since => <<"OTP @OTP-19611@">>}).
+-doc(#{since => <<"OTP 29.0">>}).
 -doc """
 Dirty equivalent to `mnesia:select_reverse/2`.
 """.
@@ -4729,7 +4729,7 @@ are set when creating a table with the `user_properties` option in
 
 Returns the property tuple if it exists, otherwise raises an exception.
 """.
--doc #{since => ~"OTP @OTP-20038@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec read_table_property(Tab::table(), PropKey::term()) -> Res::tuple().
 read_table_property(Tab, PropKey) ->
     val({Tab, user_property, PropKey}).
@@ -4742,7 +4742,7 @@ where the first element is the property key. User-defined properties can be read
 with `mnesia:read_table_property/2` and deleted with
 `mnesia:delete_table_property/2`.
 """.
--doc #{since => ~"OTP @OTP-20038@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec write_table_property(Tab::table(), Prop::tuple()) -> t_result('ok').
 write_table_property(Tab, Prop) ->
     mnesia_schema:write_table_property(Tab, Prop).
@@ -4754,7 +4754,7 @@ Deletes a user-defined property from a table if such property exists.
 The property is identified by its key. User-defined properties can be read
 with `mnesia:read_table_property/2` and written with `mnesia:write_table_property/2`.
 """.
--doc #{since => ~"OTP @OTP-20038@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec delete_table_property(Tab::table(), PropKey::term()) -> t_result('ok').
 delete_table_property(Tab, PropKey) ->
     mnesia_schema:delete_table_property(Tab, PropKey).

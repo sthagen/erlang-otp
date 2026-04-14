@@ -27,6 +27,33 @@ as all enhancements and bugfixes for every release of Mnesia. Each release of
 Mnesia thus constitutes one section in this document. The title of each section
 is the version number of Mnesia.
 
+## Mnesia 4.26
+
+### Improvements and New Features
+
+- `mnesia` now has new functions `select_reverse/1-6` supporting iteration over tables in reverse order.
+
+  Own Id: OTP-19611 Aux Id: [GH-8993], [PR-9475]
+
+- The `mnesia_registry` module has been removed.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-19807 Aux Id: [PR-7315]
+
+- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
+  
+  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
+  
+  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
+
+  Own Id: OTP-20066 Aux Id: [PR-10839]
+
+[GH-8993]: https://github.com/erlang/otp/issues/8993
+[PR-9475]: https://github.com/erlang/otp/pull/9475
+[PR-7315]: https://github.com/erlang/otp/pull/7315
+[PR-10839]: https://github.com/erlang/otp/pull/10839
+
 ## Mnesia 4.25.2
 
 ### Improvements and New Features

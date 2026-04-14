@@ -23,6 +23,49 @@ limitations under the License.
 
 This document describes the changes made to the Tools application.
 
+## Tools 4.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed "unbalanced parenthesis" issue when pressing TAB in emacs erlang shell.
+
+  Own Id: OTP-19921 Aux Id: [PR-10642], [GH-8569]
+
+- The minimum supported Emacs version for `erlang-mode` has been raised
+  from 24.3 to 27.1. Compatibility shims for older Emacs versions have
+  been removed.
+  
+  The `erlang-mode` package version now tracks the Erlang/OTP release
+  version (29.0) for consistent version numbers across package managers.
+
+  Own Id: OTP-20059 Aux Id: [PR-10892]
+
+[PR-10642]: https://github.com/erlang/otp/pull/10642
+[GH-8569]: https://github.com/erlang/otp/issues/8569
+[PR-10892]: https://github.com/erlang/otp/pull/10892
+
+### Improvements and New Features
+
+- Tools such as the debugger, `m:beam_lib`, and `m:xref` no longer support BEAM files created before OTP 13B.
+
+  Own Id: OTP-19906 Aux Id: [PR-10519]
+
+- The `ignore_xref` attribute has been handled as a post-analysis filter by build tools such as Rebar3. In this release, `m:xref` itself does the filtering, ensuring that all tooling that calls `xref` for any purpose can rely on these declarations to just work.
+
+  Own Id: OTP-20032 Aux Id: [PR-10592]
+
+- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
+  
+  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
+  
+  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
+
+  Own Id: OTP-20066 Aux Id: [PR-10839]
+
+[PR-10519]: https://github.com/erlang/otp/pull/10519
+[PR-10592]: https://github.com/erlang/otp/pull/10592
+[PR-10839]: https://github.com/erlang/otp/pull/10839
+
 ## Tools 4.1.4
 
 ### Improvements and New Features
