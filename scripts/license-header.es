@@ -493,7 +493,7 @@ check_license([], _Template, #{ lines_after_license := LinesAfterLicense,
         NeedsNoLicense -> ok;
         IsShort, NeedsNoLicenseIfShort -> ok;
         NeedsNoLicenseIfShort ->
-            throw({warn, "is longer than 10 lines, needs license in header.", []});
+            throw({warn, "is longer than 20 lines, needs license in header.", []});
         true ->
             throw({warn, "needs license in header.", []})
     end;

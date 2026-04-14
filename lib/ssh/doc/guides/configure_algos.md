@@ -80,8 +80,8 @@ The lists are (named as in the SSH application's options):
   This list is also divided into two for the both directions
 
 - **`compression`** - If and how to compress the message. Examples are `none`,
-  that is, no compression,
-  `zlib` for pre-authentication compression (disabled by default),
+  that is, no compression, `zlib` for pre-authentication compression
+  (deprecated in SSH and it's usage is scheduled for removal in OTP 30.0),
   and `'zlib@openssh.com'` for post-authentication compression.
 
   This list is also divided into two for the both directions
