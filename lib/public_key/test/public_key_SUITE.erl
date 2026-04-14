@@ -69,6 +69,10 @@
          mldsa_priv_pkcs8/1,
          mldsa_pub_pem/0,
          mldsa_pub_pem/1,
+         ml_kem_priv_pkcs8/0,
+         ml_kem_priv_pkcs8/1,
+         ml_kem_pub_pem/0,
+         ml_kem_pub_pem/1,
          slh_dsa_priv_pkcs8/0,
          slh_dsa_priv_pkcs8/1,
          slh_dsa_pub_pem/0,
@@ -251,11 +255,12 @@ all() ->
 groups() ->
     [{pem_decode_encode, [], [dsa_pem, rsa_pem, rsa_pss_pss_pem,
                               rsa_pss_default_pem, ec_pem,
-			      encrypted_pem_pwdstring, encrypted_pem_pwdfun,
-			      dh_pem, cert_pem, pkcs7_pem, pkcs10_pem,
-			      rsa_priv_pkcs8, dsa_priv_pkcs8, ec_priv_pkcs8,
-			      eddsa_priv_pkcs8, eddsa_priv_rfc5958, mldsa_pub_pem,
-                              mldsa_priv_pkcs8, slh_dsa_pub_pem, slh_dsa_priv_pkcs8]},
+                              encrypted_pem_pwdstring, encrypted_pem_pwdfun,
+                              dh_pem, cert_pem, pkcs7_pem, pkcs10_pem,
+                              rsa_priv_pkcs8, dsa_priv_pkcs8, ec_priv_pkcs8,
+                              eddsa_priv_pkcs8, eddsa_priv_rfc5958, mldsa_pub_pem,
+                              mldsa_priv_pkcs8, ml_kem_pub_pem, ml_kem_priv_pkcs8,
+                              slh_dsa_pub_pem, slh_dsa_priv_pkcs8]},
      {sign_verify, [], [rsa_sign_verify, rsa_pss_sign_verify, mldsa_verify,
                         mldsa_sign, slh_dsa_verify, slh_dsa_sign, dsa_sign_verify,
                         eddsa_sign_verify_24_compat, custom_sign_fun_verify]},
@@ -645,6 +650,42 @@ ml_dsa_pub(File, AlgOid, Config) ->
 
     MLDSAPemNoEndNewLines = strip_licence(strip_superfluous_newlines(MLDSAPubPem)),
     MLDSAPemNoEndNewLines = strip_superfluous_newlines(public_key:pem_encode([PubEntry0])).
+
+ml_kem_priv_pkcs8() ->
+    [{doc, "ML-KEM PKCS8 private key decode/encode"}].
+ml_kem_priv_pkcs8(Config) when is_list(Config) ->
+    ml_kem_priv("ml-kem-512.pem", ?'id-alg-ml-kem-512', Config),
+    ml_kem_priv("ml-kem-768.pem", ?'id-alg-ml-kem-768', Config),
+    ml_kem_priv("ml-kem-1024.pem", ?'id-alg-ml-kem-1024', Config).
+
+ml_kem_priv(File, AlgOid, Config) ->
+    Datadir = proplists:get_value(data_dir, Config),
+    {ok, MLKEMPrivPem} = file:read_file(filename:join(Datadir, File)),
+    [{'PrivateKeyInfo', _, not_encrypted} = PKCS8Key] = public_key:pem_decode(MLKEMPrivPem),
+    MLKEMKey = #'ML-KEMPrivateKey'{} = public_key:pem_entry_decode(PKCS8Key),
+    true = check_entry_type(MLKEMKey, AlgOid),
+    PrivEntry0 = public_key:pem_entry_encode('PrivateKeyInfo', MLKEMKey),
+    MLKEMPemNoEndNewLines = strip_licence(strip_superfluous_newlines(MLKEMPrivPem)),
+    MLKEMPemNoEndNewLines = strip_superfluous_newlines(public_key:pem_encode([PrivEntry0])).
+
+ml_kem_pub_pem() ->
+    [{doc, "ML-KEM public_key decode/encode"}].
+ml_kem_pub_pem(Config) when is_list(Config) ->
+    ml_kem_pub("ml-kem-512_pubkey.pem", ?'id-alg-ml-kem-512', Config),
+    ml_kem_pub("ml-kem-768_pubkey.pem", ?'id-alg-ml-kem-768', Config),
+    ml_kem_pub("ml-kem-1024_pubkey.pem", ?'id-alg-ml-kem-1024', Config).
+
+ml_kem_pub(File, AlgOid, Config) ->
+    Datadir = proplists:get_value(data_dir, Config),
+    {ok, MLKEMPubPem} = file:read_file(filename:join(Datadir, File)),
+     [{'SubjectPublicKeyInfo', _, _} = PubEntry0] =
+        public_key:pem_decode(MLKEMPubPem),
+    MLKEMPubKey = #'ML-KEMPublicKey'{} = public_key:pem_entry_decode(PubEntry0),
+    true = check_entry_type(MLKEMPubKey, AlgOid),
+    PubEntry0 = public_key:pem_entry_encode('SubjectPublicKeyInfo', MLKEMPubKey),
+
+    MLKEMPemNoEndNewLines = strip_licence(strip_superfluous_newlines(MLKEMPubPem)),
+    MLKEMPemNoEndNewLines = strip_superfluous_newlines(public_key:pem_encode([PubEntry0])).
 
 slh_dsa_priv_pkcs8() ->
     [{doc, "SLH-DSA PKCS8 private key decode/encode"}].
@@ -2375,6 +2416,12 @@ check_entry_type(#'ML-DSAPublicKey'{algorithm = mldsa65}, ?'id-ml-dsa-65') ->
     true;
 check_entry_type(#'ML-DSAPublicKey'{algorithm = mldsa87}, ?'id-ml-dsa-87') ->
     true;
+check_entry_type(#'ML-KEMPublicKey'{algorithm = mlkem512}, ?'id-alg-ml-kem-512') ->
+    true;
+check_entry_type(#'ML-KEMPublicKey'{algorithm = mlkem768}, ?'id-alg-ml-kem-768') ->
+    true;
+check_entry_type(#'ML-KEMPublicKey'{algorithm = mlkem1024}, ?'id-alg-ml-kem-1024') ->
+    true;
 check_entry_type(#'SLH-DSAPublicKey'{algorithm = slh_dsa_sha2_128s}, ?'id-slh-dsa-sha2-128s') ->
     true;
 check_entry_type(#'ML-DSAPrivateKey'{algorithm = mldsa44}, ?'id-ml-dsa-44') ->
@@ -2382,6 +2429,12 @@ check_entry_type(#'ML-DSAPrivateKey'{algorithm = mldsa44}, ?'id-ml-dsa-44') ->
 check_entry_type(#'ML-DSAPrivateKey'{algorithm = mldsa65}, ?'id-ml-dsa-65') ->
     true;
 check_entry_type(#'ML-DSAPrivateKey'{algorithm = mldsa87}, ?'id-ml-dsa-87') ->
+    true;
+check_entry_type(#'ML-KEMPrivateKey'{algorithm = mlkem512}, ?'id-alg-ml-kem-512') ->
+    true;
+check_entry_type(#'ML-KEMPrivateKey'{algorithm = mlkem768}, ?'id-alg-ml-kem-768') ->
+    true;
+check_entry_type(#'ML-KEMPrivateKey'{algorithm = mlkem1024}, ?'id-alg-ml-kem-1024') ->
     true;
 check_entry_type(#'SLH-DSAPrivateKey'{algorithm = slh_dsa_sha2_128s}, ?'id-slh-dsa-sha2-128s') ->
     true;
