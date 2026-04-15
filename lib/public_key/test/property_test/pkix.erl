@@ -329,10 +329,55 @@ algorithm_identifier() ->
          #'AlgorithmIdentifier'{algorithm = Algo, parameters = asn1_NOVALUE}).
 
 ocsp_type() ->
-    elements(['OCSPRequest',
+    elements(['BasicOCSPResponse',
+              'ResponseData',
+              'CertID',
+              'Nonce',
+              'OCSPRequest',
               'OCSPResponse'
              ]).
 
+ocsp_value('BasicOCSPResponse') ->
+    ?LET(RespData, ocsp_value('ResponseData'),
+         #'BasicOCSPResponse'{
+            tbsResponseData = RespData,
+            signatureAlgorithm =
+                #'BasicOCSPResponse_signatureAlgorithm'{
+                   algorithm = ?'sha256WithRSAEncryption',
+                   parameters = ?EMPTY_PARAM},
+            signature = <<0, 1:256>>,
+            certs = asn1_NOVALUE});
+ocsp_value('ResponseData') ->
+    ?LET({HashAlgo, Params}, hash_algo(),
+         #'ResponseData'{
+            version = 0,
+            responderID = {byKey, <<1:160>>},
+            producedAt = "20200101000000Z",
+            responses =
+                [#'SingleResponse'{
+                    certID =
+                        #'CertID'{
+                           hashAlgorithm =
+                               #'CertID_hashAlgorithm'{algorithm = HashAlgo,
+                                                       parameters = Params},
+                           issuerNameHash = <<1:160>>,
+                           issuerKeyHash = <<1:160>>,
+                           serialNumber = 1},
+                    certStatus = {good, 'NULL'},
+                    thisUpdate = "20200101000000Z",
+                    nextUpdate = asn1_NOVALUE,
+                    singleExtensions = asn1_NOVALUE}],
+            responseExtensions = asn1_NOVALUE});
+ocsp_value('CertID') ->
+    ?LET({HashAlgo, Params}, hash_algo(),
+         #'CertID'{hashAlgorithm =
+                       #'CertID_hashAlgorithm'{algorithm = HashAlgo,
+                                               parameters = Params},
+                   issuerNameHash = hash(HashAlgo),
+                   issuerKeyHash = hash(HashAlgo),
+                   serialNumber = choose(1, 65535)});
+ocsp_value('Nonce') ->
+    ?LET(Len, choose(1, 128), binary(Len));
 ocsp_value('OCSPRequest') ->
     TBSRequest = #'TBSRequest'{
                     version = 0,
