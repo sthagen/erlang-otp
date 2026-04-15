@@ -1608,14 +1608,14 @@ Optional Features:
   --disable-use-embedded-3pp-alternatives
                           do not use any alternatives to embedded 3pps
   --enable-builtin-errno-id
-                          force use of our own built-in errno-id
+                          force use of our own built-in errno-id (default)
   --disable-builtin-errno-id
                           try to find an alternative on the system to use for
                           errno-id
-  --enable-builtin-zstd   force use of our own built-in zstd
+  --enable-builtin-zstd   force use of our own built-in zstd (default)
   --disable-builtin-zstd  try to find a static libzstd on the system to use
   --enable-builtin-zlib   force use of our own built-in zlib
-  --disable-builtin-zlib  try to find a zlib on the system to use
+  --disable-builtin-zlib  try to find a zlib on the system to use (default)
   --enable-esock          enable builtin socket (as a nif) support (default)
   --disable-esock         disable builtin socket (as a nif) support
   --enable-esock-rcvsndtimeo
@@ -16670,35 +16670,18 @@ if test ${enable_use_embedded_3pp_alternatives+y}
 then :
   enableval=$enable_use_embedded_3pp_alternatives;  case "$enableval" in
     no)
-      enable_builtin_errno_id=yes
-      enable_builtin_zstd=yes
-      enable_builtin_zlib=yes
-      use_embedded_3pp_alts=no
-      use_embedded_3pp_alts_val=0
+      builtin_errno_id=yes
+      builtin_zstd=yes
+      builtin_zlib=yes
       ;;
     *)
-      enable_builtin_errno_id=no
-      enable_builtin_zstd=no
-      enable_builtin_zlib=no
-      use_embedded_3pp_alts=yes
-      use_embedded_3pp_alts_val=1
+      builtin_errno_id=no
+      builtin_zstd=no
+      builtin_zlib=no
       ;;
   esac
 
-else case e in #(
-  e)
-  enable_builtin_errno_id=yes
-  enable_builtin_zstd=yes
-  enable_builtin_zlib=no
-  use_embedded_3pp_alts=default
-  use_embedded_3pp_alts_val=-1
- ;;
-esac
 fi
-
-
-
-printf "%s\n" "#define ERTS_USE_EMBEDDED_3PP_ALTS $use_embedded_3pp_alts_val" >>confdefs.h
 
 
 
@@ -16706,8 +16689,8 @@ printf "%s\n" "#define ERTS_USE_EMBEDDED_3PP_ALTS $use_embedded_3pp_alts_val" >>
 if test ${enable_builtin_errno_id+y}
 then :
   enableval=$enable_builtin_errno_id; case "$enableval" in
-      no) enable_builtin_errno_id=no ;;
-      *)  enable_builtin_errno_id=yes ;;
+      no) builtin_errno_id=no ;;
+      *)  builtin_errno_id=yes ;;
     esac
 fi
 
@@ -16722,19 +16705,25 @@ fi
 
 if test "$ac_cv_func_strerrorname_np" != "yes"
 then :
-  enable_builtin_errno_id=yes
+
+         if test $builtin_errno_id = no
+then :
+  as_fn_error $? "No alternative to builtin erl_errno_id() found" "$LINENO" 5
+fi
+      ]
 fi
 
-if test $enable_builtin_errno_id = yes
+if test "$builtin_errno_id" != "no"
 then :
 
+        builtin_errno_id=yes
 
 printf "%s\n" "#define ERTS_USE_BUILTIN_ERRNO_ID 1" >>confdefs.h
 
 
 fi
 
-ERTS_USE_BUILTIN_ERRNO_ID=$enable_builtin_errno_id
+ERTS_USE_BUILTIN_ERRNO_ID=$builtin_errno_id
 
 
 
@@ -16742,15 +16731,15 @@ ERTS_USE_BUILTIN_ERRNO_ID=$enable_builtin_errno_id
 if test ${enable_builtin_zstd+y}
 then :
   enableval=$enable_builtin_zstd;  case "$enableval" in
-      no) enable_builtin_zstd=no ;;
-      *)  enable_builtin_zstd=yes ;;
+      no) builtin_zstd=no ;;
+      *)  builtin_zstd=yes ;;
     esac
 fi
 
 
 LIBZSTD=
 
-if test "$enable_builtin_zstd" = "no"
+if test "$builtin_zstd" = "no"
 then :
 
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for static libzstd of version 1.5.6 or higher" >&5
@@ -16789,8 +16778,7 @@ printf "%s\n" "yes" >&6; }
 
 else case e in #(
   e)
- { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no, using builtin zstd instead" >&5
-printf "%s\n" "no, using builtin zstd instead" >&6; }
+ as_fn_error $? "libzstd not found" "$LINENO" 5
  ;;
 esac
 fi
@@ -16818,15 +16806,15 @@ fi
 if test ${enable_builtin_zlib+y}
 then :
   enableval=$enable_builtin_zlib;  case "$enableval" in
-      no) enable_builtin_zlib=no ;;
-      *)  enable_builtin_zlib=yes ;;
+      no) builtin_zlib=no ;;
+      *)  builtin_zlib=yes ;;
     esac
 fi
 
 
 Z_LIB=
 
-if test "x$enable_builtin_zlib" = "xyes"
+if test "$builtin_zlib" = "yes"
 then :
 
 
@@ -16875,8 +16863,14 @@ printf "%s\n" "yes" >&6; }
 
 else case e in #(
   e)
- { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; }
+ if test "$builtin_zlib" = "no"
+then :
+  as_fn_error $? "zlib not found" "$LINENO" 5
+else case e in #(
+  e) { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no, using builtin zlib instead" >&5
+printf "%s\n" "no, using builtin zlib instead" >&6; } ;;
+esac
+fi
  ;;
 esac
 fi

@@ -1253,36 +1253,26 @@ AS_IF([test "X$host" != "Xwin32"],
 
 AC_ARG_ENABLE(use-embedded-3pp-alternatives,
 AS_HELP_STRING([--enable-use-embedded-3pp-alternatives],
-               [use all available alternatives instead of embedded 3pps])
+               [use all available alternatives instead of embedded 3pps.
+                Implies all --disable-builtin-* options. Can be overridden
+                by individual --enable-builtin-* options.])
 AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
-               [do not use any alternatives to embedded 3pps]),
+               [do not use any alternatives to embedded 3pps.
+                Implies all --enable-builtin-* options. Can be overridden
+                by individual --disable-builtin-* options.]),
 [ case "$enableval" in
     no)
-      enable_builtin_errno_id=yes
-      enable_builtin_zstd=yes
-      enable_builtin_zlib=yes
-      use_embedded_3pp_alts=no
-      use_embedded_3pp_alts_val=0
+      builtin_errno_id=yes
+      builtin_zstd=yes
+      builtin_zlib=yes
       ;;
     *)
-      enable_builtin_errno_id=no
-      enable_builtin_zstd=no
-      enable_builtin_zlib=no
-      use_embedded_3pp_alts=yes
-      use_embedded_3pp_alts_val=1
+      builtin_errno_id=no
+      builtin_zstd=no
+      builtin_zlib=no
       ;;
   esac
-],
-[
-  enable_builtin_errno_id=yes
-  enable_builtin_zstd=yes
-  enable_builtin_zlib=no
-  use_embedded_3pp_alts=default
-  use_embedded_3pp_alts_val=-1
 ])
-
-AC_DEFINE_UNQUOTED(ERTS_USE_EMBEDDED_3PP_ALTS, $use_embedded_3pp_alts_val,
-  [Define to 1 if alternatives to embedded 3pps should be used, 0 if not, and -1 to use the default])
 
 dnl -------------
 dnl errno id
@@ -1290,25 +1280,29 @@ dnl -------------
 
 AC_ARG_ENABLE(builtin-errno-id,
 AS_HELP_STRING([--enable-builtin-errno-id],
-               [force use of our own built-in errno-id])
+               [force use of our own built-in errno-id (default)])
 AS_HELP_STRING([--disable-builtin-errno-id],
                [try to find an alternative on the system to use for errno-id]),
   [case "$enableval" in
-      no) enable_builtin_errno_id=no ;;
-      *)  enable_builtin_errno_id=yes ;;
+      no) builtin_errno_id=no ;;
+      *)  builtin_errno_id=yes ;;
     esac])
 
 AC_CHECK_FUNCS([strerrorname_np])
 
 AS_IF([test "$ac_cv_func_strerrorname_np" != "yes"],
-      [enable_builtin_errno_id=yes])
-
-AS_IF([test $enable_builtin_errno_id = yes],
       [
+         AS_IF([test $builtin_errno_id = no],
+               [AC_MSG_ERROR([No alternative to builtin erl_errno_id() found])]])
+      ])
+
+AS_IF([test "$builtin_errno_id" != "no"],
+      [
+        builtin_errno_id=yes
         AC_DEFINE(ERTS_USE_BUILTIN_ERRNO_ID, [1], [Define if builtin errno id should be used])
       ])
 
-ERTS_USE_BUILTIN_ERRNO_ID=$enable_builtin_errno_id
+ERTS_USE_BUILTIN_ERRNO_ID=$builtin_errno_id
 AC_SUBST(ERTS_USE_BUILTIN_ERRNO_ID)
 
 dnl -------------
@@ -1317,17 +1311,17 @@ dnl -------------
 
 AC_ARG_ENABLE(builtin-zstd,
 AS_HELP_STRING([--enable-builtin-zstd],
-               [force use of our own built-in zstd])
+               [force use of our own built-in zstd (default)])
 AS_HELP_STRING([--disable-builtin-zstd],
                [try to find a static libzstd on the system to use]),
   [ case "$enableval" in
-      no) enable_builtin_zstd=no ;;
-      *)  enable_builtin_zstd=yes ;;
+      no) builtin_zstd=no ;;
+      *)  builtin_zstd=yes ;;
     esac ])
 
 LIBZSTD=
 
-AS_IF([test "$enable_builtin_zstd" = "no"],
+AS_IF([test "$builtin_zstd" = "no"],
  [
   AC_MSG_CHECKING(for static libzstd of version 1.5.6 or higher)
   zstd_save_LIBS=$LIBS
@@ -1350,7 +1344,7 @@ error
  LIBZSTD="-l:libzstd.a"
  AC_MSG_RESULT(yes)
 ],[
- AC_MSG_RESULT([no, using builtin zstd instead])
+ AC_MSG_ERROR([libzstd not found])
 ])
 
 LIBS="$zstd_save_LIBS"
@@ -1372,20 +1366,15 @@ AC_ARG_ENABLE(builtin-zlib,
 AS_HELP_STRING([--enable-builtin-zlib],
                [force use of our own built-in zlib])
 AS_HELP_STRING([--disable-builtin-zlib],
-               [try to find a zlib on the system to use]),
+               [try to find a zlib on the system to use (default)]),
   [ case "$enableval" in
-      no) enable_builtin_zlib=no ;;
-      *)  enable_builtin_zlib=yes ;;
+      no) builtin_zlib=no ;;
+      *)  builtin_zlib=yes ;;
     esac ])
 
 Z_LIB=
 
-AS_IF([test "x$enable_builtin_zlib" = "xyes"],
- [
-  AC_DEFINE(HAVE_ZLIB_INFLATEGETDICTIONARY, 1,
-            [Define if your zlib version defines inflateGetDictionary.])
-  AC_MSG_NOTICE([Using our own built-in zlib source])
- ],
+AS_IF([test "$builtin_zlib" != "yes"],
  [
 AC_MSG_CHECKING(for zlib 1.2.5 or higher)
 zlib_save_LIBS=$LIBS
@@ -1408,7 +1397,9 @@ error
  AC_DEFINE(HAVE_LIBZ, 1, [Define to 1 if you have the `z' library (-lz).])
  AC_MSG_RESULT(yes)
 ],[
- AC_MSG_RESULT(no)
+ AS_IF([test "$builtin_zlib" = "no"],
+       [AC_MSG_ERROR([zlib not found])],
+       [AC_MSG_RESULT([no, using builtin zlib instead])])
 ])
 
 AS_IF([test "$Z_LIB" != ""],
@@ -1424,7 +1415,10 @@ LIBS=$zlib_save_LIBS
 
 AS_IF([test "$Z_LIB" = ""],
       [
+        AC_MSG_NOTICE([Using our own built-in zlib source])
         AC_DEFINE(ERTS_USE_BUILTIN_ZLIB, [1], [Define if builtin zlib should be used])
+        AC_DEFINE(HAVE_ZLIB_INFLATEGETDICTIONARY, 1,
+            [Define if your zlib version defines inflateGetDictionary.])
       ])
 
 AC_SUBST(Z_LIB)
