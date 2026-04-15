@@ -337,6 +337,10 @@ erts_errno_init(void)
     size_t tot_sz = 0, arr_sz;
     char *ptr, *end_ptr;
 
+    if (init_done) {
+        return;
+    }
+
     for (eno = 0; eno < ERTS_MAX_CACHED_ERRNO; eno++) {
         const char *str = errno_name(eno);
         if (str) {
@@ -431,6 +435,7 @@ erl_errno_id(int eno)
          * during initialization of the emulator.
          */
         used_before_init = !0;
+        erts_errno_init();
     }
 
     if (0 <= eno && eno <= max_errno) {
