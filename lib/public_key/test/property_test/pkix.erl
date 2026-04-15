@@ -65,10 +65,19 @@ encode_decode_check(PkixType, Decoded) ->
 %% Generators --------------------------------------------------------
 %%--------------------------------------------------------------------
 implicit_type() ->
-    elements(['BasicConstraints',
-               'ExtKeyUsageSyntax',
-               'KeyUsage',
-               'KeyIdentifier']).
+    elements(['AuthorityInfoAccessSyntax',
+              'AuthorityKeyIdentifier',
+              'BasicConstraints',
+              'CRLDistributionPoints',
+              'CRLNumber',
+              'CRLReason',
+              'ExtKeyUsageSyntax',
+              'GeneralNames',
+              'IssuingDistributionPoint',
+              'KeyIdentifier',
+              'KeyUsage',
+              'NameConstraints',
+              'PolicyConstraints']).
 
 implicit_value('BasicConstraints') ->
     #'BasicConstraints'{cA = ?LET(CA, bool(), CA),
@@ -81,6 +90,68 @@ implicit_value('KeyUsage') ->
          [key_usages_enum(Usage) || Usage <- lists:usort(Usages)]);
 implicit_value('KeyIdentifier') ->
     ?LET(Bin, binary(), Bin);
+implicit_value('AuthorityKeyIdentifier') ->
+    #'AuthorityKeyIdentifier'{
+       keyIdentifier = ?LET(Bin, binary(20), Bin),
+       authorityCertIssuer = asn1_NOVALUE,
+       authorityCertSerialNumber = asn1_NOVALUE
+      };
+implicit_value('PolicyConstraints') ->
+    ?LET({Req, Inh}, {choose(0, 10), choose(0, 10)},
+         #'PolicyConstraints'{
+            requireExplicitPolicy = Req,
+            inhibitPolicyMapping = Inh
+           });
+implicit_value('NameConstraints') ->
+    #'NameConstraints'{
+       permittedSubtrees = [general_subtree()],
+       excludedSubtrees = asn1_NOVALUE
+      };
+implicit_value('CRLReason') ->
+    elements([unspecified, keyCompromise, cACompromise,
+              affiliationChanged, superseded, cessationOfOperation,
+              certificateHold, removeFromCRL, privilegeWithdrawn,
+              aACompromise]);
+implicit_value('CRLNumber') ->
+    choose(0, 65535);
+implicit_value('GeneralNames') ->
+    ?LET(Name, general_name(), [Name]);
+implicit_value('CRLDistributionPoints') ->
+    ?LET(Name, general_name(),
+         [#'DistributionPoint'{
+             distributionPoint = {fullName, [Name]},
+             reasons = asn1_NOVALUE,
+             cRLIssuer = asn1_NOVALUE
+            }]);
+implicit_value('IssuingDistributionPoint') ->
+    ?LET(Name, general_name(),
+         #'IssuingDistributionPoint'{
+            distributionPoint = {fullName, [Name]},
+            onlyContainsUserCerts = ?LET(B, bool(), B),
+            onlyContainsCACerts = false,
+            onlySomeReasons = asn1_NOVALUE,
+            indirectCRL = false,
+            onlyContainsAttributeCerts = false
+           });
+implicit_value('AuthorityInfoAccessSyntax') ->
+    ?LET(Name, general_name(),
+         [#'AccessDescription'{
+             accessMethod = ?'id-ad-caIssuers',
+             accessLocation = Name
+            }]).
+
+general_subtree() ->
+    #'GeneralSubtree'{
+       base = general_name(),
+       minimum = 0,
+       maximum = asn1_NOVALUE
+      }.
+
+general_name() ->
+    oneof([{rfc822Name, "test@example.com"},
+           {dNSName, "example.com"},
+           {uniformResourceIdentifier, "http://example.com"},
+           directoryName()]).
 
 ext_key_usages() ->
     elements([?'id-kp-serverAuth',
@@ -124,7 +195,8 @@ explicit_value('Validity') ->
       }.
 
 ocsp_type() ->
-    elements(['OCSPRequest'
+    elements(['OCSPRequest',
+              'OCSPResponse'
              ]).
 
 ocsp_value('OCSPRequest') ->
@@ -137,7 +209,14 @@ ocsp_value('OCSPRequest') ->
     #'OCSPRequest'{
        tbsRequest = TBSRequest,
        optionalSignature = asn1_NOVALUE
-      }.
+      };
+ocsp_value('OCSPResponse') ->
+    ?LET(Status, elements([successful, malformedRequest, internalError,
+                           tryLater, sigRequired, unauthorized]),
+         #'OCSPResponse'{
+            responseStatus = Status,
+            responseBytes = asn1_NOVALUE
+           }).
 
 directoryName() ->
     ?LET(Ids, ?SUCHTHAT(X, list(id_attrs()), X =/= []),
@@ -162,13 +241,19 @@ hash_algorithm() ->
     ?LET(HashAlgo, hash_algo(), HashAlgo).
 
 hash_algo() ->
-    %% Extend to support more hashes
-    elements([{?'id-sha1', ?EMPTY_PARAM}]).
+    elements([{?'id-sha1', ?EMPTY_PARAM},
+              {?'id-sha256', ?EMPTY_PARAM},
+              {?'id-sha384', ?EMPTY_PARAM},
+              {?'id-sha512', ?EMPTY_PARAM}]).
 
 hash(?'id-sha1') ->
-    %% Dummy hash could be extended later to have another argument and
-    %% generate real hash values for more advanced tests.
-    ?LET(Value, binary(20), Value).
+    ?LET(Value, binary(20), Value);
+hash(?'id-sha256') ->
+    ?LET(Value, binary(32), Value);
+hash(?'id-sha384') ->
+    ?LET(Value, binary(48), Value);
+hash(?'id-sha512') ->
+    ?LET(Value, binary(64), Value).
 
 extensions() ->
     [#'Extension'{
