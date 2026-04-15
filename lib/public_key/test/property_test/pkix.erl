@@ -67,17 +67,30 @@ encode_decode_check(PkixType, Decoded) ->
 implicit_type() ->
     elements(['AuthorityInfoAccessSyntax',
               'AuthorityKeyIdentifier',
+              'BaseCRLNumber',
               'BasicConstraints',
               'CRLDistributionPoints',
               'CRLNumber',
               'CRLReason',
+              'CertificateIssuer',
+              'CertificatePolicies',
               'ExtKeyUsageSyntax',
+              'FreshestCRL',
               'GeneralNames',
+              'HoldInstructionCode',
+              'InhibitAnyPolicy',
+              'InvalidityDate',
               'IssuingDistributionPoint',
+              'IssuerAltName',
               'KeyIdentifier',
               'KeyUsage',
               'NameConstraints',
-              'PolicyConstraints']).
+              'PolicyConstraints',
+              'PolicyMappings',
+              'PrivateKeyUsagePeriod',
+              'SubjectAltName',
+              'SubjectInfoAccessSyntax',
+              'SubjectKeyIdentifier']).
 
 implicit_value('BasicConstraints') ->
     #'BasicConstraints'{cA = ?LET(CA, bool(), CA),
@@ -138,7 +151,53 @@ implicit_value('AuthorityInfoAccessSyntax') ->
          [#'AccessDescription'{
              accessMethod = ?'id-ad-caIssuers',
              accessLocation = Name
-            }]).
+            }]);
+implicit_value('BaseCRLNumber') ->
+    choose(0, 65535);
+implicit_value('CertificateIssuer') ->
+    ?LET(Name, general_names(), Name);
+implicit_value('CertificatePolicies') ->
+    [#'PolicyInformation'{
+        policyIdentifier = ?'anyPolicy',
+        policyQualifiers = asn1_NOVALUE
+       }];
+implicit_value('FreshestCRL') ->
+    ?LET(Name, general_names(),
+         [#'DistributionPoint'{
+             distributionPoint = {fullName, Name},
+             reasons = asn1_NOVALUE,
+             cRLIssuer = opt_general_names()
+            }]);
+implicit_value('HoldInstructionCode') ->
+    elements([?'id-holdinstruction-none',
+              ?'id-holdinstruction-callissuer',
+              ?'id-holdinstruction-reject']);
+implicit_value('InhibitAnyPolicy') ->
+    choose(0, 10);
+implicit_value('InvalidityDate') ->
+    "20200101000000Z";
+implicit_value('IssuerAltName') ->
+    ?LET(Names, general_names(), Names);
+implicit_value('PolicyMappings') ->
+    [#'PolicyMappings_SEQOF'{
+        issuerDomainPolicy = ?'anyPolicy',
+        subjectDomainPolicy = ?'anyPolicy'
+       }];
+implicit_value('PrivateKeyUsagePeriod') ->
+    #'PrivateKeyUsagePeriod'{
+       notBefore = "20100101000000Z",
+       notAfter = "20301231235959Z"
+      };
+implicit_value('SubjectAltName') ->
+    ?LET(Names, general_names(), Names);
+implicit_value('SubjectInfoAccessSyntax') ->
+    ?LET(Name, general_name(),
+         [#'AccessDescription'{
+             accessMethod = ?'id-ad-caRepository',
+             accessLocation = Name
+            }]);
+implicit_value('SubjectKeyIdentifier') ->
+    ?LET(Bin, binary(20), Bin).
 
 general_subtree() ->
     #'GeneralSubtree'{
@@ -146,6 +205,12 @@ general_subtree() ->
        minimum = 0,
        maximum = asn1_NOVALUE
       }.
+
+opt_general_names() ->
+    oneof([asn1_NOVALUE, general_names()]).
+
+general_names() ->
+    ?LET(N, choose(1,3), [general_name() || _ <- lists:seq(1, N)]).
 
 general_name() ->
     oneof([{rfc822Name, "test@example.com"},
