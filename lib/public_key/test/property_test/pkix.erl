@@ -39,20 +39,27 @@ implicit_encode_decode() ->
             encode_decode_check(PkixType, Decoded)).
 explicit_encode_decode() ->
     ?FORALL({PkixType, Decoded}, ?LET(Type, explicit_type(), {Type, explicit_value(Type)}),
-           encode_decode_check(PkixType, Decoded)).
+            encode_decode_check(PkixType, Decoded)).
 ocsp_encode_decode() ->
-     ?FORALL({PkixType, Decoded}, ?LET(Type, ocsp_type(), {Type, ocsp_value(Type)}),
-           encode_decode_check(PkixType, Decoded)).
+    ?FORALL({PkixType, Decoded}, ?LET(Type, ocsp_type(), {Type, ocsp_value(Type)}),
+            encode_decode_check(PkixType, Decoded)).
 
 encode_decode_check(PkixType, Decoded) ->
-     try
-         Encoded = public_key:der_encode(PkixType, Decoded),
-         NewDecoded = public_key:der_decode(PkixType, Encoded),
-         Decoded == NewDecoded
-     catch
-         _:_  ->
-             false
-     end.
+    try
+        Encoded = public_key:der_encode(PkixType, Decoded),
+        NewDecoded = public_key:der_decode(PkixType, Encoded),
+        case Decoded == NewDecoded of
+            true ->
+                true;
+            false ->
+                io:format("Exp: ~p Got: ~p~n", [Decoded, NewDecoded]),
+                false
+        end
+    catch
+        _:_R:_ST  ->
+            io:format("Exp: ~p~n Crash: ~p~nin: ~p ~n", [Decoded, _R, _ST]),
+            false
+    end.
 
 %%--------------------------------------------------------------------
 %% Generators --------------------------------------------------------
@@ -73,7 +80,7 @@ implicit_value('KeyUsage') ->
     ?LET(Usages, list(choose(0,8)),
          [key_usages_enum(Usage) || Usage <- lists:usort(Usages)]);
 implicit_value('KeyIdentifier') ->
-     ?LET(Bin, binary(), Bin).
+    ?LET(Bin, binary(), Bin);
 
 ext_key_usages() ->
     elements([?'id-kp-serverAuth',
@@ -122,11 +129,11 @@ ocsp_type() ->
 
 ocsp_value('OCSPRequest') ->
     TBSRequest = #'TBSRequest'{
-              version = 0,
-              requestorName = directoryName(),
-              requestList = requestor_list(),
-              requestExtensions = extensions()
-             },
+                    version = 0,
+                    requestorName = directoryName(),
+                    requestList = requestor_list(),
+                    requestExtensions = extensions()
+                   },
     #'OCSPRequest'{
        tbsRequest = TBSRequest,
        optionalSignature = asn1_NOVALUE
@@ -143,16 +150,16 @@ requestor_list() ->
 requestor_list({HashAlgo, Params}) ->
     [#'Request'{
         reqCert =
-             #'CertID'{hashAlgorithm =
-                           #'CertID_hashAlgorithm'{algorithm = HashAlgo,
-                                                   parameters = Params},
-                       issuerNameHash = hash(HashAlgo),
-                       issuerKeyHash = hash(HashAlgo),
-                       serialNumber = choose(1, 6553)},
+            #'CertID'{hashAlgorithm =
+                          #'CertID_hashAlgorithm'{algorithm = HashAlgo,
+                                                  parameters = Params},
+                      issuerNameHash = hash(HashAlgo),
+                      issuerKeyHash = hash(HashAlgo),
+                      serialNumber = choose(1, 6553)},
         singleRequestExtensions = asn1_NOVALUE}].
 
 hash_algorithm() ->
- ?LET(HashAlgo, hash_algo(), HashAlgo).
+    ?LET(HashAlgo, hash_algo(), HashAlgo).
 
 hash_algo() ->
     %% Extend to support more hashes
@@ -194,10 +201,9 @@ id_attrs()->
 atter_value(?'id-at-countryName' = Name) ->
     ?LET({Capital1, Capital2}, {upper_case(), upper_case()},
          #'AttributeTypeAndValue'{
-
-                        type = Name,
-                        value = [Capital1, Capital2]
-                       });
+            type = Name,
+            value = [Capital1, Capital2]
+           });
 atter_value(?'id-emailAddress' = Email) ->
     End = "@example.com",
     GenLen = ?'ub-emailaddress-length' - length(End),
