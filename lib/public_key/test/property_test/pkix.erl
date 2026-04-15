@@ -248,16 +248,85 @@ key_usages_enum(8) ->
 
 
 explicit_type() ->
-    elements(['Validity'
+    elements(['Certificate',
+              'CertificateList',
+              'Name',
+              'SubjectPublicKeyInfo',
+              'TBSCertificate',
+              'TBSCertList',
+              'Validity',
+              'X520CommonName'
              ]).
 
+explicit_value('Certificate') ->
+    ?LET(TBS, explicit_value('TBSCertificate'),
+         #'Certificate'{
+            tbsCertificate = TBS,
+            signatureAlgorithm =
+                #'Certificate_algorithmIdentifier'{
+                   algorithm = TBS#'TBSCertificate'.signature#'TBSCertificate_signature'.algorithm,
+                   parameters = TBS#'TBSCertificate'.signature#'TBSCertificate_signature'.parameters},
+            signature = <<0, 1:256>>});
+explicit_value('TBSCertificate') ->
+    ?LET({AlgId, Issuer, Subject, SPKI},
+         {algorithm_identifier(), rdn_sequence(), rdn_sequence(),
+          explicit_value('SubjectPublicKeyInfo')},
+         #'TBSCertificate'{
+            version = v3,
+            serialNumber = 1,
+            signature = #'TBSCertificate_signature'{
+                           algorithm = AlgId#'AlgorithmIdentifier'.algorithm,
+                           parameters = AlgId#'AlgorithmIdentifier'.parameters},
+            issuer = Issuer,
+            validity = #'Validity'{notBefore = {utcTime, "200101000000Z"},
+                                   notAfter = {utcTime, "300101000000Z"}},
+            subject = Subject,
+            subjectPublicKeyInfo = SPKI,
+            extensions = asn1_NOVALUE});
+explicit_value('CertificateList') ->
+    ?LET(TBSCertList, explicit_value('TBSCertList'),
+         #'CertificateList'{
+            tbsCertList = TBSCertList,
+            signatureAlgorithm =
+                #'CertificateList_algorithmIdentifier'{
+                   algorithm = TBSCertList#'TBSCertList'.signature#'TBSCertList_signature'.algorithm,
+                   parameters = TBSCertList#'TBSCertList'.signature#'TBSCertList_signature'.parameters},
+            signature = <<0, 1:256>>});
 explicit_value('Validity') ->
-    #'Validity'{
-       notBefore =
-           {utcTime,"080109082930Z"},
-       notAfter =
-           {utcTime,"171117082930Z"}
-      }.
+    #'Validity'{ notBefore = {utcTime,"080109082930Z"}, notAfter = {utcTime,"171117082930Z"}};
+explicit_value('Name') ->
+    rdn_sequence();
+explicit_value('X520CommonName') ->
+    ?LET(Len, choose(1, ?'ub-common-name'),
+         oneof([{printableString, printable_string(Len)},
+                {utf8String, utf8(Len)}]));
+explicit_value('SubjectPublicKeyInfo') ->
+    ?LET(AlgId, algorithm_identifier(),
+         #'SubjectPublicKeyInfo'{
+            algorithm = AlgId,
+            subjectPublicKey = <<0, 1:256>>});
+explicit_value('TBSCertList') ->
+    ?LET({AlgId, Issuer}, {algorithm_identifier(), rdn_sequence()},
+         #'TBSCertList'{
+            version = v2,
+            signature = #'TBSCertList_signature'{
+                           algorithm = AlgId#'AlgorithmIdentifier'.algorithm,
+                           parameters = AlgId#'AlgorithmIdentifier'.parameters},
+            issuer = Issuer,
+            thisUpdate = {utcTime, "200101000000Z"},
+            nextUpdate = asn1_NOVALUE,
+            revokedCertificates = asn1_NOVALUE,
+            crlExtensions = asn1_NOVALUE}).
+
+rdn_sequence() ->
+    ?LET(Ids, ?SUCHTHAT(X, list(id_attrs()), X =/= []),
+         {rdnSequence, [[atter_value(Id)] || Id <- Ids]}).
+
+algorithm_identifier() ->
+    Algos = [?'rsaEncryption', ?'id-RSASSA-PSS', ?'id-dsa', ?'id-ecPublicKey',
+             ?'id-Ed25519', ?'id-Ed448', ?'id-ml-dsa-44',?'id-ml-dsa-65',?'id-ml-dsa-87'],
+    ?LET(Algo, oneof(Algos),
+         #'AlgorithmIdentifier'{algorithm = Algo, parameters = asn1_NOVALUE}).
 
 ocsp_type() ->
     elements(['OCSPRequest',
@@ -284,9 +353,7 @@ ocsp_value('OCSPResponse') ->
            }).
 
 directoryName() ->
-    ?LET(Ids, ?SUCHTHAT(X, list(id_attrs()), X =/= []),
-         {directoryName,
-          {rdnSequence, [[atter_value(Id)] || Id <- Ids]}}).
+    ?LET(Name, rdn_sequence(), {directoryName, Name}).
 
 requestor_list() ->
     ?LET(HashAlgo, hash_algorithm(), requestor_list(HashAlgo)).
