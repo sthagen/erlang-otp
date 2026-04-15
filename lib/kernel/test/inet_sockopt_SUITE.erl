@@ -1407,12 +1407,14 @@ create_socketpair_init(Config, ListenOptions, ConnectOptions) ->
              {error, enotsup = LReason} ->
                  ?P("~s -> failed create listen socket with: "
                     "~n   Options: ~p"
-                    "~n   Reason:  ~p", [ListenOptions, LReason]),
+                    "~n   Reason:  ~p",
+		    [?FUNCTION_NAME, ListenOptions, LReason]),
                  throw({skip, {LReason, listen}});
              {error, LReason} = LError ->
                  ?P("~s -> failed create listen socket with: "
                     "~n   Options: ~p"
-                    "~n   Reason:  ~p", [ListenOptions, LReason]),
+                    "~n   Reason:  ~p",
+		    [?FUNCTION_NAME, ListenOptions, LReason]),
                  exit(LError)
          end,
     {ok,Port} = inet:port(LS),
@@ -1423,12 +1425,14 @@ create_socketpair_init(Config, ListenOptions, ConnectOptions) ->
         {error, enotsup = CReason} ->
             ?P("~s -> failed create connect socket with: "
                "~n   Options: ~p"
-               "~n   Reason:  ~p", [ConnectOptions, CReason]),
+               "~n   Reason:  ~p",
+	       [?FUNCTION_NAME, ConnectOptions, CReason]),
             throw({skip, {CReason, listen}});
         {error, CReason} = CError ->
             ?P("~s -> failed create connect socket with: "
                "~n   Options: ~p"
-               "~n   Reason:  ~p", [ConnectOptions, CReason]),
+               "~n   Reason:  ~p",
+	       [?FUNCTION_NAME, ConnectOptions, CReason]),
             exit(CError)
     end.
 
