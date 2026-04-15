@@ -21,18 +21,6 @@ limitations under the License.
 -->
 # FTP Release Notes
 
-## Ftp 1.2.5
-
-### Fixed Bugs and Malfunctions
-
-- The `odbc` application is now deprecated and is planned to be removed in Erlang/OTP 30.
-  
-  The `m:ftp` and `m:ct_ftp` modules are now deprecated and are planned to be removed in Erlang/OTP 30.
-
-  Own Id: OTP-19980 Aux Id: [PR-10804]
-
-[PR-10804]: https://github.com/erlang/otp/pull/10804
-
 ## Ftp 1.2.4
 
 ### Improvements and New Features

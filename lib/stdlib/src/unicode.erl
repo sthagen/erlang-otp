@@ -706,7 +706,7 @@ true
 false
 ```
 """.
--doc(#{since => ~"OTP 29.0"}).
+-doc(#{since => ~"OTP @OTP-19858@"}).
 -spec is_whitespace(char()) -> boolean().
 is_whitespace(X) %% ASCII (and low number) Optimizations
   when X =:= 9; X =:= 10; X =:= 11; X =:= 12; X =:= 13; X =:= 32;
@@ -735,7 +735,7 @@ false
 false
 ```
 """.
--doc(#{since => ~"OTP 29.0"}).
+-doc(#{since => ~"OTP @OTP-19858@"}).
 -spec is_id_start(char()) -> boolean().
 is_id_start(X)  %% ASCII optimizations
   when X =:= 65; X =:= 66; X =:= 67; X =:= 68; X =:= 69; X =:= 70; X =:= 71;
@@ -775,7 +775,7 @@ true
 false
 ```
 """.
--doc(#{since => ~"OTP 29.0"}).
+-doc(#{since => ~"OTP @OTP-19858@"}).
 -spec is_id_continue(char()) -> boolean().
 is_id_continue(X)
   when X =:= 48; X =:= 49; X =:= 50; X =:= 51; X =:= 52; X =:= 53; X =:= 54;
@@ -822,7 +822,7 @@ Returns the `Char` category.
 {punctuation,open}
 ```
 """.
--doc(#{since => ~"OTP 29.0"}).
+-doc(#{since => ~"OTP @OTP-19858@"}).
 -spec category(char()) -> category().
 category(Char) when ?IS_CP(Char) ->
     unicode_util:category(Char);

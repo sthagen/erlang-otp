@@ -23,54 +23,6 @@ limitations under the License.
 
 This document describes the changes made to the SSL application.
 
-## SSL 11.6
-
-### Improvements and New Features
-
-- The legacy `and` and `or` operators have been replaced with other language constructs.
-
-  Own Id: OTP-19744 Aux Id: [PR-10114], [PR-10554], [PR-10568], [PR-10579], [PR-10585], [PR-10598], [PR-10710], [PR-10718], [PR-10580], [PR-10730]
-
-- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
-  
-  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
-  
-  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
-
-  Own Id: OTP-20066 Aux Id: [PR-10839]
-
-- Post quantum hybrid algorithm x25519mlkem768 is now the most preferred key exchange group in the default configuration.
-  
-  Post-quantum hybrid algorithms secp384r1mlkem1024 and secp256r1mlkem768 are supported but have to be configured. The same goes for the plain post-quantum algorithms mlkem1024, mlkem768, and mlkem512.
-  
-  The most preferred signature algorithms are now post-quantum algorithms ML-DSA and SLH-DSA if such certs are available in the configuration.
-  
-  All these algorithms where available in OTP-28.4 but none of them preferred and some of them changed default status.
-
-  *** POTENTIAL INCOMPATIBILITY ***
-
-  Own Id: OTP-20070 Aux Id: [PR-10949]
-
-- Always use secure renegotiation for TLS-1.2 specified in RFC 5746 from 2010. Interoperability fallback option should no longer be needed.
-
-  *** POTENTIAL INCOMPATIBILITY ***
-
-  Own Id: OTP-20080 Aux Id: [PR-10979]
-
-[PR-10114]: https://github.com/erlang/otp/pull/10114
-[PR-10554]: https://github.com/erlang/otp/pull/10554
-[PR-10568]: https://github.com/erlang/otp/pull/10568
-[PR-10579]: https://github.com/erlang/otp/pull/10579
-[PR-10585]: https://github.com/erlang/otp/pull/10585
-[PR-10598]: https://github.com/erlang/otp/pull/10598
-[PR-10710]: https://github.com/erlang/otp/pull/10710
-[PR-10718]: https://github.com/erlang/otp/pull/10718
-[PR-10580]: https://github.com/erlang/otp/pull/10580
-[PR-10730]: https://github.com/erlang/otp/pull/10730
-[PR-10839]: https://github.com/erlang/otp/pull/10839
-[PR-10949]: https://github.com/erlang/otp/pull/10949
-[PR-10979]: https://github.com/erlang/otp/pull/10979
-
 ## SSL 11.5.4
 
 ### Fixed Bugs and Malfunctions

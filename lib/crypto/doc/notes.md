@@ -23,45 +23,6 @@ limitations under the License.
 
 This document describes the changes made to the Crypto application.
 
-## Crypto 5.9
-
-### Fixed Bugs and Malfunctions
-
-- Fixed `crypto:hash_equals/2` and FIPS when crypto is statically linked to the beam (with `--enable-static-nifs` and `--disable-dynamic-ssl-lib`).
-
-  Own Id: OTP-20025 Aux Id: [PR-10817]
-
-[PR-10817]: https://github.com/erlang/otp/pull/10817
-
-### Improvements and New Features
-
-- The `rand:bytes/1` and `rand:bytes_s/2` functions have been optimized by implementing a new internal callback function that `crypto:rand_seed_alg/1` and `crypto:alg_seed_alg_s/1` have been updated to use.
-  
-  A new algorithm `crypto_prng1`, which also takes advantage of this new internal callback, has been added to `crypto:rand_seed_alg/2` and `crypto:rand_seed_alg_s/2`.  It is much faster then the existing `crypto_aes`, in particular for generating bytes.
-
-  Own Id: OTP-19882 Aux Id: OTP-19827, [PR-10453]
-
-- In interactive mode, application `crypto` is automatically loaded when the `m:crypto` module is loaded. This will ensure that the correct value of configuration parameter `fips_mode` is used to initialize OpenSSL if module `crypto` is called/loaded before the application `crypto` has been loaded. In embedded mode, module `crypto` will fail to load if the application has not been loaded.
-
-  Own Id: OTP-20035 Aux Id: [PR-10830]
-
-- OpenSSL engine support has been removed on Windows.
-
-  Own Id: OTP-20036 Aux Id: [PR-10836]
-
-- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
-  
-  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
-  
-  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
-
-  Own Id: OTP-20066 Aux Id: [PR-10839]
-
-[PR-10453]: https://github.com/erlang/otp/pull/10453
-[PR-10830]: https://github.com/erlang/otp/pull/10830
-[PR-10836]: https://github.com/erlang/otp/pull/10836
-[PR-10839]: https://github.com/erlang/otp/pull/10839
-
 ## Crypto 5.8.3
 
 ### Fixed Bugs and Malfunctions

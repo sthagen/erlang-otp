@@ -308,7 +308,7 @@ should not be tested
 1> 
 ```
 """".
--moduledoc(#{since => ~"OTP 29.0"}).
+-moduledoc(#{since => ~"OTP @OTP-20034@"}).
 
 -compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
 

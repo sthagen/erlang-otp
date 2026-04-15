@@ -21,53 +21,6 @@ limitations under the License.
 -->
 # Inets Release Notes
 
-## Inets 9.7
-
-### Improvements and New Features
-
-- A new option `max_connections_open` has been added to the `m:httpc` HTTP client profile configuration. It limits the maximum number of concurrent HTTP handler processes that can be open simultaneously.
-  
-  When the limit is reached, new requests are queued internally and started automatically as existing handlers complete. This prevents bandwidth exhaustion in high-load scenarios where too many parallel connections cause remote servers to close sockets
-  before transfers finish (the socket_closed_remotely error).
-  
-  The option can be set via
-  `httpc:set_options([{max_connections_open, 10}], Profile).`
-  
-  The default value is `infinity` (unlimited), preserving backward compatibility. The value must be a positive integer or `infinity` and must be greater than or equal to `max_sessions`.
-
-  Own Id: OTP-19587 Aux Id: [GH-8841], [PR-9712]
-
-- The legacy `and` and `or` operators have been replaced with other language constructs.
-
-  Own Id: OTP-19744 Aux Id: [PR-10114], [PR-10554], [PR-10568], [PR-10579], [PR-10585], [PR-10598], [PR-10710], [PR-10718], [PR-10580], [PR-10730]
-
-- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
-  
-  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
-  
-  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
-
-  Own Id: OTP-20066 Aux Id: [PR-10839]
-
-- Deprecated `mod_cgi` and `mod_actions`. Scheduled to be removed in OTP 30
-
-  Own Id: OTP-20071 Aux Id: [PR-10950]
-
-[GH-8841]: https://github.com/erlang/otp/issues/8841
-[PR-9712]: https://github.com/erlang/otp/pull/9712
-[PR-10114]: https://github.com/erlang/otp/pull/10114
-[PR-10554]: https://github.com/erlang/otp/pull/10554
-[PR-10568]: https://github.com/erlang/otp/pull/10568
-[PR-10579]: https://github.com/erlang/otp/pull/10579
-[PR-10585]: https://github.com/erlang/otp/pull/10585
-[PR-10598]: https://github.com/erlang/otp/pull/10598
-[PR-10710]: https://github.com/erlang/otp/pull/10710
-[PR-10718]: https://github.com/erlang/otp/pull/10718
-[PR-10580]: https://github.com/erlang/otp/pull/10580
-[PR-10730]: https://github.com/erlang/otp/pull/10730
-[PR-10839]: https://github.com/erlang/otp/pull/10839
-[PR-10950]: https://github.com/erlang/otp/pull/10950
-
 ## Inets 9.6.2
 
 ### Fixed Bugs and Malfunctions

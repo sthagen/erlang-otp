@@ -27,25 +27,6 @@ as all enhancements and bugfixes for every release of Reltool. Each release of
 Reltool thus constitutes one section in this document. The title of each section
 is the version number of Reltool.
 
-## Reltool 1.1
-
-### Improvements and New Features
-
-- Removed the undocumented `dyn_erl` utility.
-
-  Own Id: OTP-19933 Aux Id: [PR-10573]
-
-- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
-  
-  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
-  
-  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
-
-  Own Id: OTP-20066 Aux Id: [PR-10839]
-
-[PR-10573]: https://github.com/erlang/otp/pull/10573
-[PR-10839]: https://github.com/erlang/otp/pull/10839
-
 ## Reltool 1.0.3
 
 ### Improvements and New Features

@@ -23,25 +23,6 @@ limitations under the License.
 
 This document describes the changes made to the EUnit application.
 
-## Eunit 2.11
-
-### Improvements and New Features
-
-- Added `randomDelay` macro.
-
-  Own Id: OTP-19997 Aux Id: [PR-10614]
-
-- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
-  
-  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
-  
-  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
-
-  Own Id: OTP-20066 Aux Id: [PR-10839]
-
-[PR-10614]: https://github.com/erlang/otp/pull/10614
-[PR-10839]: https://github.com/erlang/otp/pull/10839
-
 ## Eunit 2.10.3
 
 ### Fixed Bugs and Malfunctions

@@ -38,7 +38,7 @@ This module provides the infrastructure for:
 Implementing modules define how data is stored, updated, and how changes
 are calculated and propagated. This is a generalization of the `pg` module.
 """.
--moduledoc(#{since => "OTP 29.0"}).
+-moduledoc(#{since => "OTP @OTP-20055@"}).
 -export([
     start/2,
     start_link/2,

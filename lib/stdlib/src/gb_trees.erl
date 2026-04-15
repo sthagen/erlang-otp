@@ -482,7 +482,7 @@ where `List` can be unordered and contain duplicate keys.
 [{a,3},{b,6},{x,4},{y,5}]
 ```
 """.
--doc #{since => ~"OTP 29.0"}.
+-doc #{since => ~"OTP @OTP-20061@"}.
 -spec from_list(List) -> Tree when
       List :: [{Key, Value}],
       Tree :: tree(Key, Value).
