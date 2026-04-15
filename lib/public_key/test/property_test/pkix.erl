@@ -43,6 +43,9 @@ explicit_encode_decode() ->
 ocsp_encode_decode() ->
     ?FORALL({PkixType, Decoded}, ?LET(Type, ocsp_type(), {Type, ocsp_value(Type)}),
             encode_decode_check(PkixType, Decoded)).
+algorithm_encode_decode() ->
+    ?FORALL({PkixType, Decoded}, ?LET(Type, algorithm_type(), {Type, algorithm_value(Type)}),
+            encode_decode_check(PkixType, Decoded)).
 
 encode_decode_check(PkixType, Decoded) ->
     try
@@ -52,7 +55,7 @@ encode_decode_check(PkixType, Decoded) ->
             true ->
                 true;
             false ->
-                io:format("Exp: ~p Got: ~p~n", [Decoded, NewDecoded]),
+                io:format("Exp: ~p~nGot: ~p~n", [Decoded, NewDecoded]),
                 false
         end
     catch
@@ -327,6 +330,113 @@ algorithm_identifier() ->
              ?'id-Ed25519', ?'id-Ed448', ?'id-ml-dsa-44',?'id-ml-dsa-65',?'id-ml-dsa-87'],
     ?LET(Algo, oneof(Algos),
          #'AlgorithmIdentifier'{algorithm = Algo, parameters = asn1_NOVALUE}).
+algorithm_type() ->
+    elements(['DHParameter',
+              'DSA-Params',
+              'DSAPublicKey',
+              'ECDSA-Sig-Value',
+              'PrivateKeyInfo',
+              'RSAPublicKey']).
+
+algorithm_value('RSAPublicKey') ->
+    #'RSAPublicKey'{modulus = 1000003,
+                    publicExponent = 65537};
+algorithm_value('DSA-Params') ->
+    {params, #'Dss-Parms'{p = 1000003,
+                          q = 1009,
+                          g = 2}};
+algorithm_value('DSAPublicKey') ->
+    42;
+algorithm_value('DHParameter') ->
+    #'DHParameter'{prime = 1000003,
+                   base = 2,
+                   privateValueLength = asn1_NOVALUE};
+algorithm_value('ECDSA-Sig-Value') ->
+    #'ECDSA-Sig-Value'{r = 123456,
+                       s = 654321};
+algorithm_value('PrivateKeyInfo') ->
+    oneof([private_key_rsa(),
+           private_key_rsa_pss(),
+           private_key_dsa(),
+           private_key_ec(),
+           private_key_ed25519(),
+           private_key_ed448(),
+           private_key_mldsa(),
+           private_key_slhdsa()]).
+
+private_key_rsa() ->
+    #'RSAPrivateKey'{version = 'two-prime',
+                     modulus = 1000003,
+                     publicExponent = 65537,
+                     privateExponent = 123456,
+                     prime1 = 1009,
+                     prime2 = 1013,
+                     exponent1 = 101,
+                     exponent2 = 103,
+                     coefficient = 42}.
+
+private_key_dsa() ->
+    #'DSAPrivateKey'{version = 1,
+                     p = 1000003,
+                     q = 1009,
+                     g = 2,
+                     x = 42}.
+
+private_key_ec() ->
+    #'ECPrivateKey'{version = ecPrivkeyVer1,
+                    privateKey = <<1:256>>,
+                    parameters = {namedCurve, ?'secp256r1'},
+                    publicKey = asn1_NOVALUE,
+                    attributes = asn1_NOVALUE}.
+
+private_key_ed25519() ->
+    #'ECPrivateKey'{version = 1,
+                    privateKey = <<1:256>>,
+                    parameters = {namedCurve, ?'id-Ed25519'},
+                    publicKey = asn1_NOVALUE,
+                    attributes = asn1_NOVALUE}.
+
+private_key_ed448() ->
+    #'ECPrivateKey'{version = 1,
+                    privateKey = <<1:456>>,
+                    parameters = {namedCurve, ?'id-Ed448'},
+                    publicKey = asn1_NOVALUE,
+                    attributes = asn1_NOVALUE}.
+
+private_key_rsa_pss() ->
+    {#'RSAPrivateKey'{version = 'two-prime',
+                      modulus = 1000003,
+                      publicExponent = 65537,
+                      privateExponent = 123456,
+                      prime1 = 1009,
+                      prime2 = 1013,
+                      exponent1 = 101,
+                      exponent2 = 103,
+                      coefficient = 42},
+     #'RSASSA-PSS-params'{
+        %% With Default Values, i.e. asn1_DEFAULT, they come back as values
+        %% after decode/encode
+        hashAlgorithm = {'HashAlgorithm',{1,3,14,3,2,26},'NULL'},
+        maskGenAlgorithm = {'MaskGenAlgorithm',{1,2,840,113549,1,1,8},
+                            {'HashAlgorithm',{1,3,14,3,2,26},'NULL'}},
+        saltLength = 20,
+        trailerField = 1}}.
+
+private_key_mldsa() ->
+    ?LET(Alg, elements([mldsa44, mldsa65, mldsa87]),
+         #'ML-DSAPrivateKey'{algorithm = Alg,
+                             seed = <<1:256>>,
+                             expandedkey = <<>>}).
+
+private_key_slhdsa() ->
+    ?LET(Alg, elements([slh_dsa_sha2_128s, slh_dsa_sha2_128f,
+                        slh_dsa_sha2_192s, slh_dsa_sha2_192f,
+                        slh_dsa_sha2_256s, slh_dsa_sha2_256f,
+                        slh_dsa_shake_128s, slh_dsa_shake_128f,
+                        slh_dsa_shake_192s, slh_dsa_shake_192f,
+                        slh_dsa_shake_256s, slh_dsa_shake_256f]),
+         #'SLH-DSAPrivateKey'{algorithm = Alg,
+                              key = <<1:512>>}).
 
 ocsp_type() ->
     elements(['BasicOCSPResponse',
