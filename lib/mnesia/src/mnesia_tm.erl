@@ -885,7 +885,7 @@ execute_transaction(Fun, Args, Factor, Retries, Type) ->
 	    Reason = {aborted, {throw, Value}},
 	    return_abort(Fun, Args, Reason);
 	  error:Reason:ST ->
-	    check_exit(Fun, Args, Factor, Retries, Reason, ST, Type);
+	    check_exit(Fun, Args, Factor, Retries, {Reason, ST}, ST, Type);
           exit:{aborted, _R} = Reason:ST ->
             check_exit(Fun, Args, Factor, Retries, Reason, ST, Type);
 	  _:Reason:ST ->

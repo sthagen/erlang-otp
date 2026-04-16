@@ -46,7 +46,7 @@
          create_live_table_index_disc_only/1, del_table_index_ram/1,
          del_table_index_disc/1, del_table_index_disc_only/1,
          idx_schema_changes_ram/1, idx_schema_changes_disc/1,
-         idx_schema_changes_disc_only/1]).
+         idx_schema_changes_disc_only/1, stacktrace_return/1]).
 
 -export([do_nested/1]).
 
@@ -75,7 +75,7 @@ all() ->
      select_reverse_index, all_keys,
      transaction, transaction_counters,
      {group, nested_activities}, {group, index_tabs},
-     {group, index_lifecycle}].
+     {group, index_lifecycle}, stacktrace_return].
 
 groups() ->
     [{nested_activities, [],
@@ -1620,3 +1620,27 @@ idx_schema_changes(Config, Storage) ->
     ?match([{Tab, 16, 66}], rpc:call(N1, mnesia, dirty_index_read, [Tab, 66, Idx])),
 
     ?verify_mnesia(Nodes, []).
+
+%% Check return value of aborted mnesia:transaction/1
+
+stacktrace_return(suite) -> [];
+stacktrace_return(Config) ->
+    [_N] = ?acquire_nodes(1, Config),
+    Throw = fun() -> throw(test) end,
+    Exit = fun() -> exit(test) end,
+    Error = fun() -> error(test) end,
+
+    ?match({aborted, {throw, test}}, mnesia:transaction(Throw)),
+    ?match({aborted, test}, mnesia:transaction(Exit)),
+    ?match({aborted, {test, [{?MODULE, _, _, _} | _]}}, mnesia:transaction(Error)),
+
+    Nested = fun(F) ->
+        fun() ->
+            {aborted, Reason} = mnesia:transaction(F),
+            mnesia:abort(Reason)
+        end
+    end,
+
+    ?match({aborted, {throw, test}}, mnesia:transaction(Nested(Throw))),
+    ?match({aborted, test}, mnesia:transaction(Nested(Exit))),
+    ?match({aborted, {test, [{?MODULE, _, _, _} | _]}}, mnesia:transaction(Nested(Error))).
