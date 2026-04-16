@@ -27,6 +27,11 @@ on:
       base_branch:
         required: true
         type: string
+      types:
+        required: true
+        type: string
+        description: |
+          A string with types, e.g., "opt debug lcnt asan gcov valgrind"
 
 # NOTE: This job should only be executed on the callee with `needs: pack`
 jobs:
@@ -47,8 +52,10 @@ jobs:
           BASE_BRANCH: ${{ inputs.base_branch }}
 
       - name: Build Erlang/OTP flavors and types
+        env:
+          TYPES: ${{ inputs.types }}
         run: |
-            TYPES="opt debug lcnt asan gcov valgrind"
+            TYPES="${TYPES"
             FLAVORS="${{ matrix.flavor }}"
             for TYPE in ${TYPES}; do
               for FLAVOR in ${FLAVORS}; do

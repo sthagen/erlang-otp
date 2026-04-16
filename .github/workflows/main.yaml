@@ -118,6 +118,7 @@ jobs:
     uses: ./.github/workflows/reusable-build-flavours.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
+      types: "opt debug lcnt asan gcov valgrind"
 
   # this is a call to a workflow_call
   pr-vendor-vulnerability-analysis:
@@ -141,23 +142,11 @@ jobs:
 
   build:
     name: Build Erlang/OTP
-    runs-on: ubuntu-latest
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
-
-    strategy:
-      matrix:
-        type: [32-bit,cross-compile,clang]
-      fail-fast: false
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/build-base-image
-        with:
-            BASE_BRANCH: ${{ env.BASE_BRANCH }}
-            TYPE: ${{ matrix.type }}
+    uses: ./.github/workflows/build-otp.yaml
+    with:
+      base_branch: ${{ needs.pack.outputs.base_branch }}
 
   freebsd:
     name: Build Erlang/OTP (FreeBSD)
@@ -267,11 +256,9 @@ jobs:
     name: Setup Release variables
     runs-on: ubuntu-latest
     outputs:
-      base_branch:          ${{ steps.release-setup.outputs.base_branch }}
-      ort_version:          ${{ steps.release-setup.outputs.ort_version }}
-      otp_sbom_version:     ${{ steps.release-setup.outputs.otp_sbom_version }}
-      tag:                  ${{ steps.release-setup.outputs.tag }}
-      vsn:                  ${{ steps.release-setup.outputs.vsn }}
+      otp_sbom_version: ${{ steps.release-setup.outputs.otp_sbom_version }}
+      tag:              ${{ steps.release-setup.outputs.tag }}
+      vsn:              ${{ steps.release-setup.outputs.vsn }}
     steps:
       - id: release-setup
         run: |

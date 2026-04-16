@@ -84,17 +84,20 @@ jobs:
           sha256sum $FILES > SHA256.txt
 
       - name: Download SBoM
+        if: inputs.otp_sbom_version != '' # needed to not account for OTP-26 and 27
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
             name: ort-results-otp-${{ env.OTP_SBOM_VERSION }}
 
       - name: Download ORT Scan Results
+        if: inputs.otp_sbom_version != '' # needed to not account for OTP-26 and 27
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
             name: ort-results-otp-${{ env.OTP_SBOM_VERSION }}-scan-result.json.zip
 
       - name: Attest Distribution Assets with SBoM
         id: attest-sbom
+        if: inputs.otp_sbom_version != '' # needed to not account for OTP-26 and 27
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
         with:
           subject-path: |
@@ -106,6 +109,7 @@ jobs:
 
       - name: "Copy SBoM provenance"
         id: sbom-provenance
+        if: inputs.otp_sbom_version != '' # needed to not account for OTP-26 and 27
         shell: bash
         run: |
           shopt -s nullglob
@@ -117,6 +121,7 @@ jobs:
           ATTESTATION: "${{ steps.attest-sbom.outputs.bundle-path }}"
 
       - name: "Assemble Distribution Attestations"
+        if: inputs.otp_sbom_version != '' # needed to not account for OTP-26 and 27
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: "Attestations"
@@ -143,7 +148,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
-      - name: Upload pre-built and doc tar archives
+      - name: Create a release
+        if: inputs.otp_sbom_version != '' # needed to not account for OTP-26 and 27
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG:      ${{ inputs.tag }}
@@ -156,6 +162,19 @@ jobs:
             attestations/*.sigstore \
             scan-report-web-app.html \
             bom.*
+
+      # Create a release for 26 and 27
+      - name: Create Release for 26 and 27
+        if: inputs.otp_sbom_version == '' # needed to for OTP-26 and 27
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG:      ${{ inputs.tag }}
+          VSN:      ${{ inputs.vsn }}
+          LATEST:   ${{ steps.latest-release.outputs.latest }}
+        run: |
+          gh release create "${TAG}" --title "OTP ${VSN}" --latest=${LATEST} \
+            artifacts/*.tar.gz \
+            artifacts/*.txt \
 
       - name: Deploy on erlang.org
         if: github.repository == 'erlang/otp'
