@@ -21242,12 +21242,14 @@ api_opt_ip_tos_udp(InitState) ->
                                    ?SEV_IPRINT("expected default tos: ~p", [Value]),
                                    ok;
                                {ok, Value} ->
-                                   %% On FreeBSD 14 default value is not 0!
+                                   %% On FreeBSD 14 & 15 default value is not 0!
                                    case os:type() of
                                        {unix, freebsd} ->
                                            case os:version() of
-                                               {14, _, _}
-                                                 when (Value =:= mincost) ->
+                                               {Maj, _, _}
+                                                 when ((Maj =:= 14) orelse
+                                                       (Maj =:= 15)) andalso
+                                                      (Value =:= mincost) ->
                                                    ok;
                                                _ ->
                                                    ?SEV_EPRINT("Unexpected "

@@ -2,9 +2,9 @@
  * %CopyrightBegin%
  *
  * SPDX-License-Identifier: Apache-2.0
- * 
- * Copyright Ericsson AB 2015-2025. All Rights Reserved.
- * 
+ *
+ * Copyright Ericsson AB 2015-2026. All Rights Reserved.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,7 +16,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * %CopyrightEnd%
  */
 
@@ -1013,6 +1013,15 @@ create_paused_bif_timer(ErtsBifTimer *tmr, Process *c_p, ErtsSchedulerData *esdp
     c_p->paused_bif_timers->list = pbtmr;
 }
 
+static ERTS_INLINE void
+destroy_paused_bif_timer(ErtsPausedBifTimer *ptmr)
+{
+    if (ptmr->tmr.btm.bp) {
+        free_message_buffer(ptmr->tmr.btm.bp);
+    }
+    erts_free(ERTS_ALC_T_PAUSED_TIMER, ptmr);
+}
+
 /*
  * Paused proc timers
  */
@@ -1846,6 +1855,9 @@ setup_bif_timer(Process *c_p, int twheel, ErtsMonotonicTime timeout_pos,
             else
                 hlt_delete_timer(esdp, &tmr->type.hlt);
             timer_destroy((ErtsTimer *) tmr, twheel, 1);
+            if (proc) {
+                erts_proc_dec_refc(proc);
+            }
 	}
     }
 
@@ -2983,10 +2995,8 @@ erts_resume_paused_bif_timers(Process *c_p)
         check_canceled_queue(esdp, esdp->timer_service);
 
         paused_bif_timer = paused_bif_timer->next;
-        erts_free(ERTS_ALC_T_PAUSED_TIMER, old_timer);
+        destroy_paused_bif_timer(old_timer);
 
-        /* We correctly decrement the refc in the pausing of the bif timer, but for some reason recreating it does not increment it */
-        /* So we do it manually here */
         erts_proc_inc_refc(c_p);
     }
 
@@ -3008,7 +3018,7 @@ erts_destroy_paused_bif_timers(Process *c_p)
     while (ptmr) {
         free_ptmr = ptmr;
         ptmr = ptmr->next;
-        erts_free(ERTS_ALC_T_PAUSED_TIMER, free_ptmr);
+        destroy_paused_bif_timer(free_ptmr);
     }
 
     erts_free(ERTS_ALC_T_PAUSED_TIMER, c_p->paused_bif_timers);

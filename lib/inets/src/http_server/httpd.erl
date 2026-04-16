@@ -145,7 +145,7 @@ property list.
 
 - [](){: #prop_modules } **`{modules, [atom()]}`**  
   Defines which modules the HTTP server uses when handling requests. Default is
-  `[mod_alias, mod_auth, mod_esi, mod_actions, mod_cgi, mod_dir, mod_get, mod_head, mod_log, mod_disk_log]`.
+  `[mod_alias, mod_auth, mod_esi, mod_dir, mod_get, mod_head, mod_log, mod_disk_log]`.
   Notice that some `mod`\-modules are dependent on others, so the order cannot
   be entirely arbitrary. See the [Inets Web Server Modules](http_server.md) in
   the User's Guide for details.
@@ -424,6 +424,11 @@ property list.
 
 ### CGI Properties - Requires mod_cgi
 
+> #### Note {: .info }
+> `mod_cgi` and `mod_actions` are deprecated since OTP 29 and will be removed in OTP 30.
+> Use `mod_esi` instead for dynamic page generation.
+>
+
 - [](){: #prop_script_alias } **`{script_alias, {Alias, RealName}}`**  
   `Alias = string()` and `RealName = string()`. Have the same behavior as
   property `alias`, except that they also mark the target directory as
@@ -480,6 +485,11 @@ property list.
   {action, {"text/plain", "/cgi-bin/log_and_deliver_text"}}
   ```
 
+> #### Note {: .info }
+> `mod_cgi` and `mod_actions` are deprecated since OTP 29 and will be removed in OTP 30.
+> Use `mod_esi` instead for dynamic page generation.
+>
+
 - [](){: #prop_script } **`{script, {Method, CgiScript}}`** - requires `mod_actions`  
   `Method = string()` and `CgiScript = string()`. `script` adds an action
   activating a CGI script whenever a file is requested using a certain HTTP
@@ -493,6 +503,11 @@ property list.
   ```erlang
   {script, {"PUT", "/cgi-bin/put"}}
   ```
+
+> #### Note {: .info }
+> `mod_cgi` and `mod_actions` are deprecated since OTP 29 and will be removed in OTP 30.
+> Use `mod_esi` instead for dynamic page generation.
+>
 
 [](){: #props_esi }
 

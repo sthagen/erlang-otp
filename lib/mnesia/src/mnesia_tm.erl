@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1996-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -885,7 +885,7 @@ execute_transaction(Fun, Args, Factor, Retries, Type) ->
 	    Reason = {aborted, {throw, Value}},
 	    return_abort(Fun, Args, Reason);
 	  error:Reason:ST ->
-	    check_exit(Fun, Args, Factor, Retries, Reason, ST, Type);
+	    check_exit(Fun, Args, Factor, Retries, {Reason, ST}, ST, Type);
           exit:{aborted, _R} = Reason:ST ->
             check_exit(Fun, Args, Factor, Retries, Reason, ST, Type);
 	  _:Reason:ST ->

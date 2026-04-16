@@ -6277,7 +6277,10 @@ in the suspended state if it is not already in that state. A suspended process
 is not scheduled for execution until the process has been resumed. If the
 suspended process currently is waiting in a `receive ... after` expression, the
 timer for the timeout will, as of OTP 28.0, also be suspended until the process
-is resumed.
+is resumed. BIF timers (see [`erlang:send_after/3`](`send_after/3`) and
+[`erlang:start_timer/3`](`start_timer/3`)) created using the PID of `Suspendee`
+will, as of OTP 29.0, also be suspended until the process is resumed. BIF timers
+created using a registered name are not affected.
 
 A process can be suspended by multiple processes and can be suspended multiple
 times by a single process. A suspended process does not leave the suspended

@@ -2529,6 +2529,9 @@ server_config(base, Config) ->
     [{port, 0},
      {server_name,"httpc_test"},
      {server_root, ServerRoot},
+     {modules, [mod_alias, mod_auth, mod_esi,
+                mod_actions, mod_cgi, mod_dir,
+                mod_get, mod_head, mod_log, mod_disk_log]},
      {document_root, proplists:get_value(doc_root, Config)},
      {mime_type, "text/plain"}];
 server_config(base_http, Config) ->
