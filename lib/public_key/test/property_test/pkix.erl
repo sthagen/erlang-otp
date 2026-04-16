@@ -27,6 +27,8 @@
 
 -include_lib("common_test/include/ct_property_test.hrl").
 -include_lib("public_key/include/public_key.hrl").
+-include_lib("public_key/include/PKIXCRMF.hrl").
+-include_lib("public_key/include/PKIXCMP.hrl").
 
 -define(EMPTY_PARAM, {asn1_OPENTYPE, <<5,0>>}).
 
@@ -45,6 +47,9 @@ ocsp_encode_decode() ->
             encode_decode_check(PkixType, Decoded)).
 algorithm_encode_decode() ->
     ?FORALL({PkixType, Decoded}, ?LET(Type, algorithm_type(), {Type, algorithm_value(Type)}),
+            encode_decode_check(PkixType, Decoded)).
+crmf_encode_decode() ->
+    ?FORALL({PkixType, Decoded}, ?LET(Type, crmf_type(), {Type, crmf_value(Type)}),
             encode_decode_check(PkixType, Decoded)).
 
 encode_decode_check(PkixType, Decoded) ->
@@ -249,7 +254,6 @@ key_usages_enum(7) ->
 key_usages_enum(8) ->
     decipherOnly.
 
-
 explicit_type() ->
     elements(['Certificate',
               'CertificateList',
@@ -437,6 +441,59 @@ private_key_slhdsa() ->
                         slh_dsa_shake_256s, slh_dsa_shake_256f]),
          #'SLH-DSAPrivateKey'{algorithm = Alg,
                               key = <<1:512>>}).
+
+crmf_type() ->
+    elements(['CertificationRequest',
+              'CertificationRequestInfo',
+              'CertRequest',
+              'OldCertId']).
+
+crmf_value('CertificationRequest') ->
+    ?LET(CRI, crmf_value('CertificationRequestInfo'),
+         ?LET(AlgId, algorithm_identifier(),
+              #'CertificationRequest'{
+                 certificationRequestInfo = CRI,
+                 signatureAlgorithm =
+                     #'CertificationRequest_signatureAlgorithm'{
+                        algorithm = AlgId#'AlgorithmIdentifier'.algorithm,
+                        parameters = AlgId#'AlgorithmIdentifier'.parameters},
+                 signature = <<0, 1:256>>}));
+crmf_value('CertificationRequestInfo') ->
+    ?LET({AlgId, Subject}, {algorithm_identifier(), rdn_sequence()},
+         #'CertificationRequestInfo'{
+            version = v1,
+            subject = Subject,
+            subjectPKInfo =
+                #'CertificationRequestInfo_subjectPKInfo'{
+                   algorithm =
+                       #'CertificationRequestInfo_subjectPKInfo_algorithm'{
+                          algorithm = AlgId#'AlgorithmIdentifier'.algorithm,
+                          parameters = AlgId#'AlgorithmIdentifier'.parameters},
+                   subjectPublicKey = <<0, 1:256>>},
+            attributes = []});
+crmf_value('CertRequest') ->
+    ?LET(CS,  list(attribute_type_and_value()),
+         #'CertRequest'{
+            certReqId = 0,
+            certTemplate = #'CertTemplate'{},
+            controls = CS});
+crmf_value('OldCertId') ->
+    ?LET(Name, rdn_sequence(),
+         #'CertId'{
+            issuer = {directoryName, Name},
+            serialNumber = 1}).
+
+attribute_type_and_value() ->
+    SomeVariants =
+        [{?'id-regCtrl-regToken', <<"token">>},
+         {?'id-regCtrl-oldCertID',
+          ?LET(Name, rdn_sequence(),
+               #'CertId'{issuer = {directoryName, Name}, serialNumber = 1})},
+         {?'id-regCtrl-protocolEncrKey', explicit_value('SubjectPublicKeyInfo')}
+        ],
+    ?LET({Type,Value}, oneof(SomeVariants),
+         #'AttributeTypeAndValue'{type = Type, value = Value}).
+
 
 ocsp_type() ->
     elements(['BasicOCSPResponse',
