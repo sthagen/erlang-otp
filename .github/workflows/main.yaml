@@ -67,6 +67,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect whitespace errors
         run: |
@@ -114,6 +115,8 @@ jobs:
         all: ${{ steps.apps.outputs.all }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
@@ -140,7 +143,7 @@ jobs:
             ALL_APPS: ${{ steps.apps.outputs.all }}
             CHANGED_APPS: ${{ steps.app-changes.outputs.changes }}
         run: |
-          if ${{ env.FULL_BUILD_AND_CHECK }}; then
+          if [ "${FULL_BUILD_AND_CHECK}" = "true" ]; then
               echo "changes=${ALL_APPS}" >> "$GITHUB_OUTPUT"
           else
               echo "changes=${CHANGED_APPS}" >> "$GITHUB_OUTPUT"
@@ -243,6 +246,8 @@ jobs:
       MACOS_VERSION: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Download source archive
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
@@ -292,6 +297,8 @@ jobs:
     if: needs.pack.outputs.build-c-code == 'true'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Download source archive
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
@@ -437,6 +444,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
@@ -518,10 +527,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Get modified vendor files
         id: vendor-files
         run: |
-          echo "MODIFIED_FILES=$(git diff --name-only origin/${{ github.base_ref }} HEAD | grep 'vendor\.info$' | wc -l || 1)" >> $GITHUB_OUTPUT
+          echo "MODIFIED_FILES=$(git diff --name-only "origin/${GITHUB_BASE_REF}" HEAD | grep 'vendor\.info$' | wc -l || 1)" >> $GITHUB_OUTPUT
 
   # this is a call to a workflow_call
   pr-vendor-vulnerability-analysis:
@@ -531,7 +541,8 @@ jobs:
       actions: read
       contents: read
     name: Vendor Vulnerability Scanning
-    uses: ./.github/workflows/reusable-vendor-vulnerability-scanner.yml
+    # This is an internal and trusted workflow.
+    uses: ./.github/workflows/reusable-vendor-vulnerability-scanner.yml # zizmor: ignore[secrets-inherit]
     with:
       fail_if_cve: false
       checkout: true
@@ -556,6 +567,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
@@ -572,7 +585,7 @@ jobs:
         with:
           name: otp_prebuilt
       - name: Build on FreeBSD
-        uses: vmactions/freebsd-vm@c9f815bc7aa0d34c9fdd0619b034a32d6ca7b57e # v1
+        uses: vmactions/freebsd-vm@c9f815bc7aa0d34c9fdd0619b034a32d6ca7b57e # v1.4.2
         with:
             usesh: true
             copyback: false
@@ -652,6 +665,8 @@ jobs:
     needs: pack
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
@@ -709,6 +724,8 @@ jobs:
       security-events: write   # needed for SARIF upload
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
@@ -736,21 +753,25 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
       - name: Run tests
         id: run-tests
+        env:
+          MATRIX_TYPE: ${{ matrix.type }}
         run: |
           set -x
           mkdir $PWD/make_test_dir
-          APP="${{ matrix.type }}"
+          APP="${MATRIX_TYPE}"
           ## Need to specialize for epmd, emulator and debug
           case "${APP}" in
             emulator) DIR=erts/emulator/ ;;
             epmd) DIR=erts/epmd ;;
             debug) DIR=lib/os_mon; APP=os_mon; TYPE=debug ;;
-            *) DIR=lib/${{ matrix.type }} ;;
+            *) DIR=lib/${MATRIX_TYPE} ;;
           esac
           ## Remove systemd-coredump
           ! sudo apt remove systemd-coredump
@@ -761,20 +782,22 @@ jobs:
           docker run --ulimit core=-1 --ulimit nofile=5000:5000 --pids-limit 1024 \
             -e CTRUN_TIMEOUT=90 -e SPEC_POSTFIX=gh \
             -e TEST_NEEDS_RELEASE=true -e "RELEASE_ROOT=/buildroot/otp/Erlang ∅⊤℞" \
-            -e EXTRA_ARGS="-ct_hooks cth_surefire [{path,\"/buildroot/otp/$DIR/make_test_dir/${{ matrix.type }}_junit.xml\"}]" \
+            -e EXTRA_ARGS="-ct_hooks cth_surefire [{path,\"/buildroot/otp/$DIR/make_test_dir/${MATRIX_TYPE}_junit.xml\"}]" \
             -v "$PWD/make_test_dir:/buildroot/otp/$DIR/make_test_dir" \
             -v "$PWD/scripts:/buildroot/otp/scripts" \
             otp "./otp_build download_gdb_tools && make emulator && make TYPE=${TYPE} && make ${APP}_test TYPE=${TYPE}"
           ## Rename os_mon to debug for debug build
-          if [ "$APP" != "${{ matrix.type }}" ]; then
-            mv make_test_dir/${APP}_test "make_test_dir/${{ matrix.type }}_test"
+          if [ "$APP" != "${MATRIX_TYPE}" ]; then
+            mv make_test_dir/${APP}_test "make_test_dir/${MATRIX_TYPE}_test"
           fi
       - name: Cleanup tests
         if: ${{ !cancelled() }}
+        env:
+          MATRIX_TYPE: ${{ matrix.type }}
         run: |
           rm -rf make_test_dir/otp || true
           sudo bash -c "chown -R `whoami` make_test_dir && chmod -R +r make_test_dir"
-          tar czf ${{ matrix.type }}_test_results.tar.gz make_test_dir
+          tar czf ${MATRIX_TYPE}_test_results.tar.gz make_test_dir
       - name: Upload test results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled() }}
@@ -789,6 +812,8 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
@@ -866,6 +891,8 @@ jobs:
         run: git config --global url.https://github.com/.insteadOf ssh://git@github.com/
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
@@ -876,6 +903,7 @@ jobs:
           repository: oss-review-toolkit/ort-config
           ref: "d2978deb230beae095bb6cfec074b94f1a74fd34"
           path: ".ort-config"
+          persist-credentials: false
 
       - name: Setup ORT Config
         id: setup-ort-config
@@ -1039,6 +1067,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-base-image
         with:
             BASE_BRANCH: ${{ env.BASE_BRANCH }}
@@ -1091,6 +1121,9 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+        with:
+          persist-credentials: false
+
       ## Publish the pre-built archive and docs
       - name: Download source archive
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
@@ -1108,7 +1141,9 @@ jobs:
       ## We add the correct version name into the file names
       ## and create the hash files for all assets
       - name: Create pre-build and doc archives
-        run: .github/scripts/create-artifacts.sh artifacts ${{ steps.tag.outputs.tag }}
+        env:
+          STEPS_TAG_OUTPUTS_TAG: ${{ steps.tag.outputs.tag }}
+        run: .github/scripts/create-artifacts.sh artifacts "${STEPS_TAG_OUTPUTS_TAG}"
 
       ## Create hash files
       - name: Create pre-build and doc archives
@@ -1159,17 +1194,17 @@ jobs:
           path: "attestations/*.sigstore"
 
       - name: Upload pre-built and doc tar archives
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
-        with:
-          name: OTP ${{ steps.tag.outputs.vsn }}
-          files: |
-            artifacts/*.tar.gz
-            artifacts/*.txt
-            attestations/*.sigstore
-            scan-report-web-app.html
-            bom.*
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VSN: ${{ steps.tag.outputs.vsn }}
+        run: |
+          gh release create "${TAG}" --title "OTP ${VSN}" \
+            artifacts/*.tar.gz \
+            artifacts/*.txt \
+            attestations/*.sigstore \
+            scan-report-web-app.html \
+            bom.*
       - name: Deploy on erlang.org
         env:
           GITHUB_TOKEN: ${{ secrets.TRIGGER_ERLANG_ORG_BUILD }}
@@ -1185,3 +1220,18 @@ jobs:
         with:
           name: Event File
           path: ${{ github.event_path }}
+
+  # Zizmor is a GitHub Actions security linter.
+  # See: https://docs.zizmor.sh/
+  zizmor:
+    name: Zizmor
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2

@@ -22,7 +22,12 @@ name: Update PR details
 
 # read-write repo token
 # access to secrets
-on:
+
+# workflow_run is required to comment on PRs from forks with write permissions.
+# This is safe because we only checkout the base repo (not fork code) and don't
+# execute any code from the PR. Be careful when adapting this workflow to not
+# introduce code execution from untrusted sources.
+on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: ["Build and check Erlang/OTP"]
     types:
@@ -45,6 +50,8 @@ jobs:
       result: ${{ steps.pr-number.outputs.result }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: erlef/setup-beam@e6d7c94229049569db56a7ad5a540c051a010af9 # v1.20.4
         with:
             otp-version: '27'
@@ -52,9 +59,10 @@ jobs:
         id: pr-number
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          GITHUB_EVENT_WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
            .github/scripts/get-pr-number.es erlang/otp \
-             "${{ github.event.workflow_run.head_sha }}"
+             "${GITHUB_EVENT_WORKFLOW_RUN_HEAD_SHA}"
 
   starting-tests:
     runs-on: ubuntu-latest
@@ -65,13 +73,17 @@ jobs:
     if: github.event.action == 'requested' && needs.pr-number.outputs.result != ''
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       ## We create an initial comment with some useful help to the user
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          PR_NUMBER: ${{ needs.pr-number.outputs.result }}
         with:
           script: |
             const script = require('./.github/scripts/pr-comment.js');
             return await script({github, context, state: 'starting',
-                   pr_number: ${{ needs.pr-number.outputs.result }} });
+                   pr_number: parseInt(process.env.PR_NUMBER) });
 
   finished-tests:
     runs-on: ubuntu-latest
@@ -88,14 +100,17 @@ jobs:
           github.event.workflow_run.conclusion != 'skipped'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Download and Extract Artifacts
         id: extract
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          GITHUB_EVENT_WORKFLOW_RUN_ARTIFACTS_URL: ${{ github.event.workflow_run.artifacts_url }}
         run: |
            mkdir -p artifacts && cd artifacts
 
-           artifacts_url=${{ github.event.workflow_run.artifacts_url }}
+           artifacts_url="${GITHUB_EVENT_WORKFLOW_RUN_ARTIFACTS_URL}"
 
            gh api "$artifacts_url" --paginate -q '.artifacts[] | [.name, .archive_download_url] | @tsv' | while read artifact
            do
@@ -126,8 +141,10 @@ jobs:
         ## Publish CT Test Results
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         if: always()
+        env:
+          PR_NUMBER: ${{ needs.pr-number.outputs.result }}
         with:
           script: |
             const script = require('./.github/scripts/pr-comment.js');
             return await script({github, context, state: 'finished',
-                pr_number: ${{ needs.pr-number.outputs.result }} });
+                pr_number: parseInt(process.env.PR_NUMBER) });
