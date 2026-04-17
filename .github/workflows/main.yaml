@@ -140,7 +140,7 @@ jobs:
     name: Build Erlang/OTP
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
-    uses: ./.github/workflows/build-otp.yaml
+    uses: ./.github/workflows/reusable-build-otp.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
 
