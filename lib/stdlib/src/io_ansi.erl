@@ -86,7 +86,7 @@ that should handle it. `io_ansi:fwrite/4` works across nodes and will use the
 
 -export([tput/1, tput/2, tigetnum/1, tigetflag/1, tinfo/0]).
 -export([format/1, format/2, format/3, fwrite/1, fwrite/2, fwrite/3, fwrite/4,
-         enabled/0, enabled/1, scan/1]).
+         enabled/0, enabled/1, scan/1, render/1, render/2]).
 
 -export([black/0, blue/0, cyan/0, green/0, magenta/0, red/0, white/0, yellow/0,
          color/1, color/3, default_color/0]).
@@ -2245,6 +2245,101 @@ lookup_vts(Data) ->
         KeyValueRest
     end.
 
+-doc #{ equiv => render(Data, []) }.
+-spec render([vts() | unicode:chardata()]) -> unicode:chardata().
+render(Data) ->
+    render(Data, []).
+
+-doc """
+Renders terminal sequences in `Data`.
+
+`Data` may contain either virtual terminal sequences, which are rendered,
+or `unicode:chardata()`, which are left as is.
+
+It accepts the same options as `format/3`.
+
+Example:
+
+```erlang
+1> io_ansi:render([blue, underline, "Hello world"]).
+[~"\e[34m",~"\e[4m","Hello world",~"\e(B\e[m"]
+2> io_ansi:render([blue, underline, ~"Hello world"],[{reset,false}]).
+[~"\e[34m",~"\e[4m",~"Hello world"]
+3> io_ansi:render([blue, underline, ~"Hello world"],[{enabled,false}]).
+[~"Hello world"]
+4> io_ansi:render([blue, underline, "Hello ", $\n, ~"world"],[{color,false}]).
+[~"\e[4m","Hello ", $\n, ~"world",~"\e(B\e[m"]
+5> io_ansi:render([invalid_code, "Hello world"]).
+** exception error: {invalid_code,invalid_code}
+     in function  io_ansi:render_internal/5
+```
+""".
+-spec render([vts() | unicode:chardata()], options()) -> unicode:chardata().
+render(Data, Options) ->
+    render_internal(Data, [], Options, false, fun
+      (Fmt, []) when is_list(Fmt); is_binary(Fmt); is_integer(Fmt) ->
+        {Fmt, []};
+
+      (_, _) ->
+        erlang:error(badarg, [Data, Options])
+    end).
+
+render_internal(Format, InitAcc, Options, FormatOnly, Callback) ->
+    UseAnsi = case proplists:get_value(enabled, Options) of
+                    undefined -> enabled();
+                    Enabled -> Enabled
+              end,
+    AppendReset = proplists:get_value(reset, Options, true),
+    NoColor = os:getenv("NO_COLOR"),
+    DefaultColor = NoColor =:= false orelse NoColor =:= "",
+    Color = proplists:get_value(color, Options, DefaultColor),
+    Mappings = get_mappings(),
+    try lists:foldl(
+          fun(Ansi, {Acc, Args}) when is_atom(Ansi) orelse is_tuple(Ansi), FormatOnly ->
+                  {[Ansi | Acc], Args};
+             (Ansi, {Acc, Args}) when is_atom(Ansi) orelse is_tuple(Ansi) ->
+                {Key, AnsiArgs} = case Ansi of
+                        Atom when is_atom(Atom) -> {Atom, []};
+                        Tuple when is_tuple(Tuple) -> {hd(tuple_to_list(Tuple)), tl(tuple_to_list(Tuple))}
+                    end,
+                RenderAnsi = UseAnsi andalso (Color orelse not is_color(Key)),
+                if RenderAnsi ->
+                    AnsiFun = lookup(Mappings, Key, AnsiArgs),
+                    {[apply(AnsiFun, AnsiArgs) | Acc], Args};
+                     not RenderAnsi ->
+                    {Acc, Args}
+                end;
+             (Fmt, {Acc, Args}) ->
+                  {Entry, Rest} = Callback(Fmt, Args),
+                  {[Entry | Acc], Rest}
+          end, {[], InitAcc}, Format) of
+        {Scanned, []} ->
+            Result = if
+              UseAnsi andalso AppendReset -> [reset() | Scanned];
+              true -> Scanned
+            end,
+
+            lists:reverse(Result);
+        _ ->
+            erlang:error(badarg, [Format, InitAcc, Options])
+    catch throw:{invalid_code, Code, []} ->
+            erlang:error({invalid_code, Code});
+        throw:{invalid_code, Code, Args} ->
+            erlang:error({invalid_code, {Code, Args}});
+        E:R:ST ->
+            erlang:raise(E,R,ST)
+            %%            erlang:error(badarg, [Format, Data, Options])
+    end.
+
+is_color(AnsiKey) ->
+    Colors = ["blue", "red", "green", "yellow", "magenta", "cyan", "white"],
+    ColorAtoms = [list_to_atom(Prefixes ++ C ++ Postfixes) ||
+                     Postfixes <- ["","_background","_underline"],
+                     Prefixes <- ["", "light_"],
+                     C <- Colors],
+    lists:member(AnsiKey, ColorAtoms ++ [color, background_color, underline_color,
+                                         default_color, default_background, default_underline_color]).
+
 -doc #{ equiv => format(Format, []) }.
 -spec format(format()) -> unicode:unicode_binary().
 format(Format) ->
@@ -2259,8 +2354,8 @@ format(Format, Data) ->
 Returns a character list that represents `Data` formatted in accordance with
 `Format`.
 
-This function works just as `io_lib:bformat/2`, except that it also allows
-atoms and tuples represeting virtual terminal sequences as part of the
+This function works just as `io_lib:bformat/2`, where `Data` is a list of strings
+as well as atoms and tuples representing virtual terminal sequences as part of the
 `Format` string.
 
 Calling `format/3` will always emit a `reset/0` VTS at the end of the returned
@@ -2287,75 +2382,24 @@ Example:
 ~"Hello world"
 5> io_ansi:format([blue, underline, "Hello ~p"],[world],[{color,false}]).
 ~"\e[4mHello world\e(B\e[m"
-6> io_ansi:format([invalid_code, "Hello world"]).
-** exception error: {invalid_code,invalid_code}
-     in function  io_ansi:format_internal/3
 ```
 
 For a detailed description of the available formatting options, see `io:fwrite/3`.
 """.
 -spec format(format(), Data :: [term()], options()) -> unicode:unicode_binary().
 format(Format, Data, Options) ->
-    format_internal(Format, Data, Options).
+    Formatted = format_internal(group(Format), Data, Options, false),
+    unicode:characters_to_binary(Formatted).
 
-format_internal(Format, Data, Options) ->
-    UseAnsi = case proplists:get_value(enabled, Options) of
-                    undefined -> enabled();
-                    Enabled -> Enabled
-              end,
-    %% Only to be used by fwrite
-    FormatOnly = proplists:get_value(format_only, Options, false),
-    AppendReset = [reset || proplists:get_value(reset, Options, true)],
-    NoColor = os:getenv("NO_COLOR"),
-    DefaultColor = NoColor =:= false orelse NoColor =:= "",
-    Color = proplists:get_value(color, Options, DefaultColor),
-    Mappings = get_mappings(),
-    try lists:foldl(
-          fun(Ansi, {Acc, Args}) when is_atom(Ansi) orelse is_tuple(Ansi), FormatOnly ->
-                  {[Ansi | Acc], Args};
-             (Ansi, {Acc, Args}) when is_atom(Ansi) orelse is_tuple(Ansi) ->
-                {Key, AnsiArgs} = case Ansi of
-                        Atom when is_atom(Atom) -> {Atom, []};
-                        Tuple when is_tuple(Tuple) -> {hd(tuple_to_list(Tuple)), tl(tuple_to_list(Tuple))}
-                    end,
-                RenderAnsi = UseAnsi andalso (Color orelse not is_color(Key)),
-                if RenderAnsi ->
-                    AnsiFun = lookup(Mappings, Key, AnsiArgs),
-                    {[apply(AnsiFun, AnsiArgs) | Acc], Args};
-                     not RenderAnsi ->
-                    {Acc, Args}
-                end;
-             (Ansi, {Acc, Args}) when is_atom(Ansi); is_tuple(Ansi) ->
-                  {Acc, Args};
-             (Fmt, {Acc, Args}) ->
-                  {Scanned, Rest} = io_lib_format:scan(Fmt, Args),
-                  {[io_lib_format:build_bin(Scanned) | Acc], Rest}
-          end, {[], Data}, group([Format,AppendReset])) of
-        {Scanned, []} ->
-            if FormatOnly ->
-                    lists:flatten(lists:reverse(Scanned));
-               not FormatOnly ->
-                    unicode:characters_to_binary(lists:reverse(Scanned))
-            end;
-        _ ->
-            erlang:error(badarg, [Format, Data, Options])
-    catch throw:{invalid_code, Code, []} ->
-            erlang:error({invalid_code, Code});
-        throw:{invalid_code, Code, Args} ->
-            erlang:error({invalid_code, {Code, Args}});
-        E:R:ST ->
-            erlang:raise(E,R,ST)
-            %%            erlang:error(badarg, [Format, Data, Options])
-    end.
+format_internal(Format, Data, Options, FormatOnly) ->
+    render_internal(group(Format), Data, Options, FormatOnly, fun
+      (Fmt, Args) when is_list(Fmt) ->
+        {Scanned, Rest} = io_lib_format:scan(Fmt, Args),
+        {io_lib_format:build_bin(Scanned), Rest};
 
-is_color(AnsiKey) ->
-    Colors = ["blue", "red", "green", "yellow", "magenta", "cyan", "white"],
-    ColorAtoms = [list_to_atom(Prefixes ++ C ++ Postfixes) ||
-                     Postfixes <- ["","_background","_underline"],
-                     Prefixes <- ["", "light_"],
-                     C <- Colors],
-    lists:member(AnsiKey, ColorAtoms ++ [color, background_color, underline_color,
-                                         default_color, default_background, default_underline_color]).
+      (_, _) ->
+        erlang:error(badarg, [Format, Data, Options])
+    end).
 
 -doc #{ equiv => fwrite(standard_io, Format, [], []) }.
 -spec fwrite(Format :: format()) -> ok.
@@ -2391,8 +2435,6 @@ ok
 ok
 3> io_ansi:fwrite([invalid_code, "%% Hello ~p\n"], [world]).
 ** exception error: {error,{put_ansi,unicode,invalid_code}}
-     in function  io_ansi:fwrite/4
-        called as io_ansi:fwrite(standard_io,[invalid_code,"%% Hello ~p\n"],[world],[])
 ```
 
 The decision what each VTS should be converted to is done by the destination I/O
@@ -2430,7 +2472,7 @@ fwrite(Device, Format, Data, Options) ->
                   end;
               F(_Data, Error) ->
                   throw({Ref, Error})
-          end, ok, format_internal(Format, Data, [{format_only, true} | Options]))
+          end, ok, lists:flatten(format_internal(Format, Data, Options, true)))
     catch {Ref, Error} ->
             erlang:error(Error, [Device, Format, Data, Options])
     end.
