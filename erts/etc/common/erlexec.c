@@ -1952,7 +1952,15 @@ read_args_file(char *filename)
 
     do {
 	errno = 0;
+#ifdef __WIN32__
+	{
+	    WCHAR *wfilename = utf8_to_utf16((unsigned char *)filename);
+	    file = _wfopen(wfilename, L"r");
+	    efree(wfilename);
+	}
+#else
 	file = fopen(filename, "r");
+#endif
     } while (!file && errno == EINTR);
     if (!file) {
 #ifdef __WIN32__
