@@ -3658,29 +3658,29 @@ portable_open_port("openssl" = Exe, Args0) ->
         false ->
             AbsPath = os:find_executable(Exe),
             %% ?CT_LOG("open_port({spawn_executable, ~p}, [stderr_to_stdout,~n {args, \"~s\"}]).",
-	    %%      [AbsPath, lists:join($\s, Args0)]),
+            %%      [AbsPath, lists:join($\s, Args0)]),
             open_port({spawn_executable, AbsPath},
                       [{args, Args0}, stderr_to_stdout]);
-	_ ->
-	    %% I can't get the new windows version of openssl.exe to be stable
-	    %% certain server tests are failing for no reason.
-	    %% This is using "linux" openssl via wslenv
+        _ ->
+            %% I can't get the new windows version of openssl.exe to be stable
+            %% certain server tests are failing for no reason.
+            %% This is using "linux" openssl via wslenv
 
-	    Translate = fun([_Drive|":/" ++ _ ]= Path) ->
-				string:trim(os:cmd("wsl wslpath -u " ++ Path));
-			   (Arg) ->
-				Arg
-			end,
-	    Args1 = [Translate(Arg) || Arg <- Args0],
-	    Args = ["/C","wsl","openssl"| Args1] ++ ["2>&1"],
-            Cmd = case erlang:system_info(wordsize) of
-                      8 -> os:find_executable("cmd");
-                      4 -> filename:join(os:getenv("WINDIR"),"sysnative/cmd")
+            Translate = fun([_Drive|":/" ++ _ ]= Path) ->
+                                string:trim(os:cmd("wsl wslpath -u " ++ Path));
+                           (Arg) ->
+                                Arg
+                        end,
+            Args1 = [Translate(Arg) || Arg <- Args0],
+            Args = ["openssl"| Args1] ++ ["2>&1"],
+            WSL = case erlang:system_info(wordsize) of
+                      8 -> os:find_executable("wsl");
+                      4 -> filename:join(os:getenv("WINDIR"),"sysnative/wsl")
                   end,
-            ?CT_LOG("open_port({spawn_executable, ~p}, [stderr_to_stdout,~n {args, \"~s\"}]).",
-                    [Cmd, lists:join($\s, Args)]),
-	    open_port({spawn_executable, Cmd},
-		      [{args, Args}, stderr_to_stdout, hide])
+            ?CT_LOG("open_port({spawn_executable, ~p}, [hide, stderr_to_stdout,~n {args, ~p}]).",
+                    [WSL, Args]),
+            open_port({spawn_executable, WSL},
+                      [{args, Args}, stderr_to_stdout, hide])
     end;
 portable_open_port(Exe, Args) ->
     AbsPath = os:find_executable(Exe),
