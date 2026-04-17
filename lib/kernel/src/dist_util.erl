@@ -1185,10 +1185,10 @@ send_tick(#state{handle = DHandle, socket = Socket,
     LogMissed = application:get_env(kernel, log_missed_net_ticks, false),
     case getstat(DHandle, Socket, MFGetstat) of
 	{ok, Read, _, _} when Ticked0 =:= T ->
-	    LogMissed andalso
-	        warning_msg("** Node ~p: ~w consecutive net ticks missed "
-                           "(tick ~w/~w) — net_tick_timeout **~n",
-                           [Node, TickIntensity, T, TickIntensity]),
+        LogMissed andalso
+            warning_msg("** Node ~p: ~w consecutive net ticks missed "
+                        "(tick ~w/~w) — net_tick_timeout **~n",
+                        [Node, TickIntensity, T, TickIntensity]),
 	    {error, not_responding};
 
         {ok, R, W1, Pend} ->
