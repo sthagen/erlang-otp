@@ -824,9 +824,9 @@ static ERL_NIF_TERM tty_tinfo_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     };
 
     ERL_NIF_TERM vs[3] = {
-        tty_tinfo_make_map(env, (const char * const*)boolnames, (const char * const*)boolcodes, (const char * const*)boolfnames),
-        tty_tinfo_make_map(env, (const char * const*)numnames, (const char * const*)numcodes, (const char * const*)numfnames),
-        tty_tinfo_make_map(env, (const char * const*)strnames, (const char * const*)strcodes, (const char * const*)strfnames)
+        tty_tinfo_make_map(env, (NCURSES_CONST char * const*)boolnames, (NCURSES_CONST char * const*)boolcodes, (NCURSES_CONST char * const*)boolfnames),
+        tty_tinfo_make_map(env, (NCURSES_CONST char * const*)numnames, (NCURSES_CONST char * const*)numcodes, (NCURSES_CONST char * const*)numfnames),
+        tty_tinfo_make_map(env, (NCURSES_CONST char * const*)strnames, (NCURSES_CONST char * const*)strcodes, (NCURSES_CONST char * const*)strfnames)
     };
     ERL_NIF_TERM res;
     
