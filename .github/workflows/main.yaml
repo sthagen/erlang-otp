@@ -284,7 +284,9 @@ jobs:
       otp_sbom_version: ${{ needs.setup.outputs.otp_sbom_version }}
       tag:              ${{ needs.setup.outputs.tag }}
       vsn:              ${{ needs.setup.outputs.vsn }}
-    secrets: inherit
+    secrets:
+      TRIGGER_ERLANG_ORG_BUILD: ${{ secrets.TRIGGER_ERLANG_ORG_BUILD }}
+      # GITHUB_TOKEN is already available in called workflow.
 
   event_file:
     name: "Event File"

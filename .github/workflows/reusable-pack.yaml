@@ -104,8 +104,11 @@ jobs:
       # 'value' is an output parameter
       - name: Set build-c-code output
         id: build-c-code
+        env:
+          CHANGES: ${{ steps.c-code-changes.outputs.changes }}
+          BUILD_AND_CHECK: ${{ inputs.full_build_and_check }}
         run: |
-          if [[ "${{ steps.c-code-changes.outputs.changes }}" != "[]" || "${{ inputs.full_build_and_check }}" == "true" ]]; then
+          if [ "${CHANGES}" != "[]" || "${BUILD_AND_CHECK}" == "true" ]; then
             echo "value=true"  >> $GITHUB_OUTPUT
           else
             echo "value=false" >> $GITHUB_OUTPUT
