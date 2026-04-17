@@ -71,10 +71,6 @@ jobs:
 
   setup:
     uses: ./.github/workflows/reusable-setup.yaml
-    with:
-      base_branch:          ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
-      full_build_and_check: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-build-and-check')) || github.event_name == 'schedule' }}
-      otp_sbom_version:     ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
 
   pack:
     name: Build Erlang/OTP (64-bit)
