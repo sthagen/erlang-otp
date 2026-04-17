@@ -84,7 +84,7 @@ jobs:
 
       - name: Setup ort_version
         id: setup-ort-version
-        run: echo "otp_version=${{ env.ORT_VERSION }}" >> $GITHUB_OUTPUT
+        run: echo "ort_version=${{ env.ORT_VERSION }}" >> $GITHUB_OUTPUT
 
       - name: Run OSS Review Toolkit (analyzer)
         uses: oss-review-toolkit/ort-ci-github-action@1805edcf1f4f55f35ae6e4d2d9795ccfb29b6021 # ratchet:oss-review-toolkit/ort-ci-github-action@v1.1.0
@@ -241,7 +241,7 @@ jobs:
 
       - uses: ./.github/actions/build-base-image
         with:
-          base_branch: ${{ inputs.base_branch }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
 
       - name: Download SBoM
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

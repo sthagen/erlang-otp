@@ -174,7 +174,7 @@ jobs:
         run: |
           gh release create "${TAG}" --title "OTP ${VSN}" --latest=${LATEST} \
             artifacts/*.tar.gz \
-            artifacts/*.txt \
+            artifacts/*.txt
 
       - name: Deploy on erlang.org
         if: github.repository == 'erlang/otp'
