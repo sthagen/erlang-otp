@@ -154,7 +154,7 @@ to_list(D) ->
     fold(fun (Key, Val, List) -> [{Key,Val}|List] end, [], D).
 
 -doc """
-Converts the `Key`-`Value` list `List` to dictionary `Dict`.
+Converts the `Key`-`Value` list `List` to a dictionary.
 
 ## Examples
 
@@ -188,7 +188,7 @@ Returns the number of elements in dictionary `Dict`.
 size(#dict{size=N}) when is_integer(N), N >= 0 -> N.
 
 -doc """
-Returns `true` if dictionary `Dict` has no elements; otherwise
+Returns `true` if dictionary `Dict` has no elements; otherwise,
 returns `false`.
 
 ## Examples
@@ -310,8 +310,7 @@ erase_key(Key, [E|Bkt0]) ->
 erase_key(_, []) -> {[],0}.
 
 -doc """
-
-This function returns a value from dictionary and a new dictionary
+This function returns a value from a dictionary and a new dictionary
 without this value.
 
 Returns `error` if the key is not present in the dictionary.
@@ -350,7 +349,7 @@ take_key(Key, [E|Bkt0]) ->
 take_key(_, []) -> {[],error}.
 
 -doc """
-Stores a `Key`-`Value` pair in dictionary `Dict2`.
+Stores a `Key`-`Value` pair in a dictionary.
 
 If `Key` already exists in `Dict1`, the associated value is replaced
 by `Value`.
