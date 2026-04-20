@@ -31,6 +31,22 @@
   </header>
   <p>This document describes the changes made to the ERTS application.</p>
 
+<section><title>Erts 14.2.5.14</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p> Fixed an issue when supplying the args_file option to
+	    erl.exe on windows that did not handle unicode characters
+	    correctly. </p>
+          <p>
+	    Own Id: OTP-20101 Aux Id: GH-10667 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Erts 14.2.5.13</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>

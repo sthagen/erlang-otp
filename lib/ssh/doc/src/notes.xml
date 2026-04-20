@@ -30,6 +30,26 @@
     <file>notes.xml</file>
   </header>
 
+<section><title>Ssh 5.1.4.15</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fixed a vulnerability in the SFTP server where file
+	    attributes could be modified outside the configured root
+	    directory. When using FSETSTAT on an open file handle,
+	    the operation used the path stored in the handle without
+	    verifying it was within the root directory, allowing
+	    attribute changes to files outside the chroot
+	    boundary.</p> <p>Thanks to John Downey.</p>
+          <p>
+	    Own Id: OTP-20081 Aux Id: PR-11027, CVE-2026-32147 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
 <section><title>Ssh 5.1.4.14</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
