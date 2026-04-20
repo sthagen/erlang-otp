@@ -25,6 +25,17 @@ as all enhancements and bugfixes for every release of Mnesia. Each release of
 Mnesia thus constitutes one section in this document. The title of each section
 is the version number of Mnesia.
 
+## Mnesia 4.23.5.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a bug where stacktrace was not returned from `mnesia:transaction/1` when transaction aborts with an error exception.
+
+  Own Id: OTP-20094 Aux Id: [GH-10967], [PR-11002]
+
+[GH-10967]: https://github.com/erlang/otp/issues/10967
+[PR-11002]: https://github.com/erlang/otp/pull/11002
+
 ## Mnesia 4.23.5.1
 
 ### Fixed Bugs and Malfunctions
