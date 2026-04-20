@@ -54,6 +54,9 @@ crmf_encode_decode() ->
 cmp_encode_decode() ->
     ?FORALL({PkixType, Decoded}, ?LET(Type, cmp_type(), {Type, cmp_value(Type)}),
             encode_decode_check(PkixType, Decoded)).
+cms_encode_decode() ->
+    ?FORALL({PkixType, Decoded}, ?LET(Type, cms_type(), {Type, cms_value(Type)}),
+            encode_decode_check(PkixType, Decoded)).
 
 encode_decode_check(PkixType, Decoded) ->
     try
@@ -550,6 +553,151 @@ cmp_header() ->
             pvno = cmp2021,
             sender = {directoryName, Sender},
             recipient = {directoryName, Recipient}}).
+
+cms_type() ->
+    elements(['AuthenticatedData',
+              'ContentInfo',
+              'DigestedData',
+              'EncapsulatedContentInfo',
+              'EncryptedData',
+              'EnvelopedData',
+              'IssuerAndSerialNumber',
+              'KEKRecipientInfo',
+              'KeyTransRecipientInfo',
+              'PasswordRecipientInfo',
+              'RecipientInfo',
+              'SignedData',
+              'SignerInfo']).
+
+cms_value('ContentInfo') ->
+    #'ContentInfo'{
+       contentType = ?'id-data',
+       content = <<1,2,3>>};
+cms_value('EncapsulatedContentInfo') ->
+    #'EncapsulatedContentInfo'{
+       eContentType = ?'id-data',
+       eContent = <<1,2,3>>};
+cms_value('IssuerAndSerialNumber') ->
+    ?LET(Name, rdn_sequence(),
+         #'IssuerAndSerialNumber'{
+            issuer = Name,
+            serialNumber = 1});
+cms_value('KeyTransRecipientInfo') ->
+    ?LET(Name, rdn_sequence(),
+         #'KeyTransRecipientInfo'{
+            version = v0,
+            rid = {issuerAndSerialNumber,
+                   #'IssuerAndSerialNumber'{issuer = Name,
+                                            serialNumber = 1}},
+            keyEncryptionAlgorithm =
+                #'KeyTransRecipientInfo_keyEncryptionAlgorithm'{
+                   algorithm = ?'rsaEncryption',
+                   parameters = 'NULL'},
+            encryptedKey = <<1:256>>});
+cms_value('KEKRecipientInfo') ->
+    #'KEKRecipientInfo'{
+       version = v4,
+       kekid = #'KEKIdentifier'{keyIdentifier = <<1:128>>,
+                                date = asn1_NOVALUE,
+                                other = asn1_NOVALUE},
+       keyEncryptionAlgorithm =
+           #'KeyEncryptionAlgorithmIdentifier'{
+              algorithm = ?'id-aes128-wrap',
+              parameters = asn1_NOVALUE},
+       encryptedKey = <<1:256>>};
+cms_value('PasswordRecipientInfo') ->
+    #'PasswordRecipientInfo'{
+       version = v0,
+       keyDerivationAlgorithm = asn1_NOVALUE,
+       keyEncryptionAlgorithm =
+           #'KeyEncryptionAlgorithmIdentifier'{
+              algorithm = ?'id-aes128-wrap',
+              parameters = asn1_NOVALUE},
+       encryptedKey = <<1:256>>};
+cms_value('RecipientInfo') ->
+    oneof([?LET(V, cms_value('KeyTransRecipientInfo'), {ktri, V}),
+           ?LET(V, cms_value('KEKRecipientInfo'), {kekri, V}),
+           ?LET(V, cms_value('PasswordRecipientInfo'), {pwri, V})]);
+cms_value('DigestedData') ->
+    #'DigestedData'{
+       version = v0,
+       digestAlgorithm =
+           #'DigestAlgorithmIdentifier'{algorithm = ?'id-sha256',
+                                        parameters = ?EMPTY_PARAM},
+       encapContentInfo =
+           #'EncapsulatedContentInfo'{
+              eContentType = ?'id-data',
+              eContent = <<1,2,3>>},
+       digest = <<1:256>>};
+cms_value('EncryptedData') ->
+    #'EncryptedData'{
+       version = v0,
+       encryptedContentInfo =
+           #'EncryptedContentInfo'{
+              contentType = ?'id-data',
+              contentEncryptionAlgorithm =
+                  #'ContentEncryptionAlgorithmIdentifier'{
+                     algorithm = ?'id-aes128-CBC',
+                     parameters = {asn1_OPENTYPE, <<4,16,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16>>}},
+              encryptedContent = <<1,2,3,4>>},
+       unprotectedAttrs = asn1_NOVALUE};
+cms_value('SignerInfo') ->
+    ?LET(Name, rdn_sequence(),
+         #'SignerInfo'{
+            version = v1,
+            sid = {issuerAndSerialNumber,
+                   #'IssuerAndSerialNumber'{issuer = Name,
+                                            serialNumber = 1}},
+            digestAlgorithm =
+                #'DigestAlgorithmIdentifier'{algorithm = ?'id-sha256',
+                                             parameters = ?EMPTY_PARAM},
+            signedAttrs = asn1_NOVALUE,
+            signatureAlgorithm =
+                #'SignatureAlgorithmIdentifier'{algorithm = ?'sha256WithRSAEncryption',
+                                               parameters = ?EMPTY_PARAM},
+            signature = <<1:256>>,
+            unsignedAttrs = asn1_NOVALUE});
+cms_value('SignedData') ->
+    ?LET(SignerInfo, cms_value('SignerInfo'),
+         #'SignedData'{
+            version = v1,
+            digestAlgorithms =
+                [#'DigestAlgorithmIdentifier'{algorithm = ?'id-sha256',
+                                              parameters = ?EMPTY_PARAM}],
+            encapContentInfo =
+                #'EncapsulatedContentInfo'{
+                   eContentType = ?'id-data',
+                   eContent = <<1,2,3>>},
+            certificates = asn1_NOVALUE,
+            crls = asn1_NOVALUE,
+            signerInfos = [SignerInfo]});
+cms_value('EnvelopedData') ->
+    ?LET(RI, cms_value('RecipientInfo'),
+         #'EnvelopedData'{
+            version = v0,
+            recipientInfos = [RI],
+            encryptedContentInfo =
+                #'EncryptedContentInfo'{
+                   contentType = ?'id-data',
+                   contentEncryptionAlgorithm =
+                       #'ContentEncryptionAlgorithmIdentifier'{
+                          algorithm = ?'id-aes128-CBC',
+                          parameters = {asn1_OPENTYPE, <<4,16,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16>>}},
+                   encryptedContent = <<1,2,3,4>>}});
+cms_value('AuthenticatedData') ->
+    ?LET(RI, cms_value('RecipientInfo'),
+         #'AuthenticatedData'{
+            version = v0,
+            recipientInfos = [RI],
+            macAlgorithm =
+                #'MessageAuthenticationCodeAlgorithm'{
+                   algorithm = ?'id-hmacWithSHA256',
+                   parameters = ?EMPTY_PARAM},
+            encapContentInfo =
+                #'EncapsulatedContentInfo'{
+                   eContentType = ?'id-data',
+                   eContent = <<1,2,3>>},
+            mac = <<1:256>>}).
 
 ocsp_type() ->
     elements(['BasicOCSPResponse',
