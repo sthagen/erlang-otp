@@ -23,6 +23,17 @@ limitations under the License.
 
 This document describes the changes made to the Kernel application.
 
+## Kernel 10.6.3
+
+### Fixed Bugs and Malfunctions
+
+- On Windows, sockets has to be bound when using 'socket'. Therefor when using gen_tcp with inet_backend = socket, gen_tcp_socket bind even if the caller has not provided an explicit bind address. In that case it attempts to locate a "proper" address on its own. But if the connect address is the loopback address, this could lead to an attempt to bind to an external interface.
+  So, this has now been changed so that if the connect address is the loopback address, the loopback address will also be used when binding.
+
+  Own Id: OTP-20104 Aux Id: [#10968]
+
+[#10968]: https://github.com/erlang/otp/issues/10968
+
 ## Kernel 10.6.2
 
 ### Fixed Bugs and Malfunctions
