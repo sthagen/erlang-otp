@@ -5099,6 +5099,8 @@ site_module({_, {Module, _}, _}) ->
 site_module({_, {Module, _, _}, _}) ->
   Module.
 
+site_mfa({native_record, {M, N}, _}) ->
+  {M, N, 0};
 site_mfa({_, {M, F, A}, _}) ->
   {M, F, A}.
 
