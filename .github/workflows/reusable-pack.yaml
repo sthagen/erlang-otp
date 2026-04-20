@@ -108,7 +108,7 @@ jobs:
           CHANGES: ${{ steps.c-code-changes.outputs.changes }}
           BUILD_AND_CHECK: ${{ inputs.full_build_and_check }}
         run: |
-          if [ "${CHANGES}" != "[]" || "${BUILD_AND_CHECK}" == "true" ]; then
+          if [[ "${CHANGES}" != "[]" || "${BUILD_AND_CHECK}" == "true" ]]; then
             echo "value=true"  >> $GITHUB_OUTPUT
           else
             echo "value=false" >> $GITHUB_OUTPUT
