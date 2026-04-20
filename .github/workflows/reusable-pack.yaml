@@ -55,7 +55,7 @@ jobs:
       build-c-code: ${{ steps.build-c-code.outputs.value }}
       all:          ${{ steps.apps.outputs.all }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:
           persist-credentials: false
 
@@ -115,7 +115,7 @@ jobs:
           fi
 
       - name: Cache pre-built src
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # ratchet:actions/cache@v5.0.3
         with:
             path: otp_src.tar.gz
             key: prebuilt-src-${{ github.ref_name }}-${{ github.sha }}
@@ -123,7 +123,7 @@ jobs:
                 prebuilt-src-${{ github.base_ref }}-${{ github.event.pull_request.base.sha }}
 
       - name: Cache pre-built binaries
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # ratchet:actions/cache@v5.0.3
         with:
             path: otp_cache.tar.gz
             key: prebuilt-cache-64-bit-${{ github.ref_name }}-${{ github.sha }}
@@ -134,7 +134,7 @@ jobs:
         run: .github/scripts/init-pre-release.sh otp_archive.tar.gz otp_src.tar.gz
 
       - name: Upload source tar archive
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
         with:
           name: otp_git_archive
           path: otp_archive.tar.gz
@@ -169,7 +169,7 @@ jobs:
             "`pwd`/otp_archive.tar.gz"
 
       - name: Upload restored cache
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
         if: runner.debug == 1
         with:
           name: restored-cache
@@ -200,7 +200,7 @@ jobs:
           gzip otp_cache.tar
 
       - name: Upload pre-built tar archives
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
         with:
           name: otp_prebuilt
           path: |
