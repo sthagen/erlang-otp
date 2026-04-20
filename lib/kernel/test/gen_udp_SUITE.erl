@@ -3858,6 +3858,8 @@ otp_20102(Config) when is_list(Config) ->
                    ?P("cond check: do we support socket"),
                    case ?LIB:is_socket_supported() of
                        true ->
+			   ?P("cond check: not windows"),
+			   is_not_windows(),
                            ?P("cond check: do we support ipv4 & recvtos & tos"),
                            has_support_ipv4(),
 			   has_support_ip_recvtos(),
