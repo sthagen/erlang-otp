@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2019-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2019-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -179,7 +179,8 @@ connect_lookup(Domain, Address, Port, Mod, Opts0, Timer) ->
                        opts   = ConnectOpts}} ->
             %%
             %% ?DBG([{domain, Domain}, {bind_ip, BindAddr}]),
-            BindSockaddr = bind_addr(Domain, BindAddr, BindPort),
+            BindSockaddr = bind_addr(is_localhost(Address, Domain),
+				     Domain, BindAddr, BindPort),
             OpenOpts = open_opts(OpenOpts0, open_opts(Fd)),
             connect_open(
               Addrs, Domain, ConnectOpts, StartOpts, OpenOpts,
@@ -281,9 +282,32 @@ default_any(Domain, undefined, _Opts) ->
 default_any(_Domain, BindAddr, _Opts) ->
     BindAddr.
 
-bind_addr(Domain, #{family := Domain} = BindSockaddr, _BindPort) ->
+is_localhost({127,0,0,1} = Loopback, inet) ->
+    {true, Loopback};
+is_localhost({0,0,0,0,0,0,0,1} = Loopback, inet6) ->
+    {true, Loopback};
+is_localhost(_, _) ->
+    {false, undefined}.
+
+bind_addr(_,
+	  Domain, #{family := Domain} = BindSockaddr, _BindPort) ->
     BindSockaddr;
-bind_addr(Domain, BindIP, BindPort)
+bind_addr({true, Localhost},
+	  Domain, BindIP, BindPort)
+  when ((BindIP =:= undefined) andalso (BindPort =:= 0)) ->
+    %% *Maybe* Do not bind! On Windows we actually need to bind
+    %% ?DBG([{localhost, Localhost},
+    %% 	     {bind_ip, BindIP}, {bind_port, BindPort}, {fd, Fd}]),
+    case os:type() of
+        {win32, nt} ->
+            #{family => Domain,
+              addr   => Localhost,
+              port   => BindPort};
+        _ ->
+            undefined
+    end;
+bind_addr(_,
+	  Domain, BindIP, BindPort)
   when ((BindIP =:= undefined) andalso (BindPort =:= 0)) ->
     %% *Maybe* Do not bind! On Windows we actually need to bind
     %% ?DBG([{bind_ip, BindIP}, {bind_port, BindPort}, {fd, Fd}]),
@@ -296,7 +320,8 @@ bind_addr(Domain, BindIP, BindPort)
         _ ->
             undefined
     end;
-bind_addr(local = Domain, BindIP, _BindPort) ->
+bind_addr(_,
+	  local = Domain, BindIP, _BindPort) ->
     case BindIP of
 	any ->
 	    undefined;
@@ -304,7 +329,8 @@ bind_addr(local = Domain, BindIP, _BindPort) ->
 	    #{family => Domain,
 	      path   => Path}
     end;
-bind_addr(Domain, BindIP, BindPort)
+bind_addr(_,
+	  Domain, BindIP, BindPort)
   when (Domain =:= inet) orelse (Domain =:= inet6) ->
     %% ?DBG([{domain, Domain}, {bind_ip, BindIP}, {bind_port, BindPort}]),
     Addr = which_bind_address(Domain, BindIP),
@@ -405,7 +431,8 @@ listen(Port, Opts0) ->
                     Domain    = domain(Mod),
                     %% ?DBG([{domain, Domain}, {bind_ip, BindAddr},
                     %%       {listen_opts, ListenOpts}, {backlog, Backlog}]),
-                    BindSockaddr  = bind_addr(Domain, BindAddr, BindPort),
+                    BindSockaddr  = bind_addr({false, undefined},
+					      Domain, BindAddr, BindPort),
                     %% ?DBG([{bind_sock_addr, BindSockaddr}]),
                     OpenOpts = open_opts(OpenOpts0, open_opts(Fd)),
                     %% ?DBG([{open_opts, OpenOpts}]),
