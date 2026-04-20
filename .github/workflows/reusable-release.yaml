@@ -130,11 +130,12 @@ jobs:
       - name: Mark as latest
         id: latest-release
         env:
-          TAG: ${{ inputs.tag }}
+          TAG:          ${{ inputs.tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY:   ${{ github.repository }}
         run: |
           gh api \
-          repos/erlang/otp/contents/otp_versions.table?ref=master \
+          repos/${REPOSITORY}/contents/otp_versions.table?ref=master \
           --header "Accept: application/vnd.github.raw+json" > otp_versions.table
 
           OTP_TAG=$(head -n1 otp_versions.table | awk '{print $1}')
