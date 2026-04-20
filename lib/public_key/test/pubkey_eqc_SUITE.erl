@@ -38,7 +38,8 @@
          pkix_explicit/1,
          pkix_ocsp/1,
          pkix_algorithm/1,
-         pkix_crmf/1
+         pkix_crmf/1,
+         pkix_cmp/1
          ]).
 
 %%--------------------------------------------------------------------
@@ -51,7 +52,8 @@ all() ->
      pkix_explicit,
      pkix_ocsp,
      pkix_algorithm,
-     pkix_crmf
+     pkix_crmf,
+     pkix_cmp
     ].
 
 %%--------------------------------------------------------------------
@@ -97,4 +99,7 @@ pkix_algorithm(Config) when is_list(Config) ->
                                         Config).
 pkix_crmf(Config) when is_list(Config) ->
     true =  ct_property_test:quickcheck(pkix:crmf_encode_decode(),
+                                        Config).
+pkix_cmp(Config) when is_list(Config) ->
+    true =  ct_property_test:quickcheck(pkix:cmp_encode_decode(),
                                         Config).

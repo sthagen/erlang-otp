@@ -51,6 +51,9 @@ algorithm_encode_decode() ->
 crmf_encode_decode() ->
     ?FORALL({PkixType, Decoded}, ?LET(Type, crmf_type(), {Type, crmf_value(Type)}),
             encode_decode_check(PkixType, Decoded)).
+cmp_encode_decode() ->
+    ?FORALL({PkixType, Decoded}, ?LET(Type, cmp_type(), {Type, cmp_value(Type)}),
+            encode_decode_check(PkixType, Decoded)).
 
 encode_decode_check(PkixType, Decoded) ->
     try
@@ -449,15 +452,14 @@ crmf_type() ->
               'OldCertId']).
 
 crmf_value('CertificationRequest') ->
-    ?LET(CRI, crmf_value('CertificationRequestInfo'),
-         ?LET(AlgId, algorithm_identifier(),
-              #'CertificationRequest'{
-                 certificationRequestInfo = CRI,
-                 signatureAlgorithm =
-                     #'CertificationRequest_signatureAlgorithm'{
-                        algorithm = AlgId#'AlgorithmIdentifier'.algorithm,
-                        parameters = AlgId#'AlgorithmIdentifier'.parameters},
-                 signature = <<0, 1:256>>}));
+    ?LET({CRI, AlgId}, {crmf_value('CertificationRequestInfo'), algorithm_identifier()},
+         #'CertificationRequest'{
+            certificationRequestInfo = CRI,
+            signatureAlgorithm =
+                #'CertificationRequest_signatureAlgorithm'{
+                   algorithm = AlgId#'AlgorithmIdentifier'.algorithm,
+                   parameters = AlgId#'AlgorithmIdentifier'.parameters},
+            signature = <<0, 1:256>>});
 crmf_value('CertificationRequestInfo') ->
     ?LET({AlgId, Subject}, {algorithm_identifier(), rdn_sequence()},
          #'CertificationRequestInfo'{
@@ -494,6 +496,60 @@ attribute_type_and_value() ->
     ?LET({Type,Value}, oneof(SomeVariants),
          #'AttributeTypeAndValue'{type = Type, value = Value}).
 
+
+cmp_type() ->
+    elements(['PBMParameter',
+              'PKIMessage',
+              'ProtectedPart']).
+
+cmp_value('PBMParameter') ->
+    #'PBMParameter'{
+       salt = <<1:128>>,
+       owf = #'PBMParameter_owf'{algorithm = ?'id-sha256',
+                                  parameters = ?EMPTY_PARAM},
+       iterationCount = 1000,
+       mac = #'PBMParameter_mac'{algorithm = ?'id-hmacWithSHA256',
+                                  parameters = ?EMPTY_PARAM}};
+cmp_value('PKIMessage') ->
+    ?LET({Header, Body}, {cmp_header(), cmp_body()},
+         #'PKIMessage'{
+            header = Header,
+            body = Body,
+            protection = asn1_NOVALUE,
+            extraCerts = asn1_NOVALUE});
+cmp_value('ProtectedPart') ->
+    ?LET({Header, Body}, {cmp_header(), cmp_body()},
+         #'ProtectedPart'{
+            header = Header,
+            body = Body}).
+
+cmp_body() ->
+    oneof([{pkiconf, 'NULL'},
+           {ir, cmp_cert_req_messages()},
+           {cr, cmp_cert_req_messages()},
+           {p10cr, crmf_value('CertificationRequest')},
+           {error, #'ErrorMsgContent'{
+                       pKIStatusInfo = #'PKIStatusInfo'{status = rejection},
+                       errorCode = asn1_NOVALUE,
+                       errorDetails = asn1_NOVALUE}},
+           {pollReq, [#'PollReqContent_SEQOF'{certReqId = 0}]},
+           {pollRep, [#'PollRepContent_SEQOF'{certReqId = 0,
+                                               checkAfter = 60,
+                                               reason = asn1_NOVALUE}]}
+          ]).
+
+cmp_cert_req_messages() ->
+    [#'CertReqMsg'{
+        certReq = crmf_value('CertRequest'),
+        popo = asn1_NOVALUE,
+        regInfo = asn1_NOVALUE}].
+
+cmp_header() ->
+    ?LET({Sender, Recipient}, {rdn_sequence(), rdn_sequence()},
+         #'PKIHeader'{
+            pvno = cmp2021,
+            sender = {directoryName, Sender},
+            recipient = {directoryName, Recipient}}).
 
 ocsp_type() ->
     elements(['BasicOCSPResponse',
