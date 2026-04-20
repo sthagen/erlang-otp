@@ -35,11 +35,6 @@ inputs:
 runs:
     using: composite
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-            ref: ${{ inputs.BASE_BRANCH }}
-            persist-credentials: false
-
       - name: Cleanup GH Runner
         shell: bash
         run: .github/scripts/cleanup_gh_runner.sh

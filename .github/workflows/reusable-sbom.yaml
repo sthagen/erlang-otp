@@ -56,7 +56,7 @@ jobs:
       - name: Use HTTPS instead of SSH for Git cloning
         run: git config --global url.https://github.com/.insteadOf ssh://git@github.com/
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:
           persist-credentials: false
       - uses: ./.github/actions/build-base-image
@@ -64,7 +64,7 @@ jobs:
           BASE_BRANCH: ${{ inputs.base_branch }}
 
       - name: Fetch Default ORT Config
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:
           repository: oss-review-toolkit/ort-config
           ref: "d2978deb230beae095bb6cfec074b94f1a74fd34"
@@ -154,7 +154,7 @@ jobs:
                -o $HOME/.ort/ort-results/scan-result.reuse.json /github"
 
       - name: Upload scan results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
         with:
           name: ort-scan-results
           path: |
@@ -198,7 +198,7 @@ jobs:
               --sbom-file $HOME/.ort/ort-results/bom.spdx.json"
 
       - name: Upload SPDX SBOM result
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # actions/upload-artifact@v6.0.0
         with:
           name: spdx-sbom-result
           path: /home/runner/.ort/ort-results/bom.spdx.json
@@ -235,7 +235,7 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:
           persist-credentials: false
 
@@ -244,7 +244,7 @@ jobs:
           BASE_BRANCH: ${{ inputs.base_branch }}
 
       - name: Download SBoM
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # ratchet:actions/download-artifact@v6.0.0
         with:
             name: ort-results-otp-${{ env.OTP_SBOM_VERSION }}
 
@@ -264,4 +264,4 @@ jobs:
         if: ${{ github.event_name == 'pull_request' &&
                 github.event.action == 'closed'     &&
                 github.event.pull_request.merged == true }}
-        uses: advanced-security/spdx-dependency-submission-action@169d22427d74f3faf93504e70b03eede8dab272a # v0.2.0
+        uses: advanced-security/spdx-dependency-submission-action@169d22427d74f3faf93504e70b03eede8dab272a # ratchet:advanced-security/spdx-dependency-submission-actionv0.2.0
