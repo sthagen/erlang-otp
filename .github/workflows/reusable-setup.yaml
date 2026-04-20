@@ -71,11 +71,12 @@ jobs:
           GITHUB_REF:    ${{ github.ref }}
           REF_TYPE:      ${{ github.ref_type }}
           SHA:           ${{ github.sha }}
+          BASE_REF:      ${{ github.base_ref }}
           PR_LABELS:     ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: |
           ## base_branch
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            BASE_BRANCH="${{ github.base_ref }}"
+            BASE_BRANCH="${BASE_REF}"
           else
             BASE_BRANCH="${REF_NAME}"
           fi
