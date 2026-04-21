@@ -58,7 +58,8 @@
          ver3_open_flags/1,
          ver3_rename/1,
          ver6_basic/1,
-         write_file/1
+         write_file/1,
+         access_attributes_outside_root/1
         ]).
 
 -include_lib("common_test/include/ct.hrl").
@@ -109,7 +110,8 @@ all() ->
      root_with_cwd,
      relative_path,
      open_file_dir_v5,
-     open_file_dir_v6].
+     open_file_dir_v6,
+     access_attributes_outside_root].
 
 groups() -> 
     [].
@@ -149,6 +151,7 @@ init_per_testcase(relative_root, Config) ->
     prep(Config),
     Config;
 init_per_testcase(TestCase, Config) ->
+    {OsFamily, _} = os:type(),
     ssh:start(),
     prep(Config),
     PrivDir = proplists:get_value(priv_dir, Config),
@@ -159,7 +162,7 @@ init_per_testcase(TestCase, Config) ->
 	       {user_dir, PrivDir},
 	       {user_passwords,[{?USER, ?PASSWD}]},
 	       {pwdfun, fun(_,_) -> true end}],
-    {ok, Sftpd} = case TestCase of
+    Result = case TestCase of
 		      ver6_basic ->
 			  SubSystems = [ssh_sftpd:subsystem_spec([{sftpd_vsn, 6}])],
 			  ssh:daemon(0, [{subsystems, SubSystems}|Options]);
@@ -172,6 +175,14 @@ init_per_testcase(TestCase, Config) ->
                           ok = filelib:ensure_path(CWD),
                           SubSystems = [ssh_sftpd:subsystem_spec([{root, RootDir},
                                                                   {cwd, CWD}])],
+                          ssh:daemon(0, [{subsystems, SubSystems}|Options]);
+                      access_attributes_outside_root when OsFamily =:= win32 ->
+                          {skip, "Not implemented on windows"};
+                      access_attributes_outside_root ->
+                          Rand = integer_to_list(rand:uniform(1000000)),
+                          RootDir = filename:join("/tmp", Rand),
+                          ok = file:make_dir(RootDir),
+                          SubSystems = [ssh_sftpd:subsystem_spec([{root, RootDir}])],
                           ssh:daemon(0, [{subsystems, SubSystems}|Options]);
 		      root_with_cwd ->
 			  RootDir = filename:join(PrivDir, root_with_cwd),
@@ -194,44 +205,61 @@ init_per_testcase(TestCase, Config) ->
                                            {max_path, ?MAX_PATH}])],
 			  ssh:daemon(0, [{subsystems, SubSystems}|Options])
 		  end,
-
-    Port = ssh_test_lib:daemon_port(Sftpd),
     
-    Cm = ssh_test_lib:connect(Port,
-			      [{user_dir, ClientUserDir},
-			       {user, ?USER}, {password, ?PASSWD},
-			       {user_interaction, false},
-			       {silently_accept_hosts, true}]),
-    {ok, Channel} =
-	ssh_connection:session_channel(Cm, ?XFER_WINDOW_SIZE,
-				       ?XFER_PACKET_SIZE, ?SSH_TIMEOUT),
-    
-    success = ssh_connection:subsystem(Cm, Channel, "sftp", ?SSH_TIMEOUT),
+    case Result of
+        {ok, Sftpd} ->
+            Port = ssh_test_lib:daemon_port(Sftpd),
 
-    ProtocolVer = case atom_to_list(TestCase) of
-		      "ver3_" ++ _ ->
-			  3;
-		      _ ->
-			  ?SSH_SFTP_PROTOCOL_VERSION
-		  end,
+            Cm = ssh_test_lib:connect(Port,
+                                      [{user_dir, ClientUserDir},
+                                       {user, ?USER}, {password, ?PASSWD},
+                                       {user_interaction, false},
+                                       {silently_accept_hosts, true}]),
+            {ok, Channel} =
+                ssh_connection:session_channel(Cm, ?XFER_WINDOW_SIZE,
+                                               ?XFER_PACKET_SIZE, ?SSH_TIMEOUT),
 
-    Data = <<?UINT32(ProtocolVer)>> ,
+            success = ssh_connection:subsystem(Cm, Channel, "sftp", ?SSH_TIMEOUT),
 
-    Size = 1 + size(Data),
+            ProtocolVer = case atom_to_list(TestCase) of
+                              "ver3_" ++ _ ->
+                                  3;
+                              _ ->
+                                  ?SSH_SFTP_PROTOCOL_VERSION
+                          end,
 
-    ssh_connection:send(Cm, Channel, << ?UINT32(Size),
-				      ?SSH_FXP_INIT, Data/binary >>),
+            Data = <<?UINT32(ProtocolVer)>> ,
 
-    {ok, <<?SSH_FXP_VERSION, ?UINT32(Version), _Ext/binary>>, _}
-	= reply(Cm, Channel),
+            Size = 1 + size(Data),
 
-    ct:log("Client: ~p Server ~p~n", [ProtocolVer, Version]),
+            ssh_connection:send(Cm, Channel, << ?UINT32(Size),
+                                                ?SSH_FXP_INIT, Data/binary >>),
 
-    [{sftp, {Cm, Channel}}, {sftpd, Sftpd }| Config].
+            {ok, <<?SSH_FXP_VERSION, ?UINT32(Version), _Ext/binary>>, _}
+                = reply(Cm, Channel),
 
-end_per_testcase(relative_root, Config) ->
+            ct:log("Client: ~p Server ~p~n", [ProtocolVer, Version]),
+
+            [{sftp, {Cm, Channel}}, {sftpd, Sftpd }| Config];
+        Other ->
+            Other
+    end.
+
+end_per_testcase(relative_root, _Config) ->
     ssh:stop();
+end_per_testcase(access_attributes_outside_root, Config) ->
+    Sftpd = proplists:get_value(sftpd, Config),
+    {ok, DaemonInfo} = ssh:daemon_info(Sftpd),
+    ssh_cleanup(Config),
+    DaemonOpts = proplists:get_value(options, DaemonInfo),
+    Subsystems = proplists:get_value(subsystems, DaemonOpts),
+    {_, {_, SftpdOpts}} = lists:keyfind("sftp", 1, Subsystems),
+    RootDir = proplists:get_value(root, SftpdOpts),
+    file:del_dir_r(RootDir);
 end_per_testcase(_TestCase, Config) ->
+    ssh_cleanup(Config).
+
+ssh_cleanup(Config) ->
     try
         ssh:stop_daemon(proplists:get_value(sftpd, Config))
     catch
@@ -859,6 +887,53 @@ open_file_dir_v6(Config) when is_list(Config) ->
                   ?SSH_FXF_OPEN_EXISTING).
 
 %%--------------------------------------------------------------------
+access_attributes_outside_root(Config) when is_list(Config) ->
+    Sftpd = proplists:get_value(sftpd, Config),
+    {ok, DaemonInfo} = ssh:daemon_info(Sftpd),
+    DaemonOpts = proplists:get_value(options, DaemonInfo),
+    Subsystems = proplists:get_value(subsystems, DaemonOpts),
+    {_, {_, SftpdOpts}} = lists:keyfind("sftp", 1, Subsystems),
+    RootDir = proplists:get_value(root, SftpdOpts),
+
+    TargetName = "target-" ++ filename:basename(RootDir) ++ ".txt",
+    InsideRootFile = filename:join([RootDir, "tmp", TargetName]),
+    ok = file:make_dir(filename:dirname(InsideRootFile)),
+    ok = file:write_file(InsideRootFile, <<"inside root">>),
+    {ok, InsideRootFileInfo} = file:read_file_info(InsideRootFile),
+    InsideRootFileMode = InsideRootFileInfo#file_info.mode,
+
+    OutsideRootFile = filename:join("/tmp", TargetName),
+    ok = file:write_file(OutsideRootFile, <<"outside root">>),
+    try
+        {ok, OutsideRootFileInfo} = file:read_file_info(OutsideRootFile),
+        OutsideRootFileMode = OutsideRootFileInfo#file_info.mode,
+
+        {Cm, Channel} = proplists:get_value(sftp, Config),
+        ReqId0 = 0,
+        {ok, <<?SSH_FXP_HANDLE, ?UINT32(ReqId0), Handle/binary>>, _} =
+            open_file(OutsideRootFile, Cm, Channel, ReqId0,
+                      ?ACE4_READ_DATA bor ?ACE4_WRITE_ATTRIBUTES,
+                      ?SSH_FXF_OPEN_EXISTING),
+
+        Attrs = [?uint32(?SSH_FILEXFER_ATTR_PERMISSIONS), ?byte(?SSH_FILEXFER_TYPE_REGULAR),
+                 ?uint32(not_default_permissions())],
+
+        ReqId1 = 1,
+        {ok, <<?SSH_FXP_STATUS, ?UINT32(ReqId1), ?UINT32(?SSH_FX_OK), _/binary>>, _} =
+            set_attributes_open_file(Handle, Attrs, Cm, Channel, ReqId1),
+
+        {ok, NewOutsideRootFileInfo} = file:read_file_info(OutsideRootFile),
+        NewOutsideRootFileMode = NewOutsideRootFileInfo#file_info.mode,
+        ?assertEqual(OutsideRootFileMode, NewOutsideRootFileMode),
+
+        {ok, NewInsideRootFileInfo} = file:read_file_info(InsideRootFile),
+        NewInsideRootFileMode = NewInsideRootFileInfo#file_info.mode,
+        ?assertNotEqual(InsideRootFileMode, NewInsideRootFileMode)
+    after
+        file:delete(OutsideRootFile)
+    end.
+
+%%--------------------------------------------------------------------
 %% Internal functions ------------------------------------------------
 %%--------------------------------------------------------------------
 prep(Config) ->
@@ -872,7 +947,9 @@ prep(Config) ->
     %% Initial config
     DataDir = proplists:get_value(data_dir, Config),
     FileName = filename:join(DataDir, "test.txt"),
-    file:copy(FileName, TestFile),
+    {ok, Data0} = file:read_file(FileName),
+    Data = ssh_test_lib:remove_comment(Data0),
+    ok = file:write_file(TestFile, string:chomp(Data)),
     Mode = 8#00400 bor 8#00200 bor 8#00040, % read & write owner, read group
     {ok, FileInfo} = file:read_file_info(TestFile),
     ok = file:write_file_info(TestFile,
