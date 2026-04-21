@@ -130,6 +130,17 @@ is the version number of Mnesia.
 [PR-9079]: https://github.com/erlang/otp/pull/9079
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 
+## Mnesia 4.23.5.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a bug where stacktrace was not returned from `mnesia:transaction/1` when transaction aborts with an error exception.
+
+  Own Id: OTP-20094 Aux Id: [GH-10967], [PR-11002]
+
+[GH-10967]: https://github.com/erlang/otp/issues/10967
+[PR-11002]: https://github.com/erlang/otp/pull/11002
+
 ## Mnesia 4.23.5.1
 
 ### Fixed Bugs and Malfunctions
