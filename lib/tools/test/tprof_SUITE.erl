@@ -122,9 +122,14 @@ call_count_ad_hoc(Config) when is_list(Config) ->
     {{'EXIT', timeout}, {call_count, Profile2}} = tprof:profile(
         fun () -> Delay = hd(lists:seq(5001, 5032)), receive after Delay -> ok end end,
         #{timeout => 1000, report => return, type => call_count }),
-    ?assertMatch([{lists, seq, 2, [{_, 1, _}]},
-                  {lists, seq_loop, 3, [{_, 9, _}]},
-                  {?MODULE, _, _, _}], lists:sort(Profile2)),
+    {_,111} = {Profile2,
+               lists:foldl(fun({lists, seq, 2, [{_, 1, _}]}, Acc) -> Acc+1;
+                              ({lists, seq_loop, 3, [{_, 9, _}]}, Acc) -> Acc+10;
+                              ({?MODULE, _, _, _}, Acc) -> Acc+100;
+                              ({_,_,_,_}, Acc) -> Acc % ignore background call noise
+                           end,
+                           0, Profile2)
+              },
 
     %% timer with patterns
     {{'EXIT', timeout}, Profile3} = tprof:profile(
