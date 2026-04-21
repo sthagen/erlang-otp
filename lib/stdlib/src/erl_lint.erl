@@ -451,7 +451,7 @@ format_error_1(compr_assign) ->
      matches using '=' are not allowed in comprehension qualifiers
      unless the experimental 'compr_assign' language feature is enabled.
      With 'compr_assign' enabled, a match 'P = E' will behave as a
-     strict generator 'P <-:- [E]'."
+     strict generator 'P <:- [E]'."
      """;
 format_error_1(illegal_map_exact_in_comprehension) ->
     ~"illegal map association, did you mean to use `=>`?";

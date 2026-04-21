@@ -728,6 +728,21 @@ This document describes the changes made to the ERTS application.
 [PR-9759]: https://github.com/erlang/otp/pull/9759
 [PR-9809]: https://github.com/erlang/otp/pull/9809
 
+## Erts 15.2.7.8
+
+### Fixed Bugs and Malfunctions
+
+- Fixed bug in `enif_make_map_from_arrays` for arrays with at least 33 keys. If duplicate keys existed, instead of failing, it would skip the duplicates. If less than 33 unique keys existed, an internally inconsistent and broken map was returned.
+
+  Own Id: OTP-20098 Aux Id: [PR-10976]
+
+- Fixed an issue when supplying the args_file option to erl.exe on windows that did not handle unicode characters correctly.
+
+  Own Id: OTP-20101 Aux Id: [GH-10667]
+
+[PR-10976]: https://github.com/erlang/otp/pull/10976
+[GH-10667]: https://github.com/erlang/otp/issues/10667
+
 ## Erts 15.2.7.7
 
 ### Fixed Bugs and Malfunctions
@@ -1536,6 +1551,14 @@ This document describes the changes made to the ERTS application.
 [PR-7125]: https://github.com/erlang/otp/pull/7125
 [PR-7809]: https://github.com/erlang/otp/pull/7809
 [PR-7977]: https://github.com/erlang/otp/pull/7977
+
+## Erts 14.2.5.14
+
+### Fixed Bugs and Malfunctions
+
+* Fixed an issue when supplying the args_file option to erl.exe on windows that did not handle unicode characters correctly.
+
+  Own Id: OTP-20101 Aux Id: GH-10667
 
 ## Erts 14.2.5.13
 

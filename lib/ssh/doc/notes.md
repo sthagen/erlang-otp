@@ -21,6 +21,19 @@ limitations under the License.
 -->
 # SSH Release Notes
 
+## Ssh 5.5.2
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a vulnerability in the SFTP server where file attributes could be modified outside the configured root directory. When using FSETSTAT on an open file handle, the operation used the path stored in the handle without verifying it was within the root directory, allowing attribute changes to files outside the chroot boundary.
+  
+  Thanks to John Downey.
+
+  Own Id: OTP-20081 Aux Id: [PR-11027], [CVE-2026-32147]
+
+[PR-11027]: https://github.com/erlang/otp/pull/11027
+[CVE-2026-32147]: https://nvd.nist.gov/vuln/detail/2026-32147
+
 ## Ssh 5.5.1
 
 ### Fixed Bugs and Malfunctions
@@ -219,6 +232,19 @@ limitations under the License.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9214]: https://github.com/erlang/otp/pull/9214
 [PR-9298]: https://github.com/erlang/otp/pull/9298
+
+## Ssh 5.2.11.7
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a vulnerability in the SFTP server where file attributes could be modified outside the configured root directory. When using FSETSTAT on an open file handle, the operation used the path stored in the handle without verifying it was within the root directory, allowing attribute changes to files outside the chroot boundary.
+  
+  Thanks to John Downey.
+
+  Own Id: OTP-20081 Aux Id: [PR-11027], [CVE-2026-32147]
+
+[PR-11027]: https://github.com/erlang/otp/pull/11027
+[CVE-2026-32147]: https://nvd.nist.gov/vuln/detail/2026-32147
 
 ## Ssh 5.2.11.6
 
@@ -517,6 +543,16 @@ limitations under the License.
 
 [PR-7845]: https://github.com/erlang/otp/pull/7845
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Ssh 5.1.4.15
+
+### Fixed Bugs and Malfunctions
+
+* Fixed a vulnerability in the SFTP server where file attributes could be modified outside the configured root directory. When using FSETSTAT on an open file handle, the operation used the path stored in the handle without verifying it was within the root directory, allowing attribute changes to files outside the chroot boundary.
+
+  Thanks to John Downey.
+
+  Own Id: OTP-20081 Aux Id: PR-11027, CVE-2026-32147
 
 ## Ssh 5.1.4.14
 

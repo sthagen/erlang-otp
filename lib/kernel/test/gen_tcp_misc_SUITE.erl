@@ -114,6 +114,7 @@
          otp_18883/1,
 	 otp_18707/1,
          otp_19560_inet/1, otp_19560_inet6/1,
+         otp_20104_ipv4/1, otp_20104_ipv6/1,
          send_block_unblock/1,
          prim_inet_recv_marker/1
 	]).
@@ -206,7 +207,8 @@ groups() ->
      {accept,                 [], accept_cases()},
      {send_timeout,           [], send_timeout_cases()},
      {socket_monitor,         [], socket_monitor_cases()},
-     {otp_19560,              [], otp_19560_cases()}
+     {otp_19560,              [], otp_19560_cases()},
+     {otp_20104,              [], otp_20104_cases()}
     ].
 
 inet_backend_default_cases() ->
@@ -253,7 +255,8 @@ ticket_cases() ->
     [
      otp_18357,
      otp_18883,
-     {group, otp_19560}
+     {group, otp_19560},
+     {group, otp_20104}
     ].
 
 close_cases() ->
@@ -371,6 +374,12 @@ otp_19560_cases() ->
     [
      otp_19560_inet,
      otp_19560_inet6
+    ].
+
+otp_20104_cases() ->
+    [
+     otp_20104_ipv4,
+     otp_20104_ipv6
     ].
 
 init_per_suite(Config0) ->
@@ -9785,6 +9794,7 @@ do_otp_18707(_Config) ->
     ?P("done"),
     ok.
 
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% This is the most basic of tests.
@@ -9845,6 +9855,68 @@ do_otp_19560(Family) ->
 
     ?P("done"),
     ok.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% This is the most basic of tests.
+otp_20104_ipv4(Config) when is_list(Config) ->
+    ?TC_TRY(?FUNCTION_NAME,
+            fun() ->
+		    is_socket_supported(),
+		    is_on_windows(),
+                    ?HAS_SUPPORT_IPV4()
+            end,
+            fun() -> do_otp_20104(inet, {127, 0, 0, 1}) end).
+
+
+otp_20104_ipv6(Config) when is_list(Config) ->
+    ?TC_TRY(?FUNCTION_NAME,
+            fun() ->
+		    is_socket_supported(),
+		    is_on_windows(),
+                    ?HAS_SUPPORT_IPV6()
+            end,
+            fun() -> do_otp_20104(inet6, {0,0,0,0,0,0,0,1}) end).
+
+
+do_otp_20104(Family, LoopbackAddr) ->
+    {ok, LS} = gen_tcp:listen(0,
+			      [{inet_backend, socket},
+			       Family,
+			       {ip, LoopbackAddr}]),
+    {ok, LPort} = inet:port(LS),
+    case gen_tcp:connect(LoopbackAddr, LPort,
+			 [{inet_backend, socket}, Family]) of
+	{ok, CS} ->
+	    {ok, AS} = gen_tcp:accept(LS),
+	    case inet:sockname(CS) of
+		{ok, {LoopbackAddr, _}} ->
+		    ?CATCH_AND_IGNORE( gen_tcp:close(CS) ),
+		    ?CATCH_AND_IGNORE( gen_tcp:close(AS) ),
+		    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
+		    ?P("done"),
+		    ok;
+		{error, SNReason} ->
+		    ?P("Failed get sockname:"
+		       "~n   CS:       ~p"
+		       "~n   info(CS): ~p"
+		       "~n   Reason:   ~p",
+		       [CS, ?CATCH_AND_RETURN( inet:info(CS) ), SNReason]),
+		    ?CATCH_AND_IGNORE( gen_tcp:close(CS) ),
+		    ?CATCH_AND_IGNORE( gen_tcp:close(AS) ),
+		    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
+		    ct:fail({sockname, SNReason})
+	    end;
+	{error, CReason} ->
+	    ?P("Failed connect:"
+	       "~n   LS:       ~p"
+	       "~n   info(LS): ~p"
+	       "~n   Reason:   ~p",
+	       [LS, ?CATCH_AND_RETURN( inet:info(LS) ), CReason]),
+	    ?CATCH_AND_IGNORE( gen_tcp:close(LS) ),
+	    ct:fail({connect, CReason})
+    end.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -10097,6 +10169,14 @@ is_windows() ->
             false
     end.
 
+is_on_windows() ->
+    case is_windows() of
+	true ->
+	    ok;
+	false ->
+	    skip("Require Windows")
+    end.
+    
 is_linux() ->
     is_unix(linux, "Linux").
 

@@ -62,6 +62,8 @@ DIALYZER=dialyzer
 
 if [ -f $ERL_TOP/bin/dialyzer ]; then
     DIALYZER=$ERL_TOP/bin/dialyzer
+elif [ -f $ERL_TOP/bin/win32/dialyzer.exe ]; then
+    DIALYZER=$ERL_TOP/bin/win32/dialyzer.exe
 fi
 
 PLT="$(mktemp).plt"
