@@ -252,7 +252,7 @@ config =
     before_closing_body_tag: fn
       :html ->
         """
-          <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+          <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11.14.0/dist/mermaid.min.js"></script>
           <script>
           let initialized = false;
 
