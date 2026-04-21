@@ -1552,6 +1552,14 @@ This document describes the changes made to the ERTS application.
 [PR-7809]: https://github.com/erlang/otp/pull/7809
 [PR-7977]: https://github.com/erlang/otp/pull/7977
 
+## Erts 14.2.5.14
+
+### Fixed Bugs and Malfunctions
+
+* Fixed an issue when supplying the args_file option to erl.exe on windows that did not handle unicode characters correctly.
+
+  Own Id: OTP-20101 Aux Id: GH-10667
+
 ## Erts 14.2.5.13
 
 ### Fixed Bugs and Malfunctions
