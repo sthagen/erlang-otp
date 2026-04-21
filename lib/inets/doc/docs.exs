@@ -24,7 +24,8 @@
     "guides/introduction.md",
     "guides/inets_services.md",
     "guides/http_client.md",
-    "guides/http_server.md"
+    "guides/http_server.md",
+    "guides/hardening.md"
   ],
   groups_for_modules: [
     "Service API": [:inets],
