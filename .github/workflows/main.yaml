@@ -246,22 +246,6 @@ jobs:
       otp_sbom_version:              ${{ needs.setup.outputs.otp_sbom_version }}
       verify_sbom:                   true
 
-  # this is needed before every release job.
-  # sets up variables for the release
-  # release-setup:
-  #   name: Setup Release variables
-  #   runs-on: ubuntu-latest
-  #   outputs:
-  #     otp_sbom_version: ${{ steps.release-setup.outputs.otp_sbom_version }}
-  #     tag:              ${{ steps.release-setup.outputs.tag }}
-  #     vsn:              ${{ steps.release-setup.outputs.vsn }}
-  #   steps:
-  #     - id: release-setup
-  #       run: |
-  #         echo "otp_sbom_version=${{ env.OTP_SBOM_VERSION }}" >> $GITHUB_OUTPUT
-  #         echo "tag=${{ env.BASE_BRANCH }}" >> $GITHUB_OUTPUT
-  #         echo "vsn=$(echo ${{ env.BASE_BRANCH }} | cut -d- -f2)" >> $GITHUB_OUTPUT
-
   ## If this is an "OTP-*" tag that has been pushed we do some release work
   release:
     name: Release Erlang/OTP
@@ -269,7 +253,6 @@ jobs:
       - setup
       - sbom
       - documentation
-      # - release-setup
     permissions:
       contents:     write
       attestations: write
