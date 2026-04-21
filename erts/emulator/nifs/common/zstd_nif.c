@@ -28,9 +28,16 @@
 #define STATIC_ERLANG_NIF 1
 
 #include "erl_nif.h"
+#include "config.h"
 #define ZSTD_STATIC_LINKING_ONLY
-#include "erl_zstd.h"
-#include "erl_zdict.h"
+
+#ifdef ERTS_USE_BUILTIN_ZSTD
+#  include "erl_zstd.h"
+#  include "erl_zdict.h"
+#else
+#  include <zstd.h>
+#  include <zdict.h>
+#endif
 
 static ErlNifResourceType *compress_type;
 static ErlNifResourceType *decompress_type;

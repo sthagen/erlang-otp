@@ -6,6 +6,9 @@
 /* Define if 'errno' should not be exposed as is in 'erl_errno' */
 #undef EI_HIDE_REAL_ERRNO
 
+/* Define if builtin OpenSSL should be used for MD5 */
+#undef ERTS_USE_BUILTIN_OPENSSL
+
 /* Define as a boolean indicating whether you have a gcc compatible compiler
    capable of generating the ARM 'dc cvau' instruction, and are compiling for
    an ARM processor with ARM DC instruction support, or not */

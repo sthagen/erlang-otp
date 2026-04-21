@@ -688,6 +688,12 @@ UWord erts_sys_get_large_page_size(void);
 /* Size of misc memory allocated from system dependent code */
 Uint erts_sys_misc_mem_sz(void);
 
+/* erl_errno_str.c & erl_posix_str.c */
+
+/* char *erl_errno_id(int eno); */ /* Prototype in erl_driver.h */
+void erts_errno_init(void);
+void erts_errno_late_init(void);
+
 /* print stuff is declared here instead of in global.h, so sys stuff won't
    have to include global.h */
 #include "erl_printf.h"
@@ -887,6 +893,7 @@ int sys_chars_to_double(char*, double*);
 int sys_double_to_chars(double, char*, size_t);
 int sys_double_to_chars_ext(double, char*, size_t, size_t);
 int sys_double_to_chars_fast(double, char*, int, int, int);
+int sys_double_to_chars_short(double, char*, int);
 void sys_get_pid(char *, size_t);
 int sys_get_hostname(char *buf, size_t size);
 
