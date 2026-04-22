@@ -230,16 +230,22 @@ init_per_group(Group, Config) when Group =:= tty_unicode;
           os:getenv("LC_ALL",
                     os:getenv("LC_CTYPE",
                               os:getenv("LANG","en_US.UTF-8"))),"."),
-    case Group of
-        tty_unicode ->
-            [{encoding, unicode},{env,[{"LC_ALL",Lang++".UTF-8"}]}|Config];
-        tty_latin1 ->
+    %% Version 3.3 introduced new widths for unicode characters which seem to be different from running in non tmux shell
+    %% An option is added in 3.6 where a unicode character width can be overridden, skip unicode for 3.3-3.5a
+    TmuxVersion = string:chomp(os:cmd("tmux -V")),
+    Skip = [] =/= [true || Major <- ["3.3","3.4","3.5"], Minor <- ["","a"], TmuxVersion =:= (Major++Minor)],
+    case {Group,Skip} of
+        {tty_latin1,_} ->
             % [{encoding, latin1},{env,[{"LC_ALL",Lang++".ISO-8859-1"}]}|Config],
             {skip, "latin1 tests not implemented yet"};
-        ssh_unicode ->
+        {ssh_latin1,_} ->
+            {skip, "latin1 tests not implemented yet"};
+        {_, true} ->
+            {skip, "tmux version incompatible with unicode tests"};
+        {tty_unicode,_} ->
             [{encoding, unicode},{env,[{"LC_ALL",Lang++".UTF-8"}]}|Config];
-        ssh_latin1 ->
-            {skip, "latin1 tests not implemented yet"}
+        {ssh_unicode,_} ->
+            [{encoding, unicode},{env,[{"LC_ALL",Lang++".UTF-8"}]}|Config]
     end;
 init_per_group(sh_custom, Config) ->
     %% Ensure that ERL_AFLAGS will not override the value of the shell_history variable.
