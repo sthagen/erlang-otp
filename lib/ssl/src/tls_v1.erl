@@ -944,94 +944,47 @@ default_signature_algs(_) ->
 legacy_signature_algs_pre_13() ->
     [{sha224, ecdsa}, {sha224, rsa}, {sha, ecdsa}, {sha, rsa}, {sha, dsa}].
 
-signature_schemes(Version, [_|_] =SignatureSchemes) when is_tuple(Version)
-                                                         andalso ?TLS_GTE(Version, ?TLS_1_2) ->
-    Hashes = crypto:supports(hashs),
-    PubKeys = crypto:supports(public_keys),
-    Curves = crypto:supports(curves),
+signature_schemes(Version, [_|_] = SignatureSchemes)
+  when is_tuple(Version) andalso ?TLS_GTE(Version, ?TLS_1_2) ->
+    Hashes  = crypto:supports(hashs),
+    PubKeys = sets:from_list(crypto:supports(public_keys)),
+    Curves  = crypto:supports(curves),
     RSAOpts = crypto:supports(rsa_opts),
     RSAPSSSupported = lists:member(rsa_pkcs1_pss_padding, RSAOpts),
-    Fun = fun(mldsa44 = Scheme, Acc)->
-                  [Scheme | Acc];
-             (mldsa65 = Scheme, Acc)->
-                  [Scheme | Acc];
-             (mldsa87 = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_shake_256f = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_shake_256s = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_shake_192f = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_shake_192s = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_shake_128f = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_shake_128s = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_sha2_256f = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_sha2_256s = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_sha2_192f = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_sha2_192s = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_sha2_128f = Scheme, Acc)->
-                  [Scheme | Acc];
-             (slh_dsa_sha2_128s = Scheme, Acc)->
-                  [Scheme | Acc];
-             (Scheme, Acc) when is_atom(Scheme) ->
-                  {Hash, Sign0, Curve} =
-                      ssl_cipher:scheme_to_components(Scheme),
-                  Sign = case Sign0 of
-                             rsa_pkcs1 ->
-                                 rsa;
-                             rsa_pss_rsae when RSAPSSSupported ->
-                                 rsa;
-                             rsa_pss_pss when RSAPSSSupported ->
-                                 rsa;
-                             S -> S
-                         end,
-                  case proplists:get_bool(Sign, PubKeys)
-                      andalso
-                      (proplists:get_bool(Hash, Hashes)
-                       andalso (Curve =:= undefined orelse
-                                proplists:get_bool(Curve, Curves))
-                       andalso is_pair(Hash, Sign, Hashes)) orelse
-                      ((Sign == eddsa) andalso ((Curve == ed448)
-                                                orelse
-                                                (Curve == ed25519)))
-                  of
-                      true ->
-                          [Scheme | Acc];
-                      false ->
-                          Acc
-                  end;
-              %% Special clause for filtering out the legacy hash-sign tuples.
-              ({Hash, dsa = Sign} = Alg, Acc) ->
-                  case proplists:get_bool(dss, PubKeys)
-                      andalso proplists:get_bool(Hash, Hashes)
-                      andalso is_pair(Hash, Sign, Hashes)
-                  of
-                      true ->
-                          [Alg | Acc];
-                      false ->
-                          Acc
-                  end;
-              ({Hash, Sign} = Alg, Acc) ->
-                  case proplists:get_bool(Sign, PubKeys)
-                      andalso proplists:get_bool(Hash, Hashes)
-                      andalso is_pair(Hash, Sign, Hashes)
-                  of
-                      true ->
-                          [Alg | Acc];
-                      false ->
-                          Acc
-                  end
-          end,
-    Supported = lists:foldl(Fun, [], SignatureSchemes),
-    lists:reverse(Supported);
+
+    CheckComponents =
+        fun(Scheme) ->
+                {Hash, Sign0, Curve} = ssl_cipher:scheme_to_components(Scheme),
+                Sign = case Sign0 of
+                           rsa_pkcs1 ->
+                               rsa;
+                           rsa_pss_rsae when RSAPSSSupported ->
+                               rsa;
+                           rsa_pss_pss when RSAPSSSupported ->
+                               rsa;
+                           S -> S
+                       end,
+                sets:is_element(Sign, PubKeys)
+                    andalso (proplists:get_bool(Hash, Hashes)
+                             andalso (Curve =:= undefined
+                                      orelse proplists:get_bool(Curve, Curves))
+                             andalso is_pair(Hash, Sign, Hashes))
+                    orelse ((Sign == eddsa)
+                            andalso ((Curve == ed448)
+                                     orelse (Curve == ed25519)))
+        end,
+
+    Filter = fun(Scheme) when is_atom(Scheme) ->
+                     sets:is_element(Scheme, PubKeys) orelse CheckComponents(Scheme);
+                ({Hash, Sign0}) ->
+                     Sign = if Sign0 =:= dsa -> dss;
+                               true -> Sign0
+                            end,
+                     sets:is_element(Sign, PubKeys)
+                         andalso proplists:get_bool(Hash, Hashes)
+                         andalso is_pair(Hash, Sign0, Hashes)
+             end,
+    lists:filter(Filter, SignatureSchemes);
 signature_schemes(_, _) ->
     [].
 
