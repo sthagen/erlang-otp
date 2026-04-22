@@ -1203,7 +1203,6 @@ jobs:
             artifacts/*.tar.gz \
             artifacts/*.txt \
             attestations/*.sigstore \
-            scan-report-web-app.html \
             bom.*
       - name: Deploy on erlang.org
         env:
