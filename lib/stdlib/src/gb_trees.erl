@@ -135,7 +135,7 @@ Returns `true` if `Tree` is an empty tree; otherwise, returns `false`.
 ```erlang
 1> gb_trees:is_empty(gb_trees:empty()).
 true
-2> gb_trees:is_empty(gb_trees:from_orddict([{a,99}])).
+2> gb_trees:is_empty(gb_trees:from_list([{a,99}])).
 false
 ```
 """.
@@ -155,7 +155,7 @@ Returns the number of nodes in `Tree`.
 ```erlang
 1> gb_trees:size(gb_trees:empty()).
 0
-2> gb_trees:size(gb_trees:from_orddict([{a,1},{b,2}])).
+2> gb_trees:size(gb_trees:from_list([{a,1},{b,2}])).
 2
 ```
 
@@ -174,7 +174,7 @@ Looks up `Key` in `Tree` and returns `{value, Value}` if found, or `none` if not
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> gb_trees:lookup(a, Tree).
 {value,1}
 3> gb_trees:lookup(z, Tree).
@@ -214,7 +214,7 @@ Returns `true` if `Key` is present in `Tree`; otherwise, returns
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> gb_trees:is_defined(a, Tree).
 true
 3> gb_trees:is_defined(x, Tree).
@@ -247,7 +247,7 @@ if `Key` is not present.
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2}]).
 2> gb_trees:get(b, Tree).
 2
 ```
@@ -275,7 +275,7 @@ Assumes that the key is present in the tree.
 ## Examples
 
 ```erlang
-1> Tree1 = gb_trees:from_orddict([{a,1},{b,2}]).
+1> Tree1 = gb_trees:from_list([{a,1},{b,2}]).
 2> Tree2 = gb_trees:update(a, 99, Tree1).
 3> gb_trees:to_list(Tree2).
 [{a,99},{b,2}]
@@ -307,7 +307,7 @@ tree; raises an exception if `Key` is already present.
 ## Examples
 
 ```erlang
-1> Tree1 = gb_trees:from_orddict([{a,1},{b,2}]).
+1> Tree1 = gb_trees:from_list([{a,1},{b,2}]).
 2> Tree2 = gb_trees:insert(c, 10, Tree1).
 3> gb_trees:to_list(Tree2).
 [{a,1},{b,2},{c,10}]
@@ -372,7 +372,7 @@ tree.
 ## Examples
 
 ```erlang
-1> Tree1 = gb_trees:from_orddict([{a,1},{b,2}]).
+1> Tree1 = gb_trees:from_list([{a,1},{b,2}]).
 2> Tree2 = gb_trees:enter(c, 10, Tree1).
 3> Tree3 = gb_trees:enter(a, 100, Tree2).
 4> gb_trees:to_list(Tree3).
@@ -415,10 +415,10 @@ rebalance the tree.
 ## Examples
 
 ```erlang
-1> Tree1 = gb_trees:from_orddict([{I,2*I} || I <- lists:seq(1, 100)]).
+1> Tree1 = gb_trees:from_list([{I,2*I} || I <- lists:seq(1, 100)]).
 2> Delete = fun gb_trees:delete/2.
 3> Tree2 = lists:foldl(Delete, Tree1, lists:seq(1, 50)).
-4> gb_sets:size(Tree2).
+4> gb_trees:size(Tree2).
 50
 5> Tree3 = gb_trees:balance(Tree2).
 ```
@@ -524,7 +524,7 @@ resulting tree; otherwise, returns `Tree1` unchanged.
 ## Examples
 
 ```erlang
-1> Tree1 = gb_trees:from_orddict([{a,1},{b,2}]).
+1> Tree1 = gb_trees:from_list([{a,1},{b,2}]).
 2> Tree2 = gb_trees:delete_any(a, Tree1).
 3> gb_trees:to_list(Tree2).
 [{b,2}]
@@ -552,7 +552,7 @@ raises an exception if `Key` is not present.
 ## Examples
 
 ```erlang
-1> Tree1 = gb_trees:from_orddict([{a,1},{b,2}]).
+1> Tree1 = gb_trees:from_list([{a,1},{b,2}]).
 2> Tree2 = gb_trees:delete(a, Tree1).
 3> gb_trees:to_list(Tree2).
 [{b,2}]
@@ -587,13 +587,13 @@ merge(Smaller, Larger) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -doc """
-Removes the node with key Key from Tree1 if present; otherwise,
-returns the tree unchanged.
+Returns a value `Value` from the node with key `Key` and a new tree `Tree2`
+with that node removed; returns `error` if `Key` is not present in `Tree1`.
 
 ## Examples
 
 ```erlang
-1> Tree0 = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree0 = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> {Value,Tree1} = gb_trees:take_any(b, Tree0).
 3> Value.
 2
@@ -619,15 +619,15 @@ take_any(Key, Tree) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -doc """
-Returns a value `Value` from node with key `Key` and new `Tree2`
+Returns a value `Value` from the node with key `Key` and a new tree `Tree2`
 with that node removed.
 
-Assumes that the node with key is present in the tree.
+Assumes that `Key` is present in the tree.
 
 ## Examples
 
 ```erlang
-1> Tree0 = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree0 = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> {Value,Tree1} = gb_trees:take(b, Tree0).
 3> Value.
 2
@@ -658,8 +658,7 @@ take_1(_, {_Key, Value, Smaller, Larger}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -doc """
-
-Returns `{Key, Value, Tree2}`, where Key is the smallest key in `Tree1`,
+Returns `{Key, Value, Tree2}`, where `Key` is the smallest key in `Tree1`,
 `Value` is the value associated with that key, and `Tree2` is the tree
 with the corresponding node removed.
 
@@ -668,7 +667,7 @@ Assumes that the tree is not empty.
 ## Examples
 
 ```erlang
-1> Tree0 = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree0 = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> {Key,Value,Tree1} = gb_trees:take_smallest(Tree0).
 3> Key.
 a
@@ -701,7 +700,7 @@ Assumes that the tree is not empty.
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> gb_trees:smallest(Tree).
 {a,1}
 ```
@@ -727,7 +726,7 @@ Assumes that the tree is not empty.
 ## Examples
 
 ```erlang
-1> Tree0 = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree0 = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> {Key,Value,Tree1} = gb_trees:take_largest(Tree0).
 3> Key.
 c
@@ -760,7 +759,7 @@ Assumes that the tree is not empty.
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> gb_trees:largest(Tree).
 {c,3}
 ```
@@ -787,7 +786,7 @@ Returns `none` if no such pair exists.
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> gb_trees:smaller(c, Tree).
 {b,2}
 3> gb_trees:smaller(bb, Tree).
@@ -818,14 +817,14 @@ smaller_1(Key, {_Key, _Value, Smaller, _Larger}) ->
 
 -doc """
 Returns `{Key2, Value}`, where `Key2` is the least key strictly greater than
-`Key1`, `Value` is the value associated with this key.
+`Key1`, and `Value` is the value associated with this key.
 
 Returns `none` if no such pair exists.
 
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> gb_trees:larger(c, Tree).
 none
 3> gb_trees:larger(bb, Tree).
@@ -862,7 +861,7 @@ Converts a tree into an ordered list of key-value tuples.
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> gb_trees:to_list(Tree).
 [{a,1},{b,2},{c,3}]
 3> gb_trees:to_list(gb_trees:empty()).
@@ -889,7 +888,7 @@ Returns the keys in `Tree` as an ordered list.
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> gb_trees:keys(Tree).
 [a,b,c]
 3> gb_trees:keys(gb_trees:empty()).
@@ -917,7 +916,7 @@ Duplicates are not removed.
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3},{d,1}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3},{d,1}]).
 2> gb_trees:values(Tree).
 [1,2,3,1]
 ```
@@ -934,20 +933,7 @@ values(nil, L) -> L.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--doc """
-Returns an iterator that can be used for traversing the entries of
-`Tree`; see `next/1`.
-
-Equivalent to [`iterator(Tree, ordered)`](`iterator/2`).
-
-## Examples
-
-```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
-2> Iter0 = gb_trees:iterator(Tree).
-3> {a,1,Iter1} = gb_trees:next(Iter0).
-```
-""".
+-doc(#{equiv => iterator(Tree, ordered)}).
 -spec iterator(Tree) -> Iter when
       Tree :: tree(Key, Value),
       Iter :: iter(Key, Value).
@@ -959,16 +945,16 @@ iterator(Tree) ->
 Returns an iterator that can be used for traversing the entries of `Tree` in
 either `ordered` or `reversed` direction; see `next/1`.
 
-The implementation of this is very efficient; traversing the whole tree using
+The implementation is very efficient; traversing the whole tree using
 [`next/1`](`next/1`) is only slightly slower than getting the list of all
 elements using `to_list/1` and traversing that. The main advantage of the
-iterator approach is that it does not require the complete list of all elements
-to be built in memory at one time.
+iterator approach is that it avoids building the complete list of all elements
+in memory at once.
 
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> Iter0 = gb_trees:iterator(Tree, ordered).
 3> {a,1,Iter1} = gb_trees:next(Iter0).
 4> RevIter0 = gb_trees:iterator(Tree, reversed).
@@ -1005,25 +991,7 @@ iterator_r(nil, As) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--doc """
-
-Returns an iterator that can be used for traversing the entries of
-`Tree` starting from `Key`; see `next/1`.
-
-The difference as compared to the iterator returned by `iterator/1` is
-that the iterator starts with the first key greater than or equal to `Key`.
-
-Equivalent to [`iterator_from(Key, Tree, ordered)`](`iterator_from/3`).
-
-## Examples
-
-```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3},{d,4}]).
-2> Iter0 = gb_trees:iterator_from(aa, Tree).
-3> {b,2,Iter1} = gb_trees:next(Iter0).
-4> {c,3,Iter2} = gb_trees:next(Iter1).
-```
-""".
+-doc(#{equiv => iterator_from(Key, Tree, ordered)}).
 -doc(#{since => <<"OTP 18.0">>}).
 -spec iterator_from(Key, Tree) -> Iter when
       Tree :: tree(Key, Value),
@@ -1033,16 +1001,14 @@ iterator_from(Key, Tree) ->
     iterator_from(Key, Tree, ordered).
 
 -doc """
-Returns an iterator that can be used for traversing the entries of `Tree` in
-either `ordered` or `reversed` direction starting from `Key`; see `next/1`.
-
-The difference as compared to the iterator returned by `iterator/2` is
-that the iterator starts with the first key next to or equal to `Key`.
+Returns an iterator over the entries of `Tree` in the given `Order`, starting
+from `Key` or, if absent, the first key that follows in the iteration order,
+if any; see `next/1`.
 
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3},{d,4}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3},{d,4}]).
 2> Iter0 = gb_trees:iterator_from(aa, Tree, ordered).
 3> {b,2,Iter1} = gb_trees:next(Iter0).
 4> RevIter0 = gb_trees:iterator_from(c, Tree, reversed).
@@ -1089,7 +1055,7 @@ remaining nodes, or the atom `none` if no nodes remain.
 ## Examples
 
 ```erlang
-1> Tree = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> Iter0 = gb_trees:iterator(Tree).
 3> {a,1,Iter1} = gb_trees:next(Iter0).
 4> {b,2,Iter2} = gb_trees:next(Iter1).
@@ -1111,15 +1077,14 @@ next({_, []}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -doc """
-
-Maps function F(K, V1) -> V2 to all key-value pairs of tree `Tree1`,
+Maps `Function(K, V1) -> V2` to all key-value pairs of tree `Tree1`,
 returning a new tree `Tree2` with the same set of keys as
 `Tree1` and the new set of values `V2`.
 
 ## Examples
 
 ```erlang
-1> Tree0 = gb_trees:from_orddict([{a,1},{b,2},{c,3}]).
+1> Tree0 = gb_trees:from_list([{a,1},{b,2},{c,3}]).
 2> Tree1 = gb_trees:map(fun(_, V) -> 2 * V end, Tree0).
 3> gb_trees:to_list(Tree1).
 [{a,2},{b,4},{c,6}]

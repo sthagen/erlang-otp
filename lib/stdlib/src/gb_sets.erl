@@ -800,12 +800,7 @@ to_list({Key, Small, Big}, L) ->
     to_list(Small, [Key | to_list(Big, L)]);
 to_list(nil, L) -> L.
 
--doc """
-Returns an iterator that can be used for traversing the entries of `Set`; see
-`next/1`.
-
-Equivalent to [`iterator(Set, ordered)`](`iterator/2`).
-""".
+-doc(#{equiv => iterator(Set, ordered)}).
 -spec iterator(Set) -> Iter when
       Set :: set(Element),
       Iter :: iter(Element).
