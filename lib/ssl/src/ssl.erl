@@ -1739,7 +1739,7 @@ Legacy client options.
 - **`{verify, Verify}`** - Verification of certificates
 
    Clients should always verify the servers certificate, this legacy
-   option should only bu used for test or debug purposes.
+   option should only be used for test or debug purposes.
 
    This option specifies whether certificates are to be verified.
 
