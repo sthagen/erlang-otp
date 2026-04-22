@@ -23,11 +23,8 @@
 %%
 
 %%% Description: SSH transport protocol
-
 -module(ssh_transport).
 -moduledoc false.
-
--compile([{nowarn_possibly_unsafe_function, {erlang, binary_to_atom, 1}}]).
 
 -include_lib("public_key/include/public_key.hrl").
 -include_lib("kernel/include/inet.hrl").
@@ -2279,8 +2276,7 @@ valid_key_sha_alg(_, _, _) -> false.
 
 
 valid_key_sha_alg_ec(OID, Alg) when is_tuple(OID) ->
-    {SshCurveType, _} = ssh_message:oid2ssh_curvename(OID),
-    Alg == binary_to_atom(SshCurveType);
+    Alg == ssh_message:oid2ssh_curve_algo(OID);
 valid_key_sha_alg_ec(_, _) -> false.
 
     
@@ -2289,9 +2285,8 @@ valid_key_sha_alg_ec(_, _) -> false.
 
 public_algo(#'RSAPublicKey'{}) ->   'ssh-rsa';  % FIXME: Not right with draft-curdle-rsa-sha2
 public_algo({_, #'Dss-Parms'{}}) -> 'ssh-dss';
-public_algo({#'ECPoint'{},{namedCurve,OID}}) when is_tuple(OID) -> 
-    {SshCurveType, _} = ssh_message:oid2ssh_curvename(OID),
-    binary_to_atom(SshCurveType).
+public_algo({#'ECPoint'{},{namedCurve,OID}}) when is_tuple(OID) ->
+    ssh_message:oid2ssh_curve_algo(OID).
 
 
 sha('ssh-rsa') -> sha;

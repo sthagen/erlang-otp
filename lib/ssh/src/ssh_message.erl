@@ -39,6 +39,7 @@
          ssh2_pubkey_encode/1,
          ssh2_privkey_decode2/1,
          oid2ssh_curvename/1,
+         oid2ssh_curve_algo/1,
          ssh_curvename2oid/1,
          %% experimental:
          ssh2_privkey_encode/1
@@ -853,6 +854,12 @@ oid2ssh_curvename(?'id-Ed448')  -> {<<"ssh-ed448">>,   'n/a'};
 oid2ssh_curvename(?'secp256r1') -> {<<"ecdsa-sha2-nistp256">>, <<"nistp256">>};
 oid2ssh_curvename(?'secp384r1') -> {<<"ecdsa-sha2-nistp384">>, <<"nistp384">>};
 oid2ssh_curvename(?'secp521r1') -> {<<"ecdsa-sha2-nistp521">>, <<"nistp521">>}.
+
+oid2ssh_curve_algo(?'id-Ed25519') -> 'ssh-ed25519';
+oid2ssh_curve_algo(?'id-Ed448')   -> 'ssh-ed448';
+oid2ssh_curve_algo(?'secp256r1')  -> 'ecdsa-sha2-nistp256';
+oid2ssh_curve_algo(?'secp384r1')  -> 'ecdsa-sha2-nistp384';
+oid2ssh_curve_algo(?'secp521r1')  -> 'ecdsa-sha2-nistp521'.
 
 %%%================================================================
 %%%
