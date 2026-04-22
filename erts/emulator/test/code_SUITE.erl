@@ -22,6 +22,7 @@
 
 -module(code_SUITE).
 -export([all/0, suite/0, init_per_suite/1, end_per_suite/1, 
+         init_per_testcase/2, end_per_testcase/2,
          versions/1,new_binary_types/1,
          bad_beam_file/1,
          literal_leak/1,
@@ -67,6 +68,44 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     catch erts_debug:set_internal_state(available_internal_state, false),
     ok.
+
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(TestCase, Config) ->
+    case proplists:get_value(tc_status, Config) of
+        {failed, timetrap_timeout} ->
+            %%
+            %% Try to catch hanging calls to erlang:purge_module/1.
+            %% Seen to happen on 32-bit with single scheduler (on apollo)
+            %%
+            io:format("end_per_testcase: Failed with timetrap_timeout.\n", []),
+            io:format("process_info for erts_code_purger:\n~p\n",
+                      [process_info_more(erts_code_purger)]),
+            io:format("Printing system_info(thread_progress) to standard_error\n",[]),
+            io:format(standard_error, "end_per_testcase(~p):\n", [TestCase]),
+            erlang:system_info(thread_progress),
+            timer:sleep(1000),
+            erlang:system_info(thread_progress),
+            io:format("CALLING erlang:halt(abort) ...."),
+            io:format(standard_error, "CALLING erlang:halt(abort)....",[]),
+            erlang:halt(abort),
+            void;
+        _ ->
+            void
+    end.
+
+process_info_more(undefined) ->
+    undefined;
+process_info_more(Name) when is_atom(Name) ->
+    process_info_more(whereis(Name));
+process_info_more(Pid) ->
+    process_info(Pid, [status, catchlevel, current_function, current_location,
+                       links, dictionary, trap_exit, error_handler, priority,
+                       group_leader, total_heap_size, heap_size, stack_size,
+                       garbage_collection, suspending,
+                       current_stacktrace, message_queue_len, messages, trace]).
+
 
 %% Make sure that only two versions of a module can be loaded.
 versions(Config) when is_list(Config) ->
