@@ -1251,26 +1251,172 @@ AS_IF([test "X$host" != "Xwin32"],
     fi
   ])
 
+AC_ARG_ENABLE(use-embedded-3pp-alternatives,
+AS_HELP_STRING([--enable-use-embedded-3pp-alternatives],
+               [use all available alternatives instead of embedded 3pps.
+                Implies all --disable-builtin-* options. Can be overridden
+                by individual --enable-builtin-* options.])
+AS_HELP_STRING([--disable-use-embedded-3pp-alternatives],
+               [do not use any alternatives to embedded 3pps.
+                Implies all --enable-builtin-* options. Can be overridden
+                by individual --disable-builtin-* options.]),
+[ case "$enableval" in
+    no)
+      builtin_errno_id=yes
+      builtin_ryu=yes
+      builtin_openssl=yes
+      builtin_zstd=yes
+      builtin_zlib=yes
+      ;;
+    *)
+      builtin_errno_id=no
+      builtin_ryu=no
+      builtin_openssl=no
+      builtin_zstd=no
+      builtin_zlib=no
+      ;;
+  esac
+])
+
+dnl -------------
+dnl errno id
+dnl -------------
+
+AC_ARG_ENABLE(builtin-errno-id,
+AS_HELP_STRING([--enable-builtin-errno-id],
+               [force use of our own built-in errno-id (default)])
+AS_HELP_STRING([--disable-builtin-errno-id],
+               [try to find an alternative on the system to use for errno-id]),
+  [case "$enableval" in
+      no) builtin_errno_id=no ;;
+      *)  builtin_errno_id=yes ;;
+    esac])
+
+AC_CHECK_FUNCS([strerrorname_np])
+
+AS_IF([test "$ac_cv_func_strerrorname_np" != "yes"],
+      [
+         AS_IF([test $builtin_errno_id = no],
+               [AC_MSG_ERROR([No alternative to builtin erl_errno_id() found])]])
+      ])
+
+AS_IF([test "$builtin_errno_id" != "no"],
+      [
+        builtin_errno_id=yes
+        AC_DEFINE(ERTS_USE_BUILTIN_ERRNO_ID, [1], [Define if builtin errno id should be used])
+      ])
+
+ERTS_USE_BUILTIN_ERRNO_ID=$builtin_errno_id
+AC_SUBST(ERTS_USE_BUILTIN_ERRNO_ID)
+
+dnl -------------
+dnl ryu (float to short string)
+dnl -------------
+
+AC_ARG_ENABLE(builtin-ryu,
+AS_HELP_STRING([--enable-builtin-ryu],
+               [use our own built-in ryu for float to short string (default)])
+AS_HELP_STRING([--disable-builtin-ryu],
+               [use C++17 as an alternative for built-in ryu]),
+  [case "$enableval" in
+      no) builtin_ryu=no ;;
+      *)  builtin_ryu=yes ;;
+   esac])
+
+dnl -------------
+dnl openssl (MD5)
+dnl -------------
+
+AC_ARG_ENABLE(builtin-openssl,
+AS_HELP_STRING([--enable-builtin-openssl],
+               [use our own built-in OpenSSL for MD5 (default)])
+AS_HELP_STRING([--disable-builtin-openssl],
+               [use an alternative for built-in OpenSSL]),
+  [case "$enableval" in
+      no) builtin_openssl=no ;;
+      *)  builtin_openssl=yes ;;
+   esac])
+
+AS_IF([test "$builtin_openssl" = "no"],
+      [
+        ERTS_USE_BUILTIN_OPENSSL=no
+      ],
+      [
+        AC_DEFINE(ERTS_USE_BUILTIN_OPENSSL, [1], [Define if builtin OpenSSL should be used for MD5])
+        ERTS_USE_BUILTIN_OPENSSL=yes
+      ])
+AC_SUBST(ERTS_USE_BUILTIN_OPENSSL)
+
+dnl -------------
+dnl zstd
+dnl -------------
+
+AC_ARG_ENABLE(builtin-zstd,
+AS_HELP_STRING([--enable-builtin-zstd],
+               [force use of our own built-in zstd (default)])
+AS_HELP_STRING([--disable-builtin-zstd],
+               [try to find a static libzstd on the system to use]),
+  [ case "$enableval" in
+      no) builtin_zstd=no ;;
+      *)  builtin_zstd=yes ;;
+    esac ])
+
+LIBZSTD=
+
+AS_IF([test "$builtin_zstd" = "no"],
+ [
+  AC_MSG_CHECKING(for static libzstd of version 1.5.6 or higher)
+  zstd_save_LIBS=$LIBS
+  LIBS="-l:libzstd.a $LIBS"
+  AC_LINK_IFELSE(
+     [AC_LANG_PROGRAM([[
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#include <zdict.h>
+]],[[
+#if ZSTD_VERSION_NUMBER >= 10506
+    (void) ZSTD_createCCtx_advanced(ZSTD_defaultCMem);
+#else
+#error "No libzstd of version 1.5.6 or higher found"
+error
+#endif
+]])
+],
+[
+ LIBZSTD="-l:libzstd.a"
+ AC_MSG_RESULT(yes)
+],[
+ AC_MSG_ERROR([libzstd not found])
+])
+
+LIBS="$zstd_save_LIBS"
+
+ ])
+
+AC_SUBST(LIBZSTD)
+
+AS_IF([test "$LIBZSTD" = ""],
+      [
+        AC_DEFINE(ERTS_USE_BUILTIN_ZSTD, [1], [Define if builtin zstd should be used])
+      ])
+
 dnl -------------
 dnl zlib
 dnl -------------
 
 AC_ARG_ENABLE(builtin-zlib,
-  AS_HELP_STRING([--enable-builtin-zlib],
-                 [force use of our own built-in zlib]),
+AS_HELP_STRING([--enable-builtin-zlib],
+               [force use of our own built-in zlib])
+AS_HELP_STRING([--disable-builtin-zlib],
+               [try to find a zlib on the system to use (default)]),
   [ case "$enableval" in
-      no) enable_builtin_zlib=no ;;
-      *)  enable_builtin_zlib=yes ;;
-    esac ], enable_builtin_zlib=no)
+      no) builtin_zlib=no ;;
+      *)  builtin_zlib=yes ;;
+    esac ])
 
 Z_LIB=
 
-AS_IF([test "x$enable_builtin_zlib" = "xyes"],
- [
-  AC_DEFINE(HAVE_ZLIB_INFLATEGETDICTIONARY, 1,
-            [Define if your zlib version defines inflateGetDictionary.])
-  AC_MSG_NOTICE([Using our own built-in zlib source])
- ],
+AS_IF([test "$builtin_zlib" != "yes"],
  [
 AC_MSG_CHECKING(for zlib 1.2.5 or higher)
 zlib_save_LIBS=$LIBS
@@ -1293,7 +1439,9 @@ error
  AC_DEFINE(HAVE_LIBZ, 1, [Define to 1 if you have the `z' library (-lz).])
  AC_MSG_RESULT(yes)
 ],[
- AC_MSG_RESULT(no)
+ AS_IF([test "$builtin_zlib" = "no"],
+       [AC_MSG_ERROR([zlib not found])],
+       [AC_MSG_RESULT([no, using builtin zlib instead])])
 ])
 
 AS_IF([test "$Z_LIB" != ""],
@@ -1306,6 +1454,14 @@ AS_IF([test "$Z_LIB" != ""],
 LIBS=$zlib_save_LIBS
 
  ])
+
+AS_IF([test "$Z_LIB" = ""],
+      [
+        AC_MSG_NOTICE([Using our own built-in zlib source])
+        AC_DEFINE(ERTS_USE_BUILTIN_ZLIB, [1], [Define if builtin zlib should be used])
+        AC_DEFINE(HAVE_ZLIB_INFLATEGETDICTIONARY, 1,
+            [Define if your zlib version defines inflateGetDictionary.])
+      ])
 
 AC_SUBST(Z_LIB)
 
@@ -2936,9 +3092,11 @@ AS_IF([test ${enable_jit} != no],
            fi
            ;;
    esac
+  ])
 
-   AS_IF([test ${enable_jit} != no],
-     [
+dnl Test for C++17
+AS_IF([test ${enable_jit} != no -o "$builtin_ryu" = "no"],
+  [
        AS_IF([test "$CXX" != false],
          [
           AC_LANG_PUSH(C++)
@@ -2954,27 +3112,46 @@ AS_IF([test ${enable_jit} != no],
                HAVE_CXX17=true],
               [AC_MSG_CHECKING([for C++17 support])
                AC_MSG_RESULT([no])
+               CXXFLAGS=$old_CXXFLAGS
                HAVE_CXX17=false])
           AC_LANG_POP()
          ])
        if test "$CXX" = false -o "$HAVE_CXX17" = false; then
+         # C++17 not found
+         if test "$builtin_ryu" = "no"; then
+           AC_MSG_ERROR([Alternative to builtin ryu needs C++17 support])
+         else
+           builtin_ryu=yes
+         fi
          if test ${enable_jit} = yes; then
            AC_MSG_ERROR([JIT needs a C++ compiler with C++17 support])
-         else
+         fi
+         if test ${enable_jit} != no; then
            enable_jit=no
            cat >> $ERL_TOP/erts/CONF_INFO <<EOF
 
                  JIT disabled due to lack of compiler with C++17 support
 EOF
            AC_MSG_WARN([JIT disable due to lack of C++ compiler with C++17 support])
-        fi
-     fi
-    ])
-
-   if test ${enable_jit} != no; then
-     enable_jit=yes
-   fi
+         fi
+       else
+         # C++17 found
+         if test ${enable_jit} != no; then
+           enable_jit=yes
+         fi
+       fi
   ])
+
+AS_IF([test "$builtin_ryu" = "no"],
+      [
+        ERTS_USE_BUILTIN_RYU=no
+      ],
+      [
+        AC_DEFINE(ERTS_USE_BUILTIN_RYU, [1], [Define if builtin ryu should be used])
+        ERTS_USE_BUILTIN_RYU=yes
+      ])
+AC_SUBST(ERTS_USE_BUILTIN_RYU)
+
 
 dnl Test if we can use the native stack for Erlang code
 AS_IF([test ${enable_jit} != no],

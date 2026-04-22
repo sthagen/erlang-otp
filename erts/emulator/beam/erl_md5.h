@@ -23,6 +23,19 @@
 #ifndef ERL_MD5_H__
 #define ERL_MD5_H__
 
+#ifdef ERTS_USE_BUILTIN_OPENSSL
+/*
+ * Use embedded OpenSSL MD5 in erts/emulator/openssl/
+ */
+#include "erl_openssl_md5.h"
+
+typedef MD5_CTX erts_md5_state;
+
+#else // if !defined(ERTS_USE_BUILTIN_OPENSSL)
+/*
+ * Use our own MD5 implementation in erl_md5.c
+ */
+
 #include <stdint.h>
 
 #define MD5_DIGEST_LENGTH 16
@@ -39,5 +52,6 @@ void erts_md5_init(erts_md5_state*);
 void erts_md5_update(erts_md5_state*, const uint8_t* msg, size_t msg_len);
 void erts_md5_finish(uint8_t* out, erts_md5_state*);
 
-#endif // ERL_MD5_H__
+#endif // !defined(ERTS_USE_BUILTIN_OPENSSL)
 
+#endif // ERL_MD5_H__

@@ -67,7 +67,12 @@
 #include "ei_locking.h"
 #include "eisend.h"
 #include "eirecv.h"
-#include "erl_md5.h"  /* from erts */
+#ifdef ERTS_USE_BUILTIN_OPENSSL
+# include "erl_openssl_md5.h"
+typedef MD5_CTX erts_md5_state;
+#else
+# include "erl_md5.h"
+#endif
 #include "putget.h"
 #include "ei_resolve.h"
 #include "ei_epmd.h"

@@ -1295,9 +1295,21 @@ create_vendor_relations(NewVendorPackages, #{~"packages" := Packages, ~"relation
                           case Pkgs of
                               [#{~"SPDXID" := RootId}] ->
                                   case ID of
+                                      ~"SPDXRef-otp-erts-openssl" ->
+                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
+                                      ~"SPDXRef-otp-erlinterface-openssl" ->
+                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
+                                      ~"SPDXRef-otp-erts-ryu" ->
+                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
+                                      ~"SPDXRef-otp-ryu-tochars" ->
+                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-zlib" ->
                                           create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
+                                      ~"SPDXRef-otp-erts-zstd" ->
+                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-asmjit" ->
+                                          create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
+                                      ~"SPDXRef-otp-erts-tcl" ->
                                           create_spdx_relation('OPTIONAL_COMPONENT_OF', ID, RootId);
                                       ~"SPDXRef-otp-erts-autoconf" ->
                                           %% hard-code that erts-autoconf is a build tool of
