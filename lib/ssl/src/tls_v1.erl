@@ -889,36 +889,22 @@ signature_algs(?TLS_1_2, HashSigns) ->
     Hashes = crypto:supports(hashs),
     PubKeys = crypto:supports(public_keys),
     Schemes =  rsa_schemes(),
-    Supported = lists:foldl(fun({Hash, dsa = Sign} = Alg, Acc) ->
-				    case proplists:get_bool(dss, PubKeys)
-					andalso proplists:get_bool(Hash, Hashes)
-					andalso is_pair(Hash, Sign, Hashes)
-				    of
-					true ->
-					    [Alg | Acc];
-					false ->
-					    Acc
-				    end;
-			       ({Hash, Sign} = Alg, Acc) ->
-				    case proplists:get_bool(Sign, PubKeys)
-					andalso proplists:get_bool(Hash, Hashes)
-					andalso is_pair(Hash, Sign, Hashes)
-				    of
-					true ->
-					    [Alg | Acc];
-					false ->
-					    Acc
-				    end;
-                               (Alg, Acc) when is_atom(Alg) ->
-                                    case lists:member(Alg, Schemes) of
-                                        true ->
-                                            [NewAlg] = signature_schemes(?TLS_1_3, [Alg]),
-                                            [NewAlg| Acc];
-					false ->
-					    Acc
-				    end
-			    end, [], HashSigns),
-    lists:reverse(Supported).
+    lists:filtermap(fun({Hash, Sign0}) ->
+                            Sign = if Sign0 =:= dsa -> dss;
+                                      true -> Sign0
+                                   end,
+                            proplists:get_bool(Sign, PubKeys)
+                                andalso proplists:get_bool(Hash, Hashes)
+                                andalso is_pair(Hash, Sign0, Hashes);
+                       (Alg) when is_atom(Alg) ->
+                            case lists:member(Alg, Schemes) of
+                                true ->
+                                    [NewAlg] = signature_schemes(?TLS_1_3, [Alg]),
+                                    {true, NewAlg};
+                                false ->
+                                    false
+                            end
+                    end, HashSigns).
 
 default_signature_algs([?TLS_1_3|_]) ->
     default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3);
