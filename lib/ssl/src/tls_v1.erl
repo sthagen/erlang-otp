@@ -920,11 +920,8 @@ signature_algs(?TLS_1_2, HashSigns) ->
 			    end, [], HashSigns),
     lists:reverse(Supported).
 
-default_signature_algs([?TLS_1_3]) ->
+default_signature_algs([?TLS_1_3|_]) ->
     default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3);
-default_signature_algs([?TLS_1_3, ?TLS_1_2 | _]) ->
-    default_signature_schemes(?TLS_1_3) ++ legacy_signature_schemes(?TLS_1_3)
-        ++ default_pre_1_3_signature_algs_only();
 default_signature_algs([?TLS_1_2 = Version |_]) ->
     Default = [%% SHA2 ++ PSS
                {sha512, ecdsa},
@@ -943,14 +940,6 @@ default_signature_algs([?TLS_1_2 = Version |_]) ->
     signature_algs(Version, Default);
 default_signature_algs(_) ->
     undefined.
-
-default_pre_1_3_signature_algs_only() ->
-    Default = [%% SHA2
-               {sha512, ecdsa},
-               {sha384, ecdsa},
-               {sha256, ecdsa}
-              ],
-    signature_algs(?TLS_1_2, Default).
 
 legacy_signature_algs_pre_13() ->
     [{sha224, ecdsa}, {sha224, rsa}, {sha, ecdsa}, {sha, rsa}, {sha, dsa}].
