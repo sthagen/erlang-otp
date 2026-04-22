@@ -305,6 +305,8 @@ HTTP options:
 
   Default is atom `infinity`.
 
+  Since OTP 28.4
+
 - **`proxy_auth`** - A proxy-authorization header using a tuple where the first
   element is the `username` and the second element of the tuple is the
   `password` added to the request.
