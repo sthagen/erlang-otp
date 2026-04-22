@@ -161,7 +161,6 @@ jobs:
             artifacts/*.tar.gz \
             artifacts/*.txt \
             attestations/*.sigstore \
-            scan-report-web-app.html \
             bom.*
 
       # Create a release for 26 and 27
