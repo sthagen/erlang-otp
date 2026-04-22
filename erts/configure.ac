@@ -1367,7 +1367,8 @@ AS_IF([test "$builtin_zstd" = "no"],
  [
   AC_MSG_CHECKING(for static libzstd of version 1.5.6 or higher)
   zstd_save_LIBS=$LIBS
-  LIBS="-l:libzstd.a $LIBS"
+  LIBZSTD="-Wl,-Bstatic -lzstd -Wl,-Bdynamic"
+  LIBS="$LIBZSTD $LIBS"
   AC_LINK_IFELSE(
      [AC_LANG_PROGRAM([[
 #define ZSTD_STATIC_LINKING_ONLY
@@ -1383,9 +1384,9 @@ error
 ]])
 ],
 [
- LIBZSTD="-l:libzstd.a"
  AC_MSG_RESULT(yes)
 ],[
+ LIBZSTD=
  AC_MSG_ERROR([libzstd not found])
 ])
 
