@@ -78,19 +78,18 @@ jobs:
         shell: pwsh
         run: |
           $root = Get-Location
-          $basename = $env:BASENAME
 
-          cd $basename
+          cd "$env:BASENAME"
           Get-ChildItem -Recurse -Filter erl.ini | Remove-Item
           rm Install.exe,Install.ini,Uninstall.exe
           $sha256 = Get-FileHash $root\otp.exe -Algorithm SHA256
           $sha256.Hash.ToLower() | Out-File -FilePath installer.sha256
           cp $root/vc_redist.exe .
           cp $root/erts/etc/win32/INSTALL.txt .
-          Compress-Archive -Path * -DestinationPath $root\$basename.zip
+          Compress-Archive -Path * -DestinationPath $root\"$env:BASENAME.zip"
 
           cd $root
-          Expand-Archive -Path $basename.zip -DestinationPath .\otp_test
+          Expand-Archive -Path "$env:BASENAME.zip" -DestinationPath .\otp_test
           .\otp_test\bin\erl.exe +V
 
       - name: Upload
@@ -99,5 +98,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUTS_VERSION: ${{ inputs.version }}
         run: |
-          $basename = $env:BASENAME
-          gh release upload -R $env:GITHUB_REPOSITORY --clobber OTP-$env:INPUTS_VERSION $basename.zip
+          gh release upload -R "$env:GITHUB_REPOSITORY" --clobber "OTP-$env:INPUTS_VERSION" "$env:BASENAME.zip"
