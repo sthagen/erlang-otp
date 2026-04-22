@@ -975,11 +975,11 @@ signature_schemes(_, _) ->
     [].
 
 default_signature_schemes(Version) ->
-    Default = [mldsa87,
-               mldsa65,
-               mldsa44] ++ slh_dsa_schemes() ++
-        [eddsa_ed25519,
-         eddsa_ed448,
+    [GoodSLH|SLH_DSA] = slh_dsa_schemes(),
+    Default =
+        [mldsa87, mldsa65, mldsa44,
+         GoodSLH,
+         eddsa_ed25519, eddsa_ed448,
          ecdsa_secp521r1_sha512,
          ecdsa_secp384r1_sha384,
          ecdsa_secp256r1_sha256,
@@ -992,7 +992,7 @@ default_signature_schemes(Version) ->
          rsa_pss_rsae_sha512,
          rsa_pss_rsae_sha384,
          rsa_pss_rsae_sha256
-        ],
+        | SLH_DSA ],
     signature_schemes(Version, Default).
 
 legacy_signature_schemes(Version) ->
@@ -1025,10 +1025,10 @@ rsa_schemes() ->
     end.
 
 slh_dsa_schemes() ->
-    [slh_dsa_shake_256f,
-     slh_dsa_shake_256s,
-     slh_dsa_sha2_256f,
+    [slh_dsa_sha2_256f,  %% Fastest
      slh_dsa_sha2_256s,
+     slh_dsa_shake_256f,
+     slh_dsa_shake_256s,
      slh_dsa_shake_192f,
      slh_dsa_shake_192s,
      slh_dsa_sha2_192f,
