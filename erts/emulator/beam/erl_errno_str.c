@@ -1129,6 +1129,10 @@ erts_errno_init(void)
     char *ptr, *end_ptr;
     char unknown_buf[ERTS_UNKNOWN_ERRNO_BUF_SZ];
 
+    if (init_done) {
+        return;
+    }
+
     write_unknown_errno(&unknown_buf[0], sizeof(unknown_buf), 0);
     unknown_sz = strlen(&unknown_buf[0]) + 1;
 

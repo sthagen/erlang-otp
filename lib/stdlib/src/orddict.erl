@@ -259,8 +259,8 @@ erase(_Key, [{_K,_Val}|Dict]) -> Dict;		%Key == K
 erase(_, []) -> [].
 
 -doc """
-This function returns value from dictionary and new dictionary without this
-value.
+This function returns a value from a dictionary and a new dictionary without
+this value.
 
 Returns `error` if the key is not present in the dictionary.
 
@@ -460,14 +460,14 @@ update(Key, Fun, _Init, [{_K,Val}|Dict]) ->		%Key == K
 update(Key, _, Init, []) -> [{Key,Init}].
 
 -doc """
-Adds `Increment` to the value associated with `Key` and store this value.
+Adds `Increment` to the value associated with `Key` and stores this value.
 
 If `Key` is not present in the dictionary, `Increment` is stored as
 the first value.
 
 ## Examples
 
-```
+```erlang
 1> OrdDict1 = orddict:from_list([{a,0},{b,0}]).
 [{a,0},{b,0}]
 2> OrdDict2 = orddict:update_counter(a, 1, OrdDict1).
@@ -496,7 +496,7 @@ Calls `Fun` on successive keys and values of `Orddict` together with an extra
 argument `Acc` (short for accumulator).
 
 `Fun` must return a new accumulator that is passed to the next
-call. `Acc0` is returned if the list is empty.
+call. `Acc0` is returned if the dictionary is empty.
 
 ## Examples
 
@@ -542,8 +542,7 @@ map(F, [{Key,Val}|D]) ->
 map(F, []) when is_function(F, 2) -> [].
 
 -doc """
-`Orddict2` is a dictionary of all keys and values in `Orddict1` for which
-`Pred(Key, Value)` is `true`.
+Filters keys and values in `Orddict1` using predicate function `Pred`.
 
 ## Examples
 

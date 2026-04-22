@@ -542,7 +542,7 @@ iterate_set_1(M, {E, I}, R) ->
 
 doctests_gb_sets(_Config) ->
     ct_doctest:module(gb_sets, [{skipped_blocks, 1},
-                                {missing_tests, [{iterator, 1}]}]).
+                                {missing_tests, []}]).
 
 doctests_ordsets(_Config) ->
     ct_doctest:module(ordsets, [{skipped_blocks, 1},
