@@ -16730,7 +16730,7 @@ then :
 then :
   as_fn_error $? "No alternative to builtin erl_errno_id() found" "$LINENO" 5
 fi
-      ]
+
 fi
 
 if test "$builtin_errno_id" != "no"
