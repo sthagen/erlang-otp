@@ -684,6 +684,9 @@ Its then up to the user pick the one they want.
 
 Lowercase `t:atom/0` values corresponding to the C library constants `IPTOS_*`.
 Some constant(s) may be unsupported by the platform.
+
+There are also a couple of IANA defined values (`le`, `voice_admit` and `nqb`).
+
 """.
 -type ip_tos() :: #{native := iptos_native(),
 		    tos    := iptos_tos(),
@@ -700,16 +703,20 @@ Some constant(s) may be unsupported by the platform.
 			   lowdelay |  throughput | reliability | mincost.
 %% According to RFC 2474
 -type iptos_dscp() :: 
-	%% cs1
+	cs0 |
+	le |
+	cs1 |
 	af11 | af12 | af13 |
-	%% cs2
+	cs2 |
 	af21 | af22 | af23 |
-	%% cs3
+	cs3 |
 	af31 | af32 | af33 |
-	%% cs4
+	cs4 |
 	af41 | af42 | af43 |
-	%% cs5
-	ef.
+	cs5 |
+	voice_admit | nqb | ef |
+	cs6 |
+	cs7.
 -type iptos_native() :: non_neg_integer().
 
 -doc "C: `struct ip_pktinfo`".

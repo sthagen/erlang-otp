@@ -456,6 +456,10 @@ static void (*esock_sctp_freepaddrs)(struct sockaddr *addrs) = NULL;
 #define IPTOS_DSCP(x)     ((x)&IPTOS_DSCP_MASK)
 #endif
 
+#define ESOCK_DSCP_LE          0x04
+#define ESOCK_DSCP_VOICE_ADMIT 0xb0
+#define ESOCK_DSCP_NQB         0xb4
+
 
 #if defined(TCP_CA_NAME_MAX)
 #define ESOCK_OPT_TCP_CONGESTION_NAME_MAX TCP_CA_NAME_MAX
@@ -2397,6 +2401,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(key_number);                      \
     GLOBAL_ATOM_DECL(knowsepoch);		       \
     GLOBAL_ATOM_DECL(last_ack);                        \
+    GLOBAL_ATOM_DECL(le);                              \
     GLOBAL_ATOM_DECL(leave_group);                     \
     GLOBAL_ATOM_DECL(length);                          \
     GLOBAL_ATOM_DECL(level);                           \
@@ -2463,6 +2468,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(not_bound);                       \
     GLOBAL_ATOM_DECL(not_found);                       \
     GLOBAL_ATOM_DECL(not_owner);                       \
+    GLOBAL_ATOM_DECL(nqb);                             \
     GLOBAL_ATOM_DECL(num_general_errors);              \
     GLOBAL_ATOM_DECL(num_ostreams);                    \
     GLOBAL_ATOM_DECL(num_threads);                     \
@@ -2668,6 +2674,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(use_min_mtu);                     \
     GLOBAL_ATOM_DECL(use_registry);                    \
     GLOBAL_ATOM_DECL(value);                           \
+    GLOBAL_ATOM_DECL(voice_admit);                     \
     GLOBAL_ATOM_DECL(void);                            \
     GLOBAL_ATOM_DECL(v6only);                          \
     GLOBAL_ATOM_DECL(write_byte);                      \
@@ -16084,6 +16091,18 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
             result = TRUE;
 #endif
 
+#if defined(IPTOS_DSCP_CS0)
+        } else if (COMPARE(eVal, esock_atom_cs0) == 0) {
+            *val   = IPTOS_DSCP_CS0;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_CS1)
+        } else if (COMPARE(eVal, esock_atom_cs1) == 0) {
+            *val   = IPTOS_DSCP_CS1;
+            result = TRUE;
+#endif
+
 #if defined(IPTOS_DSCP_AF11)
         } else if (COMPARE(eVal, esock_atom_af11) == 0) {
             *val   = IPTOS_DSCP_AF11;
@@ -16099,6 +16118,12 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
 #if defined(IPTOS_DSCP_AF13)
         } else if (COMPARE(eVal, esock_atom_af13) == 0) {
             *val   = IPTOS_DSCP_AF13;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_CS2)
+        } else if (COMPARE(eVal, esock_atom_cs2) == 0) {
+            *val   = IPTOS_DSCP_CS2;
             result = TRUE;
 #endif
 
@@ -16120,6 +16145,12 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
             result = TRUE;
 #endif
 
+#if defined(IPTOS_DSCP_CS3)
+        } else if (COMPARE(eVal, esock_atom_cs3) == 0) {
+            *val   = IPTOS_DSCP_CS3;
+            result = TRUE;
+#endif
+
 #if defined(IPTOS_DSCP_AF31)
         } else if (COMPARE(eVal, esock_atom_af31) == 0) {
             *val   = IPTOS_DSCP_AF31;
@@ -16135,6 +16166,12 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
 #if defined(IPTOS_DSCP_AF33)
         } else if (COMPARE(eVal, esock_atom_af33) == 0) {
             *val   = IPTOS_DSCP_AF33;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_CS4)
+        } else if (COMPARE(eVal, esock_atom_cs4) == 0) {
+            *val   = IPTOS_DSCP_CS4;
             result = TRUE;
 #endif
 
@@ -16156,11 +16193,41 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
             result = TRUE;
 #endif
 
+#if defined(IPTOS_DSCP_CS5)
+        } else if (COMPARE(eVal, esock_atom_cs5) == 0) {
+            *val   = IPTOS_DSCP_CS5;
+            result = TRUE;
+#endif
+
 #if defined(IPTOS_DSCP_EF)
         } else if (COMPARE(eVal, esock_atom_ef) == 0) {
             *val   = IPTOS_DSCP_EF;
             result = TRUE;
 #endif
+
+#if defined(IPTOS_DSCP_CS6)
+        } else if (COMPARE(eVal, esock_atom_cs6) == 0) {
+            *val   = IPTOS_DSCP_CS6;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_CS7)
+        } else if (COMPARE(eVal, esock_atom_cs7) == 0) {
+            *val   = IPTOS_DSCP_CS7;
+            result = TRUE;
+#endif
+
+        } else if (COMPARE(eVal, esock_atom_le) == 0) {
+            *val   = ESOCK_DSCP_LE;
+            result = TRUE;
+
+        } else if (COMPARE(eVal, esock_atom_voice_admit) == 0) {
+            *val   = ESOCK_DSCP_VOICE_ADMIT;
+            result = TRUE;
+
+        } else if (COMPARE(eVal, esock_atom_nqb) == 0) {
+            *val   = ESOCK_DSCP_NQB;
+            result = TRUE;
 
         } else {
             *val   = -1;
@@ -16756,6 +16823,18 @@ ERL_NIF_TERM encode_iptos_dscp(ErlNifEnv* env, int val)
 
     /* *** IP differentiated services code points (DSCP) *** */
     switch (nativeDSCP) {
+#if defined(IPTOS_DSCP_CS0)
+    case IPTOS_DSCP_CS0:
+        dscp = esock_atom_cs0;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_CS1)
+    case IPTOS_DSCP_CS1:
+        dscp = esock_atom_cs1;
+        break;
+#endif
+
 #if defined(IPTOS_DSCP_AF11)
     case IPTOS_DSCP_AF11:
         dscp = esock_atom_af11;
@@ -16771,6 +16850,12 @@ ERL_NIF_TERM encode_iptos_dscp(ErlNifEnv* env, int val)
 #if defined(IPTOS_DSCP_AF13)
     case IPTOS_DSCP_AF13:
         dscp = esock_atom_af13;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_CS2)
+    case IPTOS_DSCP_CS2:
+        dscp = esock_atom_cs2;
         break;
 #endif
 
@@ -16792,6 +16877,12 @@ ERL_NIF_TERM encode_iptos_dscp(ErlNifEnv* env, int val)
         break;
 #endif
 
+#if defined(IPTOS_DSCP_CS3)
+    case IPTOS_DSCP_CS3:
+        dscp = esock_atom_cs3;
+        break;
+#endif
+
 #if defined(IPTOS_DSCP_AF31)
     case IPTOS_DSCP_AF31:
         dscp = esock_atom_af31;
@@ -16807,6 +16898,12 @@ ERL_NIF_TERM encode_iptos_dscp(ErlNifEnv* env, int val)
 #if defined(IPTOS_DSCP_AF33)
     case IPTOS_DSCP_AF33:
         dscp = esock_atom_af33;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_CS4)
+    case IPTOS_DSCP_C41:
+        dscp = esock_atom_cs4;
         break;
 #endif
 
@@ -16828,11 +16925,47 @@ ERL_NIF_TERM encode_iptos_dscp(ErlNifEnv* env, int val)
         break;
 #endif
 
+#if defined(IPTOS_DSCP_CS5)
+    case IPTOS_DSCP_CS5:
+        dscp = esock_atom_cs5;
+        break;
+#endif
+
 #if defined(IPTOS_DSCP_EF)
     case IPTOS_DSCP_EF:
         dscp = esock_atom_ef;
         break;
 #endif
+
+#if defined(IPTOS_DSCP_CS6)
+    case IPTOS_DSCP_CS6:
+        dscp = esock_atom_cs6;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_CS7)
+    case IPTOS_DSCP_CS7:
+        dscp = esock_atom_cs7;
+        break;
+#endif
+
+
+        /*
+         * And now for some values we do not (currently) have any defines for.
+         * But these are defined accordning to IANA DSCP registry.
+         * https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml
+         */
+    case ESOCK_DSCP_LE: /* LE */
+        dscp = esock_atom_le;
+        break;
+
+    case ESOCK_DSCP_VOICE_ADMIT: /* VOICE-ADMIT */
+        dscp = esock_atom_voice_admit;
+        break;
+
+    case ESOCK_DSCP_NQB: /* NQB */
+        dscp = esock_atom_nqb;
+        break;
 
     default:
         dscp = MKI(env, nativeDSCP);

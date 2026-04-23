@@ -490,6 +490,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(key_number);               \
     GLOBAL_ATOM_DEF(knowsepoch);	       \
     GLOBAL_ATOM_DEF(last_ack);                 \
+    GLOBAL_ATOM_DEF(le);                       \
     GLOBAL_ATOM_DEF(leave_group);              \
     GLOBAL_ATOM_DEF(length);                   \
     GLOBAL_ATOM_DEF(level);                    \
@@ -555,6 +556,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(notrailers);               \
     GLOBAL_ATOM_DEF(not_bound);                \
     GLOBAL_ATOM_DEF(not_found);                \
+    GLOBAL_ATOM_DEF(nqb);                      \
     GLOBAL_ATOM_DEF(num_general_errors);       \
     GLOBAL_ATOM_DEF(not_owner);                \
     GLOBAL_ATOM_DEF(num_ostreams);             \
@@ -759,6 +761,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(use_min_mtu);              \
     GLOBAL_ATOM_DEF(use_registry);             \
     GLOBAL_ATOM_DEF(value);                    \
+    GLOBAL_ATOM_DEF(voice_admit);              \
     GLOBAL_ATOM_DEF(void);                     \
     GLOBAL_ATOM_DEF(v6only);                   \
     GLOBAL_ATOM_DEF(write_byte);               \
