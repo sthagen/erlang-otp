@@ -329,9 +329,11 @@ suites(Version) when ?DTLS_1_X(Version) ->
     dtls_v1:suites(Version).
 
 all_suites(?TLS_1_3 = Version) ->
-    suites(Version) ++ tls_legacy_suites(?TLS_1_2)  ++ tls_v1:exclusive_suites(?TLS_1_0);
+    suites(Version) ++ tls_v1:aes_ccm_8_suites(Version) ++
+        tls_legacy_suites(?TLS_1_2)  ++ tls_v1:exclusive_suites(?TLS_1_0);
 all_suites(?TLS_1_2 = Version) ->
-    suites(Version) ++ tls_legacy_suites(Version) ++ tls_v1:exclusive_suites(?TLS_1_0);
+    suites(Version) ++ tls_v1:aes_ccm_8_suites(Version) ++
+        tls_legacy_suites(Version) ++ tls_v1:exclusive_suites(?TLS_1_0);
 all_suites(?TLS_1_1 = Version) ->
     suites(Version) ++ tls_legacy_suites(Version) ++ tls_v1:cbc_suites(Version);
 all_suites(?TLS_1_0 = Version) ->

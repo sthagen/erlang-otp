@@ -49,6 +49,7 @@
          srp_suites/1,
          srp_suites_anon/1,
          srp_exclusive/1,
+         aes_ccm_8_suites/1,
          rc4_suites/1,
          rc4_exclusive/1,
          des_suites/1,
@@ -520,13 +521,12 @@ suites_in_version(?TLS_1_3) -> [?TLS_1_3, ?TLS_1_2].
 -spec exclusive_suites(ssl_record:ssl_version()) -> [ssl_cipher_format:cipher_suite()].
 
 default_suites(?TLS_1_3 = Version) ->
-    exclusive_suites(Version);
+    exclusive_suites(Version) -- aes_ccm_8_suites(Version);
 default_suites(?TLS_1_2) ->
     [?TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
      ?TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 
      ?TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
-     ?TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
 
      ?TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
      ?TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
@@ -535,7 +535,6 @@ default_suites(?TLS_1_2) ->
      ?TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 
      ?TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
-     ?TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
 
      ?TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384,
      ?TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384,
@@ -560,7 +559,6 @@ exclusive_suites(?TLS_1_3) ->
      ?TLS_AES_128_GCM_SHA256,
 
      ?TLS_CHACHA20_POLY1305_SHA256,
-
      ?TLS_AES_128_CCM_SHA256,
      ?TLS_AES_128_CCM_8_SHA256
     ];
@@ -806,6 +804,21 @@ srp_exclusive_anon(?TLS_1_0) ->
      ?TLS_SRP_SHA_WITH_AES_256_CBC_SHA,
      ?TLS_SRP_SHA_WITH_3DES_EDE_CBC_SHA
     ].
+
+%%--------------------------------------------------------------------
+-spec aes_ccm_8_suites(Version::ssl_record:ssl_version()) ->
+          [ssl_cipher_format:cipher_suite()].
+%%
+%% Description: Returns a list of embedded system trade off suites
+%% for AES using an 8 bit tag instead of 16
+%%--------------------------------------------------------------------
+aes_ccm_8_suites(?TLS_1_3) ->
+    [?TLS_AES_128_CCM_8_SHA256];
+aes_ccm_8_suites(?TLS_1_2) ->
+    [?TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
+     ?TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8];
+aes_ccm_8_suites(_) ->
+    [].
 
 %%--------------------------------------------------------------------
 -spec rc4_suites(Version::ssl_record:ssl_version()) ->

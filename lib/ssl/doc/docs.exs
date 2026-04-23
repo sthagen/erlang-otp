@@ -24,6 +24,7 @@
     "guides/ssl_protocol.md",
     "guides/using_ssl.md",
     "guides/ssl_distribution.md",
+    "guides/ssl_hardening.md",
     "guides/standards_compliance.md",
     "ssl_app.md"
   ]
