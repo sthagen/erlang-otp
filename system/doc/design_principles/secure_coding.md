@@ -343,6 +343,9 @@ used to configure more than one possible certificate/key pair for a client or
 server, giving good security while allowing interoperability with legacy
 systems for a period of time.
 
+See also [`TLS Hardening Guide`](`e:ssl:ssl_hardening.html`)
+
+
 [](){: #h-ssh-application }
 ### [`ssh`] Application
 [`ssh` Application]: #h-ssh-application

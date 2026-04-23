@@ -925,6 +925,8 @@ Common certificate related options to both client and server.
 
   - **`best_effort`**
 
+    The `best_effort` check is a legacy behavior and must be considered insecure!
+
     If certificate revocation status cannot be determined it will be accepted as valid.
 
     The CA certificates specified for the connection will be used to construct the
@@ -1428,24 +1430,6 @@ be sent in the same order as they appear in supported_groups.
 Certificate-related options specific to the client side, or with
 different semantics for the client and server.
 
-- **`{verify, Verify}`** - Verification of certificates
-
-  This option specifies whether certificates are to be verified.
-
-  If `Verify` is `verify_peer`, which is the default, it is required
-  to also provide one of the options `cacerts` or `cacertfile` in
-  order for the certificate verification to succeed. For example, an
-  HTTPS client can use option `{cacerts, public_key:cacerts_get()}` to
-  use the trusted CA certificates provided by the operating system.
-
-  If `Verify` is `verify_none`, all X.509-certificate path
-  validation errors will be ignored.
-
-  > #### Change {: .info }
-  >
-  > The default for `Verify` was changed to `verify_peer` in
-  > Erlang/OTP 26.0.
-
 - **`{cacerts, CACerts}`** - Trusted certificates
 
   The DER-encoded trusted certificates. If this option is supplied it overrides
@@ -1549,8 +1533,7 @@ different semantics for the client and server.
   > a `{missing, ocsp_nonce}` logger event.
 """.
 
--type client_option_cert() :: {verify, Verify ::verify_peer | verify_none} |
-                              {cacerts,  CACerts::[public_key:der_encoded()] | [public_key:combined_cert()]} |
+-type client_option_cert() :: {cacerts,  CACerts::[public_key:der_encoded()] | [public_key:combined_cert()]} |
                               {cacertfile, CACertFile::file:filename()} |
                               {server_name_indication, SNI::inet:hostname() | disable} |
                               {customize_hostname_check, HostNameCheckOpts::list()} |
@@ -1753,6 +1736,27 @@ Common options to client and server only valid for DTLS.
 -doc """
 Legacy client options.
 
+- **`{verify, Verify}`** - Verification of certificates
+
+   Clients should always verify the servers certificate, this legacy
+   option should only be used for test or debug purposes.
+
+   This option specifies whether certificates are to be verified.
+
+  If `Verify` is `verify_peer`, which is the default, it is required
+  to also provide one of the options `cacerts` or `cacertfile` in
+  order for the certificate verification to succeed. For example, an
+  HTTPS client can use option `{cacerts, public_key:cacerts_get()}` to
+  use the trusted CA certificates provided by the operating system.
+
+  If `Verify` is `verify_none`, all X.509-certificate path
+  validation errors will be ignored.
+
+  > #### Change {: .info }
+  >
+  > The default for `Verify` was changed to `verify_peer` in
+  > Erlang/OTP 26.0.
+
 - **`{client_preferred_next_protocols, NextAppProtocols}`** - Next Protocol Negotiation
 
   ALPN (Application-Layer Protocol Negotiation)
@@ -1775,6 +1779,7 @@ Legacy client options.
   if no default protocol is supplied.
 """.
 -type client_option_legacy() ::
+        {verify, Verify ::verify_peer | verify_none} |
         {client_preferred_next_protocols, NextAppProtocols:: {Precedence :: server | client,
                                                               ClientPrefs :: [AppProto::binary()]} |
                                                              {Precedence :: server | client,
@@ -1800,6 +1805,11 @@ Options specific to the server side, or with different semantics for the client 
 
   The negotiated protocol can be retrieved using the
   [`negotiated_protocol/1`](`negotiated_protocol/1`) function.
+
+- **`{honor_cipher_order, HonorServerCipherOrder}`** - Trade-off option alters protocol defined behavior
+
+  If `true`, use the server's preference for cipher suite  selection. If `false` (the
+  default), use the client's preference.
 
 - **`{sni_fun, SNIFun}`**
 
@@ -1830,6 +1840,7 @@ Options specific to the server side, or with different semantics for the client 
 -type server_option() ::
         server_option_cert() |
         common_option_cert() |
+        {honor_cipher_order, HonorServerCipherOrder::boolean()} |
         {alpn_preferred_protocols,  AppProtocols::[binary()]}|
         {sni_hosts, SNIHosts::[{inet:hostname(), [server_option() | common_option()]}]} |
         {sni_fun, SNIFun:: fun((string()) -> [server_option() | common_option()] | 'unrecognized' | 'undefined')} |
@@ -1857,14 +1868,6 @@ Certificate related options for a server.
   client. When using `verify_peer` you may also want to specify the options
   `fail_if_no_peer_cert` and `certificate_authorities`.
 
-- **`{fail_if_no_peer_cert, FailNoPeerCert}`** - Legacy trade-off option
-
-  Used together with `{verify, verify_peer}` by an TLS/DTLS server. If set to
-  `true`, the server fails if the client does not have a certificate to send, that
-  is, sends an empty certificate. If set to `false`, it fails only if the client
-  sends an invalid certificate (an empty certificate is considered valid).
-  Defaults to `true`, the default value was changed in OTP 26.0.
-
 - **`{certificate_authorities, ServerCertAuth}`** - Inter-operate hint option
 
   Determines whether a TLS-1.3 server should include the authorities extension in its
@@ -1883,10 +1886,10 @@ Certificate related options for a server.
 """.
 
 -doc(#{group => <<"Server Options">>}).
--type server_option_cert() :: {cacerts,  CACerts::[public_key:der_encoded()] | [public_key:combined_cert()]} |
+-type server_option_cert() :: {cacerts,  CACerts::[public_key:der_encoded()] |
+                                                  [public_key:combined_cert()]} |
                               {cacertfile,  CACertFile::file:filename()} |
                               {verify, Verify:: verify_none | verify_peer} |
-                              {fail_if_no_peer_cert, FailNoPeerCert::boolean()} |
                               {certificate_authorities, ServerCertAuth::boolean()}.
 
 
@@ -1929,11 +1932,6 @@ Options only relevant to TLS versions prior to TLS-1.3.
 
   Specifies the server identity hint that the server presents to the client.
 
-- **`{honor_cipher_order, HonorServerCipherOrder}`** - Trade-off option alters protocol defined behavior
-
-  If `true`, use the server's preference for ECC curve selection. If `false` (the
-  default), use the client's preference.
-
 - **`{honor_ecc_order, HonorServerECCOrder}`** - Trade-off option alters protocol defined behavior
 
   If `true`, use the server's preference for ECC curve selection. If `false` (the
@@ -1954,7 +1952,6 @@ Options only relevant to TLS versions prior to TLS-1.3.
         {client_renegotiation, ClientRengotiation::boolean()}|
         {reuse_sessions, ReuseSessions::boolean()} |
         {reuse_session, ReuseSession::fun()} |
-        {honor_cipher_order, HonorServerCipherOrder::boolean()} |
         {honor_ecc_order, HonorServerECCOrder::boolean()} |
         {dh, DHDer::public_key:der_encoded()} |
         {dhfile,  DhFile::file:filename()} |
@@ -2078,8 +2075,18 @@ Legacy server options.
   this list. The list of protocols must not contain an empty binary. If the server
   negotiates a Next Protocol, it can be accessed using the
   `negotiated_protocol/1` method.
+
+- **`{fail_if_no_peer_cert, FailNoPeerCert}`** - Legacy trade-off option
+
+  Used together with `{verify, verify_peer}` by an TLS/DTLS server. If set to
+  `true`, the server fails if the client does not have a certificate to send, that
+  is, sends an empty certificate. If set to `false`, it fails only if the client
+  sends an invalid certificate (an empty certificate is considered valid).
+  Defaults to `true`, the default value was changed in OTP 26.0.
+
 """.
 -type server_option_legacy() ::
+        {fail_if_no_peer_cert, FailNoPeerCert::boolean()} |
         {next_protocols_advertised, NextAppProtocols::[binary()]}.
 
 
