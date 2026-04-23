@@ -27,6 +27,24 @@ as all enhancements and bugfixes for every release of Mnesia. Each release of
 Mnesia thus constitutes one section in this document. The title of each section
 is the version number of Mnesia.
 
+## Mnesia 4.25.3
+
+### Fixed Bugs and Malfunctions
+
+- Added documentation for `user_properties`  and functions `read_table_property/2`, `write_table_property/2`, `delete_table_property`.
+  Enhanced documentation for `frag_properties`.
+
+  Own Id: OTP-20038 Aux Id: [GH-10812], [PR-10881]
+
+- Fixed a bug where stacktrace was not returned from `mnesia:transaction/1` when transaction aborts with an error exception.
+
+  Own Id: OTP-20094 Aux Id: [GH-10967], [PR-11002]
+
+[GH-10812]: https://github.com/erlang/otp/issues/10812
+[PR-10881]: https://github.com/erlang/otp/pull/10881
+[GH-10967]: https://github.com/erlang/otp/issues/10967
+[PR-11002]: https://github.com/erlang/otp/pull/11002
+
 ## Mnesia 4.25.2
 
 ### Improvements and New Features

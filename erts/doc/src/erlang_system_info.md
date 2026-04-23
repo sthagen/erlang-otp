@@ -855,7 +855,7 @@ Returns various information about the current system (emulator) as specified by 
   Note that the returned map may be extended with new key/value pairs at
   any time.
 
-  Since: OTP @OTP-20106@
+  Since: OTP 28.5
 
 - `emu_flavor`{: #system_info_emu_flavor } - Returns an atom describing the
   flavor of the runtime system. This will be either `emu` or `jit`. Possible

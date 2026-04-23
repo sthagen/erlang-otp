@@ -23,6 +23,31 @@ limitations under the License.
 
 This document describes the changes made to the Erl_interface application.
 
+## Erl_Interface 5.7
+
+### Improvements and New Features
+
+- A new `configure` option [`--{enable,disable}-use-embedded-3pp-alternatives` ](`e:system:install.md#advanced-configuration-and-build-of-erlang-otp_configuring`) has been added. When *enabled*, `configure` is forced to find alternatives, to a subset, of the embedded third-party products (*3pps*) in the runtime system, and when *disabled*, `configure` will use all internal embedded 3pps. Currently this option affects `zstd`, `zlib`, `ryu` (with `STL`), `openssl` and `tcl`. The default is to use all built-in embedded 3pps except for `zlib` which by default will use `zlib` on the OS if available.
+  
+  Requirements for alternatives:
+  - `zstd` - Static library and include files of at least version 1.5.6 needs to be available.
+  - `zlib` - Library and include files of at least version 1.2.5 needs to be available.
+  - `ryu` (with `STL`) - A usable C++ compiler with C++17 support.
+  - `openssl` - No requirements. Our own MD5 implementation will be used.
+  - `tcl` - The `strerrorname_np()` function (introduced in glibc 2.32) mapping errno integers to symbolic names needs to be available.
+  
+  The argument [`embedded_3pps`](`m:erlang#system_info_embedded_3pps`) has been added to `erlang:system_info/1`. It returns a map with information about the use of embedded 3pps in the runtime system.
+
+  Own Id: OTP-20106 Aux Id: [PR-11045]
+
+[PR-11045]: https://github.com/erlang/otp/pull/11045
+
+### Known Bugs and Problems
+
+- The `ei` API for decoding/encoding terms is not fully 64-bit compatible since terms that have a representation on the external term format larger than 2 GB cannot be handled.
+
+  Own Id: OTP-16607 Aux Id: OTP-16608
+
 ## Erl_Interface 5.6.4
 
 ### Improvements and New Features
