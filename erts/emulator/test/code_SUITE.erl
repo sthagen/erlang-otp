@@ -438,13 +438,22 @@ many_purges(Config) when is_list(Config) ->
 
     ok.
 
-many_purges_test(_File, _Code, 0) ->
-    ok;
 many_purges_test(File, Code, N) ->
+    many_purges_test(File, Code, N, 1).
+
+many_purges_test(_File, _Code, N, I) when I > N ->
+    ok;
+many_purges_test(File, Code, N, I) ->
+    T0 = erlang:monotonic_time(microsecond),
     {module,my_code_test} = code:load_binary(my_code_test, File, Code),
+    T1 = erlang:monotonic_time(microsecond),
     true = erlang:delete_module(my_code_test),
+    T2 = erlang:monotonic_time(microsecond),
     true = erlang:purge_module(my_code_test),
-    many_purges_test(File, Code, N-1).
+    T3 = erlang:monotonic_time(microsecond),
+    io:format("Purge #~p. Load=~p Delete=~p Purge=~p",
+              [I, T1-T0, T2-T1, T3-T2]),
+    many_purges_test(File, Code, N, I+1).
 
 external_fun(Config) when is_list(Config) ->
     false = erlang:function_exported(another_code_test, x, 1),
