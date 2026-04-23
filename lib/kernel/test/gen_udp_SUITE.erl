@@ -3908,7 +3908,7 @@ do_otp_20102(Addr, TOSValues, InetBackend) ->
     TO   = 2000,
     Data = <<"ABC">>,
 
-    %% Any failures in the setup patr should really just result in a skip
+    %% Any failures in the setup part should really just result in a skip
     %% but for now we want everything to explode so that we do not miss stuff.
     RSock = try gen_udp:open(0, [{inet_backend, InetBackend},
 				  inet, binary, {active, false}, {ip, Addr},
@@ -3939,10 +3939,14 @@ do_otp_20102(Addr, TOSValues, InetBackend) ->
 	    end,
     
     Fun = fun(TOS) ->
+		  ?P("~s -> try set TOS: ~w", [?FUNCTION_NAME, TOS]),
 		  ok = inet:setopts(SSock, [{tos, TOS}]),
+		  ?P("~s -> try send data", [?FUNCTION_NAME]),
 		  ok = gen_udp:send(SSock, Addr, RPort, Data),
+		  ?P("~s -> try recv data with anc data (tos)",
+		     [?FUNCTION_NAME]),
 		  {ok, {_, _, Anc, _}} = gen_udp:recv(RSock, Len, TO),
-		  ?P("received Anc: ~p", [Anc]),
+		  ?P("~s -> recv Anc data: ~p", [?FUNCTION_NAME, Anc]),
 		  Anc
 	  end,
     [Fun(V) || V <- TOSValues].
