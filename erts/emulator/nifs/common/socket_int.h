@@ -288,6 +288,18 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(addr_unreachable);         \
     GLOBAL_ATOM_DEF(add_membership);           \
     GLOBAL_ATOM_DEF(add_source_membership);    \
+    GLOBAL_ATOM_DEF(af11);                     \
+    GLOBAL_ATOM_DEF(af12);                     \
+    GLOBAL_ATOM_DEF(af13);                     \
+    GLOBAL_ATOM_DEF(af21);                     \
+    GLOBAL_ATOM_DEF(af22);                     \
+    GLOBAL_ATOM_DEF(af23);                     \
+    GLOBAL_ATOM_DEF(af31);                     \
+    GLOBAL_ATOM_DEF(af32);                     \
+    GLOBAL_ATOM_DEF(af33);                     \
+    GLOBAL_ATOM_DEF(af41);                     \
+    GLOBAL_ATOM_DEF(af42);                     \
+    GLOBAL_ATOM_DEF(af43);                     \
     GLOBAL_ATOM_DEF(alen);                     \
     GLOBAL_ATOM_DEF(allmulti);                 \
     GLOBAL_ATOM_DEF(already);                  \
@@ -356,6 +368,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(cork);                     \
     GLOBAL_ATOM_DEF(counters);                 \
     GLOBAL_ATOM_DEF(credentials);              \
+    GLOBAL_ATOM_DEF(critical_ecp);             \
     GLOBAL_ATOM_DEF(ctrl);                     \
     GLOBAL_ATOM_DEF(ctrunc);                   \
     GLOBAL_ATOM_DEF(cum_tsn);                  \
@@ -383,6 +396,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(drop_source_membership);   \
     GLOBAL_ATOM_DEF(dstaddrv4);                \
     GLOBAL_ATOM_DEF(dstaddrv6);                \
+    GLOBAL_ATOM_DEF(dscp);                     \
     GLOBAL_ATOM_DEF(dstopts);                  \
     GLOBAL_ATOM_DEF(dup);		       \
     GLOBAL_ATOM_DEF(dup_acks_in);              \
@@ -390,6 +404,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(dynamic);                  \
     GLOBAL_ATOM_DEF(echo);                     \
     GLOBAL_ATOM_DEF(eether);                   \
+    GLOBAL_ATOM_DEF(ef);                       \
     GLOBAL_ATOM_DEF(efile);                    \
     GLOBAL_ATOM_DEF(egp);                      \
     GLOBAL_ATOM_DEF(empty);                    \
@@ -417,6 +432,8 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(fin_wait_1);               \
     GLOBAL_ATOM_DEF(fin_wait_2);               \
     GLOBAL_ATOM_DEF(flags);                    \
+    GLOBAL_ATOM_DEF(flash);                    \
+    GLOBAL_ATOM_DEF(flashoverride);            \
     GLOBAL_ATOM_DEF(flowinfo);                 \
     GLOBAL_ATOM_DEF(fragment_interleave);      \
     GLOBAL_ATOM_DEF(freebind);                 \
@@ -439,6 +456,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(ieee1394);                 \
     GLOBAL_ATOM_DEF(ifindex);                  \
     GLOBAL_ATOM_DEF(igmp);                     \
+    GLOBAL_ATOM_DEF(immediate);                \
     GLOBAL_ATOM_DEF(implink);                  \
     GLOBAL_ATOM_DEF(inbound_streams);          \
     GLOBAL_ATOM_DEF(incoming_ssn);             \
@@ -450,8 +468,9 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(info);                     \
     GLOBAL_ATOM_DEF(init);                     \
     GLOBAL_ATOM_DEF(initmsg);                  \
-    GLOBAL_ATOM_DEF(invalid);                  \
     GLOBAL_ATOM_DEF(integer_range);            \
+    GLOBAL_ATOM_DEF(internetcontrol);          \
+    GLOBAL_ATOM_DEF(invalid);                  \
     GLOBAL_ATOM_DEF(iov);                      \
     GLOBAL_ATOM_DEF(ip);                       \
     GLOBAL_ATOM_DEF(ipcomp_level);             \
@@ -520,6 +539,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(multicast_ttl);            \
     GLOBAL_ATOM_DEF(name);                     \
     GLOBAL_ATOM_DEF(native);                   \
+    GLOBAL_ATOM_DEF(netcontrol);               \
     GLOBAL_ATOM_DEF(netns);                    \
     GLOBAL_ATOM_DEF(netrom);                   \
     GLOBAL_ATOM_DEF(nlen);                     \
@@ -579,6 +599,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(ppid);                     \
     GLOBAL_ATOM_DEF(ppp);                      \
     GLOBAL_ATOM_DEF(ppromisc);		       \
+    GLOBAL_ATOM_DEF(precedence);               \
     GLOBAL_ATOM_DEF(primary_addr);             \
     GLOBAL_ATOM_DEF(prim_file);                \
     GLOBAL_ATOM_DEF(prinfo);                   \
@@ -631,6 +652,7 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(rights);                   \
     GLOBAL_ATOM_DEF(rm);                       \
     GLOBAL_ATOM_DEF(router_alert);             \
+    GLOBAL_ATOM_DEF(routine);                  \
     GLOBAL_ATOM_DEF(rthdr);                    \
     GLOBAL_ATOM_DEF(rtoinfo);                  \
     GLOBAL_ATOM_DEF(rtt);                      \

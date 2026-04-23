@@ -1020,6 +1020,8 @@ socket_getopt_opts(Opts, Socket, Tag) ->
 %% socket_getopt_value(pktoptions, {ok, PktOpts0}) when is_list(PktOpts0) ->
 %%     PktOpts = [{Type, Value} || #{type := Type, value := Value} <- PktOpts0],
 %%     {ok, PktOpts};
+socket_getopt_value(tos, {ok, #{native := NativeValue}}) ->
+    {ok, NativeValue};
 socket_getopt_value(_Tag, {ok, _Value} = Ok) -> Ok;
 socket_getopt_value(_Tag, {error, _} = Error) -> Error.
 
@@ -2229,18 +2231,20 @@ ctrl2ancdata(CTRL) ->
     ctrl2ancdata(CTRL, []).
 
 ctrl2ancdata([], AncData) ->
+    io:format("~s -> done when"
+	      "~n   AncData: ~p"
+	      "~n", [?FUNCTION_NAME, AncData]),
    lists:reverse(AncData);
 ctrl2ancdata([#{level := ip,
                 type  := TOS,
 		%% This is an atom: lowdelay | thoughput | reliability | mincost
-                value := _Value,
-                data  := <<DataValue:8/integer>> = _Data} = _CTRL| CTRLs],
+                value := #{native := NativeValue} = _Value,
+                data  := <<_DataValue:8/integer>> = _Data} = _CTRL| CTRLs],
              AncData) when (TOS =:= tos) orelse (TOS =:= recvtos) ->
     %% 'inet' does not provide any "translation" (unlike 'socket').
-    %% Instead, it returns the data value as is.
-    %% So we have to do the same
-    %% and therefor get the value from the data field instead.
-    ctrl2ancdata(CTRLs, [{tos, DataValue}|AncData]);
+    %% Instead, it returns the data value as is (the 'native' value).
+    %% So we have to do the same, and therefor choose the 'native' value.
+    ctrl2ancdata(CTRLs, [{tos, NativeValue}|AncData]);
 ctrl2ancdata([#{level := ip,
                 type  := TTL,
                 value := Value,

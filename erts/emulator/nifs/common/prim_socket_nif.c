@@ -437,7 +437,23 @@ static void (*esock_sctp_freepaddrs)(struct sockaddr *addrs) = NULL;
 #define IPTOS_TOS_MASK     0x1E
 #endif
 #if !defined(IPTOS_TOS)
-#define IPTOS_TOS(tos)          ((tos)&IPTOS_TOS_MASK)
+#define IPTOS_TOS(tos)     ((tos)&IPTOS_TOS_MASK)
+#endif
+
+/* This macro exist on some (linux) platforms */
+#if !defined(IPTOS_PREC_MASK)
+#define IPTOS_PREC_MASK    0xe0
+#endif
+#if !defined(IPTOS_PREC)
+#define IPTOS_PREC(tos)    ((tos)&IPTOS_PREC_MASK)
+#endif
+
+/* This macro exist on some (linux) platforms */
+#if !defined(IPTOS_DSCP_MASK)
+#define IPTOS_DSCP_MASK    0xfc
+#endif
+#if !defined(IPTOS_DSCP)
+#define IPTOS_DSCP(x)     ((x)&IPTOS_DSCP_MASK)
 #endif
 
 
@@ -2051,6 +2067,9 @@ static char* extract_debug_filename(ErlNifEnv*   env,
 static BOOLEAN_T decode_ip_tos(ErlNifEnv*   env,
                                ERL_NIF_TERM eVal,
                                int*         val);
+static
+BOOLEAN_T decode_iptos_tos_value(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val);
+
 #endif
 #if defined(IP_MTU_DISCOVER)
 static BOOLEAN_T decode_ip_pmtudisc(ErlNifEnv*   env,
@@ -2074,6 +2093,8 @@ static void encode_ipv6_pmtudisc(ErlNifEnv*    env,
 #endif
 
 static ERL_NIF_TERM encode_ip_tos(ErlNifEnv* env, int val);
+static ERL_NIF_TERM encode_iptos_tos(ErlNifEnv* env, int val);
+static ERL_NIF_TERM encode_iptos_dscp(ErlNifEnv* env, int val);
 
 #if defined(IPV6_MULTICAST_HOPS) || defined(IPV6_UNICAST_HOPS)
 static
@@ -2175,6 +2196,18 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(add_membership);                  \
     GLOBAL_ATOM_DECL(add_socket);                      \
     GLOBAL_ATOM_DECL(add_source_membership);           \
+    GLOBAL_ATOM_DECL(af11);                            \
+    GLOBAL_ATOM_DECL(af12);                            \
+    GLOBAL_ATOM_DECL(af13);                            \
+    GLOBAL_ATOM_DECL(af21);                            \
+    GLOBAL_ATOM_DECL(af22);                            \
+    GLOBAL_ATOM_DECL(af23);                            \
+    GLOBAL_ATOM_DECL(af31);                            \
+    GLOBAL_ATOM_DECL(af32);                            \
+    GLOBAL_ATOM_DECL(af33);                            \
+    GLOBAL_ATOM_DECL(af41);                            \
+    GLOBAL_ATOM_DECL(af42);                            \
+    GLOBAL_ATOM_DECL(af43);                            \
     GLOBAL_ATOM_DECL(alen);                            \
     GLOBAL_ATOM_DECL(allmulti);                        \
     GLOBAL_ATOM_DECL(already);                         \
@@ -2242,6 +2275,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(cork);                            \
     GLOBAL_ATOM_DECL(counters);                        \
     GLOBAL_ATOM_DECL(credentials);                     \
+    GLOBAL_ATOM_DECL(critical_ecp);                    \
     GLOBAL_ATOM_DECL(ctrl);                            \
     GLOBAL_ATOM_DECL(ctrunc);                          \
     GLOBAL_ATOM_DECL(cum_tsn);                         \
@@ -2269,6 +2303,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(drop_source_membership);          \
     GLOBAL_ATOM_DECL(dstaddrv4);                       \
     GLOBAL_ATOM_DECL(dstaddrv6);                       \
+    GLOBAL_ATOM_DECL(dscp);                            \
     GLOBAL_ATOM_DECL(dstopts);                         \
     GLOBAL_ATOM_DECL(dup);                             \
     GLOBAL_ATOM_DECL(dup_acks_in);                     \
@@ -2276,6 +2311,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(dynamic);                         \
     GLOBAL_ATOM_DECL(echo);                            \
     GLOBAL_ATOM_DECL(eether);                          \
+    GLOBAL_ATOM_DECL(ef);                              \
     GLOBAL_ATOM_DECL(efile);                           \
     GLOBAL_ATOM_DECL(egp);                             \
     GLOBAL_ATOM_DECL(empty);                           \
@@ -2303,6 +2339,8 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(fin_wait_1);                      \
     GLOBAL_ATOM_DECL(fin_wait_2);                      \
     GLOBAL_ATOM_DECL(flags);                           \
+    GLOBAL_ATOM_DECL(flash);                           \
+    GLOBAL_ATOM_DECL(flashoverride);                   \
     GLOBAL_ATOM_DECL(flowinfo);                        \
     GLOBAL_ATOM_DECL(fragment_interleave);             \
     GLOBAL_ATOM_DECL(freebind);                        \
@@ -2325,6 +2363,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(ieee1394);                        \
     GLOBAL_ATOM_DECL(ifindex);                         \
     GLOBAL_ATOM_DECL(igmp);                            \
+    GLOBAL_ATOM_DECL(immediate);                       \
     GLOBAL_ATOM_DECL(implink);                         \
     GLOBAL_ATOM_DECL(inbound_streams);                 \
     GLOBAL_ATOM_DECL(incoming_ssn);                    \
@@ -2336,8 +2375,9 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(info);                            \
     GLOBAL_ATOM_DECL(init);                            \
     GLOBAL_ATOM_DECL(initmsg);                         \
-    GLOBAL_ATOM_DECL(invalid);                         \
     GLOBAL_ATOM_DECL(integer_range);                   \
+    GLOBAL_ATOM_DECL(internetcontrol);                 \
+    GLOBAL_ATOM_DECL(invalid);                         \
     GLOBAL_ATOM_DECL(iov);                             \
     GLOBAL_ATOM_DECL(ip);                              \
     GLOBAL_ATOM_DECL(ipcomp_level);                    \
@@ -2406,6 +2446,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(multicast_ttl);                   \
     GLOBAL_ATOM_DECL(name);                            \
     GLOBAL_ATOM_DECL(native);                          \
+    GLOBAL_ATOM_DECL(netcontrol);                      \
     GLOBAL_ATOM_DECL(netns);                           \
     GLOBAL_ATOM_DECL(netrom);                          \
     GLOBAL_ATOM_DECL(nlen);                            \
@@ -2465,6 +2506,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(ppid);			       \
     GLOBAL_ATOM_DECL(ppp);			       \
     GLOBAL_ATOM_DECL(ppromisc);			       \
+    GLOBAL_ATOM_DECL(precedence);                      \
     GLOBAL_ATOM_DECL(primary_addr);                    \
     GLOBAL_ATOM_DECL(prim_file);                       \
     GLOBAL_ATOM_DECL(prinfo);                          \
@@ -2517,6 +2559,7 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(rights);                          \
     GLOBAL_ATOM_DECL(rm);                              \
     GLOBAL_ATOM_DECL(router_alert);                    \
+    GLOBAL_ATOM_DECL(routine);                         \
     GLOBAL_ATOM_DECL(rthdr);                           \
     GLOBAL_ATOM_DECL(rtoinfo);                         \
     GLOBAL_ATOM_DECL(rtt);                             \
@@ -8664,6 +8707,8 @@ ERL_NIF_TERM esock_setopt_multicast_if(ErlNifEnv*       env,
 
 
 /* esock_setopt_tos - Level IP TOS option
+ * The value type has "officially" the type 'iptos_value()'
+ * But for backward compat we also accept the type 'iptos_tos_value()'
  */
 
 #if defined(IP_TOS)
@@ -15989,14 +16034,9 @@ void* esock_init_cmsghdr(struct cmsghdr* cmsgP,
 
 
 /* +++ decode the ip socket option TOS +++
- * The (ip) option can be provide in two ways:
- *
- *           atom() | integer()
- *
- * When its an atom it can have the values:
- *
- *       lowdelay |  throughput | reliability | mincost
- *
+ * Officially the value type for this option is: 'iptos_value()'
+ * This means: 'iptos_native()' (an integer), 'iptos_tos()' and 'iptos_dscp()'.
+ * But for backward compat reasons we also accept 'iptos_tos_value()'
  *
  * For Windows, the Microsoft recommendation is: *Do not use*
  */
@@ -16007,7 +16047,18 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
 {
     BOOLEAN_T result = FALSE;
 
-    if (IS_ATOM(env, eVal)) {
+    /* Is it 'native'? */
+    if (IS_NUM(env, eVal)) {
+
+        if (GET_INT(env, eVal, val)) {
+            result = TRUE;
+        } else {
+            *val   = -1;
+            result = FALSE;
+        }
+
+        /* Is it an atom (that is (old-) 'tos' or 'dscp')? */
+    } else if (IS_ATOM(env, eVal)) {
 
 #ifdef __WIN32__
 
@@ -16017,6 +16068,7 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
 
 #else
 
+        /* Take the 'TOS' values first */
         if (COMPARE(eVal, esock_atom_lowdelay) == 0) {
             *val   = IPTOS_LOWDELAY;
             result = TRUE;
@@ -16032,21 +16084,95 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
             result = TRUE;
 #endif
 
+#if defined(IPTOS_DSCP_AF11)
+        } else if (COMPARE(eVal, esock_atom_af11) == 0) {
+            *val   = IPTOS_DSCP_AF11;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF12)
+        } else if (COMPARE(eVal, esock_atom_af12) == 0) {
+            *val   = IPTOS_DSCP_AF12;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF13)
+        } else if (COMPARE(eVal, esock_atom_af13) == 0) {
+            *val   = IPTOS_DSCP_AF13;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF21)
+        } else if (COMPARE(eVal, esock_atom_af21) == 0) {
+            *val   = IPTOS_DSCP_AF21;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF22)
+        } else if (COMPARE(eVal, esock_atom_af22) == 0) {
+            *val   = IPTOS_DSCP_AF22;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF23)
+        } else if (COMPARE(eVal, esock_atom_af23) == 0) {
+            *val   = IPTOS_DSCP_AF23;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF31)
+        } else if (COMPARE(eVal, esock_atom_af31) == 0) {
+            *val   = IPTOS_DSCP_AF31;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF32)
+        } else if (COMPARE(eVal, esock_atom_af32) == 0) {
+            *val   = IPTOS_DSCP_AF32;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF33)
+        } else if (COMPARE(eVal, esock_atom_af33) == 0) {
+            *val   = IPTOS_DSCP_AF33;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF41)
+        } else if (COMPARE(eVal, esock_atom_af41) == 0) {
+            *val   = IPTOS_DSCP_AF41;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF42)
+        } else if (COMPARE(eVal, esock_atom_af42) == 0) {
+            *val   = IPTOS_DSCP_AF42;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_AF43)
+        } else if (COMPARE(eVal, esock_atom_af43) == 0) {
+            *val   = IPTOS_DSCP_AF43;
+            result = TRUE;
+#endif
+
+#if defined(IPTOS_DSCP_EF)
+        } else if (COMPARE(eVal, esock_atom_ef) == 0) {
+            *val   = IPTOS_DSCP_EF;
+            result = TRUE;
+#endif
+
         } else {
             *val   = -1;
             result = FALSE;
         }
             
-#endif // ifdef __WIN32__
+#endif // ifdef ... else __WIN32__
 
-    } else if (IS_NUM(env, eVal)) {
+        /* Is it a map (that is (new-) 'tos')? */
+    } else if (IS_MAP(env, eVal)) {
 
-        if (GET_INT(env, eVal, val)) {
-            result = TRUE;
-        } else {
-            *val   = -1;
-            result = FALSE;
-        }
+        result = decode_iptos_tos_value(env, eVal, val);
 
     } else {
         *val   = -1;
@@ -16055,6 +16181,148 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
 
     return result;
 }
+
+static
+BOOLEAN_T decode_iptos_tos_value(ErlNifEnv* env, ERL_NIF_TERM map, int* val)
+{
+    ERL_NIF_TERM  ePREC, eTOS;
+    unsigned char prec, tos;
+    unsigned int  tmp;
+
+    if (! GET_MAP_VAL(env, map, esock_atom_precedence, &ePREC)) {
+        *val = -1;
+        return FALSE;
+    }
+
+    if (! GET_MAP_VAL(env, map, esock_atom_tos, &eTOS)) {
+        *val = -1;
+        return FALSE;
+    }
+
+
+    /*
+     * PRECEDENCE
+     *
+     * UGLY but will have to do for now...
+     */
+
+    if (IS_NUM(env, ePREC)) {
+
+        if (! GET_UINT(env, ePREC, &tmp)) {
+            *val = -1;
+            return FALSE;           
+        }
+
+        prec = (unsigned char) IPTOS_PREC(tmp);
+            
+    } else if (IS_ATOM(env, ePREC)) {
+
+#if defined(IPTOS_PREC_NETCONTROL)
+        if (IS_IDENTICAL(ePREC, esock_atom_netcontrol)) {
+            prec = IPTOS_PREC_NETCONTROL;
+        }
+#endif
+        
+#if defined(IPTOS_PREC_INTERNETCONTROL)
+        if (IS_IDENTICAL(ePREC, esock_atom_internetcontrol)) {
+            prec = IPTOS_PREC_INTERNETCONTROL;
+        }
+#endif
+        
+#if defined(IPTOS_PREC_CRITIC_ECP)
+        if (IS_IDENTICAL(ePREC, esock_atom_critical_ecp)) {
+            prec = IPTOS_PREC_CRITIC_ECP;
+        }
+#endif
+        
+#if defined(IPTOS_PREC_FLASHOVERRIDE)
+        if (IS_IDENTICAL(ePREC, esock_atom_flashoverride)) {
+            prec = IPTOS_PREC_FLASHOVERRIDE;
+        }
+#endif
+        
+#if defined(IPTOS_PREC_FLASH)
+        if (IS_IDENTICAL(ePREC, esock_atom_flash)) {
+            prec = IPTOS_PREC_FLASH;
+        }
+#endif
+
+#if defined(IPTOS_PREC_IMMEDIATE)
+        if (IS_IDENTICAL(ePREC, esock_atom_immediate)) {
+            prec = IPTOS_PREC_IMMEDIATE;
+        }
+#endif
+        
+#if defined(IPTOS_PREC_PRIORITY)
+        if (IS_IDENTICAL(ePREC, esock_atom_priority)) {
+            prec = IPTOS_PREC_PRIORITY;
+        }
+#endif
+        
+#if defined(IPTOS_PREC_ROUTINE)
+        if (IS_IDENTICAL(ePREC, esock_atom_routine)) {
+            prec = IPTOS_PREC_ROUTINE;
+        }
+#endif
+
+    } else {
+        *val = -1;
+        return FALSE;
+    }
+
+
+    /* TOS */
+
+    if (IS_NUM(env, eTOS)) {
+
+        if (! GET_UINT(env, eTOS, &tmp)) {
+            *val = -1;
+            return FALSE;           
+        }
+
+        tos = (unsigned char) IPTOS_TOS(tmp);
+            
+    } else if (IS_ATOM(env, eTOS)) {
+
+#if defined(IPTOS_LOWDELAY)
+        if (IS_IDENTICAL(eTOS, esock_atom_lowdelay)) {
+            tos = IPTOS_LOWDELAY;
+        }
+#endif
+        
+#if defined(IPTOS_THROUGHPUT)
+        if (IS_IDENTICAL(eTOS, esock_atom_throughput)) {
+            tos = IPTOS_THROUGHPUT;
+        }
+#endif
+        
+#if defined(IPTOS_RELIABILITY)
+        if (IS_IDENTICAL(eTOS, esock_atom_reliability)) {
+            tos = IPTOS_RELIABILITY;
+        }
+#endif
+        
+#if defined(IPTOS_MINCOST)
+        if (IS_IDENTICAL(eTOS, esock_atom_mincost)) {
+            tos = IPTOS_MINCOST;
+        }
+#endif
+
+        if (IS_IDENTICAL(eTOS, esock_atom_default)) {
+            tos = 0;
+        }
+
+    } else {
+        *val = -1;
+        return FALSE;
+    }
+
+    /* And put them together */
+    *val = prec | tos;
+    return TRUE;
+    
+}
+  
 #endif
 
 
@@ -16286,9 +16554,62 @@ void encode_ipv6_pmtudisc(ErlNifEnv* env, int val, ERL_NIF_TERM* eVal)
 
 
 /* +++ encode the ip socket option tos +++
- * The (ip) option can be provide as:
  *
- *       lowdelay |  throughput | reliability | mincost | integer()
+ * The TOS value have two different "definitions":
+ *
+ * * TOS field ("Classic", RFC 1349):
+ *
+ *           0,1,2      3,4,5,6    7
+ *       +------------+---------+-----+
+ *       | PRECEDENCE |   TOS   | MBZ |
+ *       +------------+---------+-----+
+ *
+ *           PRECEDENCE = Denotes importance or priority of datagram
+ *           TOS        = Type Of Service
+ *           MBZ        = Must Be Zero
+ *
+ * * Differentiated Services field (RFC 2474):
+ *
+ *
+ *           0,1,2,3,4,5       6,7
+ *       +-------------------+----+
+ *       |       DSCP        | CU |
+ *       +-------------------+----+
+ *
+ *            DSCP = Differentiated Services CodePoint
+ *            CU   = Currently Unused
+ *
+ * The (ip) option can be provided as:
+ *
+ * For decoding the value of tos can be:
+ *
+ *   iptos_value() :: iptos_tos() | iptos_dscp() | iptos_native()
+ *
+ *   iptos_tos()  :: #{precedence := iptos_tos_prec()  | non_neg_integer(),
+ *                     tos        := iptos_tos_value() | non_neg_integer()}
+ *
+ *
+ *   iptos_tos_prec()  :: netcontrol | internetcontrol | critical_ecp |
+ *                        flashoverride | flash | immediate | priority |
+ *                        routine
+ *
+ *   iptos_tos_value() :: default |
+ *                        lowdelay |  throughput | reliability | mincost
+ *
+ *   iptos_dscp() :: (cs1) af11 | af12 | af13 |
+ *                   (cs2) af21 | af22 | af23 |
+ *                   (cs3) af31 | af32 | af33 |
+ *                   (cs4) af41 | af42 | af43 |
+ *                   (cs5) ef
+ *
+ *   iptos_native() :: non_neg_integer()
+ *
+ *   ip_tos() :: #{native :: iptos_native(),
+ *                 %% According to RFC 1349
+ *                 tos    :: iptos_tos(),
+ *                 %% According to RFC 2474
+ *                 dscp   :: iptos_dscp()}
+ *
  *
  */
 
@@ -16296,47 +16617,237 @@ static
 ERL_NIF_TERM encode_ip_tos(ErlNifEnv* env, int val)
 {
     ERL_NIF_TERM result;
+    ERL_NIF_TERM native = MKI(env, val);
+    ERL_NIF_TERM tos    = encode_iptos_tos(env, val);
+    ERL_NIF_TERM dscp   = encode_iptos_dscp(env, val);
+    ERL_NIF_TERM
+        tosKeys[] = {esock_atom_native, esock_atom_tos, esock_atom_dscp},
+        tosVals[] = {native, tos, dscp};
+    unsigned int
+        numKeys = NUM(tosKeys),
+        numVals = NUM(tosVals);
 
-    switch (IPTOS_TOS(val)) {
-#if defined(IPTOS_LOWDELAY)
-    case IPTOS_LOWDELAY:
-        result = esock_atom_lowdelay;
-        break;
-#endif
-
-#if defined(IPTOS_THROUGHPUT)
-    case IPTOS_THROUGHPUT:
-        result = esock_atom_throughput;
-        break;
-#endif
-
-#if defined(IPTOS_RELIABILITY)
-    case IPTOS_RELIABILITY:
-        result = esock_atom_reliability;
-        break;
-#endif
-
-#if defined(IPTOS_MINCOST)
-    case IPTOS_MINCOST:
-        result = esock_atom_mincost;
-        break;
-#endif
-
-    default:
-        result = MKI(env, val);
-        break;
-    }
+    ESOCK_ASSERT( numKeys == numVals );
+    ESOCK_ASSERT( MKMA(env, tosKeys, tosVals, numKeys, &result) );
 
     return result;
 }
 
 
+static
+ERL_NIF_TERM encode_iptos_tos(ErlNifEnv* env, int val)
+{
+    ERL_NIF_TERM tos, prec, result;
+    int          nativeTOS  = IPTOS_TOS(val);
+    int          nativePREC = IPTOS_PREC(val);
+
+    /* *** PRECEDENCE *** */
+    switch (nativePREC) {
+#if defined(IPTOS_PREC_NETCONTROL)
+    case IPTOS_PREC_NETCONTROL:
+        prec = esock_atom_netcontrol;
+        break;
+#endif
+
+#if defined(IPTOS_PREC_INTERNETCONTROL)
+    case IPTOS_PREC_INTERNETCONTROL:
+        prec = esock_atom_internetcontrol;
+        break;
+#endif
+
+#if defined(IPTOS_PREC_CRITIC_ECP)
+    case IPTOS_PREC_CRITIC_ECP:
+        prec = esock_atom_critical_ecp;
+        break;
+#endif
+
+#if defined(IPTOS_PREC_FLASHOVERRIDE)
+    case IPTOS_PREC_FLASHOVERRIDE:
+        prec = esock_atom_flashoverride;
+        break;
+#endif
+
+#if defined(IPTOS_PREC_FLASH)
+    case IPTOS_PREC_FLASH:
+        prec = esock_atom_flash;
+        break;
+#endif
+
+#if defined(IPTOS_PREC_IMMEDIATE)
+    case IPTOS_PREC_IMMEDIATE:
+        prec = esock_atom_immediate;
+        break;
+#endif
+
+#if defined(IPTOS_PREC_PRIORITY)
+    case IPTOS_PREC_PRIORITY:
+        prec = esock_atom_priority;
+        break;
+#endif
+
+#if defined(IPTOS_PREC_ROUTINE)
+    case IPTOS_PREC_ROUTINE:
+        prec = esock_atom_routine;
+        break;
+#endif
+
+    default:
+        prec = MKI(env, nativePREC);
+        break;
+    }
+
+
+    /* *** TOS *** */
+    switch (nativeTOS) {
+    case 0:
+        tos = esock_atom_default;
+        break;
+
+#if defined(IPTOS_LOWDELAY)
+    case IPTOS_LOWDELAY:
+        tos = esock_atom_lowdelay;
+        break;
+#endif
+
+#if defined(IPTOS_THROUGHPUT)
+    case IPTOS_THROUGHPUT:
+        tos = esock_atom_throughput;
+        break;
+#endif
+
+#if defined(IPTOS_RELIABILITY)
+    case IPTOS_RELIABILITY:
+        tos = esock_atom_reliability;
+        break;
+#endif
+
+#if defined(IPTOS_MINCOST)
+    case IPTOS_MINCOST:
+        tos = esock_atom_mincost;
+        break;
+#endif
+
+    default:
+        tos = MKI(env, nativeTOS);
+        break;
+    }
+
+    {
+        ERL_NIF_TERM
+            tosKeys[] = {esock_atom_precedence, esock_atom_tos},
+            tosVals[] = {prec,                  tos};
+        unsigned int
+            numKeys = NUM(tosKeys),
+            numVals = NUM(tosVals);
+
+        ESOCK_ASSERT( numKeys == numVals );
+        ESOCK_ASSERT( MKMA(env, tosKeys, tosVals, numKeys, &result) );
+
+        return result;
+    }
+}
+
+
+static
+ERL_NIF_TERM encode_iptos_dscp(ErlNifEnv* env, int val)
+{
+    ERL_NIF_TERM dscp;
+    int          nativeDSCP  = IPTOS_DSCP(val);
+
+    /* *** IP differentiated services code points (DSCP) *** */
+    switch (nativeDSCP) {
+#if defined(IPTOS_DSCP_AF11)
+    case IPTOS_DSCP_AF11:
+        dscp = esock_atom_af11;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF12)
+    case IPTOS_DSCP_AF12:
+        dscp = esock_atom_af12;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF13)
+    case IPTOS_DSCP_AF13:
+        dscp = esock_atom_af13;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF21)
+    case IPTOS_DSCP_AF21:
+        dscp = esock_atom_af21;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF22)
+    case IPTOS_DSCP_AF22:
+        dscp = esock_atom_af22;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF23)
+    case IPTOS_DSCP_AF23:
+        dscp = esock_atom_af23;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF31)
+    case IPTOS_DSCP_AF31:
+        dscp = esock_atom_af31;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF32)
+    case IPTOS_DSCP_AF32:
+        dscp = esock_atom_af32;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF33)
+    case IPTOS_DSCP_AF33:
+        dscp = esock_atom_af33;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF41)
+    case IPTOS_DSCP_AF41:
+        dscp = esock_atom_af41;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF42)
+    case IPTOS_DSCP_AF42:
+        dscp = esock_atom_af42;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_AF43)
+    case IPTOS_DSCP_AF43:
+        dscp = esock_atom_af43;
+        break;
+#endif
+
+#if defined(IPTOS_DSCP_EF)
+    case IPTOS_DSCP_EF:
+        dscp = esock_atom_ef;
+        break;
+#endif
+
+    default:
+        dscp = MKI(env, nativeDSCP);
+        break;
+    }
+
+    return dscp;
+}
+
 
 #if defined(SCTP_ASSOCINFO) || defined(SCTP_RTOINOFO) || defined(SCTP_STATUS)
 
 static
-BOOLEAN_T decode_sctp_assoc_t(ErlNifEnv* env,
-                              ERL_NIF_TERM eVal,
+BOOLEAN_T decode_sctp_assoc_t(ErlNifEnv*    env,
+                              ERL_NIF_TERM  eVal,
                               sctp_assoc_t* val)
 {
     sctp_assoc_t assoc_id;

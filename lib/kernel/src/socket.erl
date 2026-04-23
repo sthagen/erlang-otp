@@ -41,7 +41,7 @@ has been received.
 > #### Asynchronous Calls
 >
 > Some functions feature _asynchronous calls_.  This is achieved by setting
-> the `Timeout` argument to `nowait` or to a `Handle ::` `t:reference/0`.
+> the `Timeout` argument to `nowait` or to a `Handle ::`Â `t:reference/0`.
 > See the respective function's type specification.
 >
 > This module has two different implementations of asynchronous calls.
@@ -62,9 +62,9 @@ has been received.
 > - `{select, `[`SelectInfo`](`t:select_info/0`)`}`
 >
 > Where `CompletionInfo` is
-> `{completion_info, _, `[`CompletionHandle`](`t:completion_handle/0`)`}`
+> `{completion_info,Â _,Â `[`CompletionHandle`](`t:completion_handle/0`)`}`
 > and `SelectInfo` is
-> `{select_info, _, `[`SelectHandle`](`t:select_handle/0`)`}`.
+> `{select_info,Â _,Â `[`SelectHandle`](`t:select_handle/0`)`}`.
 > Both the `CompletionHandle` and the `SelectHandle`
 > are of type `t:reference/0`.
 >
@@ -83,7 +83,7 @@ has been received.
 > will probably have to be adjusted due to the already delivered data
 > in this return value.
 >
-> On `select` systems, when the `{otp, select_read}` option is `true`,
+> On `select` systems, when the `{otp,Â select_read}` option is `true`,
 > the asynchronous [`recv/3,4`](#recv-nowait),
 > [`recvfrom/3,4`](#recvfrom-nowait), and
 > [`recvmsg/3,4,5`](#recvmsg-nowait) functions may also return:
@@ -116,7 +116,7 @@ has been received.
 >
 > When a `select` message is received, it only means that the operation
 > _may now continue_, by retrying the operation (which may return
-> a new `{select, _}` value).  Some operations are retried by repeating
+> a new `{select,Â _}` value).  Some operations are retried by repeating
 > the same function call, and some have a dedicated function variant
 > to be used for the retry.  See the respective function's documentation.
 >
@@ -143,7 +143,7 @@ has been received.
 > #### Using a `Handle`
 >
 > If creating a `t:reference/0` with [`make_ref()`](`erlang:make_ref/0`)
-> and using that as the `Timeout | Handle` argument, the same `Handle`
+> and using that as the `TimeoutÂ |Â Handle` argument, the same `Handle`
 > will then be the [`SelectHandle`](`t:select_handle/0`) in the returned
 > `t:select_info/0` and the received `select` message, or be
 > the [`CompletionHandle`](`t:completion_handle/0`) in the returned
@@ -162,8 +162,8 @@ has been received.
 > message has been received it replaces the operation in progress:
 >
 > ```erlang
->     {select, {select_info, Handle}} = socket:accept(LSock, nowait),
->     {ok, Socket} = socket:accept(LSock, 1000),
+>     {select,Â {select_info,Â Handle}} = socket:accept(LSock,Â nowait),
+>     {ok,Â Socket} = socket:accept(LSock,Â 1000),
 >     :
 > ```
 > Above, `Handle` is _no longer_ valid once the second `accept/2`, call
@@ -370,6 +370,10 @@ server(Addr, Port) ->
               ip_msfilter/0,
               ip_pmtudisc/0,
               ip_tos/0,
+              iptos_value/0,
+              iptos_tos/0,
+              iptos_dscp/0,
+              iptos_native/0,
               ip_pktinfo/0,
 
               ipv6_mreq/0,
@@ -459,7 +463,7 @@ and the `t:otp_socket_option/0` with the same name.
           io_backend      := #{name := atom()},
 	  load_nif_result := undefined | ok | {error, term()}}.
 
--doc "A `t:map/0` of `Name := Counter` associations.".
+-doc "A `t:map/0` of `NameÂ :=Â Counter` associations.".
 -type socket_counters() :: #{read_byte        := non_neg_integer(),
                              read_fails       := non_neg_integer(),
                              read_pkg         := non_neg_integer(),
@@ -668,13 +672,45 @@ Lowercase `t:atom/0` values corresponding to the C library constants
 -doc """
 C: `IPTOS_*` values.
 
+Note that since there are two different representations of TOS;
+according to RFC 1349 ("classic TOS") and RFC 2474 (DSCP),
+we have three different value representations for tos: 
+Native (the raw unencoded value), (classic) tos and dscp.
+When sending or setting (the ip tos option), the user can choose
+between the three different (value) representations.
+When reading, the value is represented as a map with all three
+representations, since 'socket' does not know which one is expected.
+Its then up to the user pick the one they want.
+
 Lowercase `t:atom/0` values corresponding to the C library constants `IPTOS_*`.
 Some constant(s) may be unsupported by the platform.
 """.
--type ip_tos() :: lowdelay |
-                  throughput |
-                  reliability |
-                  mincost.
+-type ip_tos() :: #{native := iptos_native(),
+		    tos    := iptos_tos(),
+		    dscp   := iptos_dscp()}.
+
+-type iptos_value() :: iptos_tos() | iptos_dscp() | iptos_native().
+%% According to RFC 1349
+-type iptos_tos()   :: #{precedence := iptos_tos_prec()  | non_neg_integer(),
+			 tos        := iptos_tos_value() | non_neg_integer()}.
+-type iptos_tos_prec() :: netcontrol | internetcontrol | critical_ecp |
+			  flashoverride | flash | immediate | priority |
+			  routine.
+-type iptos_tos_value() :: default |
+			   lowdelay |  throughput | reliability | mincost.
+%% According to RFC 2474
+-type iptos_dscp() :: 
+	%% cs1
+	af11 | af12 | af13 |
+	%% cs2
+	af21 | af22 | af23 |
+	%% cs3
+	af31 | af32 | af33 |
+	%% cs4
+	af41 | af42 | af43 |
+	%% cs5
+	ef.
+-type iptos_native() :: non_neg_integer().
 
 -doc "C: `struct ip_pktinfo`".
 -type ip_pktinfo() ::
@@ -1065,8 +1101,8 @@ hence above all OS protocol levels.
   On `select` implementations, see [Asynchronous Calls](#asynchronous-calls),
   automatically activate select after a completed read.
 
-  Instead of `{ok, Data}` the receive operation returns
-  [`{select_read, {SelectInfo, Data}}`](`t:select_info/0`),
+  Instead of `{ok,Â Data}` the receive operation returns
+  [`{select_read,Â {SelectInfo,Â Data}}`](`t:select_info/0`),
   and the calling process can wait for a [`select` message](#async-messages)
   containing `SelectInfo` when there is data available again.
 
@@ -1316,9 +1352,10 @@ _Options for protocol level_ [_`ip`_:](`t:level/0`)
 
 - **`{ip, sendsrcaddr}`** - `Value = boolean()`
 
-- **`{ip, tos}`** - `Value =` [`ip_tos()` ](`t:ip_tos/0`)`| integer()`
+- **`{ip, tos}`** - `Value =` [`iptos_value()` ](`t:iptos_value/0`) | [`ip_tos()` ](`t:ip_tos/0`)
 
-  An `t:integer/0` value is according to the platform's header files.
+  When sending/setting the value is according to `t:iptos_value/0`.
+  When reading/getting the value is according to `t:ip_tos/0`.
 
 - **`{ip, transparent}`** - `Value = boolean()`
 
@@ -2061,9 +2098,9 @@ successfully decoded the data.
         #{level := socket,  type := rights,       data := binary()} |
         #{level := socket,  type := credentials,  data := binary()} |
         #{level := ip,      type := tos,          data := binary(),
-          value => ip_tos() | integer()}                            |
+          value => ip_tos()}                                        |
         #{level := ip,      type := recvtos,      data := binary(),
-          value := ip_tos() | integer()}                            |
+          value := ip_tos()}                                        |
         #{level := ip,      type := ttl,          data := binary(),
           value => integer()}                                       |
         #{level := ip,      type := recvttl,      data := binary(),
@@ -2102,7 +2139,7 @@ compatible what is defined in the platform's header files.
         #{level := socket,  type := rights,       data := native_value()} |
         #{level := socket,  type := credentials,  data := native_value()} |
         #{level := ip,      type := tos,          data => native_value(),
-          value => ip_tos() | integer()}                                  |
+          value => iptos_value()}                                         |
         #{level := ip,      type := ttl,          data => native_value(),
           value => integer()}                                             |
         #{level := ip,      type := hoplimit,     data => native_value(),
@@ -2259,9 +2296,9 @@ Returned by an operation that requires the caller to wait for a
 [`SelectHandle`](`t:select_handle/0`).
 
 On `select` systems, if the option
-[`{otp, select_read}`](`t:otp_socket_option/0`) is set,
-[`{select_read, {select_info(), _}}`](`t:select_info/0`)
-is returned instead of `{ok, _}` to indicate that a new
+[`{otp,Â select_read}`](`t:otp_socket_option/0`) is set,
+[`{select_read,Â {select_info(),Â _}}`](`t:select_info/0`)
+is returned instead of `{ok,Â _}` to indicate that a new
 asynchronous receive operation has been initiated
 and the caller should wait for a
 [`select` message](#async-messages) containing the
@@ -2540,7 +2577,7 @@ option default value.
 Globally change if the socket registry is to be used or not.
 Note that its still possible to override this explicitly
 when creating an individual sockets, see [`open/2,3,4`](`open/2`)
-for more info (the [`Opts :: map/0`](`t:map/0`)).
+for more info (the [`OptsÂ ::Â map/0`](`t:map/0`)).
 """.
 -spec use_registry(D :: boolean()) -> 'ok'.
 %%
@@ -3041,15 +3078,15 @@ supports() ->
 Retrieve information about what socket features
 the module and the platform supports.
 
-If `Key1 = msg_flags` returns a list of `{Flag, boolean()}`
+If `Key1Â =Â msg_flags` returns a list of `{Flag,Â boolean()}`
 tuples for every `Flag` in `t:msg_flag/0` with the `t:boolean/0`
 indicating if the flag is supported on this platform.
 
-If `Key1 = protocols` returns a list of `{Name, boolean()}`
+If `Key1Â =Â protocols` returns a list of `{Name,Â boolean()}`
 tuples for every `Name` in`t:protocol/0` with the `t:boolean/0`
 indicating if the protocol is supported on this platform.
 
-If `Key1 = options` returns a list of `{SocketOption, boolean()}`
+If `Key1Â =Â options` returns a list of `{SocketOption,Â boolean()}`
 tuples for every `SocketOption` in `t:socket_option/0` with the `t:boolean/0`
 indicating if the socket option is supported on this platform.
 
@@ -3072,9 +3109,9 @@ supports(Key) ->
 Retrieve information about what socket features
 the module and the platform supports.
 
-If `Key1 = options`, for a `Key2` in `t:level/0` returns
-a list of `{Opt, boolean()}` tuples for all known socket options
-[`Opt` on that `Level = Key2`](`t:socket_option/0`) with the `t:boolean/0`
+If `Key1Â =Â options`, for a `Key2` in `t:level/0` returns
+a list of `{Opt,Â boolean()}` tuples for all known socket options
+[`Opt` on that `LevelÂ =Â Key2`](`t:socket_option/0`) with the `t:boolean/0`
 indicating if the socket option is supported on this platform.
 See `setopt/3` and `getopt/2`.
 
@@ -3335,16 +3372,16 @@ header files. The same goes for `Protocol` as defined in the platform's
 > #### Note {: .info }
 >
 > For some combinations of `Domain` and `Type` the platform has got
-> a default protocol that can be selected with `Protocol = default`,
+> a default protocol that can be selected with `ProtocolÂ =Â default`,
 > and the platform may allow or require selecting the default protocol,
 > or a specific protocol.
 >
 > Examples:
 >
-> - **`socket:open(inet, stream, tcp)`** - It is common that for
+> - **`socket:open(inet,Â stream,Â tcp)`** - It is common that for
 >   protocol domain and type `inet,stream` it is allowed to select
 >   the `tcp` protocol although that mostly is the default.
-> - **`socket:open(local, dgram)`** - It is common that for
+> - **`socket:open(local,Â dgram)`** - It is common that for
 >   the protocol domain `local` it is mandatory to not select a protocol,
 >   that is; to select the default protocol.
 
@@ -3551,18 +3588,18 @@ If a connection attempt is already in progress (by another process),
 
 If the time-out argument (argument 3) is `infinity` it is
 up to the OS implementation to decide when the connection
-attempt failed and then what to return; probably `{error, etimedout}`.
+attempt failed and then what to return; probably `{error,Â etimedout}`.
 The OS time-out may be very long.
 
 [](){: #connect-timeout }
 
 If the time-out argument (argument 3) is a time-out value
-(`t:non_neg_integer/0`); return `{error, timeout}`
+(`t:non_neg_integer/0`); return `{error,Â timeout}`
 if the connection hasn't been established within `Timeout` milliseconds.
 
 > #### Note {: .info }
 >
-> Note that when this call has returned `{error, timeout}`
+> Note that when this call has returned `{error,Â timeout}`
 > the connection state of the socket is uncertain since the platform's
 > network stack may complete the connection at any time,
 > up to some platform specific time-out.
@@ -4048,7 +4085,7 @@ inherit_opts(FromSock, ToSock, [SockOpt | SockOpts], Errs) ->
 %%
 
 -doc(#{since => <<"OTP 22.0">>}).
--doc "Equivalent to [`send(Socket, Data, [], infinity)`](`send/4`).".
+-doc "Equivalent to [`send(Socket,Â Data,Â [],Â infinity)`](`send/4`).".
 -spec send(Socket, Data) -> Result when
       Socket         :: socket(),
       Data           :: iodata(),
@@ -4104,7 +4141,7 @@ The return value indicates the result from the platform's network layer:
 
 - **`ok`** - All data was accepted by the OS for delivery
 
-- **`{ok, RestData}`** - Some but not all data was accepted,
+- **`{ok,Â RestData}`** - Some but not all data was accepted,
   but no error was reported (partially successful send).  `RestData`
   is the tail of `Data` that wasn't accepted.
 
@@ -4120,16 +4157,16 @@ The return value indicates the result from the platform's network layer:
   to return this,  surely more possible for a socket of
   [type `seqpacket`](`t:type/0`).
 
-- **`{error, Reason}`** - An error has been reported and no data
-  was accepted for delivery.  [`Reason :: posix/0`](`t:posix/0`)
+- **`{error,Â Reason}`** - An error has been reported and no data
+  was accepted for delivery.  [`ReasonÂ ::Â posix/0`](`t:posix/0`)
   is what the platform's network layer reported.  `closed` means
   that this socket library was informed that the socket was closed,
   and `t:invalid/0` means that this socket library found
   an argument to be invalid.
 
-- **`{error, {Reason, RestData}}`** - An error was reported but before that
+- **`{error,Â {Reason,Â RestData}}`** - An error was reported but before that
   some data was accepted for delivery. `RestData` is the tail of `Data`
-  that wasn't accepted. See `{error, Reason}` above.
+  that wasn't accepted. See `{error,Â Reason}` above.
 
   This can only happen for a socket of [type `stream`](`t:type/0`)
   when a partially successful send is retried until there is an error.
@@ -4143,9 +4180,9 @@ or return an error.
 [](){: #send-timeout }
 
 If the `Timeout` argument is a time-out value
-(`t:non_neg_integer/0`); return `{error, timeout}`
+(`t:non_neg_integer/0`); return `{error,Â timeout}`
 if no data has been sent within `Timeout` millisecond,
-or `{error, {timeout, RestData}}` if some data was sent
+or `{error,Â {timeout,Â RestData}}` if some data was sent
 (accepted by the OS for delivery).  `RestData` is the tail of the data
 that hasn't been sent.
 
@@ -4556,9 +4593,9 @@ or return an error.
 [](){: #sendto-timeout }
 
 If the `Timeout` argument is a time-out value
-(`t:non_neg_integer/0`); return `{error, timeout}`
+(`t:non_neg_integer/0`); return `{error,Â timeout}`
 if no data has been sent within `Timeout` millisecond,
-or `{error, {timeout, RestData}}` if some data was sent
+or `{error,Â {timeout,Â RestData}}` if some data was sent
 (accepted by the OS for delivery).  `RestData` is the tail of the data
 that hasn't been sent.
 
@@ -4792,9 +4829,9 @@ or return an error.
 [](){: #sendmsg-timeout }
 
 If the `Timeout` argument is a time-out value
-(`t:non_neg_integer/0`); return `{error, timeout}`
+(`t:non_neg_integer/0`); return `{error,Â timeout}`
 if no data has been sent within `Timeout` millisecond,
-or `{error, {timeout, RestData}}` if some data was sent
+or `{error,Â {timeout,Â RestData}}` if some data was sent
 (accepted by the OS for delivery).  `RestData` is the tail of the data
 that hasn't been sent.
 
@@ -5180,7 +5217,7 @@ The return value indicates the result from the platform's network layer:
   is the tail of `IOV` that wasn't accepted.
 
 - **`{error, Reason}`** - An error has been reported and no data
-  was accepted for delivery.  [`Reason :: posix/0`](`t:posix/0`)
+  was accepted for delivery.  [`ReasonÂ ::Â posix/0`](`t:posix/0`)
   is what the platform's network layer reported.  `closed` means
   that this socket library was informed that the socket was closed,
   and `t:invalid/0` means that this socket library found
@@ -5188,7 +5225,7 @@ The return value indicates the result from the platform's network layer:
 
 - **`{error, {Reason, RestIOV}}`** -  - An error was reported but before that
   some data was accepted for delivery. `RestIOV` is the tail of `IOV`
-  that wasn't accepted. See `{error, Reason}` above.
+  that wasn't accepted. See `{error,Â Reason}` above.
 
 [](){: #sendv-infinity }
 
@@ -5199,9 +5236,9 @@ or return an error.
 [](){: #sendv-timeout }
 
 If the `Timeout` argument is a time-out value
-(`t:non_neg_integer/0`); return `{error, timeout}`
+(`t:non_neg_integer/0`); return `{error,Â timeout}`
 if no data has been sent within `Timeout` millisecond,
-or `{error, {timeout, RestIOV}}` if some data was sent
+or `{error,Â {timeout,Â RestIOV}}` if some data was sent
 (accepted by the OS for delivery).  `RestIOV` is the tail of the data
 that hasn't been sent.
 
@@ -5452,7 +5489,7 @@ rest_iov(Written, IOV) ->
 Send a file on a socket.
 
 Equivalent to
-[`sendfile(Socket, FileHandle_or_Continuation, 0, 0, infinity)`](`sendfile/5`).
+[`sendfile(Socket,Â FileHandle_or_Continuation,Â 0,Â 0,Â infinity)`](`sendfile/5`).
 """.
 -spec sendfile(Socket, FileHandle | Continuation) -> dynamic() when
       Socket       :: socket(),
@@ -5467,7 +5504,7 @@ sendfile(Socket, FileHandle_Cont) ->
 Send a file on a socket.
 
 Equivalent to
-[`sendfile(Socket, FileHandle_or_Continuation, 0, 0, Timeout_or_Handle)`](`sendfile/5`).
+[`sendfile(Socket,Â FileHandle_or_Continuation,Â 0,Â 0,Â Timeout_or_Handle)`](`sendfile/5`).
 """.
 -spec sendfile(Socket,
                FileHandle | Continuation,
@@ -5485,7 +5522,7 @@ sendfile(Socket, FileHandle_Cont, Timeout_Handle) ->
 Send a file on a socket.
 
 Equivalent to
-[`sendfile(Socket, FileHandle_or_Continuation, Offset, Count, infinity)`](`sendfile/5`).
+[`sendfile(Socket,Â FileHandle_or_Continuation,Â Offset,Â Count,Â infinity)`](`sendfile/5`).
 """.
 -spec sendfile(Socket,
                FileHandle | Continuation,
@@ -5513,7 +5550,7 @@ The `Offset` argument is the file offset to start reading from.
 The default offset is `0`.
 
 The `Count` argument is the number of bytes to transfer
-from `FileHandle` to `Socket`. If `Count = 0` (the default)
+from `FileHandle` to `Socket`. If `CountÂ =Â 0` (the default)
 the transfer stops at the end of file.
 
 The return value indicates the result from the platform's network layer:
@@ -5521,16 +5558,16 @@ The return value indicates the result from the platform's network layer:
 - **`{ok, BytesSent}`** - The transfer completed successfully after `BytesSent`
   bytes of data.
 
-- **`{error, Reason}`** - An error has been reported and no data
-  was transferred. [`Reason :: posix/0`](`t:posix/0`)
+- **`{error,Â Reason}`** - An error has been reported and no data
+  was transferred. [`ReasonÂ ::Â posix/0`](`t:posix/0`)
   is what the platform's network layer reported.  `closed` means
   that this socket library was informed that the socket was closed,
   and `t:invalid/0` means that this socket library found
   an argument to be invalid.
 
-- **`{error, {Reason, BytesSent}}`** - An error has been reported
-  but before that some data was transferred. See `{error, Reason}`
-  and `{ok, BytesSent}` above.
+- **`{error,Â {Reason,Â BytesSent}}`** - An error has been reported
+  but before that some data was transferred. See `{error,Â Reason}`
+  and `{ok,Â BytesSent}` above.
 
 [](){: #sendfile-infinity }
 
@@ -5541,9 +5578,9 @@ or return an error.
 [](){: #sendfile-timeout }
 
 If the `Timeout` argument is a time-out value
-(`t:non_neg_integer/0`); return `{error, timeout}`
+(`t:non_neg_integer/0`); return `{error,Â timeout}`
 if no data has been sent within `Timeout` millisecond,
-or `{error, {timeout, BytesSent}}` if some but not all data was sent
+or `{error,Â {timeout,Â BytesSent}}` if some but not all data was sent
 (accepted by the OS for delivery).
 
 [](){: #sendfile-nowait }
@@ -5788,7 +5825,7 @@ sendfile_next(BytesSent, Offset, Count) ->
 
 -doc(#{since => <<"OTP 22.0">>}).
 -doc """
-Equivalent to [`recv(Socket, 0, [], infinity)`](`recv/4`).
+Equivalent to [`recv(Socket,Â 0,Â [],Â infinity)`](`recv/4`).
 """.
 -spec recv(Socket :: socket()) -> dynamic().
 
@@ -5800,10 +5837,10 @@ recv(Socket) ->
 Receive data on a connected socket.
 
 With argument `Length`; equivalent to
-[`recv(Socket, Length, [], infinity)`](`recv/4`).
+[`recv(Socket,Â Length,Â [],Â infinity)`](`recv/4`).
 
 With argument `Flags`; equivalent to
-[`recv(Socket, 0, Flags, infinity)`](`recv/4`) *(since OTP 24.0)*.
+[`recv(Socket,Â 0,Â Flags,Â infinity)`](`recv/4`) *(since OTP 24.0)*.
 """.
 -spec recv(Socket :: socket(), Flags :: [msg_flag() | integer()]) -> dynamic();
           (Socket :: socket(), Length :: non_neg_integer()) -> dynamic().
@@ -5821,15 +5858,15 @@ recv(Socket, Length) ->
 Receive data on a connected socket.
 
 With arguments `Length` and `Flags`; equivalent to
-[`recv(Socket, Length, Flags, infinity)`](`recv/4`).
+[`recv(Socket,Â Length,Â Flags,Â infinity)`](`recv/4`).
 
 With arguments `Length` and `TimeoutOrHandle`; equivalent to
-[`recv(Socket, Length, [], TimeoutOrHandle)`](`recv/4`).
+[`recv(Socket,Â Length,Â [],Â TimeoutOrHandle)`](`recv/4`).
 `TimeoutOrHandle :: nowait` has been allowed *since OTP 22.1*.
 `TimeoutOrHandle :: Handle` has been allowed *since OTP 24.0*.
 
 With arguments `Flags` and `TimeoutOrHandle`; equivalent to
-[`recv(Socket, 0, Flags, TimeoutOrHandle)`](`recv/4`)
+[`recv(Socket,Â 0,Â Flags,Â TimeoutOrHandle)`](`recv/4`)
 *(since OTP 24.0)*.
 """.
 -spec recv(Socket, Flags, TimeoutOrHandle) -> dynamic() when
@@ -5855,12 +5892,12 @@ Receive data on a connected socket.
 The argument `Length` specifies the size of the receive buffer.
 Packet oriented sockets truncate the packet if the size is too small.
 
-If `Length == 0`; a default buffer size is used, which can be set by
+If `LengthÂ ==Â 0`; a default buffer size is used, which can be set by
 [`socket:setopt(Socket, {otp,recvbuf}, BufSz)`](`setopt/3`).
 
 For a socket of [type `stream`](`t:type/0`), when a `Timeout` argument
 is used, the operation iterates until `Length` bytes has been received,
-or the operation times out.  If `Length == 0` all readily available
+or the operation times out.  If `LengthÂ ==Â 0` all readily available
 data is returned.
 
 On a `select` system, when the default receive buffer size option
@@ -5873,8 +5910,8 @@ The message `Flags` may be symbolic `t:msg_flag/0`s and/or
 `t:integer/0`s as in the platform's appropriate header files.
 The values of all symbolic flags and integers are or:ed together.
 
-When there is a socket error this function returns `{error, Reason}`,
-or if some data arrived before the error; `{error, {Reason, Data}}`
+When there is a socket error this function returns `{error,Â Reason}`,
+or if some data arrived before the error; `{error,Â {Reason,Â Data}}`
 (can only happen for a socket of [type `stream`](`t:type/0`)).
 
 [](){: #recv-infinity }
@@ -5890,14 +5927,14 @@ or if the OS reports an error for the operation.
 If the `Timeout` argument is a time-out value
 (`t:non_neg_integer/0`); return `{error, timeout}`
 if no data has arrived after `Timeout` milliseconds,
-or `{error, {timeout, Data}}` if some but not enough data
+or `{error,Â {timeout,Â Data}}` if some but not enough data
 has been received on a socket of [type `stream`](`t:type/0`) with Length > 0.
-It *can* also return directly with `{ok, Data}` ([type `dgram`](`t:type/0`)).
+It *can* also return directly with `{ok,Â Data}` ([type `dgram`](`t:type/0`)).
 
 `Timeout = 0` only polls the OS receive call and doesn't
 engage the Asynchronous Calls mechanisms.  If no data
-is immediately available `{error, timeout} is returned.
-`On a socket of type [`stream`](`t:type/0`), `{error, {timeout, Data}}`
+is immediately available `{error,Â timeout} is returned.
+`On a socket of type [`stream`](`t:type/0`), `{error,Â {timeout,Â Data}}`
 is returned if there is an insufficient amount of data immediately available.
 
 [](){: #recv-nowait }
@@ -5922,15 +5959,15 @@ The possible values for `CompletionStatus` in the completion message are:
 - **`{error, Reason}`** - An error occured and no data was read.
 
 On `select` systems, for a socket of type [`stream`](`t:type/0`),
-if `Length > 0` and there is some but not enough data available,
-this function will return [`{select, {SelectInfo, Data}}`](`t:select_info/0`)
+if `LengthÂ >Â 0` and there is some but not enough data available,
+this function will return [`{select,Â {SelectInfo,Â Data}}`](`t:select_info/0`)
 with partial `Data`.  A repeated call to complete the operation
 may need an updated `Length` argument.
 
 On `select` systems, if the option
-[`{otp, select_read}`](`t:otp_socket_option/0`) is set,
-[`{select_read, {SelectInfo, Data}}`](`t:select_info/0`)
-is returned instead of `{ok, Data}` and a new asynchronous
+[`{otp,Â select_read}`](`t:otp_socket_option/0`) is set,
+[`{select_read,Â {SelectInfo,Â Data}}`](`t:select_info/0`)
+is returned instead of `{ok,Â Data}` and a new asynchronous
 receive operation has been initiated, which can be seen
 as an automatic [nowait](#recv-nowait) call whenever
 a receive operation is completed.
@@ -6302,10 +6339,10 @@ recvfrom(Socket) ->
 Receive a message on a socket.
 
 With argument `BufSz`; equivalent to
-[`recvfrom(Socket, BufSz, [], infinity)`](`recvfrom/4`).
+[`recvfrom(Socket,Â BufSz,Â [],Â infinity)`](`recvfrom/4`).
 
 With argument `Flags`; equivalent to
-[`recvfrom(Socket, 0, Flags, infinity)`](`recvfrom/4`) *(since OTP 24.0)*.
+[`recvfrom(Socket,Â 0,Â Flags,Â infinity)`](`recvfrom/4`) *(since OTP 24.0)*.
 """.
 -spec recvfrom(Socket :: socket(), Flags :: list()) -> dynamic();
               (Socket :: socket(), BufSz :: non_neg_integer()) -> dynamic().
@@ -6324,13 +6361,13 @@ recvfrom(Socket, BufSz) ->
 Receive a message on a socket.
 
 With arguments `BufSz` and `Flags`; equivalent to
-[`recvfrom(Socket, BufSz, Flags, infinity)`](`recvfrom/4`).
+[`recvfrom(Socket,Â BufSz,Â Flags,Â infinity)`](`recvfrom/4`).
 
 With arguments `BufSz` and `TimeoutOrHandle`; equivalent to
-[`recvfrom(Socket, BufSz, [], TimeoutOrHandle)`](`recvfrom/4`).
+[`recvfrom(Socket,Â BufSz,Â [],Â TimeoutOrHandle)`](`recvfrom/4`).
 
 With arguments `Flags` and `TimeoutOrHandle`; equivalent to
-[`recvfrom(Socket, 0, Flags, TimeoutOrHandle)`](`recvfrom/4`)
+[`recvfrom(Socket,Â 0,Â Flags,Â TimeoutOrHandle)`](`recvfrom/4`)
 
 `TimeoutOrHandle :: 'nowait'` has been allowed *since OTP 22.1*.
 
@@ -6388,7 +6425,7 @@ if no message has arrived after `Timeout` milliseconds.
 
 `Timeout = 0` only polls the OS receive call and doesn't
 engage the Asynchronous Calls mechanisms.  If no message
-is immediately available `{error, timeout}` is returned.
+is immediately available `{error,Â timeout}` is returned.
 
 [](){: #recvfrom-nowait }
 
@@ -6551,10 +6588,10 @@ recvmsg(Socket) ->
 Receive a message on a socket.
 
 With argument `Flags`; equivalent to
-[`recvmsg(Socket, 0, 0, Flags, infinity)`](`recvmsg/5`).
+[`recvmsg(Socket,Â 0,Â 0,Â Flags,Â infinity)`](`recvmsg/5`).
 
 With argument `TimeoutOrHandle`; equivalent to
-[`recvmsg(Socket, 0, 0, [], TimeoutOrHandle)`](`recvmsg/5`).
+[`recvmsg(Socket,Â 0,Â 0,Â [],Â TimeoutOrHandle)`](`recvmsg/5`).
 
 `TimeoutOrHandle :: nowait` has been allowed *since OTP 22.1*.
 
@@ -6576,10 +6613,10 @@ recvmsg(Socket, TimeoutOrHandle) ->
 Receive a message on a socket.
 
 With arguments  `Flags`; equivalent to
-[`recvmsg(Socket, 0, 0, Flags, infinity)`](`recvmsg/5`).
+[`recvmsg(Socket,Â 0,Â 0,Â Flags,Â infinity)`](`recvmsg/5`).
 
 With argument `TimeoutOrHandle`; equivalent to
-[`recvmsg(Socket, 0, 0, [], TimeoutOrHandle)`](`recvmsg/5`).
+[`recvmsg(Socket,Â 0,Â 0,Â [],Â TimeoutOrHandle)`](`recvmsg/5`).
 
 `TimeoutOrHandle :: nowait` has been allowed *since OTP 22.1*.
 
@@ -6601,7 +6638,7 @@ recvmsg(Socket, BufSz, CtrlSz) ->
 -doc(#{since => <<"OTP 24.0">>}).
 -doc """
 Equivalent to
-[`recvmsg(Socket, BufSz, CtrlSz, [], TimeoutOrHandle)`](`recvmsg/5`).
+[`recvmsg(Socket,Â BufSz,Â CtrlSz,Â [],Â TimeoutOrHandle)`](`recvmsg/5`).
 """.
 -spec recvmsg(
         Socket :: socket(), BufSz :: non_neg_integer(), CtrlSz :: non_neg_integer(),
@@ -6652,7 +6689,7 @@ if no message has arrived after `Timeout` milliseconds.
 
 `Timeout = 0` only polls the OS receive call and doesn't
 engage the Asynchronous Calls mechanisms.  If no message
-is immediately available `{error, timeout}` is returned.
+is immediately available `{error,Â timeout}` is returned.
 
 [](){: #recvmsg-nowait }
 
@@ -7109,9 +7146,9 @@ setopt(Socket, SocketOption, Value) ->
 Set a socket option _(backwards compatibility function)_.
 
 Equivalent to [`setopt(Socket, {Level, Opt}, Value)`](`setopt/3`),
-or as a special case if `Opt = NativeOpt ::` `t:integer/0`
-and `Value =` `t:binary/0` equivalent to
-[`setopt_native(Socket, {Level, NativeOpt}, ValueSpec)`](`setopt_native/3`).
+or as a special case if `OptÂ =Â NativeOptÂ ::`Â `t:integer/0`
+and `ValueÂ =`Â `t:binary/0` equivalent to
+[`setopt_native(Socket,Â {Level,Â NativeOpt},Â ValueSpec)`](`setopt_native/3`).
 
 Use `setopt/3` or `setopt_native/3` instead to handle
 the option level and name as a single term, and to make the
@@ -7141,9 +7178,9 @@ as the option value.
 
 The socket option may be specified with an ordinary
 `t:socket_option/0` tuple, with a symbolic `Level` as
-`{`[`Level :: level/0`](`t:level/0`)`, `[`NativeOpt :: integer/0`](`t:integer/0`)`}`,
+`{`[`LevelÂ ::Â level/0`](`t:level/0`)`,Â `[`NativeOptÂ ::Â integer/0`](`t:integer/0`)`}`,
 or with integers for both `NativeLevel` and `NativeOpt` as
-`{`[`NativeLevel :: integer/0`](`t:integer/0`)`, `[`NativeOpt :: integer/0`](`t:integer/0`)`}`.
+`{`[`NativeLevelÂ ::Â integer/0`](`t:integer/0`)`,Â `[`NativeOptÂ ::Â integer/0`](`t:integer/0`)`}`.
 
 If an option is valid depends both on the platform and on
 what kind of socket it is (`t:domain/0`, `t:type/0` and `t:protocol/0`).
@@ -7238,9 +7275,9 @@ Some uses of this function is for _backwards compatibility reasons_.
 For instance, `getopt(Socket, Level, Opt)` is 
 equivalent to [`getopt(Socket, {Level, Opt})`](`getopt/2`),
 or as a special case if
-`Opt = {NativeOpt :: `[`integer/0`](`t:integer/0`)`, ValueSpec}`
+`OptÂ =Â {NativeOptÂ ::Â `[`integer/0`](`t:integer/0`)`,Â ValueSpec}`
 equivalent to
-[`getopt_native(Socket, {Level, NativeOpt}, ValueSpec)`](`getopt_native/3`).
+[`getopt_native(Socket,Â {Level,Â NativeOpt},Â ValueSpec)`](`getopt_native/3`).
 
 Use `getopt/2` or `getopt_native/3` instead to handle
 the option level and name as a single term, and to make the
@@ -7936,7 +7973,7 @@ as a completed operation; the process first in queue is notified.
 If [`SelectInfo`](`t:select_info/0`) `|`
 [`CompletionInfo`](`t:completion_info/0`) does not match
 an operation in progress for the calling process, this function returns
-`{error, {invalid, SelectInfo | CompletionInfo}}`.
+`{error,Â {invalid,Â SelectInfoÂ |Â CompletionInfo}}`.
 """.
 -spec cancel(Socket, SelectInfo | CompletionInfo)->
           'ok' | {'error', Reason} when
