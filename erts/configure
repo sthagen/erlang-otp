@@ -16725,7 +16725,8 @@ then :
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for static libzstd of version 1.5.6 or higher" >&5
 printf %s "checking for static libzstd of version 1.5.6 or higher... " >&6; }
   zstd_save_LIBS=$LIBS
-  LIBS="-l:libzstd.a $LIBS"
+  LIBZSTD="-Wl,-Bstatic -lzstd -Wl,-Bdynamic"
+  LIBS="$LIBZSTD $LIBS"
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -16752,12 +16753,12 @@ _ACEOF
 if ac_fn_c_try_link "$LINENO"
 then :
 
- LIBZSTD="-l:libzstd.a"
  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 printf "%s\n" "yes" >&6; }
 
 else case e in #(
   e)
+ LIBZSTD=
  if test "$builtin_zstd" = "no"
 then :
   as_fn_error $? "libzstd not found" "$LINENO" 5
