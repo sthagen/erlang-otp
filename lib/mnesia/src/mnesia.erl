@@ -4729,7 +4729,7 @@ are set when creating a table with the `user_properties` option in
 
 Returns the property tuple if it exists, otherwise raises an exception.
 """.
--doc #{since => ~"OTP @OTP-20038@"}.
+-doc #{since => ~"OTP 28.5"}.
 -spec read_table_property(Tab::table(), PropKey::term()) -> Res::tuple().
 read_table_property(Tab, PropKey) ->
     val({Tab, user_property, PropKey}).
@@ -4742,7 +4742,7 @@ where the first element is the property key. User-defined properties can be read
 with `mnesia:read_table_property/2` and deleted with
 `mnesia:delete_table_property/2`.
 """.
--doc #{since => ~"OTP @OTP-20038@"}.
+-doc #{since => ~"OTP 28.5"}.
 -spec write_table_property(Tab::table(), Prop::tuple()) -> t_result('ok').
 write_table_property(Tab, Prop) ->
     mnesia_schema:write_table_property(Tab, Prop).
@@ -4754,7 +4754,7 @@ Deletes a user-defined property from a table if such property exists.
 The property is identified by its key. User-defined properties can be read
 with `mnesia:read_table_property/2` and written with `mnesia:write_table_property/2`.
 """.
--doc #{since => ~"OTP @OTP-20038@"}.
+-doc #{since => ~"OTP 28.5"}.
 -spec delete_table_property(Tab::table(), PropKey::term()) -> t_result('ok').
 delete_table_property(Tab, PropKey) ->
     mnesia_schema:delete_table_property(Tab, PropKey).

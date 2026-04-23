@@ -23,6 +23,31 @@ limitations under the License.
 
 This document describes the changes made to the SSL application.
 
+## SSL 11.6
+
+### Fixed Bugs and Malfunctions
+
+- Preserve inet option order, as inet_backend option must be first option.
+  Will make inet_backend option work for ssl independently of number of inet supplied options.
+
+  Own Id: OTP-19162 Aux Id: [PR-10908]
+
+- Missing conformance check for signature algorithms in TLS-1.3  could cause selection of incompatible certificate when a server is configured with more than one possible certificate.
+
+  Own Id: OTP-20082 Aux Id: [PR-10924], [GH-10915]
+
+[PR-10908]: https://github.com/erlang/otp/pull/10908
+[PR-10924]: https://github.com/erlang/otp/pull/10924
+[GH-10915]: https://github.com/erlang/otp/issues/10915
+
+### Improvements and New Features
+
+- Avoid unnecessary memory consumption for temporary processes in a supervision tree.
+
+  Own Id: OTP-19967 Aux Id: [PR-10957]
+
+[PR-10957]: https://github.com/erlang/otp/pull/10957
+
 ## SSL 11.5.4
 
 ### Fixed Bugs and Malfunctions
