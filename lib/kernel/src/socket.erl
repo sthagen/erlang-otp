@@ -685,12 +685,12 @@ Its then up to the user pick the one they want.
 Lowercase `t:atom/0` values corresponding to the C library constants `IPTOS_*`.
 Some constant(s) may be unsupported by the platform.
 
-There are also a couple of IANA defined values (`le`, `voice_admit` and `nqb`).
-
+The `t:iptos_dscp/0` values are according to IANA's
+Differentiated Services Field Codepoints registry.
 """.
 -type ip_tos() :: #{native := iptos_native(),
                     tos    := iptos_tos(),
-                    dscp   := iptos_dscp()}.
+                    dscp   := iptos_dscp() | non_neg_integer()}.
 
 -type iptos_value() :: iptos_tos() | iptos_dscp() | iptos_native().
 %% According to RFC 1349
@@ -701,7 +701,8 @@ There are also a couple of IANA defined values (`le`, `voice_admit` and `nqb`).
                           routine.
 -type iptos_tos_value() :: default |
                            lowdelay |  throughput | reliability | mincost.
-%% According to RFC 2474
+%% According to
+%% https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml
 -type iptos_dscp() :: 
         cs0 |
         le |

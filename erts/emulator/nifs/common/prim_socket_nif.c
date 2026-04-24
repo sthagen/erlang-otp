@@ -439,6 +439,7 @@ static void (*esock_sctp_freepaddrs)(struct sockaddr *addrs) = NULL;
 #if !defined(IPTOS_TOS)
 #define IPTOS_TOS(tos)     ((tos)&IPTOS_TOS_MASK)
 #endif
+#define ESOCK_TOS_SHIFT    1
 
 /* This macro exist on some (linux) platforms */
 #if !defined(IPTOS_PREC_MASK)
@@ -447,18 +448,37 @@ static void (*esock_sctp_freepaddrs)(struct sockaddr *addrs) = NULL;
 #if !defined(IPTOS_PREC)
 #define IPTOS_PREC(tos)    ((tos)&IPTOS_PREC_MASK)
 #endif
+#define ESOCK_TOS_PREC_SHIFT    5
 
-/* This macro exist on some (linux) platforms */
-#if !defined(IPTOS_DSCP_MASK)
-#define IPTOS_DSCP_MASK    0xfc
-#endif
-#if !defined(IPTOS_DSCP)
-#define IPTOS_DSCP(x)     ((x)&IPTOS_DSCP_MASK)
-#endif
-
-#define ESOCK_DSCP_LE          0x04
-#define ESOCK_DSCP_VOICE_ADMIT 0xb0
-#define ESOCK_DSCP_NQB         0xb4
+#define ESOCK_DSCP_MASK         0xfc
+#define ESOCK_DSCP_SHIFT        2
+/* https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml */
+/* DSCP Pool 1 */
+#define ESOCK_DSCP_CS0          0
+#define ESOCK_DSCP_CS1          8
+#define ESOCK_DSCP_CS2          16
+#define ESOCK_DSCP_CS3          24
+#define ESOCK_DSCP_CS4          32
+#define ESOCK_DSCP_CS5          40
+#define ESOCK_DSCP_CS6          48
+#define ESOCK_DSCP_CS7          56
+#define ESOCK_DSCP_AF11         10
+#define ESOCK_DSCP_AF12         12
+#define ESOCK_DSCP_AF13         14
+#define ESOCK_DSCP_AF21         18
+#define ESOCK_DSCP_AF22         20
+#define ESOCK_DSCP_AF23         22
+#define ESOCK_DSCP_AF31         26
+#define ESOCK_DSCP_AF32         28
+#define ESOCK_DSCP_AF33         30
+#define ESOCK_DSCP_AF41         34
+#define ESOCK_DSCP_AF42         36
+#define ESOCK_DSCP_AF43         38
+#define ESOCK_DSCP_EF           46
+#define ESOCK_DSCP_VOICE_ADMIT  44
+/* DSCP Pool 3 */
+#define ESOCK_DSCP_LE           1
+#define ESOCK_DSCP_NQB          45
 
 
 #if defined(TCP_CA_NAME_MAX)
@@ -2280,6 +2300,14 @@ static const struct in6_addr in6addr_loopback =
     GLOBAL_ATOM_DECL(counters);                        \
     GLOBAL_ATOM_DECL(credentials);                     \
     GLOBAL_ATOM_DECL(critical_ecp);                    \
+    GLOBAL_ATOM_DECL(cs0);                             \
+    GLOBAL_ATOM_DECL(cs1);                             \
+    GLOBAL_ATOM_DECL(cs2);                             \
+    GLOBAL_ATOM_DECL(cs3);                             \
+    GLOBAL_ATOM_DECL(cs4);                             \
+    GLOBAL_ATOM_DECL(cs5);                             \
+    GLOBAL_ATOM_DECL(cs6);                             \
+    GLOBAL_ATOM_DECL(cs7);                             \
     GLOBAL_ATOM_DECL(ctrl);                            \
     GLOBAL_ATOM_DECL(ctrunc);                          \
     GLOBAL_ATOM_DECL(cum_tsn);                         \
@@ -16091,149 +16119,86 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
             result = TRUE;
 #endif
 
-#if defined(IPTOS_DSCP_CS0)
+            /* DSCP Pool 1 */
         } else if (COMPARE(eVal, esock_atom_cs0) == 0) {
-            *val   = IPTOS_DSCP_CS0;
+            *val   = ESOCK_DSCP_CS0 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_CS1)
         } else if (COMPARE(eVal, esock_atom_cs1) == 0) {
-            *val   = IPTOS_DSCP_CS1;
+            *val   = ESOCK_DSCP_CS1 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF11)
-        } else if (COMPARE(eVal, esock_atom_af11) == 0) {
-            *val   = IPTOS_DSCP_AF11;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF12)
-        } else if (COMPARE(eVal, esock_atom_af12) == 0) {
-            *val   = IPTOS_DSCP_AF12;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF13)
-        } else if (COMPARE(eVal, esock_atom_af13) == 0) {
-            *val   = IPTOS_DSCP_AF13;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_CS2)
         } else if (COMPARE(eVal, esock_atom_cs2) == 0) {
-            *val   = IPTOS_DSCP_CS2;
+            *val   = ESOCK_DSCP_CS2 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF21)
-        } else if (COMPARE(eVal, esock_atom_af21) == 0) {
-            *val   = IPTOS_DSCP_AF21;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF22)
-        } else if (COMPARE(eVal, esock_atom_af22) == 0) {
-            *val   = IPTOS_DSCP_AF22;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF23)
-        } else if (COMPARE(eVal, esock_atom_af23) == 0) {
-            *val   = IPTOS_DSCP_AF23;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_CS3)
         } else if (COMPARE(eVal, esock_atom_cs3) == 0) {
-            *val   = IPTOS_DSCP_CS3;
+            *val   = ESOCK_DSCP_CS3 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF31)
-        } else if (COMPARE(eVal, esock_atom_af31) == 0) {
-            *val   = IPTOS_DSCP_AF31;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF32)
-        } else if (COMPARE(eVal, esock_atom_af32) == 0) {
-            *val   = IPTOS_DSCP_AF32;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF33)
-        } else if (COMPARE(eVal, esock_atom_af33) == 0) {
-            *val   = IPTOS_DSCP_AF33;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_CS4)
         } else if (COMPARE(eVal, esock_atom_cs4) == 0) {
-            *val   = IPTOS_DSCP_CS4;
+            *val   = ESOCK_DSCP_CS4 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF41)
-        } else if (COMPARE(eVal, esock_atom_af41) == 0) {
-            *val   = IPTOS_DSCP_AF41;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF42)
-        } else if (COMPARE(eVal, esock_atom_af42) == 0) {
-            *val   = IPTOS_DSCP_AF42;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_AF43)
-        } else if (COMPARE(eVal, esock_atom_af43) == 0) {
-            *val   = IPTOS_DSCP_AF43;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_CS5)
         } else if (COMPARE(eVal, esock_atom_cs5) == 0) {
-            *val   = IPTOS_DSCP_CS5;
+            *val   = ESOCK_DSCP_CS5 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_EF)
-        } else if (COMPARE(eVal, esock_atom_ef) == 0) {
-            *val   = IPTOS_DSCP_EF;
-            result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_CS6)
         } else if (COMPARE(eVal, esock_atom_cs6) == 0) {
-            *val   = IPTOS_DSCP_CS6;
+            *val   = ESOCK_DSCP_CS6 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-#endif
-
-#if defined(IPTOS_DSCP_CS7)
         } else if (COMPARE(eVal, esock_atom_cs7) == 0) {
-            *val   = IPTOS_DSCP_CS7;
+            *val   = ESOCK_DSCP_CS7 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-#endif
-
-        } else if (COMPARE(eVal, esock_atom_le) == 0) {
-            *val   = ESOCK_DSCP_LE;
+        } else if (COMPARE(eVal, esock_atom_af11) == 0) {
+            *val   = ESOCK_DSCP_AF11 << ESOCK_DSCP_SHIFT;
             result = TRUE;
-
+        } else if (COMPARE(eVal, esock_atom_af12) == 0) {
+            *val   = ESOCK_DSCP_AF12 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af13) == 0) {
+            *val   = ESOCK_DSCP_AF13 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af21) == 0) {
+            *val   = ESOCK_DSCP_AF21 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af22) == 0) {
+            *val   = ESOCK_DSCP_AF22 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af23) == 0) {
+            *val   = ESOCK_DSCP_AF23 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af31) == 0) {
+            *val   = ESOCK_DSCP_AF31 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af32) == 0) {
+            *val   = ESOCK_DSCP_AF32 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af33) == 0) {
+            *val   = ESOCK_DSCP_AF33 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af41) == 0) {
+            *val   = ESOCK_DSCP_AF41 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af42) == 0) {
+            *val   = ESOCK_DSCP_AF42 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_af43) == 0) {
+            *val   = ESOCK_DSCP_AF43 << ESOCK_DSCP_SHIFT;
+            result = TRUE;
+        } else if (COMPARE(eVal, esock_atom_ef) == 0) {
+            *val   = ESOCK_DSCP_EF << ESOCK_DSCP_SHIFT;
+            result = TRUE;
         } else if (COMPARE(eVal, esock_atom_voice_admit) == 0) {
-            *val   = ESOCK_DSCP_VOICE_ADMIT;
+            *val   = ESOCK_DSCP_VOICE_ADMIT << ESOCK_DSCP_SHIFT;
             result = TRUE;
 
+            /* DSCP Pool 3 */
+        } else if (COMPARE(eVal, esock_atom_le) == 0) {
+            *val   = ESOCK_DSCP_LE << ESOCK_DSCP_SHIFT;
+            result = TRUE;
         } else if (COMPARE(eVal, esock_atom_nqb) == 0) {
-            *val   = ESOCK_DSCP_NQB;
+            *val   = ESOCK_DSCP_NQB << ESOCK_DSCP_SHIFT;
             result = TRUE;
-
         } else {
             *val   = -1;
             result = FALSE;
         }
-            
+
 #endif // ifdef ... else __WIN32__
 
         /* Is it a map (that is (new-) 'tos')? */
@@ -16759,7 +16724,7 @@ ERL_NIF_TERM encode_iptos_tos(ErlNifEnv* env, int val)
 #endif
 
     default:
-        prec = MKI(env, nativePREC);
+        prec = MKI(env, nativePREC >> ESOCK_TOS_PREC_SHIFT);
         break;
     }
 
@@ -16795,7 +16760,7 @@ ERL_NIF_TERM encode_iptos_tos(ErlNifEnv* env, int val)
 #endif
 
     default:
-        tos = MKI(env, nativeTOS);
+        tos = MKI(env, nativeTOS >> ESOCK_TOS_SHIFT);
         break;
     }
 
@@ -16819,153 +16784,64 @@ static
 ERL_NIF_TERM encode_iptos_dscp(ErlNifEnv* env, int val)
 {
     ERL_NIF_TERM dscp;
-    int          nativeDSCP  = IPTOS_DSCP(val);
+    int          nativeDSCP  = (val & ESOCK_DSCP_MASK) >> ESOCK_DSCP_SHIFT;
 
     /* *** IP differentiated services code points (DSCP) *** */
     switch (nativeDSCP) {
-#if defined(IPTOS_DSCP_CS0)
-    case IPTOS_DSCP_CS0:
-        dscp = esock_atom_cs0;
-        break;
-#endif
 
-#if defined(IPTOS_DSCP_CS1)
-    case IPTOS_DSCP_CS1:
-        dscp = esock_atom_cs1;
-        break;
-#endif
+        /* DSCP Pool 1 */
 
-#if defined(IPTOS_DSCP_AF11)
-    case IPTOS_DSCP_AF11:
-        dscp = esock_atom_af11;
-        break;
-#endif
+    case ESOCK_DSCP_CS0:
+        dscp = esock_atom_cs0; break;
+    case ESOCK_DSCP_CS1:
+        dscp = esock_atom_cs1; break;
+    case ESOCK_DSCP_CS2:
+        dscp = esock_atom_cs2; break;
+    case ESOCK_DSCP_CS3:
+        dscp = esock_atom_cs3; break;
+    case ESOCK_DSCP_CS4:
+        dscp = esock_atom_cs4; break;
+    case ESOCK_DSCP_CS5:
+        dscp = esock_atom_cs5; break;
+    case ESOCK_DSCP_CS6:
+        dscp = esock_atom_cs6; break;
+    case ESOCK_DSCP_CS7:
+        dscp = esock_atom_cs7; break;
+    case ESOCK_DSCP_AF11:
+        dscp = esock_atom_af11; break;
+    case ESOCK_DSCP_AF12:
+        dscp = esock_atom_af12; break;
+    case ESOCK_DSCP_AF13:
+        dscp = esock_atom_af13; break;
+    case ESOCK_DSCP_AF21:
+        dscp = esock_atom_af21; break;
+    case ESOCK_DSCP_AF22:
+        dscp = esock_atom_af22; break;
+    case ESOCK_DSCP_AF23:
+        dscp = esock_atom_af23; break;
+    case ESOCK_DSCP_AF31:
+        dscp = esock_atom_af31; break;
+    case ESOCK_DSCP_AF32:
+        dscp = esock_atom_af32; break;
+    case ESOCK_DSCP_AF33:
+        dscp = esock_atom_af33; break;
+    case ESOCK_DSCP_AF41:
+        dscp = esock_atom_af41; break;
+    case ESOCK_DSCP_AF42:
+        dscp = esock_atom_af42; break;
+    case ESOCK_DSCP_AF43:
+        dscp = esock_atom_af43; break;
+    case ESOCK_DSCP_EF:
+        dscp = esock_atom_ef; break;
+    case ESOCK_DSCP_VOICE_ADMIT:
+        dscp = esock_atom_voice_admit; break;
 
-#if defined(IPTOS_DSCP_AF12)
-    case IPTOS_DSCP_AF12:
-        dscp = esock_atom_af12;
-        break;
-#endif
+        /* DSCP Pool 3 */
 
-#if defined(IPTOS_DSCP_AF13)
-    case IPTOS_DSCP_AF13:
-        dscp = esock_atom_af13;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_CS2)
-    case IPTOS_DSCP_CS2:
-        dscp = esock_atom_cs2;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF21)
-    case IPTOS_DSCP_AF21:
-        dscp = esock_atom_af21;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF22)
-    case IPTOS_DSCP_AF22:
-        dscp = esock_atom_af22;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF23)
-    case IPTOS_DSCP_AF23:
-        dscp = esock_atom_af23;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_CS3)
-    case IPTOS_DSCP_CS3:
-        dscp = esock_atom_cs3;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF31)
-    case IPTOS_DSCP_AF31:
-        dscp = esock_atom_af31;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF32)
-    case IPTOS_DSCP_AF32:
-        dscp = esock_atom_af32;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF33)
-    case IPTOS_DSCP_AF33:
-        dscp = esock_atom_af33;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_CS4)
-    case IPTOS_DSCP_C41:
-        dscp = esock_atom_cs4;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF41)
-    case IPTOS_DSCP_AF41:
-        dscp = esock_atom_af41;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF42)
-    case IPTOS_DSCP_AF42:
-        dscp = esock_atom_af42;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_AF43)
-    case IPTOS_DSCP_AF43:
-        dscp = esock_atom_af43;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_CS5)
-    case IPTOS_DSCP_CS5:
-        dscp = esock_atom_cs5;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_EF)
-    case IPTOS_DSCP_EF:
-        dscp = esock_atom_ef;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_CS6)
-    case IPTOS_DSCP_CS6:
-        dscp = esock_atom_cs6;
-        break;
-#endif
-
-#if defined(IPTOS_DSCP_CS7)
-    case IPTOS_DSCP_CS7:
-        dscp = esock_atom_cs7;
-        break;
-#endif
-
-
-        /*
-         * And now for some values we do not (currently) have any defines for.
-         * But these are defined accordning to IANA DSCP registry.
-         * https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml
-         */
-    case ESOCK_DSCP_LE: /* LE */
-        dscp = esock_atom_le;
-        break;
-
-    case ESOCK_DSCP_VOICE_ADMIT: /* VOICE-ADMIT */
-        dscp = esock_atom_voice_admit;
-        break;
-
-    case ESOCK_DSCP_NQB: /* NQB */
-        dscp = esock_atom_nqb;
-        break;
+    case ESOCK_DSCP_LE:
+        dscp = esock_atom_le; break;
+    case ESOCK_DSCP_NQB:
+        dscp = esock_atom_nqb; break;
 
     default:
         dscp = MKI(env, nativeDSCP);

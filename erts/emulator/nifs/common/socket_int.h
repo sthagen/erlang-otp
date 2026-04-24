@@ -368,6 +368,14 @@ ress-of-packed-member]
     GLOBAL_ATOM_DEF(cork);                     \
     GLOBAL_ATOM_DEF(counters);                 \
     GLOBAL_ATOM_DEF(credentials);              \
+    GLOBAL_ATOM_DEF(cs0);                      \
+    GLOBAL_ATOM_DEF(cs1);                      \
+    GLOBAL_ATOM_DEF(cs2);                      \
+    GLOBAL_ATOM_DEF(cs3);                      \
+    GLOBAL_ATOM_DEF(cs4);                      \
+    GLOBAL_ATOM_DEF(cs5);                      \
+    GLOBAL_ATOM_DEF(cs6);                      \
+    GLOBAL_ATOM_DEF(cs7);                      \
     GLOBAL_ATOM_DEF(critical_ecp);             \
     GLOBAL_ATOM_DEF(ctrl);                     \
     GLOBAL_ATOM_DEF(ctrunc);                   \
