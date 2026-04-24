@@ -38,9 +38,21 @@
 %% Properties --------------------------------------------------------
 %%--------------------------------------------------------------------
 
+prop_hello_ext_unwrap() ->
+ ?FORALL({_, WrappedValue}, ?LET(Version, tls_version(), hello_extension(Version)),
+         try
+             _Result = ssl_handshake:extension_value(WrappedValue),
+             true
+         catch
+             error:Err ->
+                 ct:log("WrappedValue ~p ~p", [WrappedValue, Err]),
+                 false
+         end
+        ).
+
 prop_tls_hs_encode_decode() ->
     ?FORALL({Handshake, TLSVersion}, ?LET(Version, tls_version(), {tls_msg(Version), Version}),
-            try 
+            try
                 [Type, _Length, Data] = tls_handshake:encode_handshake(Handshake, TLSVersion),
                 DecHandshake = tls_handshake:decode_handshake(TLSVersion, Type, Data),
                 RawHandshke = raw_handshake(DecHandshake),
@@ -215,6 +227,14 @@ client_random(_) ->
 server_random(_) ->
     crypto:strong_rand_bytes(32).
 
+hello_extension(Version) ->
+    ?LET(Exts, oneof([non_empty_extensions(Version, client_hello),
+                      non_empty_extensions(Version, server_hello)]),
+         oneof(maps:to_list(Exts))).
+
+non_empty_extensions(Version, Type) ->
+    ?LET(Extensions, ?SUCHTHAT(Exts, extensions(Version, Type), Exts =/= #{}),
+         Extensions).
 
 client_hello_extensions(Version) ->
     ?LET(Exts, extensions(Version, client_hello),
@@ -222,21 +242,9 @@ client_hello_extensions(Version) ->
                     Exts)).
 
 server_hello_extensions(Version) ->
-    ?LET(Exts, extensions(Version, server_hello),
+    ?LET(Exts, extensions(Version, server_hello_raw),
          maps:merge(ssl_handshake:empty_extensions(Version, server_hello),
                     Exts)).
-
-key_share_client_hello() ->
-     oneof([undefined]).
-    %%oneof([#key_share_client_hello{}, undefined]).
-
-key_share_server_hello() ->
-     oneof([undefined]).
-    %%oneof([#key_share_server_hello{}, undefined]).
-
-pre_shared_keyextension() ->
-     oneof([undefined]).
-     %%oneof([#pre_shared_keyextension{},undefined]).
 
 %% +--------------------------------------------------+-------------+
 %% | Extension                                        |     TLS 1.3 |
@@ -312,7 +320,7 @@ extensions(?TLS_1_3 = Version, MsgType = client_hello) ->
           {
            oneof([server_name(), undefined]),
            oneof([max_fragment_length(), undefined]),
-           oneof([status_request(), undefined]),
+           oneof([status_request(MsgType), undefined]),
            oneof([supported_groups(Version), undefined]),
            oneof([signature_algs(Version)]),
            oneof([use_srtp(), undefined]),
@@ -367,8 +375,8 @@ extensions(Version, client_hello) ->
           ECCurves,
           ALPN,
           NextP,
-          SRP
-          %% RenegotiationInfo
+          SRP,
+          RenegotiationInfo
          },
          {
           oneof([sni(), undefined]),
@@ -376,8 +384,8 @@ extensions(Version, client_hello) ->
           oneof([elliptic_curves(Version), undefined]),
           oneof([alpn(),  undefined]),
           oneof([next_protocol_negotiation(), undefined]),
-          oneof([srp(), undefined])
-          %% oneof([renegotiation_info(), undefined])
+          oneof([srp(), undefined]),
+          oneof([renegotiation_info(), undefined])
          },
          maps:filter(fun(_, undefined) ->
                              false;
@@ -390,10 +398,11 @@ extensions(Version, client_hello) ->
                        elliptic_curves => ECCurves,
                        alpn => ALPN,
                        next_protocol_negotiation => NextP,
-                       srp => SRP
-                       %% renegotiation_info => RenegotiationInfo
+                       srp => SRP,
+                       renegotiation_info => RenegotiationInfo
                       }));
-extensions(?TLS_1_3 = Version, MsgType = server_hello) ->
+extensions(?TLS_1_3 = Version, MsgType) when MsgType == server_hello;
+                                             MsgType == server_hello_raw ->
     ?LET({
           KeyShare,
           PreSharedKey,
@@ -414,18 +423,19 @@ extensions(?TLS_1_3 = Version, MsgType = server_hello) ->
                        pre_shared_key => PreSharedKey,
                        server_hello_selected_version => SupportedVersions
                       }));
-extensions(Version, server_hello) ->
+extensions(Version, MsgType) when MsgType == server_hello;
+                                  MsgType == server_hello_raw ->
     ?LET({
           ECPoitF,
           ALPN,
-          NextP
-          %% RenegotiationInfo,
+          NextP,
+          RenegotiationInfo
          },
          {
           oneof([ec_point_formats(), undefined]),
           oneof([alpn(),  undefined]),
-          oneof([next_protocol_negotiation(), undefined])
-          %% oneof([renegotiation_info(), undefined]),
+          oneof([next_protocol_negotiation(), undefined]),
+          oneof([renegotiation_info(), undefined])
          },
          maps:filter(fun(_, undefined) ->
                              false;
@@ -435,8 +445,8 @@ extensions(Version, server_hello) ->
                      #{
                        ec_point_formats => ECPoitF,
                        alpn => ALPN,
-                       next_protocol_negotiation => NextP
-                       %% renegotiation_info => RenegotiationInfo
+                       next_protocol_negotiation => NextP,
+                       renegotiation_info => RenegotiationInfo
                       }));
 extensions(?TLS_1_3 = Version, encrypted_extensions) ->
      ?LET({
@@ -481,21 +491,21 @@ extensions(?TLS_1_3 = Version, encrypted_extensions) ->
 server_name() ->
   ?LET(ServerName, sni(),
        ServerName).
-    %% sni().
 
 max_fragment_length() ->
     ?LET(Enum, elements([1,2,3,4]), #max_frag_enum{enum = Enum}).
 
-status_request() ->
-    %% TODO real impl
-    undefined.
+status_request(client_hello) ->
+    undefined; %% Should extend this as part of OCSP enhancement
+status_request(server_hello) ->
+    "".
 
 early_data_indication() ->
     elements([#early_data_indication{}, #early_data_indication_nst{indication = 500}]).
 
 cookie() ->
-    %% TODO real impl
-    undefined.
+    %% Can be bigger, but value is not important here.
+    #cookie{cookie = rand:bytes(20)}.
 
 signature_algs_cert() ->
     ?LET(List,  sig_scheme_list(),
@@ -725,10 +735,6 @@ certificate_authorities(_) ->
 digest_size()->
    oneof([160,224,256,384,512]).
 
-key_share_entry() ->
-    undefined.
-    %%#key_share_entry{}.
-
 server_hello_selected_version(Version) ->
     #server_hello_selected_version{selected_version = Version}.
 
@@ -765,7 +771,7 @@ srp() ->
    ?LET(Name, gen_name(),  #srp{username = list_to_binary(Name)}).
 
 renegotiation_info() ->
-    #renegotiation_info{renegotiated_connection = 0}.
+    #renegotiation_info{renegotiated_connection = ?byte(0)}.
 
 gen_name() ->
     ?LET(Size, choose(1,10), gen_string(Size)).
@@ -787,8 +793,17 @@ key_share(client_hello) ->
           client_shares = ClientShares});
 key_share(server_hello) ->
     ?LET([ServerShare], key_share_entry_list(1),
-        #key_share_server_hello{
-          server_share = ServerShare}).
+         server_hello_key_share(ServerShare));
+key_share(server_hello_raw) ->
+    ?LET([ServerShare], key_share_entry_list(1),
+         #key_share_server_hello{
+            server_share = ServerShare}).
+
+server_hello_key_share(Share) ->
+    ?LET(ServerShare, oneof([#key_share_server_hello{server_share = Share},
+                             #key_share_hello_retry_request{selected_group =
+                                                                Share#key_share_entry.group}]),
+         ServerShare).
 
 key_share_entry_list() ->
     Max = length(ssl:groups()),
@@ -881,7 +896,8 @@ pre_shared_key(client_hello) ->
     ?LET(OfferedPsks, offered_psks(),
          #pre_shared_key_client_hello{
             offered_psks = OfferedPsks});
-pre_shared_key(server_hello) ->
+pre_shared_key(Type) when Type == server_hello;
+                          Type == server_hello_raw ->
     ?LET(SelectedIdentity, selected_identity(),
          #pre_shared_key_server_hello{
            selected_identity = SelectedIdentity}).
