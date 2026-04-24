@@ -978,14 +978,15 @@ lay_2(Node, Ctxt) ->
 		       set_prec(Ctxt, PrecR))),
 	    T = erl_syntax:record_access_type(Node),
 	    D3 = beside(beside(floating(text("#")),
-                               lay(T, reset_prec(Ctxt))),
-                        D2),
+                               lay_native_record_name(T, reset_prec(Ctxt))),
+                               D2),
 	    maybe_parentheses(beside(D1, D3), Prec, Ctxt);
 
 	record_expr ->
 	    {PrecL, Prec, _} = inop_prec('#'),
 	    Ctxt1 = reset_prec(Ctxt),
-	    D1 = lay(erl_syntax:record_expr_type(Node), Ctxt1),
+            D1 = lay_native_record_name(erl_syntax:record_expr_type(Node),
+                                        Ctxt1),
 	    D2 = par(seq(erl_syntax:record_expr_fields(Node),
 			 floating(text(",")), Ctxt1,
 			 fun lay/2)),
@@ -1501,6 +1502,15 @@ lay_type_application(Name, Arguments, Ctxt) ->
                           beside(par(As),
                                  floating(text(")"))))),
     maybe_parentheses(D, Prec, Ctxt).
+
+lay_native_record_name(Node, Ctxt) ->
+    case erl_syntax:type(Node) of
+        list ->
+            [Mod, Name] = erl_syntax:list_elements(Node),
+            beside(lay(Mod, Ctxt), beside(text(":"), lay(Name, Ctxt)));
+        _ ->
+            lay(Node, Ctxt)
+    end.
 
 seq([H | T], Separator, Ctxt, Fun) ->
     case T of
