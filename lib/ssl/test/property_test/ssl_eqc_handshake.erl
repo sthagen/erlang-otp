@@ -133,7 +133,7 @@ client_hello(Version) ->
 		  client_version = Version,
                   cipher_suites = cipher_suites(Version),
 		  random = client_random(Version),
-		  extensions = client_hello_extensions(Version)    
+		  extensions = client_hello_extensions(Version)
                  }.
 
 server_hello(?TLS_1_3 = Version) ->
@@ -141,14 +141,14 @@ server_hello(?TLS_1_3 = Version) ->
 		  session_id = session_id(),
                   random = server_random(Version),
                   cipher_suite = cipher_suite(Version),
-		  extensions = server_hello_extensions(Version)    
+		  extensions = server_hello_extensions(Version)
                  };
 server_hello(Version) ->
     #server_hello{server_version = Version,
 		  session_id = session_id(),
                   random = server_random(Version),
                   cipher_suite = cipher_suite(Version),
-		  extensions = server_hello_extensions(Version)    
+		  extensions = server_hello_extensions(Version)
                  }.
 
 certificate() ->
@@ -373,17 +373,17 @@ extensions(Version, client_hello) ->
          {
           oneof([sni(), undefined]),
           oneof([ec_point_formats(), undefined]),
-          oneof([elliptic_curves(Version), undefined]), 
-          oneof([alpn(),  undefined]), 
+          oneof([elliptic_curves(Version), undefined]),
+          oneof([alpn(),  undefined]),
           oneof([next_protocol_negotiation(), undefined]),
           oneof([srp(), undefined])
           %% oneof([renegotiation_info(), undefined])
          },
-         maps:filter(fun(_, undefined) -> 
+         maps:filter(fun(_, undefined) ->
                              false;
-                        (_,_) -> 
-                             true 
-                     end, 
+                        (_,_) ->
+                             true
+                     end,
                      #{
                        sni => SNI,
                        ec_point_formats => ECPoitF,
@@ -502,7 +502,7 @@ signature_algs_cert() ->
          #signature_algorithms_cert{signature_scheme_list = List}).
 
 signature_algorithms() ->
-    ?LET(List,  sig_scheme_list(), 
+    ?LET(List,  sig_scheme_list(),
          #signature_algorithms{signature_scheme_list = List}).
 
 sig_scheme_list() ->
@@ -594,12 +594,12 @@ request_update() ->
 
 certificate_chain()->
     Conf = cert_conf(),
-    ?LET(Chain, 
+    ?LET(Chain,
          choose_certificate_chain(Conf),
          Chain).
 
 choose_certificate_chain(#{server_config := ServerConf,
-                           client_config := ClientConf}) -> 
+                           client_config := ClientConf}) ->
     oneof([certificate_chain(ServerConf), certificate_chain(ClientConf)]).
 
 certificate_request_context() ->
@@ -619,26 +619,28 @@ certificate_entry(Cert) ->
 certificate_entry_extensions() ->
     #{}.
 
-certificate_chain(Conf) ->  
+certificate_chain(Conf) ->
     CAs = proplists:get_value(cacerts, Conf),
     Cert = proplists:get_value(cert, Conf),
     %% Middle argument are of correct type but will not be used
-    {ok, _, Chain} = ssl_certificate:certificate_chain(Cert, ets:new(foo, []), make_ref(), CAs, encoded), 
+    {ok, _, Chain} =
+        ssl_certificate:certificate_chain(Cert, ets:new(foo, []), make_ref(), CAs, encoded),
     Chain.
 
 cert_conf()->
     Hostname = net_adm:localhost(),
     {ok, #hostent{h_addr_list = [_IP |_]}} = inet:gethostbyname(net_adm:localhost()),
-    public_key:pkix_test_data(#{server_chain => 
+    public_key:pkix_test_data(#{server_chain =>
                                     #{root => [{key, ssl_test_lib:hardcode_rsa_key(1)}],
                                       intermediates => [[{key, ssl_test_lib:hardcode_rsa_key(2)}]],
-                                      peer => [{extensions, [#'Extension'{extnID = 
-                                                                              ?'id-ce-subjectAltName',
-                                                                          extnValue = [{dNSName, Hostname}],
-                                                                          critical = false}]},
+                                      peer => [{extensions,
+                                                [#'Extension'{extnID =
+                                                                  ?'id-ce-subjectAltName',
+                                                              extnValue = [{dNSName, Hostname}],
+                                                              critical = false}]},
                                                {key, ssl_test_lib:hardcode_rsa_key(3)}
                                               ]},
-                                client_chain => 
+                                client_chain =>
                                     #{root => [{key, ssl_test_lib:hardcode_rsa_key(4)}],
                                       intermediates => [[{key, ssl_test_lib:hardcode_rsa_key(5)}]],
                                       peer => [{key, ssl_test_lib:hardcode_rsa_key(6)}]}}).
@@ -673,7 +675,7 @@ signature_algs(Version) when ?TLS_LT(Version, ?TLS_1_2) ->
 
 hashsign_algorithms(Version) when ?TLS_GTE(Version, ?TLS_1_2) ->
     #hash_sign_algos{hash_sign_algos = hash_alg_list(Version)};
-hashsign_algorithms(_) -> 
+hashsign_algorithms(_) ->
     undefined.
 
 hash_alg_list(Version) ->
@@ -681,7 +683,7 @@ hash_alg_list(Version) ->
 	 ?LET(List, [hash_alg(Version) || _ <- lists:seq(1,NumOf)],
 	      lists:usort(List)
              )).
-    
+
 hash_alg(Version) ->
    ?LET(Alg, sign_algorithm(Version),
          {hash_algorithm(Version, Alg), Alg}
@@ -713,7 +715,7 @@ certificate_authorities(?TLS_1_3) ->
 
     #certificate_authorities{authorities = Auths};
 certificate_authorities(_) ->
-    #{server_config := ServerConf} = cert_conf(), 
+    #{server_config := ServerConf} = cert_conf(),
     Certs = proplists:get_value(cacerts, ServerConf),
     Auths = fun(#'OTPCertificate'{tbsCertificate = TBSCert}) ->
                     public_key:pkix_normalize_name(TBSCert#'OTPTBSCertificate'.subject)
@@ -735,7 +737,7 @@ sni() ->
 
 ec_point_formats() ->
     #ec_point_formats{ec_point_format_list = ec_point_format_list()}.
- 
+
 ec_point_format_list() ->
     [?ECPOINT_UNCOMPRESSED].
 
@@ -745,7 +747,7 @@ elliptic_curves(Version) when ?TLS_LT(Version, ?TLS_1_3) ->
 
 %% RFC 8446 (TLS 1.3) renamed the "elliptic_curve" extension.
 supported_groups(Version) when ?TLS_GTE(Version, ?TLS_1_3) ->
-    SupportedGroups = tls_v1:groups(),   
+    SupportedGroups = tls_v1:groups(),
     #supported_groups{supported_groups = SupportedGroups}.
 
 
@@ -754,7 +756,7 @@ alpn() ->
 
 alpn_protocols() ->
     oneof([<<"spdy/2">>, <<"spdy/3">>, <<"http/2">>, <<"http/1.0">>, <<"http/1.1">>]).
-    
+
 next_protocol_negotiation() ->
    %% Predecessor to APLN
     ?LET(ExtD,  alpn_protocols(), #next_protocol_negotiation{extension_data = ExtD}).
@@ -765,10 +767,10 @@ srp() ->
 renegotiation_info() ->
     #renegotiation_info{renegotiated_connection = 0}.
 
-gen_name() -> 
+gen_name() ->
     ?LET(Size, choose(1,10), gen_string(Size)).
 
-gen_char() -> 
+gen_char() ->
     choose($a,$z).
 
 gen_string(N) ->
@@ -866,7 +868,6 @@ group_list(N, Pool, Acc) ->
     R = rand:uniform(length(Pool)),
     G = lists:nth(R, Pool),
     group_list(N - 1, Pool -- [G], [G|Acc]).
-
 
 ke_modes() ->
     oneof([[psk_ke],[psk_dhe_ke],[psk_ke,psk_dhe_ke]]).
