@@ -3293,11 +3293,11 @@ revert_attribute_1(record, [A, Tuple], Pos, Node) ->
     end;
 revert_attribute_1(native_record, [Name, Fields], Pos, Node) ->
     case type(Name) of
-	atom ->
-	    Fs = fold_record_fields(tuple_elements(Fields)),
-	    {attribute, Pos, record, {concrete(Name), Fs}};
-	_ ->
-	    Node
+        atom ->
+            Fs = fold_record_fields(tuple_elements(Fields)),
+            {attribute, Pos, native_record, {concrete(Name), Fs}};
+        _ ->
+            Node
     end;
 revert_attribute_1(import_record, [M, List], Pos, Node) ->
     case revert_module_name(M) of
@@ -4374,7 +4374,15 @@ revert_record_access(Node) ->
     Field = record_access_field(Node),
     case type(Type) of
         atom ->
-            {record_field, Pos, Argument, concrete(Type), Field};
+            case concrete(Type) of
+                '_' ->
+                    {record_field, Pos, Argument, [], Field};
+                T ->
+                    {record_field, Pos, Argument, T, Field}
+            end;
+        list ->
+            [Mod, Name] = list_elements(Type),
+            {record_field, Pos, Argument, {concrete(Mod), concrete(Name)}, Field};
         _ ->
             Node
     end.
@@ -4405,12 +4413,14 @@ _See also: _`record_access/3`.
 
 record_access_type(Node) ->
     case unwrap(Node) of
-	{record_field, Pos, _, {Mod, Name}, _} ->
-	    list([set_pos(atom(Mod), Pos), set_pos(atom(Name), Pos)]);
-	{record_field, Pos, _, Type, _} ->
-	    set_pos(atom(Type), Pos);
-	Node1 ->
-	    (data(Node1))#record_access.type
+        {record_field, Pos, _, {Mod, Name}, _} ->
+            list([set_pos(atom(Mod), Pos), set_pos(atom(Name), Pos)]);
+        {record_field, Pos, _, [], _} ->
+            set_pos(atom('_'), Pos);
+        {record_field, Pos, _, Type, _} ->
+            set_pos(atom(Type), Pos);
+        Node1 ->
+            (data(Node1))#record_access.type
     end.
 
 
@@ -4487,26 +4497,28 @@ revert_record_expr(Node) ->
     Fields = record_expr_fields(Node),
     Fs = fold_record_fields(Fields),
     case type(Type) of
-	atom ->
-	    T = concrete(Type),
-	    case Argument of
-		none ->
-		    {record, Pos, T, Fs};
-		_ ->
-		    {record, Pos, Argument, T, Fs}
-	    end;
-	list ->
-	    [Mod, Name] = list_elements(Type),
-	    case Argument of
-		none ->
-		    {record, Pos, {concrete(Mod), concrete(Name)}, Fs};
-		_ ->
-		    {record, Pos, Argument, {concrete(Mod), concrete(Name)}, Fs}
-	    end;
-	_ ->
-	    Node
+        atom ->
+            T = case concrete(Type) of
+                    '_' -> [];
+                    Res -> Res
+                end,
+            case Argument of
+                none ->
+                    {record, Pos, T, Fs};
+                _ ->
+                    {record, Pos, Argument, T, Fs}
+            end;
+        list ->
+            [Mod, Name] = list_elements(Type),
+            case Argument of
+                none ->
+                    {record, Pos, {concrete(Mod), concrete(Name)}, Fs};
+                _ ->
+                    {record, Pos, Argument, {concrete(Mod), concrete(Name)}, Fs}
+            end;
+        _ ->
+            Node
     end.
-
 
 -doc """
 Returns the argument subtree of a `record_expr` node, if any.
@@ -4539,18 +4551,22 @@ _See also: _`record_expr/3`.
 
 record_expr_type(Node) ->
     case unwrap(Node) of
-	{record, Pos, {Mod, Name}, _} ->
-	    list([set_pos(atom(Mod), Pos), set_pos(atom(Name), Pos)]);
-	{record_field, Pos, _, Name, _} ->
-	   set_pos(atom(Name), Pos);
-	{record, Pos, Type, _} ->
-	    set_pos(atom(Type), Pos);
-	{record, Pos, _, {Mod, Name}, _} ->
-	    list([set_pos(atom(Mod), Pos), set_pos(atom(Name), Pos)]);
-	{record, Pos, _, Type, _} ->
-	    set_pos(atom(Type), Pos);
-	Node1 ->
-	    (data(Node1))#record_expr.type
+        {record, Pos, {Mod, Name}, _} ->
+            list([set_pos(atom(Mod), Pos), set_pos(atom(Name), Pos)]);
+        {record, Pos, [], _} ->
+            set_pos(atom('_'), Pos);
+        {record_field, Pos, _, Name, _} ->
+           set_pos(atom(Name), Pos);
+        {record, Pos, Type, _} ->
+            set_pos(atom(Type), Pos);
+        {record, Pos, _, {Mod, Name}, _} ->
+            list([set_pos(atom(Mod), Pos), set_pos(atom(Name), Pos)]);
+        {record, Pos, _, [], _} ->
+            set_pos(atom('_'), Pos);
+        {record, Pos, _, Type, _} ->
+            set_pos(atom(Type), Pos);
+        Node1 ->
+            (data(Node1))#record_expr.type
     end.
 
 

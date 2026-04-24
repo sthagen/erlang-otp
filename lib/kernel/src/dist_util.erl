@@ -40,7 +40,7 @@
 	 shutdown/3, shutdown/4,
          net_ticker_spawn_options/0]).
 
--import(error_logger,[error_msg/2]).
+-import(error_logger,[error_msg/2, warning_msg/2]).
 
 -include("dist_util.hrl").
 -include("dist.hrl").
@@ -1174,6 +1174,7 @@ to_port(FSend, Socket, Data) ->
 send_tick(#state{handle = DHandle, socket = Socket,
                  tick_intensity = TickIntensity,
                  publish_type = Type, f_tick = MFTick,
+                 node = Node,
                  f_getstat = MFGetstat}, Tick) ->
     #tick{tick = T0,
 	  read = Read,
@@ -1181,12 +1182,30 @@ send_tick(#state{handle = DHandle, socket = Socket,
 	  ticked = Ticked0} = Tick,
     T = T0 + 1,
     T1 = T rem TickIntensity,
+    LogMissed = application:get_env(kernel, log_missed_net_ticks, false),
     case getstat(DHandle, Socket, MFGetstat) of
 	{ok, Read, _, _} when Ticked0 =:= T ->
+        LogMissed andalso
+            warning_msg("** Node ~p: ~w consecutive net ticks missed "
+                        "(tick ~w/~w) — net_tick_timeout **~n",
+                        [Node, TickIntensity, T, TickIntensity]),
 	    {error, not_responding};
 
         {ok, R, W1, Pend} ->
             RDiff = R - Read,
+            case RDiff of
+                0 when LogMissed ->
+                    MissedCount = case T - Ticked0 of
+                                      D when D > 0 -> D;
+                                      D -> TickIntensity + D
+                                  end,
+                    warning_msg("** Node ~p: net tick ~w/~w missed "
+                                "(~w consecutive, ~w until timeout) **~n",
+                                [Node, T, TickIntensity,
+                                 MissedCount, TickIntensity - MissedCount]);
+                _ ->
+                    ok
+            end,
             W2 = case need_to_tick(Type, RDiff, W1-Write, Pend) of
                      true ->
                          MFTick(Socket),
