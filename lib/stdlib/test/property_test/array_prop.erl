@@ -24,8 +24,10 @@
 -include_lib("common_test/include/ct_property_test.hrl").
 
 -export([prop_new/0, prop_is_array/0, prop_set_get/0, prop_size/0,
-         prop_sparse_size/0, prop_default/0, prop_fix_relax/0,
-         prop_resize/0, prop_reset/0, prop_to_list/0, prop_from_list/0,
+         prop_sparse_size/0,
+         prop_default/0, prop_fix_relax/0,
+         prop_resize/0, prop_resize_pruned/0,
+         prop_reset/0, prop_to_list/0, prop_from_list/0,
          prop_to_orddict/0, prop_from_orddict/0, prop_map/0,
          prop_foldl/0, prop_foldr/0, prop_shift/0, prop_slice/0,
          prop_append_prepend/0, prop_concat/0, prop_mapfoldl/0, prop_mapfoldr/0,
@@ -45,36 +47,36 @@ safe_any() ->  %% Just integers for now
 %% Generate array with list model
 
 array_with_list() ->
-    ?LET(Type, safe_any(),
-         ?LET(Def, Type,
-              ?SIZED(Size, array_with_list(Size, Type, [], array:new({default, Def}))))).
+    ?LET(TypeGen, fun() -> safe_any() end,
+         ?LET(Def, TypeGen(),
+              ?SIZED(Size, array_with_list(Size, TypeGen, [], array:new({default, Def}))))).
 
-array_with_list(Type) ->
-    ?LET(Def, Type,
-         ?SIZED(Size, array_with_list(Size, Type, [], array:new({default, Def})))).
+array_with_list(TypeGen) ->
+    ?LET(Def, TypeGen(),
+         ?SIZED(Size, array_with_list(Size, TypeGen, [], array:new({default, Def})))).
 
 array_with_list(0, _Type, List, A) ->
     {List, A};
 array_with_list(N, Type, ListAcc, ArrAcc) ->
     RC = fun({L, A}) -> array_with_list(N-1, Type, L, A) end,
     oneof([ %% Set/append/prepend many at end/beginning
-            ?LET(List, list(Type),
+            ?LET(List, list(Type()),
                  RC(array_list_append(List, ListAcc, ArrAcc))),
-            ?LET(List, list(Type),
+            ?LET(List, list(Type()),
                  RC(array_list_set(List, ListAcc, ArrAcc))),
-            ?LET(List, list(Type),
+            ?LET(List, list(Type()),
                  RC(array_list_prepend(List, ListAcc, ArrAcc))),
-            ?LET(List, list(Type),
+            ?LET(List, list(Type()),
                  RC(array_list_concat(List, ListAcc, ArrAcc))),
             %% Set and reset random position single
-            ?LET({I, V}, {small_nat(), Type},
+            ?LET({I, V}, {small_nat(), Type()},
                  RC(array_list_set(I,V,ListAcc, ArrAcc))),
             ?LET(I, small_nat(),
                  RC(array_list_reset(I, ListAcc, ArrAcc))),
             %% Resize, shift
             ?LET(I, small_nat(),
                  RC(array_list_resize(I, ListAcc, ArrAcc))),
-            ?LET(I, int(),
+            ?LET(I, Type(),
                  RC(array_list_shift(I, ListAcc, ArrAcc)))
           ]).
 
@@ -173,7 +175,7 @@ array_list_resize(NewSz0, L0, A0) ->
         L0 = array:to_list(A0), %% assert
         Size = array:size(A0),
         {L, A} =
-            if NewSz0 < Size ->
+            if NewSz0 =< Size ->
                     {L1, _L2} = lists:split(NewSz0, L0),
                     {L1, array:resize(NewSz0, A0)};
                true ->
@@ -305,6 +307,19 @@ prop_resize() ->
                              length(array:to_list(A1)) == NewSize
                      end)).
 
+prop_resize_pruned() ->
+    ?FORALL({{L0, A0}, ShiftBy0}, {array_with_list(), small_nat()},
+            begin
+                {L1, A1} = array_list_append([foo], L0, A0),
+                ShiftBy = min(ShiftBy0, array:size(A1)),
+                A2 = array:shift(ShiftBy, A1),
+                L2 = lists:sublist(L1, ShiftBy+1, length(L1)-ShiftBy),
+                {L3, A3} = array_list_resize(array:size(A2), L2, A2),
+                L4 = lists:duplicate(ShiftBy, array:default(A0)) ++ L3,
+                A4 = array:shift(-ShiftBy, A3),
+                L4 == array:to_list(A4)
+            end).
+
 prop_reset() ->
     ?FORALL({{List, A}, I},
             {array_with_list(), small_nat()},
@@ -361,7 +376,7 @@ prop_map() ->
             end).
 
 prop_foldl() ->
-    ?FORALL({{List, A}, I0, I1}, {array_with_list(int()), small_nat(), small_nat()},
+    ?FORALL({{List, A}, I0, I1}, {array_with_list(fun() -> int() end), small_nat(), small_nat()},
             case array:size(A) of
                 0 ->
                     true;
@@ -378,7 +393,7 @@ prop_foldl() ->
             end).
 
 prop_foldr() ->
-    ?FORALL({{List, A}, I0, I1}, {array_with_list(int()), small_nat(), small_nat()},
+    ?FORALL({{List, A}, I0, I1}, {array_with_list(fun() -> int() end), small_nat(), small_nat()},
             case array:size(A) of
                 0 ->
                     true;
@@ -408,7 +423,13 @@ prop_shift() ->
                                 false ->
                                     lists:duplicate(abs(Steps), array:default(A)) ++ List
                             end,
-                        A1 = array:shift(Steps, A),
+                        A1 = case Steps < 0 of
+                                 true ->
+                                     %% We need to reset it here it to prune (history) shifted values.
+                                     array:shift(Steps, array:resize(array:size(A), A));
+                                 false ->
+                                     array:shift(Steps, A)
+                             end,
                         array:is_array(A1) andalso
                             array:size(A1) =:= max(0, Size - Steps) andalso
                             array:to_list(A1) =:= Expected;
@@ -454,7 +475,7 @@ prop_concat() ->
             end).
 
 prop_mapfoldl() ->
-    ?FORALL({List, A}, array_with_list(int()),
+    ?FORALL({List, A}, array_with_list(fun() -> int() end),
             begin
                 F = fun(_I, V, Acc) -> {{mapped, V}, Acc + V} end,
                 {A1, Sum1} = array:mapfoldl(F, 0, A),
@@ -464,7 +485,7 @@ prop_mapfoldl() ->
             end).
 
 prop_mapfoldr() ->
-    ?FORALL({List, A}, array_with_list(int()),
+    ?FORALL({List, A}, array_with_list(fun() -> int() end),
             begin
                 F = fun(_I, V, Acc) -> {{mapped, V}, Acc + V} end,
                 {A1, Sum1} = array:mapfoldr(F, 0, A),
@@ -475,7 +496,7 @@ prop_mapfoldr() ->
 
 prop_sparse_mapfoldl() ->
     ?FORALL({{List, A}, I0, I1},
-            {array_with_list(int()), small_nat(), small_nat()},
+            {array_with_list(fun() -> int() end), small_nat(), small_nat()},
             case array:size(A) of
                 0 ->
                     true;
@@ -499,7 +520,7 @@ prop_sparse_mapfoldl() ->
 
 prop_sparse_mapfoldr() ->
     ?FORALL({{List, A}, I0, I1},
-            {array_with_list(int()), small_nat(), small_nat()},
+            {array_with_list(fun() -> int() end), small_nat(), small_nat()},
             case array:size(A) of
                 0 ->
                     true;

@@ -60,8 +60,10 @@
          doctests/1,
          %% Property tests
          prop_new/1, prop_is_array/1, prop_set_get/1, prop_size/1,
-         prop_sparse_size/1, prop_default/1, prop_fix_relax/1,
-         prop_resize/1, prop_reset/1, prop_to_list/1, prop_from_list/1,
+         prop_sparse_size/1,
+         prop_default/1, prop_fix_relax/1,
+         prop_resize/1, prop_resize_pruned/1,
+         prop_reset/1, prop_to_list/1, prop_from_list/1,
          prop_to_orddict/1, prop_from_orddict/1, prop_map/1,
          prop_foldl/1, prop_foldr/1, prop_shift/1, prop_slice/1,
          prop_append_prepend/1, prop_concat/1, prop_mapfoldl/1, prop_mapfoldr/1,
@@ -103,8 +105,10 @@ all() ->
 groups() ->
     [{property, [],
       [prop_new, prop_is_array, prop_set_get, prop_size,
-       prop_sparse_size, prop_default, prop_fix_relax,
-       prop_resize, prop_reset, prop_to_list, prop_from_list,
+       prop_sparse_size,
+       prop_default, prop_fix_relax,
+       prop_resize, prop_resize_pruned,
+       prop_reset, prop_to_list, prop_from_list,
        prop_to_orddict, prop_from_orddict, prop_map,
        prop_foldl, prop_foldr, prop_shift, prop_slice,
        prop_append_prepend, prop_concat, prop_mapfoldl, prop_mapfoldr,
@@ -1049,6 +1053,9 @@ prop_fix_relax(Config) ->
 
 prop_resize(Config) ->
     do_proptest(prop_resize, Config).
+
+prop_resize_pruned(Config) ->
+    do_proptest(prop_resize_pruned, Config).
 
 prop_reset(Config) ->
     do_proptest(prop_reset, Config).
