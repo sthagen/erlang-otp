@@ -3858,12 +3858,12 @@ otp_20102(Config) when is_list(Config) ->
                    ?P("cond check: do we support socket"),
                    case ?LIB:is_socket_supported() of
                        true ->
-			   ?P("cond check: not windows"),
-			   is_not_windows(),
+                           ?P("cond check: not windows"),
+                           is_not_windows(),
                            ?P("cond check: do we support ipv4 & recvtos & tos"),
                            has_support_ipv4(),
-			   has_support_ip_recvtos(),
-			   has_support_ip_tos();
+                           has_support_ip_recvtos(),
+                           has_support_ip_tos();
                        false ->
                            ?SKIPT("SOCKET not supported")
                    end
@@ -3889,10 +3889,10 @@ do_otp_20102(#{local_addr := Addr}) ->
 
     InetTOSValues = do_otp_20102(Addr, TOSValues, inet),
     case do_otp_20102(Addr, TOSValues, socket) of
-	InetTOSValues ->
-	    ok;
-	SocketTOSValues ->
-	    exit({unxepected, InetTOSValues, SocketTOSValues})
+        InetTOSValues ->
+            ok;
+        SocketTOSValues ->
+            exit({unxepected, InetTOSValues, SocketTOSValues})
     end,
     
     ?P("done"),
@@ -3911,47 +3911,47 @@ do_otp_20102(Addr, TOSValues, InetBackend) ->
     %% Any failures in the setup part should really just result in a skip
     %% but for now we want everything to explode so that we do not miss stuff.
     RSock = try gen_udp:open(0, [{inet_backend, InetBackend},
-				  inet, binary, {active, false}, {ip, Addr},
-				  {recvtos, true}]) of
-		{ok, RS} ->
-		    RS;
-		{error, ROReason} ->
-		    exit({failed_open, ROReason})
-	    catch
-		C1:E1:S1 ->
-		    exit({catched_open, {C1, E1, S1}})
-	    end,
+                                 inet, binary, {active, false}, {ip, Addr},
+                                 {recvtos, true}]) of
+                {ok, RS} ->
+                    RS;
+                {error, ROReason} ->
+                    exit({failed_open, ROReason})
+            catch
+                C1:E1:S1 ->
+                    exit({catched_open, {C1, E1, S1}})
+            end,
     RPort = case inet:port(RSock) of
-		{ok, RP} ->
-		    RP;
-		{error, RPReason} ->
-		    exit({failed_open, RPReason})
-	    end,
+                {ok, RP} ->
+                    RP;
+                {error, RPReason} ->
+                    exit({failed_open, RPReason})
+            end,
     SSock = try gen_udp:open(0, [{inet_backend, InetBackend},
-				  inet, binary, {active, false}, {ip, Addr}]) of
-		{ok, SS} ->
-		    SS;
-		{error, SOReason} ->
-		    exit({failed_open, SOReason})
-	    catch
-		C2:E2:S2 ->
-		    exit({catched_open, {C2, E2, S2}})
-	    end,
-    
+                                 inet, binary, {active, false}, {ip, Addr}]) of
+                {ok, SS} ->
+                    SS;
+                {error, SOReason} ->
+                    exit({failed_open, SOReason})
+            catch
+                C2:E2:S2 ->
+                    exit({catched_open, {C2, E2, S2}})
+            end,
+
     Fun = fun(TOS) ->
-		  ?P("~s -> try set TOS: ~w", [?FUNCTION_NAME, TOS]),
-		  ok = inet:setopts(SSock, [{tos, TOS}]),
-		  ?P("~s -> try send data", [?FUNCTION_NAME]),
-		  ok = gen_udp:send(SSock, Addr, RPort, Data),
-		  ?P("~s -> try recv data with anc data (tos)",
-		     [?FUNCTION_NAME]),
-		  {ok, {_, _, Anc, _}} = gen_udp:recv(RSock, Len, TO),
-		  ?P("~s -> recv Anc data: ~p", [?FUNCTION_NAME, Anc]),
-		  Anc
-	  end,
+                  ?P("~s -> try set TOS: ~w", [?FUNCTION_NAME, TOS]),
+                  ok = inet:setopts(SSock, [{tos, TOS}]),
+                  ?P("~s -> try send data", [?FUNCTION_NAME]),
+                  ok = gen_udp:send(SSock, Addr, RPort, Data),
+                  ?P("~s -> try recv data with anc data (tos)",
+                     [?FUNCTION_NAME]),
+                  {ok, {_, _, Anc, _}} = gen_udp:recv(RSock, Len, TO),
+                  ?P("~s -> recv Anc data: ~p", [?FUNCTION_NAME, Anc]),
+                  Anc
+          end,
     [Fun(V) || V <- TOSValues].
 
-			  
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 ok({ok,V}) -> V;

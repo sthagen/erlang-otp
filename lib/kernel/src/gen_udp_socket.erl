@@ -2232,12 +2232,12 @@ ctrl2ancdata(CTRL) ->
 
 ctrl2ancdata([], AncData) ->
     io:format("~s -> done when"
-	      "~n   AncData: ~p"
-	      "~n", [?FUNCTION_NAME, AncData]),
+              "~n   AncData: ~p"
+              "~n", [?FUNCTION_NAME, AncData]),
    lists:reverse(AncData);
 ctrl2ancdata([#{level := ip,
                 type  := TOS,
-		%% This is an atom: lowdelay | thoughput | reliability | mincost
+                %% This is an atom: lowdelay | thoughput | reliability | mincost
                 value := #{native := NativeValue} = _Value,
                 data  := <<_DataValue:8/integer>> = _Data} = _CTRL| CTRLs],
              AncData) when (TOS =:= tos) orelse (TOS =:= recvtos) ->

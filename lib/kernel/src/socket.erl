@@ -689,34 +689,34 @@ There are also a couple of IANA defined values (`le`, `voice_admit` and `nqb`).
 
 """.
 -type ip_tos() :: #{native := iptos_native(),
-		    tos    := iptos_tos(),
-		    dscp   := iptos_dscp()}.
+                    tos    := iptos_tos(),
+                    dscp   := iptos_dscp()}.
 
 -type iptos_value() :: iptos_tos() | iptos_dscp() | iptos_native().
 %% According to RFC 1349
 -type iptos_tos()   :: #{precedence := iptos_tos_prec()  | non_neg_integer(),
-			 tos        := iptos_tos_value() | non_neg_integer()}.
+                         tos        := iptos_tos_value() | non_neg_integer()}.
 -type iptos_tos_prec() :: netcontrol | internetcontrol | critical_ecp |
-			  flashoverride | flash | immediate | priority |
-			  routine.
+                          flashoverride | flash | immediate | priority |
+                          routine.
 -type iptos_tos_value() :: default |
-			   lowdelay |  throughput | reliability | mincost.
+                           lowdelay |  throughput | reliability | mincost.
 %% According to RFC 2474
 -type iptos_dscp() :: 
-	cs0 |
-	le |
-	cs1 |
-	af11 | af12 | af13 |
-	cs2 |
-	af21 | af22 | af23 |
-	cs3 |
-	af31 | af32 | af33 |
-	cs4 |
-	af41 | af42 | af43 |
-	cs5 |
-	voice_admit | nqb | ef |
-	cs6 |
-	cs7.
+        cs0 |
+        le |
+        cs1 |
+        af11 | af12 | af13 |
+        cs2 |
+        af21 | af22 | af23 |
+        cs3 |
+        af31 | af32 | af33 |
+        cs4 |
+        af41 | af42 | af43 |
+        cs5 |
+        voice_admit | nqb | ef |
+        cs6 |
+        cs7.
 -type iptos_native() :: non_neg_integer().
 
 -doc "C: `struct ip_pktinfo`".

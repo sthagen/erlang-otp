@@ -20583,7 +20583,7 @@ api_opt_ip_recvtos_udp(InitState) ->
          #{desc => "extract the (expected) recvtos \"default\" value",
            cmd  => fun(#{sock_dst := Sock} = State) ->
                            {ok, #{tos := DefValue}} =
-			       socket:getopt(Sock, ip, tos),
+                               socket:getopt(Sock, ip, tos),
                            ?SEV_IPRINT("(expected) recvtos def value: ~w",
                                        [DefValue]),
                            {ok, State#{dst_def_value => DefValue}}
@@ -20647,9 +20647,9 @@ api_opt_ip_recvtos_udp(InitState) ->
          #{desc => "set tos = reliability on src sock",
            cmd  => fun(#{sock_src := Sock}) ->
                            ok = socket:setopt(Sock,
-					      ip, tos,
-					      #{precedence => routine,
-						tos        => throughput})
+                                              ip, tos,
+                                              #{precedence => routine,
+                                                tos        => throughput})
                    end},
 
          #{desc => "send req (to dst) (w tos = throughput)",
@@ -21247,16 +21247,16 @@ api_opt_ip_tos_udp(InitState) ->
                            end
                    end},
 
-	 %% The default value for TOS is usually 'default', but on FreeBSD...
+         %% The default value for TOS is usually 'default', but on FreeBSD...
          #{desc => "get default tos",
            cmd  => fun(#{sock := Sock, get := Get} = _State) ->
                            case Get(Sock) of
                                {ok, #{native := 0} = Value} ->
                                    ?SEV_IPRINT("expected default tos: ~p",
-					       [Value]),
+                                               [Value]),
                                    ok;
                                {ok, #{tos := #{tos := Value}}} ->
-				   %% On FreeBSD 14 & 15 default value is not 0!
+                                   %% On FreeBSD 14 & 15 default value is not 0!
                                    case os:type() of
                                        {unix, freebsd} ->
                                            case os:version() of
@@ -21286,7 +21286,7 @@ api_opt_ip_tos_udp(InitState) ->
                            end
                    end},
 
-	 %% 'mincost' does not exist on all platforms
+         %% 'mincost' does not exist on all platforms
          %% #{desc => "set tos " ++ TOS1Str,
          %%   cmd  => fun(#{sock := Sock, set := Set} = _State) ->
          %%                   socket:setopt(Sock, otp, debug, true),
