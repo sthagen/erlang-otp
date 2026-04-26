@@ -18,41 +18,35 @@
 ##
 ## %CopyrightEnd%
 
-## This workflow continually scan the master branch to make sure that
-## the correct compiler flags are used when testing Erlang/OTP on github.
-
-name: Open Source Security Foundation
+name: Build Erlang/OTP (build)
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: 0 1 * * *
+  workflow_call:
+    inputs:
+      base_branch:
+        description: "The base branch to build against"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  schedule-scan:
+  build:
+    name: Build Erlang/OTP
     runs-on: ubuntu-latest
-    if: github.repository == 'erlang/otp'
-    permissions:
-      # Required to upload SARIF file to CodeQL.
-      # See: https://github.com/github/codeql-action/issues/2117
-      actions: read
-      # Require writing security events to upload SARIF file to security tab
-      security-events: write
-      # Only need to read contents
-      contents: read
+    strategy:
+      matrix:
+        type: [32-bit,cross-compile,clang]
+      fail-fast: false
+
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:
           persist-credentials: false
-      - name: Create initial pre-release tar
-        run: .github/scripts/init-pre-release.sh otp_src.tar.gz
-      - uses: ./.github/actions/build-base-image
-        with:
-          BASE_BRANCH: master
 
-      - uses: ./.github/actions/ossf-compiler-flags-scanner
+      - name: Build Base Image
+        uses: ./.github/actions/build-base-image
         with:
-            upload: true
+            BASE_BRANCH: ${{ inputs.base_branch }}
+            TYPE: ${{ matrix.type }}
