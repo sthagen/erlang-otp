@@ -37,6 +37,7 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    if: github.repository == 'erlang/otp'
     permissions:
       security-events: write
       id-token: write  # needed to publish to scorecard.dev
