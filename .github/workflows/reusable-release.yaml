@@ -51,7 +51,7 @@ jobs:
       contents:     write   # actions/checkout + gh release create + gh api (read otp_versions.table)
       attestations: write   # actions/attest-sbom (generate signed attestation bundles)
       id-token:     write   # actions/attest-sbom (OIDC token for Sigstore signing)
-      actions:      read    # actions/download-artifact (otp_prebuilt, otp_doc_html, otp_doc_man, ort-results-*)
+      actions:      write   # actions/download-artifact (otp_prebuilt, otp_doc_html, otp_doc_man, ort-results-*)
                             # actions/upload-artifact (Attestations)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
