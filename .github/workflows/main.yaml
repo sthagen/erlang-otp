@@ -75,9 +75,10 @@ jobs:
   pack:
     name: Build Erlang/OTP (64-bit)
     needs: setup
-    uses: ./.github/workflows/reusable-pack.yaml
     permissions:
       contents: read
+      actions: write
+    uses: ./.github/workflows/reusable-pack.yaml
     with:
       base_branch:          ${{ needs.setup.outputs.base_branch }}
       full_build_and_check: ${{ needs.setup.outputs.full_build_and_check }}
@@ -86,6 +87,9 @@ jobs:
   build-macos:
     name: Build Erlang/OTP (macOS)
     needs: pack
+    permissions:
+      contents: read
+      actions:  write
     if: needs.pack.outputs.build-c-code == 'true'
     uses: ./.github/workflows/reusable-build-macos.yaml
     with:
@@ -95,6 +99,9 @@ jobs:
     name: Build Erlang/OTP (iOS)
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
+    permissions:
+      contents: read
+      actions: write
     uses: ./.github/workflows/reusable-build-ios.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -103,6 +110,9 @@ jobs:
     name: Build Erlang/OTP (Windows)
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
+    permissions:
+      contents: read
+      actions:  write
     uses: ./.github/workflows/reusable-build-windows.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -111,6 +121,8 @@ jobs:
     name: Build Erlang/OTP (Types and Flavors)
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-build-flavours.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -140,6 +152,8 @@ jobs:
     name: Build Erlang/OTP
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-build-otp.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -179,6 +193,9 @@ jobs:
     needs:
       - setup
       - pack
+    permissions:
+      contents: read
+      actions:  write
     uses: ./.github/workflows/reusable-documentation.yaml
     secrets:
       TRIGGER_ERLANG_ORG_BUILD: ${{ secrets.TRIGGER_ERLANG_ORG_BUILD }}
@@ -203,6 +220,9 @@ jobs:
     name: Test Erlang/OTP
     needs: pack
     if: needs.pack.outputs.changes != '[]'
+    permissions:
+      contents: read
+      actions:  write
     uses: ./.github/workflows/reusable-test.yaml
     with:
       changes:     ${{ needs.pack.outputs.changes }}
@@ -211,6 +231,9 @@ jobs:
   system-test:
     name: Test Erlang/OTP (system)
     if: ${{ !cancelled() && needs.pack.result == 'success' }} # Run even if the need has failed
+    permissions:
+      contents: read
+      actions:  write
     needs:
       - pack
       - test

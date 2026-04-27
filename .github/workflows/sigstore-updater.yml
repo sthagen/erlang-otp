@@ -36,6 +36,9 @@ on:
     paths:
       - 'vex/*.openvex.json'
 
+permissions:
+  contents: read
+
 jobs:
   update-release-sigstore:
     if: github.event_name == 'release'

@@ -31,11 +31,17 @@ on:
 env:
   BASE_BRANCH: ${{ inputs.base_branch }}
 
+permissions:
+  contents: read
+
 # NOTE: This job should only be executed on the callee with `needs: pack`
 jobs:
   system-test:
     name: Test Erlang/OTP (system)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # actions/checkout + ./.github/actions/build-base-image
+      actions: write   # actions/download-artifact + actions/upload-artifact
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:

@@ -28,6 +28,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 # NOTE: This job should only be executed on the callee with `needs: pack`
 jobs:
   build-windows:
@@ -38,6 +41,9 @@ jobs:
       WXWIDGETS_VERSION: 3.2.6
     name: Build Erlang/OTP (Windows)
     runs-on: windows-2025
+    permissions:
+      contents: read
+      actions:  write
     steps:
       - uses: Vampire/setup-wsl@6a8db447be7ed35f2f499c02c6e60ff77ef11278 # ratchet:Vampire/setup-wsl@v6.0.0
         with:

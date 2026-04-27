@@ -39,6 +39,9 @@ on:
 env:
   OTP_SBOM_VERSION: ${{ inputs.otp_sbom_version }}
 
+permissions:
+  contents: read
+
 jobs:
   release:
     name: Release Erlang/OTP
