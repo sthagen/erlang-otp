@@ -180,6 +180,24 @@ prop_from_ordset() ->
                          gb_sets:from_ordset(ordsets:from_list(L)))
     ).
 
+prop_from_ordset_invalid() ->
+    ?FORALL(
+        L,
+        ?CT_SAFE_LIST(),
+        try
+            gb_sets:from_ordset(L)
+        of
+            _ -> is_usorted(L)
+        catch
+            error:{badarg, not_ordset} -> not is_usorted(L)
+        end
+    ).
+
+is_usorted([E1 | [E2 | _] = More]) ->
+    E1 < E2 andalso is_usorted(More);
+is_usorted([_]) -> true;
+is_usorted([]) -> true.
+
 %% --- insert/2 -------------------------------------------------------
 prop_insert() ->
     ?FORALL(
