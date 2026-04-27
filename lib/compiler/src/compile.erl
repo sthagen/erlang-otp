@@ -852,6 +852,11 @@ value are listed.
   record. It can also be emitted when creating a record if the module
   name for the record is explicitly given as the current module.
 
+- **`nowarn_native_record_header`** - By default, a warning is emitted
+  when a native record is defined in a header file. You can replace a
+  native record definition in a header file with an `-import_record()`
+  directive. Use this option to turn off this kind of warning.
+
 - **`nowarn_unsafe_function`** - Turns off warnings for calls to unsafe
   functions. Default is to emit warnings for every call to a function known by
   the compiler to be unsafe. Notice that the compiler does not know about
