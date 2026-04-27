@@ -107,7 +107,7 @@ void erts_md5_update(erts_md5_state* state, const uint8_t* msg, size_t msg_len)
         }
     }
 
-    while (left > 64) {
+    while (left >= 64) {
         hash_part(part, state);
         left -= 64;
         part += 64;
@@ -115,6 +115,7 @@ void erts_md5_update(erts_md5_state* state, const uint8_t* msg, size_t msg_len)
     }
 
     if (left > 0) {
+        ASSERT(left < 64);
         sys_memcpy(state->buf, part, left);
         state->len = left;
     }
@@ -225,12 +226,7 @@ static size_t pad(const uint8_t* last_part, size_t size, uint8_t pad_buf[],
     const uint64_t tot_bit_size = tot_size * 8;
     uint8_t* pad_ptr = pad_buf;
 
-    if (filled > (64-8)) {
-        zeroes = 2*64 - 8 - filled;
-    }
-    else {
-        zeroes = 64 - 8 - filled;
-    }
+    zeroes = (64 - 8 - filled) & (64 - 1);
 
     sys_memcpy(pad_ptr, last_part, size);
     pad_ptr += size;
