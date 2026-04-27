@@ -54,9 +54,9 @@ jobs:
     name: Create SBOM
     runs-on: ubuntu-latest
     permissions:
-      contents: read       # checkout, cache restore/save
-      actions: write       # upload-artifact
-      packages: read       # docker.io
+      contents: read   # actions/checkout + ./.github/actions/build-base-image + actions/cache restore/save
+      actions: write   # actions/upload-artifact
+      packages: read   # docker.io
     outputs:
       ort_version: ${{ steps.setup-ort-version.outputs.ort_version }}
     steps:
@@ -240,9 +240,9 @@ jobs:
     if: github.repository == 'erlang/otp'
     ## Needed to use Github Dependency API
     permissions:
-      contents: write # required by checkout and dependency submission
-      id-token: write # required by dependency submission
-      actions: read   # required by download artifact
+      contents: write   # actions/checkout + dependency submission API
+      id-token: write   # dependency submission OIDC
+      actions: read     # actions/download-artifact
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:

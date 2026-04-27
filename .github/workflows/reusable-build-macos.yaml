@@ -37,8 +37,8 @@ jobs:
     name: Build Erlang/OTP (macOS)
     runs-on: macos-15
     permissions:
-      contents: read
-      actions:  write
+      contents: read   # actions/checkout + actions/cache (restore/save)
+      actions: write   # actions/download-artifact + actions/upload-artifact
     env:
       WXWIDGETS_VERSION: 3.2.9
       MACOS_VERSION: 15

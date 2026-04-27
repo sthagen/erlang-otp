@@ -42,7 +42,7 @@ jobs:
     name: Build Erlang/OTP (Types and Flavors)
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: read   # actions/checkout + ./.github/actions/build-base-image
     strategy:
       matrix:
         flavor: [jit, emu]

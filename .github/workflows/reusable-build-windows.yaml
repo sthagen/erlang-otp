@@ -42,8 +42,8 @@ jobs:
     name: Build Erlang/OTP (Windows)
     runs-on: windows-2025
     permissions:
-      contents: read
-      actions:  write
+      contents: read   # actions/cache (restore/save wxWidgets cache)
+      actions:  write  # actions/download-artifact + actions/upload-artifact
     steps:
       - uses: Vampire/setup-wsl@6a8db447be7ed35f2f499c02c6e60ff77ef11278 # ratchet:Vampire/setup-wsl@v6.0.0
         with:
