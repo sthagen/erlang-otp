@@ -67,7 +67,7 @@ acosh(_) ->
     erlang:nif_error(undef).
 
 -doc """
-Returns the arc cosine of `X` in radians.
+Returns the arc sine of `X` in radians.
 
 ## Examples
 
