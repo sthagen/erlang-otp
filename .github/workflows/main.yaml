@@ -321,3 +321,50 @@ jobs:
           persist-credentials: false
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # ratchet:zizmorcore/zizmor-action@v0.5.2
+
+  # This job checks that the most important jobs are successful.
+  # the use of conditionals, e.g., `if:` at the job level makes
+  # the jobs included in the GH Settngs Ruleset to fail.
+  # Instead of removing those jobs from being tested or letting
+  # them fail, the script below marks as OK a skipped job.
+  # a failed job is a failure, and an success job is success.
+  ruleset-checker:
+    name: Ruleset Checker
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - pack
+      - build-macos
+      - build-ios
+      - build-windows
+      - build-flavors
+      - build
+      - freebsd
+      - openbsd
+      - solaris
+      - documentation
+      - static
+      - test
+      - system-test
+      - sbom
+      - zizmor
+    steps:
+      - name: Check Ruleset Results
+        shell: bash
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          failed=false
+          while IFS= read -r entry; do
+            name=$(echo "$entry"   | jq -r '.[0]')
+            result=$(echo "$entry" | jq -r '.[1]')
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              echo "❌ Job '$name' was: $result"
+              failed=true
+            else
+              echo "✅ Job '$name' was: $result"
+            fi
+          done < <(echo "$RESULTS" | jq -c 'to_entries[] | [.key, .value.result]')
+          if [[ "$failed" == "true" ]]; then
+            exit 1
+          fi
