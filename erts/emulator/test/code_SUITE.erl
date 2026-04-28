@@ -412,7 +412,13 @@ many_purges(Config) when is_list(Config) ->
 
     ct:log("Process count: ~p~n", [erlang:system_info(process_count)]),
 
-    many_purges_test(File, Code, 1000),
+    Rounds1 = case erlang:system_info(emu_type) of
+                 debug -> 100;
+                 valgrind -> 100;
+                 _ -> 1000
+             end,
+
+    many_purges_test(File, Code, Rounds1),
 
     Rand = fun Rand() ->
                    _ = lists:seq(1, rand:uniform(100)),
@@ -423,13 +429,17 @@ many_purges(Config) when is_list(Config) ->
 
     ct:log("Process count: ~p~n", [erlang:system_info(process_count)]),
 
-    many_purges_test(File, Code, 1000),
+    many_purges_test(File, Code, Rounds1),
 
+    Rounds2 = case erlang:system_info(schedulers_online) of
+                  1 ->
+                      Rounds1 div 50;
+                  _ ->
+                      Rounds1
+              end,
     Ps1 = lists:map(fun (_) -> spawn(Rand) end, lists:seq(1, 1000)),
-
     ct:log("Process count: ~p~n", [erlang:system_info(process_count)]),
-
-    many_purges_test(File, Code, 1000),
+    many_purges_test(File, Code, Rounds2),
 
     Ps = Ps0 ++ Ps1,
 
