@@ -329,7 +329,7 @@ new_1(_Options, _Size, _Fixed, _Default) ->
     erlang:error(badarg).
 
 new(Size, Fixed, Default) ->
-    S = find_bits(Size - 1, ?SHIFT),
+    S = find_bits(Size - 1, 0),
     C = ?NEW_CACHE(Default),
     #array{size = Size, zero = 0, fix = Fixed, cache = C, cache_index = 0,
            default = Default, elements = ?EMPTY, bits = S}.
@@ -480,6 +480,30 @@ relax(#array{size = N}=A) when is_integer(N), N >= 0 ->
 
 
 -doc """
+Changes the array size to that reported by `sparse_size/1`.
+
+If the specified array has fixed size, the resulting array also has
+fixed size.
+
+## Examples
+
+```erlang
+1> A = array:set(1, x, array:new(4, [])).
+2> array:size(A).
+4
+3> array:size(array:resize(A)).
+2
+```
+
+See also `resize/2`, `sparse_size/1`.
+""".
+-spec resize(Array :: array(Type)) -> array(Type).
+
+resize(Array) ->
+    %% eqwalizer:ignore ambiguous_union
+    resize(sparse_size(Array), Array).
+
+-doc """
 Change the array size.
 
 If `Size` is not a non-negative integer, the call fails with reason `badarg`. If
@@ -507,91 +531,117 @@ resize(Size, #array{size = N, zero = Z, cache = C, cache_index = CI, elements = 
   when is_integer(Size), Size >= 0, is_integer(N), N >= 0,
        is_integer(CI), is_integer(S) ->
     if Size > N ->
-            {E1, S1} = grow(Z + Size-1, E, S),
-	    A#array{size = Size, elements = E1, bits = S1};
-       Size < N ->
+            case Z > 0 of
+                true ->
+                    E1 = set_leaf(CI, S, E, C),
+                    %% Reset everything left of Z and maybe shrink tree
+                    {E2, Z2, S2} = shrink(Z, N, S, E1, D),
+                    {E3, S3} = grow(Z2 + Size-1, E2, S2),
+                    CI1 = 0,
+                    C1 = get_leaf(CI1, S3, E3, D),
+                    A#array{size = Size, zero = Z2, elements = E3, cache = C1, cache_index = CI1, bits = S3};
+                false ->
+                    {E1, S1} = grow(Z + Size-1, E, S),
+                    A#array{size = Size, elements = E1, bits = S1}
+            end;
+       Size < N; Z > 0 ->
             E1 = set_leaf(CI, S, E, C),
-            {E2, S1} = shrink(Z + Size-1, S, E1, D),
+            {E2, Z2, S1} = shrink(Z, Size, S, E1, D),
             CI1 = 0,
             C1 = get_leaf(CI1, S1, E2, D),
-	    A#array{size = Size, elements = E2, cache = C1, cache_index = CI1, bits = S1};
+            A#array{size = Size, zero = Z2, elements = E2, cache = C1, cache_index = CI1, bits = S1};
        true ->
-	    A
+            A
     end;
 resize(_Size, _) ->
     erlang:error(badarg).
 
 %% like grow(), but only used when explicitly resizing down
-shrink(I, _S, _E, _D) when I < 0 ->
-    S = find_bits(I, ?SHIFT),
+shrink(0, 0, _S, _E, _D) ->
+    {?EMPTY, 0, 0};
+shrink(Z, Size, S, E, D) when Z > 0 ->
+    shrink_left(Z, Size-1, S, E, D);
+shrink(0, Size, S, E, D) ->
+    shrink_right(Size-1, S, E, D, 0).
+
+shrink_left(_Z, Max, _S, ?EMPTY, _D) ->
+    S = find_bits(Max, 0),
+    {?EMPTY, 0, S};
+shrink_left(Z, Max, 0, E, D) ->
+    shrink_right(Z+Max, 0, prune_left(E, Z, D), D, Z);
+shrink_left(Z0, Max, S, E, D) when (Z0 bsr S) =:= ((Z0+Max) bsr S) ->
+    I1 = (Z0 bsr S) + 1,
+    Z = Z0 band ?MASK(S),
+    shrink_left(Z, Max, ?reduce(S), element(I1, E), D);
+shrink_left(Z0, Max, S, E, D) ->
+    {E1, S1} = shrink_left_2(Z0, S, E, D),
+    shrink_right(Z0+Max, S1, E1, D, Z0).
+
+shrink_left_2(_Z, S, ?EMPTY, _D) ->
     {?EMPTY, S};
-shrink(I, S, E, D) ->
-    shrink_1(I, S, E, D).
+shrink_left_2(Z, 0, E, D) ->
+    {prune_left(E, Z, D), 0};
+shrink_left_2(Z0, S, E, D) ->
+    IDiv = Z0 bsr S,
+    IRem = Z0 band ?MASK(S),
+    E1 = prune_left(E, IDiv, ?EMPTY),
+    I = IDiv + 1,
+    {E2, _} = shrink_left_2(IRem, ?reduce(S), element(I, E1), D),
+    {setelement(I, E1, E2), S}.
 
 %% I is the largest index, 0 or more (empty arrays handled above).
 %% This first discards any unnecessary tuples from the top
-shrink_1(I, _S, ?EMPTY, _D) ->
-    S = find_bits(I, ?SHIFT),
-    {?EMPTY, S};
-shrink_1(I, 0, E, D) ->
-    {prune(E, I, D), 0};
-shrink_1(I, S, E, D) when I < ?SIZE(S) ->
-    shrink_1(I, ?reduce(S), element(1, E), D);
-shrink_1(I, S, E, D) ->
-    shrink_2(I, S, E, D).
+shrink_right(I, _S, ?EMPTY, _D, Z) ->
+    S = find_bits(I, 0),
+    {?EMPTY, Z, S};
+shrink_right(I, 0, E, D, Z) ->
+    {prune_right(E, I, D), Z, 0};
+shrink_right(I, S, E, D, Z) when I < ?SIZE(S) ->
+    shrink_right(I, ?reduce(S), element(1, E), D, Z);
+shrink_right(I, S, E, D, Z) ->
+    shrink_right_2(I, S, E, D, Z).
 
 %% Here we have at least one top tuple that should be kept
 %% and we must not discard any intermediate levels
-shrink_2(_I, S, ?EMPTY, _D) ->
-    {?EMPTY, S};
-shrink_2(I, 0, E, D) ->
-    {prune(E, I, D), 0};
-shrink_2(I, S, E, D) ->
+shrink_right_2(_I, S, ?EMPTY, _D, Z) ->
+    {?EMPTY, Z, S};
+shrink_right_2(I, 0, E, D, Z) ->
+    {prune_right(E, I, D), Z, 0};
+shrink_right_2(I, S, E, D, Z) ->
     IDiv = I bsr S,
     IRem = I band ?MASK(S),
-    E1 = prune(E, IDiv, ?EMPTY),
+    E1 = prune_right(E, IDiv, ?EMPTY),
     I1 = IDiv + 1,
-    {E2,_} = shrink_2(IRem, ?reduce(S), element(I1, E1), D),
-    {setelement(I1, E1, E2), S}.
+    {E2, _, _} = shrink_right_2(IRem, ?reduce(S), element(I1, E1), D, Z),
+    {setelement(I1, E1, E2), Z, S}.
 
-prune(E, N, D) when is_tuple(E) ->
+prune_right(E, N, D) when is_tuple(E) ->
     if N < tuple_size(E) - 1 ->
-            list_to_tuple(prune(0, N, D, tuple_to_list(E)));
+            list_to_tuple(prune_right(0, N, D, tuple_to_list(E)));
        true ->
             E
     end.
 
-prune(I, N, D, [E|Es]) when I =< N ->
-    [E | prune(I+1, N, D, Es)];
-prune(I, N, D, [_|Es]) ->
-    [D | prune(I+1, N, D, Es)];
-prune(_I, _N, _D, []) ->
+prune_right(I, N, D, [E|Es]) when I =< N ->
+    [E | prune_right(I+1, N, D, Es)];
+prune_right(I, N, D, [_|Es]) ->
+    [D | prune_right(I+1, N, D, Es)];
+prune_right(_I, _N, _D, []) ->
     [].
 
+prune_left(E, N, D) when is_tuple(E) ->
+    if 0 < N ->
+            list_to_tuple(prune_left(0, N, D, tuple_to_list(E)));
+       true ->
+            E
+    end.
 
--doc """
-Changes the array size to that reported by `sparse_size/1`.
-
-If the specified array has fixed size, the resulting array also has
-fixed size.
-
-## Examples
-
-```erlang
-1> A = array:set(1, x, array:new(4, [])).
-2> array:size(A).
-4
-3> array:size(array:resize(A)).
-2
-```
-
-See also `resize/2`, `sparse_size/1`.
-""".
--spec resize(Array :: array(Type)) -> array(Type).
-
-resize(Array) ->
-    %% eqwalizer:ignore ambiguous_union
-    resize(sparse_size(Array), Array).
+prune_left(I, N, D, [_|Es]) when I < N ->
+    [D | prune_left(I+1, N, D, Es)];
+prune_left(I, N, D, [E|Es]) ->
+    [E | prune_left(I+1, N, D, Es)];
+prune_left(_I, _N, _D, []) ->
+    [].
 
 
 -doc """

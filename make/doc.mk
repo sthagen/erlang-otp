@@ -42,7 +42,7 @@ APP_EBIN_DIR = $(APP_DIR)/ebin
 # FLAGS
 # ----------------------------------------------------
 ifeq ($(EPUB), false)
-EX_DOC_FORMATS=-f html -f markdown
+EX_DOC_FORMATS=$(shell $(ERL_TOP)/make/get_ex_doc_formats_no_epub.sh)
 else
 EX_DOC_FORMATS=
 endif
@@ -111,7 +111,15 @@ DOC_TARGETS?=$(DEFAULT_DOC_TARGETS)
 
 EX_DOC_WARNINGS_AS_ERRORS?=default
 
-docs: $(DOC_TARGETS)
+check_ex_doc:
+	$(ERL_TOP)/make/check_ex_doc
+
+# If html is in $(DOC_TARGETS) wait for user's answer whether to download ex_doc
+# before processing other targets in parallel (if parallel make is enabled).
+# That could cause the question to be lost in earlier shell output because of printouts
+# from other $(DOC_TARGETS).
+docs: $(if $(filter html,$(DOC_TARGETS)),check_ex_doc)
+	$(MAKE) $(DOC_TARGETS)
 
 chunks:
 

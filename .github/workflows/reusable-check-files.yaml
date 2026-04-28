@@ -52,6 +52,8 @@ jobs:
   check-files:
     name: Check modified files for errors
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # actions/checkout (fetch-depth: 0) + git diff (whitespace + BEAM detection)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:
