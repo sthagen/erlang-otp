@@ -60,6 +60,8 @@ permissions:
 jobs:
   check-files:
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-check-files.yaml
     with:
       pr_base_sha:  ${{ github.event.pull_request.base.sha }}
@@ -75,9 +77,10 @@ jobs:
   pack:
     name: Build Erlang/OTP (64-bit)
     needs: setup
-    uses: ./.github/workflows/reusable-pack.yaml
     permissions:
       contents: read
+      actions: write
+    uses: ./.github/workflows/reusable-pack.yaml
     with:
       base_branch:          ${{ needs.setup.outputs.base_branch }}
       full_build_and_check: ${{ needs.setup.outputs.full_build_and_check }}
@@ -86,6 +89,9 @@ jobs:
   build-macos:
     name: Build Erlang/OTP (macOS)
     needs: pack
+    permissions:
+      contents: read
+      actions:  write
     if: needs.pack.outputs.build-c-code == 'true'
     uses: ./.github/workflows/reusable-build-macos.yaml
     with:
@@ -95,6 +101,9 @@ jobs:
     name: Build Erlang/OTP (iOS)
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
+    permissions:
+      contents: read
+      actions: write
     uses: ./.github/workflows/reusable-build-ios.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -103,6 +112,9 @@ jobs:
     name: Build Erlang/OTP (Windows)
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
+    permissions:
+      contents: read
+      actions:  write
     uses: ./.github/workflows/reusable-build-windows.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -111,6 +123,8 @@ jobs:
     name: Build Erlang/OTP (Types and Flavors)
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-build-flavours.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -121,8 +135,9 @@ jobs:
     needs: pack
     if: ${{ github.event_name == 'pull_request' && github.repository == 'erlang/otp'}}
     permissions:
-      actions: read
       contents: read
+      actions: write
+      issues: write
     name: Vendor Vulnerability Scanning
     # This is an internal and trusted workflow.
     uses: ./.github/workflows/reusable-vendor-vulnerability-scanner.yml # zizmor: ignore[secrets-inherit]
@@ -140,6 +155,8 @@ jobs:
     name: Build Erlang/OTP
     needs: pack
     if: needs.pack.outputs.build-c-code == 'true'
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-build-otp.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -149,6 +166,7 @@ jobs:
     needs: pack
     permissions:
       contents: read
+      actions: read
     if: needs.pack.outputs.build-c-code == 'true'
     uses: ./.github/workflows/reusable-freebsd.yaml
     with:
@@ -160,6 +178,7 @@ jobs:
     if: needs.pack.outputs.build-c-code == 'true'
     permissions:
       contents: read
+      actions: read
     uses: ./.github/workflows/reusable-openbsd.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -170,6 +189,7 @@ jobs:
     if: needs.pack.outputs.build-c-code == 'true' && false # Temporarily disable Solaris build as the VM image is currently broken
     permissions:
       contents: read
+      actions: read
     uses: ./.github/workflows/reusable-solaris.yaml
     with:
       base_branch: ${{ needs.pack.outputs.base_branch }}
@@ -179,6 +199,9 @@ jobs:
     needs:
       - setup
       - pack
+    permissions:
+      contents: read
+      actions:  write
     uses: ./.github/workflows/reusable-documentation.yaml
     secrets:
       TRIGGER_ERLANG_ORG_BUILD: ${{ secrets.TRIGGER_ERLANG_ORG_BUILD }}
@@ -203,6 +226,9 @@ jobs:
     name: Test Erlang/OTP
     needs: pack
     if: needs.pack.outputs.changes != '[]'
+    permissions:
+      contents: read
+      actions:  write
     uses: ./.github/workflows/reusable-test.yaml
     with:
       changes:     ${{ needs.pack.outputs.changes }}
@@ -211,6 +237,9 @@ jobs:
   system-test:
     name: Test Erlang/OTP (system)
     if: ${{ !cancelled() && needs.pack.result == 'success' }} # Run even if the need has failed
+    permissions:
+      contents: read
+      actions:  write
     needs:
       - pack
       - test
@@ -237,7 +266,7 @@ jobs:
     uses: ./.github/workflows/reusable-sbom.yaml
     permissions:
       contents: write
-      actions:  read
+      actions:  write
       packages: read
       id-token: write
     with:
@@ -257,6 +286,7 @@ jobs:
       contents:     write
       attestations: write
       id-token:     write
+      actions:      write
     if: startsWith(github.ref, 'refs/tags/OTP-') && github.repository == 'erlang/otp'
     uses: ./.github/workflows/reusable-release.yaml
     with:

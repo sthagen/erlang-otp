@@ -34,11 +34,17 @@ on:
 env:
   BASE_BRANCH: ${{ inputs.base_branch }}
 
+permissions:
+  contents: read
+
 # NOTE: This job should only be executed on the callee with `needs: pack`
 jobs:
   test:
     name: Test Erlang/OTP
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # actions/checkout + ./.github/actions/build-base-image
+      actions:  write  # actions/upload-artifact
     strategy:
       matrix:
         # type: ${{ fromJson(needs.pack.outputs.all) }}

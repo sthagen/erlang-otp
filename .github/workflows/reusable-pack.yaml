@@ -45,10 +45,16 @@ on:
       base_branch:
         value: ${{ inputs.base_branch }}
 
+permissions:
+  contents: read
+
 jobs:
   pack:
     name: Build Erlang/OTP (64-bit)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # actions/checkout + actions/cache (read/write cache)
+      actions: write   # actions/upload-artifact
     if: github.repository == 'erlang/otp' || github.event_name != 'schedule' || inputs.bypass_erlang_repo
     outputs:
       changes:      ${{ steps.changes.outputs.changes }}

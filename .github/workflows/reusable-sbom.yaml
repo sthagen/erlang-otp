@@ -46,10 +46,17 @@ env:
   OTP_SBOM_VERSION: ${{ inputs.otp_sbom_version }}
   SCAN_RESULT_CACHE_PATH: .ort/scan-result.json
 
+permissions:
+  contents: read
+
 jobs:
   create-sbom:
     name: Create SBOM
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # actions/checkout + ./.github/actions/build-base-image + actions/cache restore/save
+      actions: write   # actions/upload-artifact
+      packages: read   # docker.io
     outputs:
       ort_version: ${{ steps.setup-ort-version.outputs.ort_version }}
     steps:
@@ -59,6 +66,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:
           persist-credentials: false
+
       - uses: ./.github/actions/build-base-image
         with:
           BASE_BRANCH: ${{ inputs.base_branch }}
@@ -232,8 +240,9 @@ jobs:
     if: github.repository == 'erlang/otp'
     ## Needed to use Github Dependency API
     permissions:
-      contents: write
-      id-token: write
+      contents: write   # actions/checkout + dependency submission API
+      id-token: write   # dependency submission OIDC
+      actions: read     # actions/download-artifact
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
         with:

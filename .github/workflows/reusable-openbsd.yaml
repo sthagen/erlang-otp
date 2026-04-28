@@ -36,6 +36,8 @@ jobs:
   openbsd:
     name: Build Erlang/OTP (OpenBSD)
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
     steps:
       - name: Download source archive
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0

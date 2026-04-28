@@ -35,6 +35,8 @@ jobs:
   build:
     name: Build Erlang/OTP
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # actions/checkout + ./.github/actions/build-base-image
     strategy:
       matrix:
         type: [32-bit,cross-compile,clang]
