@@ -457,10 +457,15 @@ md5_1(BIF_ALIST_1)
     Eterm bin, rest;
     int res, err;
     erts_md5_state context;
+    Sint32 reds;
 
     erts_md5_init(&context);
 
-    rest = do_chksum(&md5_wrap,BIF_P,BIF_ARG_1,100,(void *) &context,&res,
+    /* Calibrate so that each reduction will do one round of MD5
+     * calculation (process 4 bytes). Round down to a multiple of 64
+     * bytes to avoid unnecessary copying to/from the state buffer. */
+    reds = (4 * ERTS_BIF_REDS_LEFT(BIF_P)) & ~0x3f;
+    rest = do_chksum(&md5_wrap,BIF_P,BIF_ARG_1,reds,(void *) &context,&res,
                      &err);
 
     if (err != 0) {
@@ -494,6 +499,7 @@ md5_2(BIF_ALIST_2)
     Eterm rest;
     Eterm bin;
     int res, err;
+    Sint32 reds;
 
     /* No need to check context, this function cannot be called with unaligned
      * or badly sized context as it's always trapped to. */
@@ -504,7 +510,8 @@ md5_2(BIF_ALIST_2)
     (void)size;
 
     sys_memcpy(&context, bytes, sizeof(erts_md5_state));
-    rest = do_chksum(&md5_wrap, BIF_P, BIF_ARG_2, 100, (void*)&context, &res,
+    reds = (4 * ERTS_BIF_REDS_LEFT(BIF_P)) & ~0x3f;
+    rest = do_chksum(&md5_wrap, BIF_P, BIF_ARG_2, reds, (void*)&context, &res,
                      &err);
 
     if (err != 0) {
@@ -549,6 +556,7 @@ md5_update_2(BIF_ALIST_2)
     Eterm bin;
     int res, err;
     Uint size;
+    Sint32 reds;
 
     bytes = erts_get_aligned_binary_bytes(BIF_ARG_1, &size, &temp_alloc);
     if (bytes == NULL || size != sizeof(erts_md5_state)) {
@@ -560,7 +568,8 @@ md5_update_2(BIF_ALIST_2)
 
     erts_free_aligned_binary_bytes(temp_alloc);
 
-    rest = do_chksum(&md5_wrap, BIF_P, BIF_ARG_2, 100, (void *)context, &res,
+    reds = (4 * ERTS_BIF_REDS_LEFT(BIF_P)) & ~0x3f;
+    rest = do_chksum(&md5_wrap, BIF_P, BIF_ARG_2, reds, (void *)context, &res,
                      &err);
 
     if (err != 0) {
