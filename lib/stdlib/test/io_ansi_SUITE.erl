@@ -270,6 +270,7 @@ doctests(Config) ->
             {function,alternate_screen,0},
             {function,background,1},
             {function,color,1},
+            {function,render,2},
             {function,cursor_horizontal_absolute,1},
             {function,cursor_vertical_absolute,1},
             {function,format,3},
