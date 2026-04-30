@@ -55,7 +55,7 @@ option can be set.
 
 > #### Note {: .info }
 >
-> The functions are _Callbacks_ for the SSH app. They are not intended to be
+> The functions are _Callbacks_ for the SSH application. They are not intended to be
 > called from the user's code\!
 """.
 -moduledoc(#{since => "OTP 23.0"}).

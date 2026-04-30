@@ -49,16 +49,17 @@ Conceptually, the SSH protocol can be partitioned into four layers:
 
 ```mermaid
 ---
-title: SSH Protocol Architecture
+title: SSH Protocol Architecture (RFC 4251)
 ---
 
 block-beta
-    columns 2
+    columns 4
 
-    l1["SSH Client/Server Applications"]:2
-    l2a["Connection Protocol"] l2b["Authentication Protocol"]
-    l3["Transport Protocol"]:2
-    l4["TCP/IP Stack"]:2
+    Shell Exec SFTP Custom
+    l1["Connection / Channels\n(RFC 4254)"]:4
+    l2["Authentication\n(RFC 4252)"]:4
+    l3["Transport\n(RFC 4253)"]:4
+    l4["TCP/IP"]:4
 ```
 
 ### Transport Protocol

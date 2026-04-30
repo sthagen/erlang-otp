@@ -21,8 +21,6 @@ limitations under the License.
 -->
 # Hardening
 
-## Introduction
-
 The Erlang/OTP SSH application is intended to be used in other applications as a
 library.
 
@@ -37,14 +35,16 @@ one may accept many users simultaneously logged in, while the second one wants
 to limit them to only one.
 
 That simple example shows that it is impossible to deliver the SSH application
-with default values on hardening options as well on other options that suites
+with default values on hardening options as well on other options that suit
 every need.
 
 The purpose of this guide is to discuss the different hardening options
 available, as a guide to the reader. Configuration in general is described in
 the [Configuration in SSH](configurations.md) chapter.
 
-## Resilience to DoS attacks
+## DoS Resilience (Server)
+
+[](){: #resilience-to-dos-attacks }
 
 The following applies to daemons (servers).
 
@@ -53,7 +53,7 @@ firewalls and other means needed, but that is out of scope for this guide.
 However, some measures could be taken in the configuration of the SSH server to
 increase the resilence. The options to use are:
 
-### Counters and parallelism
+### Counters and Parallelism
 
 - **[max_sessions](`m:ssh#hardening_daemon_options-max_sessions`)** - The
   maximum number of simultaneous sessions that are accepted at any time for this
@@ -114,7 +114,7 @@ The following table clarifies when a timeout is started and when it triggers:
 | 8 | Channel *x_n* closed (all channels closed) | `idle_time` | |
 | 9 | Connection closed | | `idle_time` |
 
-### Resilience to compression-based attacks
+### Compression
 
 SSH supports compression of the data stream.
 
@@ -135,15 +135,63 @@ compression-based side-channel and traffic-analysis attacks.
 In both algorithms decompression is protected by a size limit that prevents
 excessive memory consumption.
 
-### SFTP Server Resource Limits
+## Reducing Attack Surface
+
+### Shell and Exec Services
+
+A daemon has two services for evaluating tasks on behalf of a remote client. The
+_exec_ server-side service takes a string provided by the client, evaluates it
+and returns the result. The _shell_ function enables the client to open a shell
+in the shell host.
+
+The options [exec](`t:ssh:exec_daemon_option/0`) and
+[shell](`t:ssh:shell_daemon_option/0`) are disabled per default.
+The same options could also install handlers for
+the string(s) passed from the client to the server.
+
+### SFTP Subsystem
+
+The SFTP subsystem is not enabled by default. When enabled, SFTP provides
+access to the file system with the rights of the OS process running the
+Erlang emulator, regardless of the authenticated SSH user. See the
+[Terminology](terminology.md) section for details.
+
+The [subsystems](`t:ssh:subsystem_daemon_option/0`) option controls which
+subsystems are available. To enable SFTP:
+
+```erlang
+ssh:daemon({192, 168, 1, 10}, Port,
+           [{subsystems, [ssh_sftpd:subsystem_spec([])]} | Options]).
+```
+
+**Root directory isolation**
+
+The `root` option (see `m:ssh_sftpd`) restricts SFTP users to a
+specific directory tree, preventing access to files outside that directory.
+
+```erlang
+ssh:daemon(Port, [
+    {subsystems, [ssh_sftpd:subsystem_spec([{root, "/home/sftpuser"}])]},
+    ...
+]).
+```
+
+The `root` option is configured per daemon, not per user. All
+users connecting to the same daemon share the same root directory. For per-user
+isolation, consider running separate daemon instances on different ports or
+using OS-level mechanisms (PAM chroot, containers, file permissions).
+
+For high-security deployments, combine the `root` option
+with OS-level isolation mechanisms such as chroot jails, containers, or
+mandatory access control (SELinux, AppArmor).
+
+**Resource limits**
 
 When enabling the SFTP subsystem via `ssh_sftpd:subsystem_spec/1`, additional
 resource limits can be configured to protect against resource exhaustion attacks:
 
-#### max_handles
-
-Limits the maximum number of file and directory handles that can be opened
-simultaneously per SFTP connection. The default is 1000.
+`max_handles` limits the maximum number of file and directory handles that can
+be opened simultaneously per SFTP connection. The default is 1000.
 
 Recommended values by deployment type:
 
@@ -163,10 +211,8 @@ Recommended values by deployment type:
   - Parallel file operations
   - Monitor actual usage before increasing
 
-#### max_path
-
-Limits the maximum path length accepted from SFTP clients. The default is
-4096 bytes.
+`max_path` limits the maximum path length accepted from SFTP clients. The
+default is 4096 bytes.
 
 Recommended values:
 
@@ -180,10 +226,8 @@ Recommended values:
   - Additional defense layer
   - Verify compatibility first
 
-#### max_files
-
-Limits the number of filenames returned per READDIR request. The default is
-0 (unlimited).
+`max_files` limits the number of filenames returned per READDIR request. The
+default is 0 (unlimited).
 
 This option prevents memory exhaustion from large directory listings. Unlike
 max_handles and max_path, this is primarily a performance/memory protection
@@ -203,7 +247,7 @@ Recommended values:
   - Embedded systems
   - Resource-limited containers
 
-#### Example Configuration
+**Example configuration**
 
 ```erlang
 ssh:daemon(Port, [
@@ -222,124 +266,7 @@ ssh:daemon(Port, [
 
 See `m:ssh_sftpd` for complete documentation of subsystem options.
 
-## Verifying the remote daemon (server) in an SSH client
-
-Every SSH server presents a public key - the _host key_ \- to the client while
-keeping the corresponding private key in relatively safe privacy.
-
-The client checks that the host that presented the public key also possesses the
-private key of the key-pair. That check is part of the SSH protocol.
-
-But how can the client know that the host _really_ is the one that it tried to
-connect to and not an evil one impersonating the expected one using its own
-valid key-pair? There are two alternatives available with the default key
-handling plugin `m:ssh_file`. The alternatives are:
-
-- **Pre-store the host key** - For the default handler ssh_file, store the
-  valid host keys in the file [`known_hosts`](`m:ssh_file#FILE-known_hosts`) and
-  set the option
-  [silently_accept_hosts](`m:ssh#hardening_client_options-silently_accept_hosts`)
-  to `false`. Alternatively, write a specialized key handler using the
-  [SSH client key API](`m:ssh_client_key_api`) that accesses the pre-shared
-  key in some other way.
-
-- **Pre-store the "fingerprint" (checksum) of the host key** - Use
-  [silently_accept_hosts](`m:ssh#hardening_client_options-silently_accept_hosts`)
-  with a callback: [`accept_callback()`](`t:ssh:accept_callback/0`)
-  or [`{HashAlgoSpec, accept_callback()}`](`t:ssh:accept_hosts/0`).
-
-## Verifying the remote client in a daemon (server)
-
-- **Password checking** - The default password checking is with the list in the
-  [user_passwords](`m:ssh#option-user_passwords`) option in the SSH daemon. It
-  could be replaced with a [pwdfun](`m:ssh#option-pwdfun`) plugin. The arity
-  four variant ([`pwdfun_4()`](`t:ssh:pwdfun_4/0`)) can also be used for
-  introducing delays after failed password checking attempts. Here is a simple
-  example of such a pwdfun:
-
-  ```erlang
-  fun(User, Password, _PeerAddress, State) ->
-          case lists:member({User,Password}, my_user_pwds()) of
-              true ->
-                  {true, undefined}; % Reset delay time
-              false when State == undefined ->
-                  timer:sleep(1000),
-                  {false, 2000}; % Next delay is 2000 ms
-              false when is_integer(State) ->
-                  timer:sleep(State),
-                  {false, 2*State} % Double the delay for each failure
-          end
-  end.
-  ```
-
-  If a public key is used for logging in, there is normally no checking of the
-  user name. It could be enabled by setting the option
-  [`pk_check_user`](`m:ssh#option-pk_check_user`) to `true`. In that case the
-  pwdfun will get the atom `pubkey` in the password argument.
-
-## Hardening in the cryptographic area
-
-### Algorithm selection
-
-One of the cornerstones of security in SSH is cryptography. The development in
-crypto analysis is fast, and yesterday's secure algorithms are unsafe today.
-Therefore some algorithms are no longer enabled by default and that group grows
-with time. See the
-[SSH (App)](ssh_app.md#supported-specifications-and-standards) for a list of
-supported and of disabled algorithms. In the User's Guide the chapter
-[Configuring algorithms in SSH](configure_algos.md) describes the options for
-enabling or disabling algorithms -
-[preferred_algorithms](`t:ssh:preferred_algorithms_common_option/0`) and
-[modify_algorithms](`t:ssh:modify_algorithms_common_option/0`).
-
-### Re-keying
-
-In the setup of the SSH connection a secret cipher key is generated by
-co-operation of the client and the server. Keeping this key secret is crucial
-for keeping the communication secret. As time passes and encrypted messages are
-exchanged, the probability that a listener could guess that key increases.
-
-The SSH protocol therefore has a special operation defined - _key
-re-negotiation_ or _re-keying_. Any side (client or server) could initiate the
-re-keying and the result is a new cipher key. The result is that the
-eves-dropper has to restart its evil and dirty craftmanship.
-
-See the option [rekey_limit](`t:ssh:rekey_limit_common_option/0`) for a
-description.
-
-## Hardening of the SSH protocol - both daemons and clients
-
-### Disabling shell and exec in a daemon
-
-A daemon has two services for evaluating tasks on behalf of a remote client. The
-_exec_ server-side service takes a string provided by the client, evaluates it
-and returns the result. The _shell_ function enables the client to open a shell
-in the shell host.
-
-The options [exec](`t:ssh:exec_daemon_option/0`) and
-[shell](`t:ssh:shell_daemon_option/0`) are disabled per default.
-The same options could also install handlers for
-the string(s) passed from the client to the server.
-
-### Enabling the SFTP subsystem
-
-The SFTP subsystem is not enabled by default. When enabled, SFTP provides
-access to the file system with the rights of the OS process running the
-Erlang emulator, regardless of the authenticated SSH user. See the
-[Terminology](terminology.md) section for details.
-
-The [subsystems](`t:ssh:subsystem_daemon_option/0`) option controls which
-subsystems are available. To enable SFTP:
-
-```erlang
-ssh:daemon({192, 168, 1, 10}, Port,
-           [{subsystems, [ssh_sftpd:subsystem_spec([])]} | Options]).
-```
-
-Use the `root` option to restrict SFTP users to a specific directory
-tree (see [Root Directory Isolation](#root-directory-isolation) below).
-
-### The id string
+### The ID String
 
 One way to reduce the risk of intrusion is to not convey which software and
 which version the intruder is connected to. This limits the risk of an intruder
@@ -376,7 +303,100 @@ It is possible to replace the string with one randomly generated for each
 connection attempt. See the reference manual for
 [id_string](`t:ssh:id_string_common_option/0`).
 
-## Client connection options
+## Cryptographic Hardening
+
+### Algorithm Selection
+
+One of the cornerstones of security in SSH is cryptography. The development in
+crypto analysis is fast, and yesterday's secure algorithms are unsafe today.
+Therefore some algorithms are no longer enabled by default and that group grows
+with time. See the
+[SSH (App)](ssh_app.md#supported-specifications-and-standards) for a list of
+supported and disabled algorithms. In the User's Guide the chapter
+[Configuring algorithms in SSH](configure_algos.md) describes the options for
+enabling or disabling algorithms -
+[preferred_algorithms](`t:ssh:preferred_algorithms_common_option/0`) and
+[modify_algorithms](`t:ssh:modify_algorithms_common_option/0`).
+
+### Post-Quantum Key Exchange
+
+The `mlkem768x25519-sha256` algorithm provides quantum-resistant key
+exchange using a hybrid construction that combines ML-KEM-768 (NIST
+FIPS 203) with X25519. When the underlying crypto library supports
+ML-KEM, this algorithm is negotiated by default as the highest-priority
+key exchange method. No configuration is needed to enable it.
+
+### Re-Keying
+
+In the setup of the SSH connection a secret cipher key is generated by
+co-operation of the client and the server. Keeping this key secret is crucial
+for keeping the communication secret. As time passes and encrypted messages are
+exchanged, the probability that a listener could guess that key increases.
+
+The SSH protocol therefore has a special operation defined - _key
+re-negotiation_ or _re-keying_. Any side (client or server) could initiate the
+re-keying and the result is a new cipher key. The result is that the
+eavesdropper has to restart its evil and dirty craftsmanship.
+
+See the option [rekey_limit](`t:ssh:rekey_limit_common_option/0`) for a
+description.
+
+## Verifying the Remote Daemon (Server) in an SSH Client
+
+Every SSH server presents a public key - the _host key_ \- to the client while
+keeping the corresponding private key in relatively safe privacy.
+
+The client checks that the host that presented the public key also possesses the
+private key of the key-pair. That check is part of the SSH protocol.
+
+But how can the client know that the host _really_ is the one that it tried to
+connect to and not an evil one impersonating the expected one using its own
+valid key-pair? There are two alternatives available with the default key
+handling plugin `m:ssh_file`. The alternatives are:
+
+- **Pre-store the host key** - For the default handler ssh_file, store the
+  valid host keys in the file [`known_hosts`](`m:ssh_file#FILE-known_hosts`) and
+  set the option
+  [silently_accept_hosts](`m:ssh#hardening_client_options-silently_accept_hosts`)
+  to `false`. Alternatively, write a specialized key handler using the
+  [SSH client key API](`m:ssh_client_key_api`) that accesses the pre-shared
+  key in some other way.
+
+- **Pre-store the "fingerprint" (checksum) of the host key** - Use
+  [silently_accept_hosts](`m:ssh#hardening_client_options-silently_accept_hosts`)
+  with a callback: [`accept_callback()`](`t:ssh:accept_callback/0`)
+  or [`{HashAlgoSpec, accept_callback()}`](`t:ssh:accept_hosts/0`).
+
+## Verifying the Remote Client in a Daemon (Server)
+
+- **Password checking** - The default password checking is with the list in the
+  [user_passwords](`m:ssh#option-user_passwords`) option in the SSH daemon. It
+  could be replaced with a [pwdfun](`m:ssh#option-pwdfun`) plugin. The arity
+  four variant ([`pwdfun_4()`](`t:ssh:pwdfun_4/0`)) can also be used for
+  introducing delays after failed password checking attempts. Here is a simple
+  example of such a pwdfun:
+
+  ```erlang
+  fun(User, Password, _PeerAddress, State) ->
+          case lists:member({User,Password}, my_user_pwds()) of
+              true ->
+                  {true, undefined}; % Reset delay time
+              false when State == undefined ->
+                  timer:sleep(1000),
+                  {false, 2000}; % Next delay is 2000 ms
+              false when is_integer(State) ->
+                  timer:sleep(State),
+                  {false, 2*State} % Double the delay for each failure
+          end
+  end.
+  ```
+
+  If a public key is used for logging in, there is normally no checking of the
+  user name. It could be enabled by setting the option
+  [`pk_check_user`](`m:ssh#option-pk_check_user`) to `true`. In that case the
+  pwdfun will get the atom `pubkey` in the password argument.
+
+## Client Connection Options
 
 A client could limit the time for the initial tcp connection establishment with
 the option [connect_timeout](`t:ssh:connect_timeout_client_option/0`). The time
@@ -385,35 +405,6 @@ is in milliseconds, and the initial value is infinity.
 The negotiation (session setup time) time can be limited with the _parameter_
 `NegotiationTimeout` in a call establishing an ssh session, for example
 `ssh:connect/3`.
-
-## SFTP Security
-
-Note that the SFTP server runs with the file access rights of the OS
-process running the Erlang emulator, regardless of the authenticated
-SSH user. See the [Terminology](terminology.md) section for details.
-
-### Root Directory Isolation
-
-The `root` option (see `m:ssh_sftpd`) restricts SFTP users to a
-specific directory tree, preventing access to files outside that directory.
-
-**Example:**
-
-```erlang
-ssh:daemon(Port, [
-    {subsystems, [ssh_sftpd:subsystem_spec([{root, "/home/sftpuser"}])]},
-    ...
-]).
-```
-
-**Important:** The `root` option is configured per daemon, not per user. All
-users connecting to the same daemon share the same root directory. For per-user
-isolation, consider running separate daemon instances on different ports or
-using OS-level mechanisms (PAM chroot, containers, file permissions).
-
-**Defense-in-depth:** For high-security deployments, combine the `root` option
-with OS-level isolation mechanisms such as chroot jails, containers, or
-mandatory access control (SELinux, AppArmor).
 
 ## Network-Level Security
 
@@ -492,4 +483,3 @@ lockout_pwdfun(User, Password, _PeerAddr, State) ->
             end
     end.
 ```
-
