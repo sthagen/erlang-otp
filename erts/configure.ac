@@ -1296,7 +1296,7 @@ AC_CHECK_FUNCS([strerrorname_np])
 
 AS_IF([test "$ac_cv_func_strerrorname_np" != "yes"],
       [
-         AS_IF([test $builtin_errno_id = no],
+         AS_IF([test "$builtin_errno_id" = "no"],
                [AC_MSG_ERROR([No alternative to builtin erl_errno_id() found])])
       ])
 
