@@ -62,8 +62,8 @@ see Section Configuration in [ssh](ssh_app.md).
 The option [`user_dir`](`t:ssh_file:user_dir_common_option/0`) defaults to
 directory `~/.ssh`.
 
-_Step 1._ To run the example without root privileges, generate new keys and host
-keys:
+_Step 1._ To run the example without root privileges, generate new host keys
+and user keys:
 
 ```text
 $bash> ssh-keygen -t rsa -f /tmp/ssh_daemon/ssh_host_rsa_key
@@ -129,7 +129,7 @@ ok
 
 [](){: #simple-client-example }
 
-### Erlang client contacting OS standard ssh server
+### Erlang Client Contacting OpenSSH Server
 
 In the following example, the Erlang shell is the client process that receives
 the channel replies as Erlang messages.
@@ -173,9 +173,11 @@ To collect the channel messages in a program, use `receive...end` instead of
 6>
 ```
 
-Note that only the exec channel is closed after the one-time execution. The
-connection is still up and can handle previously opened channels. It is also
-possible to open a new channel:
+> #### Note {: .info }
+>
+> Only the exec channel is closed after the one-time execution. The
+> connection is still up and can handle previously opened channels.
+> It is also possible to open a new channel:
 
 ```erlang
 % try to open a new channel to check if the ConnectionRef is still open
@@ -190,7 +192,7 @@ To close the connection, call the function
 connection. This will cause the connection to be closed automatically when there
 are no channels open for the specified time period, in this case 1 ms.
 
-### OS standard client and Erlang daemon (server)
+### OpenSSH and Erlang Clients to Erlang Daemon
 
 An Erlang SSH daemon could be called for one-time execution of a "command". The
 "command" must be as if entered into the erlang shell, that is a sequence of
@@ -234,8 +236,10 @@ ok
 5>
 ```
 
-Note that Erlang shell specific functions and control sequences like for example
-`h().` are not supported.
+> #### Note {: .info }
+>
+> Erlang shell specific functions and control sequences like for example
+> `h().` are not supported.
 
 ### I/O from a function called in an Erlang ssh daemon
 
@@ -331,7 +335,11 @@ ok
 4>
 ```
 
-and call it:
+The `fun()` in the exec option could take up to three arguments (`Cmd`, `User`
+and `ClientAddress`). See the
+[exec_daemon_option()](`t:ssh:exec_daemon_option/0`) for the details.
+
+And call it:
 
 ```text
 $bash> ssh localhost -p 1234 1
@@ -348,8 +356,10 @@ $bash> ssh localhost -p 1234 1+ 2.
 $bash>
 ```
 
-Note that spaces are preserved and that no point (.) is needed at the end - that
-was required by the default evaluator.
+> #### Note {: .info }
+>
+> Spaces are preserved and no `.` is needed at the end — that
+> was required by the default evaluator.
 
 The error return in the Erlang client (The text as data type 1 and exit_status
 255):
@@ -370,17 +380,11 @@ ok
 6>
 ```
 
-The `fun()` in the exec option could take up to three arguments (`Cmd`, `User`
-and `ClientAddress`). See the
-[exec_daemon_option()](`t:ssh:exec_daemon_option/0`) for the details.
-
 > #### Note {: .info }
 >
-> An old, discouraged and undocumented way of installing an alternative
-> evaluator exists.
->
-> It still works, but lacks for example I/O possibility. It is because of that
-> compatibility we need the `{direct,...}` construction.
+> The `{direct, ...}` wrapper is required to distinguish from a legacy
+> evaluator interface that lacks I/O support. The legacy form is
+> undocumented and discouraged.
 
 ## SFTP Server
 
@@ -414,6 +418,11 @@ sftp>
 ```
 
 ## SFTP Client
+
+> #### Note {: .info }
+>
+> This assumes the remote SSH server has the SFTP subsystem enabled.
+> OpenSSH enables it by default.
 
 Fetch a file with the Erlang SFTP client:
 
@@ -507,12 +516,12 @@ following example:
 
 ```erlang
 -module(ssh_echo_server).
--behaviour(ssh_server_channel). % replaces ssh_daemon_channel
+-behaviour(ssh_server_channel).
 -record(state, {
-	  n,
-	  id,
-	  cm
-	 }).
+    n,
+    id,
+    cm
+}).
 -export([init/1, handle_msg/2, handle_ssh_msg/2, terminate/2]).
 
 init([N]) ->
@@ -520,23 +529,23 @@ init([N]) ->
 
 handle_msg({ssh_channel_up, ChannelId, ConnectionManager}, State) ->
     {ok, State#state{id = ChannelId,
-		     cm = ConnectionManager}}.
+                     cm = ConnectionManager}}.
 
 handle_ssh_msg({ssh_cm, CM, {data, ChannelId, 0, Data}}, #state{n = N} = State) ->
-    M = N - size(Data),
+    M = N - byte_size(Data),
     case M > 0 of
-	true ->
-	   ssh_connection:send(CM, ChannelId, Data),
-	   {ok, State#state{n = M}};
-	false ->
-	   <<SendData:N/binary, _/binary>> = Data,
-           ssh_connection:send(CM, ChannelId, SendData),
-           ssh_connection:send_eof(CM, ChannelId),
-	   {stop, ChannelId, State}
+        true ->
+            ssh_connection:send(CM, ChannelId, Data),
+            {ok, State#state{n = M}};
+        false ->
+            <<SendData:N/binary, _/binary>> = Data,
+            ssh_connection:send(CM, ChannelId, SendData),
+            ssh_connection:send_eof(CM, ChannelId),
+            {stop, ChannelId, State}
     end;
 handle_ssh_msg({ssh_cm, _ConnectionManager,
-		{data, _ChannelId, 1, Data}}, State) ->
-    error_logger:format(standard_error, " ~p~n", [binary_to_list(Data)]),
+                {data, _ChannelId, 1, Data}}, State) ->
+    logger:notice(" ~p~n", [binary_to_list(Data)]),
     {ok, State};
 
 handle_ssh_msg({ssh_cm, _ConnectionManager, {eof, _ChannelId}}, State) ->
@@ -547,8 +556,8 @@ handle_ssh_msg({ssh_cm, _, {signal, _, _}}, State) ->
     {ok, State};
 
 handle_ssh_msg({ssh_cm, _, {exit_signal, ChannelId, _, _Error, _}},
-	       State) ->
-    {stop, ChannelId,  State};
+               State) ->
+    {stop, ChannelId, State};
 
 handle_ssh_msg({ssh_cm, _, {exit_status, ChannelId, _Status}}, State) ->
     {stop, ChannelId, State}.
@@ -571,6 +580,8 @@ ok
 3>
 ```
 
+Then connect from an Erlang client:
+
 ```erlang
 1> ssh:start().
 ok
@@ -581,10 +592,10 @@ ok
 4> success = ssh_connection:subsystem(ConnectionRef, ChannelId, "echo_n", infinity).
 5> ok = ssh_connection:send(ConnectionRef, ChannelId, "0123456789", infinity).
 6> flush().
-{ssh_msg, <0.57.0>, {data, 0, 1, "0123456789"}}
-{ssh_msg, <0.57.0>, {eof, 0}}
-{ssh_msg, <0.57.0>, {closed, 0}}
+{ssh_cm, <0.57.0>, {data, 0, 0, <<"0123456789">>}}
+{ssh_cm, <0.57.0>, {eof, 0}}
+{ssh_cm, <0.57.0>, {closed, 0}}
 7> {error, closed} = ssh_connection:send(ConnectionRef, ChannelId, "10", infinity).
 ```
 
-See also `m:ssh_client_channel` (replaces ssh_channel(3)).
+See also `m:ssh_client_channel`.

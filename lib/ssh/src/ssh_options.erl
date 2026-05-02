@@ -25,6 +25,9 @@
 -module(ssh_options).
 -moduledoc false.
 
+%% file:consult/1 can create atoms from file content. This is acceptable
+%% here because the file path comes from the daemon operator's dh_gex_groups
+%% configuration — not from wire data.
 -compile([{nowarn_possibly_unsafe_function, {file, consult, 1}}]).
 
 -include("ssh.hrl").

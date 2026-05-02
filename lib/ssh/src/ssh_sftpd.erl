@@ -109,7 +109,7 @@ Options:
 
   Note: This provides application-level isolation. For additional security,
   consider using OS-level chroot or similar mechanisms. See the
-  [SFTP Security](hardening.md#sftp-security) section in the Hardening guide
+  [SFTP subsystem](hardening.md#sftp-subsystem) section in the Hardening guide
   for deployment recommendations.
 
 - **`sftpd_vsn`** - Sets the SFTP version to use. Defaults to 5. Version 6 is

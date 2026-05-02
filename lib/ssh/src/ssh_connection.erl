@@ -45,8 +45,6 @@ these messages are handled by
 [handle_ssh_msg/2](`c:ssh_client_channel:handle_ssh_msg/2`).
 """.
 
--compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}}]).
-
 -include_lib("kernel/include/logger.hrl").
 
 -include("ssh.hrl").
@@ -1621,7 +1619,10 @@ pty_default_dimensions(Dimension, TermData) ->
 	N when is_integer(N), N > 0 ->
 	    {N, 0};
 	_ ->
-            PixelDim = list_to_atom("pixel_" ++ atom_to_list(Dimension)),
+            PixelDim = case Dimension of
+                           width  -> pixel_width;
+                           height -> pixel_height
+                       end,
 	    case proplists:get_value(PixelDim, TermData, 0) of
 		N when is_integer(N), N > 0 ->
 		    {0, N};

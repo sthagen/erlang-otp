@@ -354,7 +354,7 @@ compression in both directions. The kex (key exchange) is implicit but
 public_key is set explicitly.
 
 For background and more examples see the
-[User's Guide](configure_algos.md#introduction).
+[User's Guide](configure_algos.md#algorithm-negotiation-in-ssh).
 
 If an algorithm name occurs more than once in a list, the behaviour is
 undefined. The tags in the property lists are also assumed to occur at most one
@@ -415,7 +415,7 @@ The example specifies that:
   enforced
 
 For background and more examples see the
-[User's Guide](configure_algos.md#introduction).
+[User's Guide](configure_algos.md#algorithm-negotiation-in-ssh).
 """.
 -doc(#{group => <<"Common Options">>}).
 -type modify_algs_list()      :: list( {append,algs_list()} | {prepend,algs_list()} | {rm,algs_list()} ) .
@@ -1079,7 +1079,7 @@ supporting ext-info.
   doing public key authentication. It is disabled by default.
 
   The term "user" is used differently in OpenSSH and SSH in Erlang/OTP: see more
-  in the [User's Guide](terminology.md#the-term-user).
+  in the [User's Guide](terminology.md#the-term-user-in-openssh).
 
   If the option is enabled, and no [`pwdfun`](`m:ssh#option-pwdfun`) is present,
   the user name must present in the

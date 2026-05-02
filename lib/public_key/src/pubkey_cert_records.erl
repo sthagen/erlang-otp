@@ -166,8 +166,6 @@ dec_transform(#'SingleAttribute'{type=Id,value=Value0}) ->
     end;
 dec_transform(#'AuthorityKeyIdentifier'{authorityCertIssuer=ACI}=AKI) ->
     AKI#'AuthorityKeyIdentifier'{authorityCertIssuer=dec_transform(ACI)};
-dec_transform([{directoryName, _}]=List) ->
-    [{directoryName, dec_transform(Value)} || {directoryName, Value} <- List];
 dec_transform({directoryName, Value}) ->
     {directoryName, dec_transform(Value)};
 dec_transform({rdnSequence, SeqList}) when is_list(SeqList) ->
@@ -178,9 +176,23 @@ dec_transform({rdnSequence, SeqList}) when is_list(SeqList) ->
 dec_transform(#'NameConstraints'{permittedSubtrees=Permitted, excludedSubtrees=Excluded}) ->
     #'NameConstraints'{permittedSubtrees=dec_transform_sub_tree(Permitted),
 		       excludedSubtrees=dec_transform_sub_tree(Excluded)};
+dec_transform([#'DistributionPoint'{}|_] = List) ->
+    [dec_transform_dist_point(DP) || DP <- List];
+dec_transform(#'AccessDescription'{accessLocation = Name} = AD) ->
+    AD#'AccessDescription'{accessLocation = dec_transform(Name)};
+dec_transform(List) when is_list(List) ->
+    [dec_transform(E) || E <- List];
 dec_transform(Other) ->
     Other.
 
+dec_transform_dist_point(#'DistributionPoint'{
+                            distributionPoint = {Type,DirName},
+                            cRLIssuer = CRLIssuers} = DP) ->
+    DP#'DistributionPoint'{
+      distributionPoint = {Type,dec_transform(DirName)},
+      cRLIssuer = dec_transform(CRLIssuers)};
+dec_transform_dist_point(DP) ->
+    DP.
 
 enc_transform_sub_tree(asn1_NOVALUE) ->
     asn1_NOVALUE;

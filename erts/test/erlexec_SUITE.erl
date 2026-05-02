@@ -326,17 +326,23 @@ unicode_args_file(Config) when is_list(Config) ->
     %% Test that -args_file works with Unicode paths (e.g. Cyrillic).
     %% This is a regression test for a bug where fopen() on Windows
     %% could not open files with non-ASCII paths.
-    PrivDir = proplists:get_value(priv_dir, Config),
-    UnicodeDir = filename:join(PrivDir, "Артем"),
-    ok = file:make_dir(UnicodeDir),
-    AFN = filename:join(UnicodeDir, "args.txt"),
-    write_file(AFN, "-MiscArg1 +\\#100 -extra +XtraArg1"),
-    CmdLine = "-args_file " ++ AFN,
-    {Emu, Misc, Extra} = emu_args(CmdLine),
-    verify_args(["-#100"], Emu),
-    verify_args(["-MiscArg1"], Misc),
-    verify_args(["+XtraArg1"], Extra),
-    ok.
+    Encoding = proplists:get_value(encoding, io:getopts(), unicode),
+    case Encoding of
+	unicode ->
+            PrivDir = proplists:get_value(priv_dir, Config),
+            UnicodeDir = filename:join(PrivDir, "Артем"),
+            ok = file:make_dir(UnicodeDir),
+            AFN = filename:join(UnicodeDir, "args.txt"),
+            write_file(AFN, "-MiscArg1 +\\#100 -extra +XtraArg1"),
+            CmdLine = "-args_file " ++ AFN,
+            {Emu, Misc, Extra} = emu_args(CmdLine),
+            verify_args(["-#100"], Emu),
+            verify_args(["-MiscArg1"], Misc),
+            verify_args(["+XtraArg1"], Extra),
+            ok;
+        _ ->
+            {skip, "Host is not configured for unicode"}
+    end.
 
 env(Config) when is_list(Config) ->
     os:putenv("ERL_AFLAGS", "-MiscArg1 +#100 -extra +XtraArg1 +XtraArg2"),
