@@ -674,19 +674,18 @@ C: `IPTOS_*` values.
 
 Note that since there are two different representations of TOS;
 according to RFC 1349 ("classic TOS") and RFC 2474 (DSCP),
-we have three different value representations for tos: 
-Native (the raw unencoded value), (classic) tos and dscp.
+we have three different value representations for tos:
+`native` (the raw unencoded value of the TOS octet), `tos` (classic),
+and `dscp`.
+
 When sending or setting (the ip tos option), the user can choose
 between the three different (value) representations.
 When reading, the value is represented as a map with all three
 representations, since 'socket' does not know which one is expected.
 Its then up to the user pick the one they want.
 
-Lowercase `t:atom/0` values corresponding to the C library constants `IPTOS_*`.
-Some constant(s) may be unsupported by the platform.
-
-The `t:iptos_dscp/0` values are according to IANA's
-Differentiated Services Field Codepoints registry.
+An integer `dscp` value is a DSCP field value that is not known
+from the IANA registry (see `t:iptos_dscp/0`).
 """.
 -type ip_tos() :: #{native := iptos_native(),
                     tos    := iptos_tos(),
@@ -694,6 +693,13 @@ Differentiated Services Field Codepoints registry.
 
 -type iptos_value() :: iptos_tos() | iptos_dscp() | iptos_native().
 %% According to RFC 1349
+-doc """
+Lowercase `t:atom/0` values corresponding to the C library constants `IPTOS_*`.
+The atoms are named like The C library names, but to avoid platform depencendy,
+the set of names and values follow RFC 1349, not the C library header files.
+
+An integer value is a field value that is not named in the RFC.
+""".
 -type iptos_tos()   :: #{precedence := iptos_tos_prec()  | non_neg_integer(),
                          tos        := iptos_tos_value() | non_neg_integer()}.
 -type iptos_tos_prec() :: netcontrol | internetcontrol | critical_ecp |
@@ -701,9 +707,13 @@ Differentiated Services Field Codepoints registry.
                           routine.
 -type iptos_tos_value() :: default |
                            lowdelay |  throughput | reliability | mincost.
-%% According to
-%% https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml
--type iptos_dscp() :: 
+
+-doc """
+These symbolic DSCP values are according to IANA's
+[Differentiated Services Field Codepoints registry]
+(https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml).
+""".
+-type iptos_dscp() ::
         cs0 |
         le |
         cs1 |
