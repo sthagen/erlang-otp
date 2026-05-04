@@ -1753,12 +1753,16 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
 	   inet:getopts(S1, RecvOpts)),
     ?P("try set (true) socket (1) opts"),
     ok = inet:setopts(S1, TrueRecvOpts_OptsVals),
+
     %% ?P("verify (true) socket (1) opts"),
     %% {ok, TrueRecvOpts_OptsVals} = inet:getopts(S1, RecvOpts ++ Opts),
-    expect("(true) socket (1) opts",
-	   {ok, TrueRecvOpts_OptsVals},
-	   inet:getopts(S1, RecvOpts ++ Opts)),
+    tro_verify(inet:getopts(S1, RecvOpts ++ Opts),
+	       TrueRecvOpts_OptsVals),
+    %% expect("(true) socket (1) opts",
+    %% 	   {ok, TrueRecvOpts_OptsVals},
+    %% 	   inet:getopts(S1, RecvOpts ++ Opts)),
     %%
+
     %% S1 now has true receive options and set option values
     %%
     ?P("try open socket (2) with false opts"),
@@ -1909,6 +1913,40 @@ test_recv_opts(Config, Family, Spec, TestSend, _OSType, _OSVer) ->
 
     ?P("done"),
     ok.
+
+tro_verify({ok, ExpOpts}, ExpOpts) ->
+    ok;
+tro_verify({ok, Opts}, ExpOpts) ->
+    tro_verify(os:type(), Opts, ExpOpts);
+tro_verify({error, Reason}, _ExpOpts) ->
+    ct:fail({failed_get_opts, Reason}).
+
+tro_verify({unix, freebsd}, Opts, ExpOpts) ->
+    %% On FreeBSD, the values for 'socket' will be converted to atoms.
+    %% So we need to check the values and on FreeBSD maybe skip.
+    %% That is; When the inet_backend = socket, this test case will be skipped!
+    tro_verify_freebsd(Opts, ExpOpts);
+tro_verify(_, Opts, ExpOpts) ->
+    ct:fail({unexpected_opts, {Opts, ExpOpts}}).
+
+tro_verify_freebsd([], []) ->
+    ok;
+tro_verify_freebsd([{tos, Value}|_Opts],
+		   [{tos, ExpValue}|_ExpOpts])
+  when is_atom(Value) andalso is_integer(ExpValue) ->
+    ?SKIPT({tox_values, {Value, ExpValue}});
+tro_verify_freebsd([{tos, Value}|_Opts],
+		   [{tos, ExpValue}|_ExpOpts])
+  when (Value =/= ExpValue) ->
+    ct:fail({unexpected_tos, {Value, ExpValue}});
+tro_verify_freebsd([{Key, Value}|Opts],
+		   [{Key, ExpValue}|ExpOpts])
+  when (Value =:= ExpValue) ->
+    tro_verify_freebsd(Opts, ExpOpts);
+tro_verify_freebsd([{Key, Value}|_Opts],
+		   [{Key, ExpValue}|_ExpOpts])
+  when (Value =/= ExpValue) ->
+    ct:fail({unexpected, {Key, {Value, ExpValue}}}).
 
 verify_sets_eq(L1, L2) ->
     L = lists:sort(L1),
