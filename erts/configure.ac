@@ -172,6 +172,23 @@ AS_HELP_STRING([--enable-lock-checking], [enable lock checking]),
 ],
   enable_lock_check=no)
 
+AC_ARG_ENABLE(encrypted-crash-dumps,
+AS_HELP_STRING([--enable-encrypted-crash-dumps], [enable encrypted crash dumps]),
+[ case "$enableval" in
+    no) enable_encrypted_crash_dumps=no ;;
+    *)  enable_encrypted_crash_dumps=yes ;;
+  esac
+],
+  enable_encrypted_crash_dumps=no)
+
+if test "x$enable_encrypted_crash_dumps" = "xno"; then
+    ENCRYPTED_CRASH_DUMPS=no
+else
+    ENCRYPTED_CRASH_DUMPS=yes
+fi
+
+AC_SUBST(ENCRYPTED_CRASH_DUMPS)
+
 AC_ARG_ENABLE(lock-counter,
 AS_HELP_STRING([--enable-lock-counter], [enable lock counters]),
 [ case "$enableval" in
@@ -3905,6 +3922,17 @@ AC_DEFINE_UNQUOTED(ERTS_EMU_CMDLINE_FLAGS,
 "$STATIC_CFLAGS $CFLAGS $CXXFLAGS $DEBUG_CFLAGS $DEBUG_CXXFLAGS $EMU_THR_DEFS $DEFS $WERRORFLAGS $WFLAGS",
 [The only reason ERTS_EMU_CMDLINE_FLAGS exists is to force modification
  of config.h when the emulator command line flags are modified by configure])
+
+dnl ----------------------------------------------------------------------
+dnl Include OpenSSL configuration
+dnl
+dnl This is split into a separate file to ensure a cleaner break, as it
+dnl belongs more to crypto than it does erts.
+dnl ----------------------------------------------------------------------
+
+if test "x$ENCRYPTED_CRASH_DUMPS" = "xyes"; then
+m4_include([crypto.ac])
+fi
 
 dnl ----------------------------------------------------------------------
 dnl Output the result.

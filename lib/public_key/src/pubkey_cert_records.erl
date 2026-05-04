@@ -37,8 +37,10 @@
          decode_extensions/1,
          ext_oid/1,
          oid_to_ml_dsa_algo/1,
+         oid_to_ml_kem_algo/1,
          oid_to_slh_dsa_algo/1,
          mldsa_algo_to_oid/1,
+         ml_kem_algo_to_oid/1,
          slh_dsa_algo_to_oid/1
         ]).
 
@@ -226,6 +228,9 @@ supportedPublicKeyAlgorithms(?'id-X448') -> 'ECPoint';
 supportedPublicKeyAlgorithms(?'id-ml-dsa-44') -> 'ML-DSAPublicKey';
 supportedPublicKeyAlgorithms(?'id-ml-dsa-65') -> 'ML-DSAPublicKey';
 supportedPublicKeyAlgorithms(?'id-ml-dsa-87') -> 'ML-DSAPublicKey';
+supportedPublicKeyAlgorithms(?'id-alg-ml-kem-512') -> 'ML-KEMPublicKey';
+supportedPublicKeyAlgorithms(?'id-alg-ml-kem-768') -> 'ML-KEMPublicKey';
+supportedPublicKeyAlgorithms(?'id-alg-ml-kem-1024') -> 'ML-KEMPublicKey';
 supportedPublicKeyAlgorithms(?'id-slh-dsa-sha2-128f') -> 'SLH-DSAPublicKey';
 supportedPublicKeyAlgorithms(?'id-slh-dsa-sha2-128s') -> 'SLH-DSAPublicKey';
 supportedPublicKeyAlgorithms(?'id-slh-dsa-sha2-192f') -> 'SLH-DSAPublicKey';
@@ -354,6 +359,13 @@ oid_to_ml_dsa_algo(?'id-ml-dsa-65') ->
 oid_to_ml_dsa_algo(?'id-ml-dsa-87') ->
     mldsa87.
 
+oid_to_ml_kem_algo(?'id-alg-ml-kem-512') ->
+    mlkem512;
+oid_to_ml_kem_algo(?'id-alg-ml-kem-768') ->
+    mlkem768;
+oid_to_ml_kem_algo(?'id-alg-ml-kem-1024') ->
+    mlkem1024.
+
 oid_to_slh_dsa_algo(?'id-slh-dsa-sha2-128s') ->
     slh_dsa_sha2_128s;
 oid_to_slh_dsa_algo(?'id-slh-dsa-sha2-128f') ->
@@ -385,6 +397,13 @@ mldsa_algo_to_oid(mldsa65) ->
     ?'id-ml-dsa-65';
 mldsa_algo_to_oid(mldsa87) ->
     ?'id-ml-dsa-87'.
+
+ml_kem_algo_to_oid(mlkem512) ->
+    ?'id-alg-ml-kem-512';
+ml_kem_algo_to_oid(mlkem768) ->
+    ?'id-alg-ml-kem-768';
+ml_kem_algo_to_oid(mlkem1024) ->
+    ?'id-alg-ml-kem-1024'.
 
 slh_dsa_algo_to_oid(slh_dsa_sha2_128s) ->
     ?'id-slh-dsa-sha2-128s';

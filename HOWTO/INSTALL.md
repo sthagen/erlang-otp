@@ -466,7 +466,12 @@ Some of the available `configure` options are:
 *   `--disable-builtin-zstd` - Find a static libzstd on the system to use.
 *   `--enable-builtin-zlib` - Force use of our own built-in zlib.
 *   `--disable-builtin-zlib` - Find a zlib on the system to use.
-
+*   `--enable-encrypted-crash-dumps` - Enables encrypted crash dumps. See the
+    documentation for the
+    [`ERL_CRASH_DUMP_PUBLIC_KEY`](`e:erts:erl_cmd.md#ERL_CRASH_DUMP_PUBLIC_KEY`)
+    environment variable for more details. Note that, when this configure
+    option is enabled, OTP will refuse to build unless the aforementioned
+    variable has been properly configured.
 
 If you or your system has special requirements please read the `Makefile` for
 additional configuration information.
