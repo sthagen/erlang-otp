@@ -419,15 +419,15 @@ init([Options]) ->
     end.
 
 channel_cb_init_args(Options) ->
+    Cb = proplists:get_value(channel_cb, Options),
     case proplists:get_value(exec, Options) of
-        erlang_eval ->
-            %% erlang_eval is a mode flag for ssh_cli, not a cb init arg
-            proplists:get_value(init_args, Options);
         undefined ->
-            %% exec key absent from Options (client-side ssh:shell/1)
             proplists:get_value(init_args, Options);
-        Exec ->
-            proplists:get_value(init_args, Options) ++ [Exec]
+        Exec when Cb =:= ssh_cli ->
+            proplists:get_value(init_args, Options) ++ [Exec];
+        _Exec ->
+            %% Custom callbacks don't receive exec mode flags
+            proplists:get_value(init_args, Options)
     end.
 
 %%--------------------------------------------------------------------

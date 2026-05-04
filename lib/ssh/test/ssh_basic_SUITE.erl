@@ -49,6 +49,7 @@
          basic_test/1,
          check_error/1,
          cli/1,
+         cli_exec_disabled/1,
          cli_exit_normal/1,
          cli_exit_status/1,
          close/1,
@@ -153,7 +154,7 @@ groups() ->
      {p_basic, [?PARALLEL], [send, parallel_login, peername_sockname,
                              exec, exec_compressed, exec_compressed_post_auth_compression,
                              exec_with_io_out, exec_with_io_in,
-                             cli, cli_exit_normal, cli_exit_status,
+                             cli, cli_exec_disabled, cli_exit_normal, cli_exit_status,
                              idle_time_client, idle_time_server,
                              max_initial_idle_time,
                              openssh_zlib_basic_test,
@@ -229,7 +230,7 @@ end_per_testcase(TestCase, Config)
        TestCase==shell_unicode_string ->
     case proplists:get_value(sftpd, Config) of
 	{Pid, _, _} ->
-	    catch ssh:stop_daemon(Pid),
+            try ssh:stop_daemon(Pid) catch _:_ -> ok end,
             ok;
 	_ ->
 	    ok
@@ -635,43 +636,54 @@ shell_ssh_conn(Config) when is_list(Config) ->
 
 %%--------------------------------------------------------------------
 cli(Config) when is_list(Config) ->
+    cli_helper(Config, [{exec, erlang_eval}]).
+
+%%--------------------------------------------------------------------
+%% Verify custom ssh_cli callback works with default exec=disabled
+cli_exec_disabled(Config) when is_list(Config) ->
+    cli_helper(Config, []).
+
+cli_helper(Config, ExtraOpts) ->
     process_flag(trap_exit, true),
     SystemDir = filename:join(proplists:get_value(priv_dir, Config), system),
     UserDir = proplists:get_value(priv_dir, Config),
-    
+
     TmpDir = filename:join(proplists:get_value(priv_dir,Config), "tmp"),
     ok = ssh_test_lib:del_dirs(TmpDir),
-    ok = file:make_dir(TmpDir),
+    case file:make_dir(TmpDir) of
+        ok -> ok;
+        {error, eexist} -> ok
+    end,
 
-    {_Pid, Host, Port} = ssh_test_lib:daemon([{exec, erlang_eval},
-                                              {system_dir, SystemDir},{user_dir, UserDir},
+    {_Pid, Host, Port} = ssh_test_lib:daemon(ExtraOpts ++
+                                              [{system_dir, SystemDir},{user_dir, UserDir},
                                               {password, "morot"},
                                               {ssh_cli, {ssh_test_cli, [cli,TmpDir]}},
                                               {subsystems, []},
                                               {failfun, fun ssh_test_lib:failfun/2}]),
     ct:sleep(500),
-    
+
     ConnectionRef = ssh_test_lib:connect(Host, Port, [{silently_accept_hosts, true},
 						      {user, "foo"},
 						      {password, "morot"},
 						      {user_interaction, false},
 						      {user_dir, UserDir}]),
-    
+
     {ok, ChannelId} = ssh_connection:session_channel(ConnectionRef, infinity),
     ssh_connection:shell(ConnectionRef, ChannelId),
     ssh_connection:send(ConnectionRef, ChannelId, <<"q">>),
-    receive 
+    receive
 	{ssh_cm, ConnectionRef,
 	 {data,0,0, <<"\r\nYou are accessing a dummy, type \"q\" to exit\r\n\n">>}} ->
 	    ssh_connection:send(ConnectionRef, ChannelId, <<"q">>)
-    after 
+    after
 	30000 -> ct:fail("timeout ~p:~p",[?MODULE,?LINE])
     end,
-    
-    receive 
+
+    receive
      	{ssh_cm, ConnectionRef,{closed, ChannelId}} ->
      	    ok
-    after 
+    after
 	30000 -> ct:fail("timeout ~p:~p",[?MODULE,?LINE])
     end.
 
