@@ -316,7 +316,8 @@ end
                sha2/0,
                sha3/0,
                mldsa/0,
-               slh_dsa/0
+               slh_dsa/0,
+               kem/0
              ]).
 
 -export_type([

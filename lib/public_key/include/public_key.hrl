@@ -133,6 +133,26 @@
 -define('id-ml-dsa-87', {2,16,840,1,101,3,4,3,19}).
 
 
+%%%
+%%% ML-KEM
+%%%
+-record('ML-KEMPrivateKey',
+        {
+         algorithm :: crypto:kem(),
+         seed = <<>>   :: binary(),
+         expandedkey = <<>> :: binary()
+        }).
+
+-record('ML-KEMPublicKey',
+        {
+         algorithm :: crypto:kem(),
+         key  :: binary()
+        }).
+
+-define('id-alg-ml-kem-512', {2,16,840,1,101,3,4,4,1}).
+-define('id-alg-ml-kem-768', {2,16,840,1,101,3,4,4,2}).
+-define('id-alg-ml-kem-1024', {2,16,840,1,101,3,4,4,3}).
+
 
 %%%
 %%% SLH-DSA

@@ -179,6 +179,7 @@ macros described here and in the User's Guide:
                                  ecdsa_public_key() |
                                  eddsa_public_key() |
                                  mldsa_public_key() |
+                                 ml_kem_public_key() |
                                  slh_dsa_public_key().
 -doc(#{title => <<"Keys">>}).
 -doc "Supported private keys".
@@ -188,6 +189,7 @@ macros described here and in the User's Guide:
                                  ecdsa_private_key() |
                                  eddsa_private_key() |
                                  mldsa_private_key() |
+                                 ml_kem_private_key() |
                                  slh_dsa_private_key() |
                                  #{algorithm := slh_dsa | mldsa | eddsa | rsa_pss_pss |
                                    ecdsa | rsa | dsa,
@@ -237,6 +239,12 @@ ML-DSA public key
 """.
 -type mldsa_public_key()       :: #'ML-DSAPublicKey'{}.
 
+-doc(#{title => <<"Keys">>}).
+-doc """
+ML-KEM public key
+""".
+-type ml_kem_public_key()       :: #'ML-KEMPublicKey'{}.
+
 -doc """
 SLH-DSA public key
 """.
@@ -263,6 +271,12 @@ ASN.1 defined private key format for the EDDSA algorithm, possible oids: ?'id-Ed
 ML-DSA private key
 """.
 -type mldsa_private_key()       :: #'ML-DSAPrivateKey'{}.
+
+-doc(#{title => <<"Keys">>}).
+-doc """
+ML-KEM private key
+""".
+-type ml_kem_private_key()       :: #'ML-KEMPrivateKey'{}.
 
 -doc """
 SLH-DSA private key
@@ -459,6 +473,8 @@ pem_entry_decode({'SubjectPublicKeyInfo', Der, _}) ->
             {#'ECPoint'{point = Key0}, ECCParams};
         'ML-DSAPublicKey' ->
             mldsa_pub_key(AlgId, Key0);
+        'ML-KEMPublicKey' ->
+            ml_kem_pub_key(AlgId, Key0);
         'SLH-DSAPublicKey' ->
             slh_dsa_pub_key(AlgId, Key0)
     end;
@@ -538,6 +554,11 @@ pem_entry_encode('SubjectPublicKeyInfo',
 pem_entry_encode('SubjectPublicKeyInfo',
 		 #'ML-DSAPublicKey'{algorithm = Algorithm, key = Key}) ->
     AlgOid = pubkey_cert_records:mldsa_algo_to_oid(Algorithm),
+    Spki = subject_public_key_info(#'AlgorithmIdentifier'{algorithm = AlgOid}, Key),
+    pem_entry_encode('SubjectPublicKeyInfo', Spki);
+pem_entry_encode('SubjectPublicKeyInfo',
+                 #'ML-KEMPublicKey'{algorithm = Algorithm, key = Key}) ->
+    AlgOid = pubkey_cert_records:ml_kem_algo_to_oid(Algorithm),
     Spki = subject_public_key_info(#'AlgorithmIdentifier'{algorithm = AlgOid}, Key),
     pem_entry_encode('SubjectPublicKeyInfo', Spki);
 pem_entry_encode('SubjectPublicKeyInfo',
@@ -707,6 +728,9 @@ get_asn1_module('ECPrivateKey') -> 'ECPrivateKey';
 get_asn1_module('ML-DSA-44-PrivateKey') -> 'X509-ML-DSA-2025';
 get_asn1_module('ML-DSA-65-PrivateKey') -> 'X509-ML-DSA-2025';
 get_asn1_module('ML-DSA-87-PrivateKey') -> 'X509-ML-DSA-2025';
+get_asn1_module('ML-KEM-512-PrivateKey') -> 'X509-ML-KEM-2025';
+get_asn1_module('ML-KEM-768-PrivateKey') -> 'X509-ML-KEM-2025';
+get_asn1_module('ML-KEM-1024-PrivateKey') -> 'X509-ML-KEM-2025';
 get_asn1_module('SLH-DSA-PrivateKey') -> 'SLH-DSA-Module-2024';
 %% Certification Request Syntax Specification RFC 2986
 get_asn1_module('CertificationRequest') -> 'PKCS-10';
@@ -820,6 +844,13 @@ der_priv_key_decode(#'PrivateKeyInfo'{version = v1,
                                                                   Alg == ?'id-ml-dsa-65';
                                                                   Alg == ?'id-ml-dsa-87' ->
     mldsa_priv_key_dec(Alg, PrivKey);
+der_priv_key_decode(#'PrivateKeyInfo'{version = v1,
+                                      privateKeyAlgorithm =
+                                          #'PrivateKeyAlgorithmIdentifier'{algorithm = Alg},
+                                      privateKey = PrivKey}) when Alg == ?'id-alg-ml-kem-512';
+                                                                  Alg == ?'id-alg-ml-kem-768';
+                                                                  Alg == ?'id-alg-ml-kem-1024' ->
+    ml_kem_priv_key_dec(Alg, PrivKey);
 der_priv_key_decode(#'PrivateKeyInfo'{version = v1,
                                       privateKeyAlgorithm =
                                           #'PrivateKeyAlgorithmIdentifier'{algorithm = Alg},
@@ -942,6 +973,13 @@ der_encode('PrivateKeyInfo', #'ECPrivateKey'{parameters = Parameters} = PrivKey)
 der_encode('PrivateKeyInfo', #'ML-DSAPrivateKey'{algorithm = Algorithm} = Key) ->
     Alg = #'PrivateKeyAlgorithmIdentifier'{algorithm = pubkey_cert_records:mldsa_algo_to_oid(Algorithm)},
     PrivKey = mldsa_priv_key_enc(Key),
+    der_encode('OneAsymmetricKey',
+               #'OneAsymmetricKey'{version = v1,
+                                   privateKeyAlgorithm = Alg,
+                                   privateKey = PrivKey});
+der_encode('PrivateKeyInfo', #'ML-KEMPrivateKey'{algorithm = Algorithm} = Key) ->
+    Alg = #'PrivateKeyAlgorithmIdentifier'{algorithm = pubkey_cert_records:ml_kem_algo_to_oid(Algorithm)},
+    PrivKey = ml_kem_priv_key_enc(Key),
     der_encode('OneAsymmetricKey',
                #'OneAsymmetricKey'{version = v1,
                                    privateKeyAlgorithm = Alg,
@@ -3123,6 +3161,47 @@ mldsa_algo_to_type(mldsa65) ->
     'ML-DSA-65-PrivateKey';
 mldsa_algo_to_type(mldsa87) ->
     'ML-DSA-87-PrivateKey'.
+
+ml_kem_pub_key(AlgOid, PubKey) ->
+    #'ML-KEMPublicKey'{algorithm = pubkey_cert_records:oid_to_ml_kem_algo(AlgOid),
+                       key = PubKey}.
+
+ml_kem_priv_key_dec(AlgOid, DERKey) ->
+    Alg = pubkey_cert_records:oid_to_ml_kem_algo(AlgOid),
+    ml_kem_priv_key_dec(ml_kem_algo_to_type(Alg), DERKey,
+                        #'ML-KEMPrivateKey'{algorithm = Alg}).
+
+ml_kem_priv_key_dec(Type, DERKey, PrivKey) ->
+    case der_decode(Type, DERKey) of
+        {seed, Seed} ->
+            PrivKey#'ML-KEMPrivateKey'{seed = Seed};
+        {expandedkey, ExpandedKey} ->
+            PrivKey#'ML-KEMPrivateKey'{expandedkey = ExpandedKey};
+        {both, {_, Seed, ExpandedKey}} ->
+            PrivKey#'ML-KEMPrivateKey'{seed = Seed,
+                                       expandedkey = ExpandedKey}
+    end.
+
+ml_kem_priv_key_enc(#'ML-KEMPrivateKey'{algorithm = Alg,
+                                        seed = Seed,
+                                        expandedkey = <<>>}) ->
+    der_encode(ml_kem_algo_to_type(Alg), {seed, Seed});
+ml_kem_priv_key_enc(#'ML-KEMPrivateKey'{algorithm = Alg,
+                                        seed = <<>>,
+                                        expandedkey = ExpandedKey}) ->
+    der_encode(ml_kem_algo_to_type(Alg), {expandedkey, ExpandedKey});
+ml_kem_priv_key_enc(#'ML-KEMPrivateKey'{algorithm = Alg,
+                                        seed = Seed,
+                                        expandedkey = ExpandedKey}) ->
+    Type = ml_kem_algo_to_type(Alg),
+    der_encode(Type, {both, {Type, Seed, ExpandedKey}}).
+
+ml_kem_algo_to_type(mlkem512) ->
+    'ML-KEM-512-PrivateKey';
+ml_kem_algo_to_type(mlkem768) ->
+    'ML-KEM-768-PrivateKey';
+ml_kem_algo_to_type(mlkem1024) ->
+    'ML-KEM-1024-PrivateKey'.
 
 slh_dsa_pub_key(AlgOid, PubKey) ->
     #'SLH-DSAPublicKey'{algorithm = pubkey_cert_records:oid_to_slh_dsa_algo(AlgOid),

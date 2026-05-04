@@ -24,6 +24,7 @@
   {vsn, "%VSN%"},
   {modules, [cover,
 	     cprof,
+	     crashdump,
 	     eprof,
 	     fprof,
 	     tprof,
@@ -49,6 +50,7 @@
 			  "kernel-10.0",
                           "erts-15.0",
                           "compiler-8.5",
-                          "erts-15.0"]}
+                          "public_key-@OTP-20085@",
+                          "crypto-@OTP-20085@"]}
  ]
 }. 

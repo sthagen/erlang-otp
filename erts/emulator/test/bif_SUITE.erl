@@ -1118,13 +1118,21 @@ wait_until_stable_size(File,PrevSz) ->
 
 % Test erlang:halt with ERL_CRASH_DUMP_BYTES
 erl_crash_dump_bytes(Config) when is_list(Config) ->
-    Bytes = 1000,
+    %% When encryption is enabled, a crash dump will not be produced at all if
+    %% the limit is smaller than the encryption header size. Bump the size a
+    %% bit to account for that.
+    Bytes = case os:getenv("ERL_CRASH_DUMP_PUBLIC_KEY") of
+                [_|_] -> 4000;
+                false -> 1000
+            end,
+
     CrashDump = do_limited_crash_dump(Config, Bytes),
     {ok,ActualBytes} = wait_until_stable_size(CrashDump,-1),
     true = ActualBytes < (Bytes + 100),
 
     NoDump = do_limited_crash_dump(Config,0),
     {error,enoent} = wait_until_stable_size(NoDump,-8),
+
     ok.
 
 do_limited_crash_dump(Config, Bytes) ->
