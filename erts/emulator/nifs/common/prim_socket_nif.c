@@ -432,25 +432,6 @@ static void (*esock_sctp_freepaddrs)(struct sockaddr *addrs) = NULL;
 
 /* *** Misc macros and defines *** */
 
-/* This macro exist on some (linux) platforms */
-#if !defined(IPTOS_TOS_MASK)
-#define IPTOS_TOS_MASK     0x1E
-#endif
-#if !defined(IPTOS_TOS)
-#define IPTOS_TOS(tos)     ((tos)&IPTOS_TOS_MASK)
-#endif
-#define ESOCK_TOS_SHIFT    1
-
-/* This macro exist on some (linux) platforms */
-#if !defined(IPTOS_PREC_MASK)
-#define IPTOS_PREC_MASK    0xe0
-#endif
-#if !defined(IPTOS_PREC)
-#define IPTOS_PREC(tos)    ((tos)&IPTOS_PREC_MASK)
-#endif
-#define ESOCK_TOS_PREC_SHIFT    5
-
-#define ESOCK_DSCP_MASK         0xfc
 #define ESOCK_DSCP_SHIFT        2
 /* https://www.iana.org/assignments/dscp-registry/dscp-registry.xhtml */
 /* DSCP Pool 1 */
@@ -480,7 +461,32 @@ static void (*esock_sctp_freepaddrs)(struct sockaddr *addrs) = NULL;
 #define ESOCK_DSCP_LE           1
 #define ESOCK_DSCP_NQB          45
 
+/* Legacy RFC 1349: Type of Service in the Internet Protocol Suite
+ */
 
+#define ESOCK_TOS_MASK     0x1E
+#define ESOCK_TOS_SHIFT    1
+/**/
+#define ESOCK_TOS_LOWDELAY      8
+#define ESOCK_TOS_THROUGHPUT    4
+#define ESOCK_TOS_RELIABILITY   2
+#define ESOCK_TOS_MINCOST       1
+#define ESOCK_TOS_DEFAULT       0
+
+#define ESOCK_TOS_PREC_MASK     0xe0
+#define ESOCK_TOS_PREC_SHIFT    5
+/**/
+#define ESOCK_TOS_PREC_NETCONTROL       ESOCK_DSCP_CS7
+#define ESOCK_TOS_PREC_INTERNETCONTROL  ESOCK_DSCP_CS6
+#define ESOCK_TOS_PREC_CRITIC_ECP       ESOCK_DSCP_CS5
+#define ESOCK_TOS_PREC_FLASHOVERRIDE    ESOCK_DSCP_CS4
+#define ESOCK_TOS_PREC_FLASH            ESOCK_DSCP_CS3
+#define ESOCK_TOS_PREC_IMMEDIATE        ESOCK_DSCP_CS2
+#define ESOCK_TOS_PREC_PRIORITY         ESOCK_DSCP_CS1
+#define ESOCK_TOS_PREC_ROUTINE          ESOCK_DSCP_CS0
+
+
+#define ESOCK_DSCP_MASK         0xfc
 #if defined(TCP_CA_NAME_MAX)
 #define ESOCK_OPT_TCP_CONGESTION_NAME_MAX TCP_CA_NAME_MAX
 #else
@@ -16105,19 +16111,17 @@ BOOLEAN_T decode_ip_tos(ErlNifEnv* env, ERL_NIF_TERM eVal, int* val)
 
         /* Take the 'TOS' values first */
         if (COMPARE(eVal, esock_atom_lowdelay) == 0) {
-            *val   = IPTOS_LOWDELAY;
+            *val   = ESOCK_TOS_LOWDELAY << ESOCK_TOS_SHIFT;
             result = TRUE;
         } else if (COMPARE(eVal, esock_atom_throughput) == 0) {
-            *val   = IPTOS_THROUGHPUT;
+            *val   = ESOCK_TOS_THROUGHPUT << ESOCK_TOS_SHIFT;
             result = TRUE;
         } else if (COMPARE(eVal, esock_atom_reliability) == 0) {
-            *val   = IPTOS_RELIABILITY;
+            *val   = ESOCK_TOS_RELIABILITY << ESOCK_TOS_SHIFT;
             result = TRUE;
-#if defined(IPTOS_MINCOST)
         } else if (COMPARE(eVal, esock_atom_mincost) == 0) {
-            *val   = IPTOS_MINCOST;
+            *val   = ESOCK_TOS_MINCOST << ESOCK_TOS_SHIFT;
             result = TRUE;
-#endif
 
             /* DSCP Pool 1 */
         } else if (COMPARE(eVal, esock_atom_cs0) == 0) {
@@ -16232,72 +16236,58 @@ BOOLEAN_T decode_iptos_tos_value(ErlNifEnv* env, ERL_NIF_TERM map, int* val)
     }
 
 
-    /*
-     * PRECEDENCE
-     *
-     * UGLY but will have to do for now...
-     */
+    /* PRECEDENCE */
 
     if (IS_NUM(env, ePREC)) {
 
         if (! GET_UINT(env, ePREC, &tmp)) {
             *val = -1;
-            return FALSE;           
+            return FALSE;
         }
 
-        prec = (unsigned char) IPTOS_PREC(tmp);
-            
+        prec = (unsigned char) tmp;
+
     } else if (IS_ATOM(env, ePREC)) {
 
-#if defined(IPTOS_PREC_NETCONTROL)
         if (IS_IDENTICAL(ePREC, esock_atom_netcontrol)) {
-            prec = IPTOS_PREC_NETCONTROL;
+            prec = ESOCK_TOS_PREC_NETCONTROL;
         }
-#endif
-        
-#if defined(IPTOS_PREC_INTERNETCONTROL)
-        if (IS_IDENTICAL(ePREC, esock_atom_internetcontrol)) {
-            prec = IPTOS_PREC_INTERNETCONTROL;
-        }
-#endif
-        
-#if defined(IPTOS_PREC_CRITIC_ECP)
-        if (IS_IDENTICAL(ePREC, esock_atom_critical_ecp)) {
-            prec = IPTOS_PREC_CRITIC_ECP;
-        }
-#endif
-        
-#if defined(IPTOS_PREC_FLASHOVERRIDE)
-        if (IS_IDENTICAL(ePREC, esock_atom_flashoverride)) {
-            prec = IPTOS_PREC_FLASHOVERRIDE;
-        }
-#endif
-        
-#if defined(IPTOS_PREC_FLASH)
-        if (IS_IDENTICAL(ePREC, esock_atom_flash)) {
-            prec = IPTOS_PREC_FLASH;
-        }
-#endif
 
-#if defined(IPTOS_PREC_IMMEDIATE)
-        if (IS_IDENTICAL(ePREC, esock_atom_immediate)) {
-            prec = IPTOS_PREC_IMMEDIATE;
+        else if (IS_IDENTICAL(ePREC, esock_atom_internetcontrol)) {
+            prec = ESOCK_TOS_PREC_INTERNETCONTROL;
         }
-#endif
-        
-#if defined(IPTOS_PREC_PRIORITY)
-        if (IS_IDENTICAL(ePREC, esock_atom_priority)) {
-            prec = IPTOS_PREC_PRIORITY;
-        }
-#endif
-        
-#if defined(IPTOS_PREC_ROUTINE)
-        if (IS_IDENTICAL(ePREC, esock_atom_routine)) {
-            prec = IPTOS_PREC_ROUTINE;
-        }
-#endif
 
-    } else {
+        else if (IS_IDENTICAL(ePREC, esock_atom_critical_ecp)) {
+            prec = ESOCK_TOS_PREC_CRITIC_ECP;
+        }
+
+        else if (IS_IDENTICAL(ePREC, esock_atom_flashoverride)) {
+            prec = ESOCK_TOS_PREC_FLASHOVERRIDE;
+        }
+
+        else if (IS_IDENTICAL(ePREC, esock_atom_flash)) {
+            prec = ESOCK_TOS_PREC_FLASH;
+        }
+
+        else if (IS_IDENTICAL(ePREC, esock_atom_immediate)) {
+            prec = ESOCK_TOS_PREC_IMMEDIATE;
+        }
+
+        else if (IS_IDENTICAL(ePREC, esock_atom_priority)) {
+            prec = ESOCK_TOS_PREC_PRIORITY;
+        }
+
+        else if (IS_IDENTICAL(ePREC, esock_atom_routine)) {
+            prec = ESOCK_TOS_PREC_ROUTINE;
+        }
+
+        else {
+            *val = -1;
+            return FALSE;
+        }
+
+    }
+    else {
         *val = -1;
         return FALSE;
     }
@@ -16309,52 +16299,50 @@ BOOLEAN_T decode_iptos_tos_value(ErlNifEnv* env, ERL_NIF_TERM map, int* val)
 
         if (! GET_UINT(env, eTOS, &tmp)) {
             *val = -1;
-            return FALSE;           
+            return FALSE;
         }
 
-        tos = (unsigned char) IPTOS_TOS(tmp);
-            
+        tos = (unsigned char) tmp;
+
     } else if (IS_ATOM(env, eTOS)) {
 
-#if defined(IPTOS_LOWDELAY)
         if (IS_IDENTICAL(eTOS, esock_atom_lowdelay)) {
-            tos = IPTOS_LOWDELAY;
-        }
-#endif
-        
-#if defined(IPTOS_THROUGHPUT)
-        if (IS_IDENTICAL(eTOS, esock_atom_throughput)) {
-            tos = IPTOS_THROUGHPUT;
-        }
-#endif
-        
-#if defined(IPTOS_RELIABILITY)
-        if (IS_IDENTICAL(eTOS, esock_atom_reliability)) {
-            tos = IPTOS_RELIABILITY;
-        }
-#endif
-        
-#if defined(IPTOS_MINCOST)
-        if (IS_IDENTICAL(eTOS, esock_atom_mincost)) {
-            tos = IPTOS_MINCOST;
-        }
-#endif
-
-        if (IS_IDENTICAL(eTOS, esock_atom_default)) {
-            tos = 0;
+            tos = ESOCK_TOS_LOWDELAY;
         }
 
-    } else {
+        else if (IS_IDENTICAL(eTOS, esock_atom_throughput)) {
+            tos = ESOCK_TOS_THROUGHPUT;
+        }
+
+        else if (IS_IDENTICAL(eTOS, esock_atom_reliability)) {
+            tos = ESOCK_TOS_RELIABILITY;
+        }
+
+        else if (IS_IDENTICAL(eTOS, esock_atom_mincost)) {
+            tos = ESOCK_TOS_MINCOST;
+        }
+
+        else if (IS_IDENTICAL(eTOS, esock_atom_default)) {
+            tos = ESOCK_TOS_DEFAULT;
+        }
+
+        else {
+            *val = -1;
+            return FALSE;
+        }
+    }
+    else {
         *val = -1;
         return FALSE;
     }
 
     /* And put them together */
-    *val = prec | tos;
+    *val = ((prec << ESOCK_TOS_PREC_SHIFT) & ESOCK_TOS_PREC_MASK)
+        | ((tos << ESOCK_TOS_SHIFT) & ESOCK_TOS_MASK);
     return TRUE;
-    
+
 }
-  
+
 #endif
 
 
@@ -16670,97 +16658,73 @@ static
 ERL_NIF_TERM encode_iptos_tos(ErlNifEnv* env, int val)
 {
     ERL_NIF_TERM tos, prec, result;
-    int          nativeTOS  = IPTOS_TOS(val);
-    int          nativePREC = IPTOS_PREC(val);
+    int nativeTOS  = (val & ESOCK_TOS_MASK) >> ESOCK_TOS_SHIFT;
+    int nativePREC = (val & ESOCK_TOS_PREC_MASK) >> ESOCK_TOS_PREC_SHIFT;
 
     /* *** PRECEDENCE *** */
     switch (nativePREC) {
-#if defined(IPTOS_PREC_NETCONTROL)
-    case IPTOS_PREC_NETCONTROL:
+    case ESOCK_TOS_PREC_NETCONTROL:
         prec = esock_atom_netcontrol;
         break;
-#endif
 
-#if defined(IPTOS_PREC_INTERNETCONTROL)
-    case IPTOS_PREC_INTERNETCONTROL:
+    case ESOCK_TOS_PREC_INTERNETCONTROL:
         prec = esock_atom_internetcontrol;
         break;
-#endif
 
-#if defined(IPTOS_PREC_CRITIC_ECP)
-    case IPTOS_PREC_CRITIC_ECP:
+    case ESOCK_TOS_PREC_CRITIC_ECP:
         prec = esock_atom_critical_ecp;
         break;
-#endif
 
-#if defined(IPTOS_PREC_FLASHOVERRIDE)
-    case IPTOS_PREC_FLASHOVERRIDE:
+    case ESOCK_TOS_PREC_FLASHOVERRIDE:
         prec = esock_atom_flashoverride;
         break;
-#endif
 
-#if defined(IPTOS_PREC_FLASH)
-    case IPTOS_PREC_FLASH:
+    case ESOCK_TOS_PREC_FLASH:
         prec = esock_atom_flash;
         break;
-#endif
 
-#if defined(IPTOS_PREC_IMMEDIATE)
-    case IPTOS_PREC_IMMEDIATE:
+    case ESOCK_TOS_PREC_IMMEDIATE:
         prec = esock_atom_immediate;
         break;
-#endif
 
-#if defined(IPTOS_PREC_PRIORITY)
-    case IPTOS_PREC_PRIORITY:
+    case ESOCK_TOS_PREC_PRIORITY:
         prec = esock_atom_priority;
         break;
-#endif
 
-#if defined(IPTOS_PREC_ROUTINE)
-    case IPTOS_PREC_ROUTINE:
+    case ESOCK_TOS_PREC_ROUTINE:
         prec = esock_atom_routine;
         break;
-#endif
 
     default:
-        prec = MKI(env, nativePREC >> ESOCK_TOS_PREC_SHIFT);
+        prec = MKI(env, nativePREC);
         break;
     }
 
 
     /* *** TOS *** */
     switch (nativeTOS) {
-    case 0:
+    case ESOCK_TOS_LOWDELAY:
+        tos = esock_atom_lowdelay;
+        break;
+
+    case ESOCK_TOS_THROUGHPUT:
+        tos = esock_atom_throughput;
+        break;
+
+    case ESOCK_TOS_RELIABILITY:
+        tos = esock_atom_reliability;
+        break;
+
+    case ESOCK_TOS_MINCOST:
+        tos = esock_atom_mincost;
+        break;
+
+    case ESOCK_TOS_DEFAULT:
         tos = esock_atom_default;
         break;
 
-#if defined(IPTOS_LOWDELAY)
-    case IPTOS_LOWDELAY:
-        tos = esock_atom_lowdelay;
-        break;
-#endif
-
-#if defined(IPTOS_THROUGHPUT)
-    case IPTOS_THROUGHPUT:
-        tos = esock_atom_throughput;
-        break;
-#endif
-
-#if defined(IPTOS_RELIABILITY)
-    case IPTOS_RELIABILITY:
-        tos = esock_atom_reliability;
-        break;
-#endif
-
-#if defined(IPTOS_MINCOST)
-    case IPTOS_MINCOST:
-        tos = esock_atom_mincost;
-        break;
-#endif
-
     default:
-        tos = MKI(env, nativeTOS >> ESOCK_TOS_SHIFT);
+        tos = MKI(env, nativeTOS);
         break;
     }
 
