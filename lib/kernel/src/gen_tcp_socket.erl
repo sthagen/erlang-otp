@@ -1235,10 +1235,18 @@ socket_getopt(Socket, DomainProps, _) when is_list(DomainProps) ->
 socket_getopt_value(
   {socket,linger}, {ok, #{onoff := OnOff, linger := Linger}}) ->
     {ok, {OnOff, Linger}};
+socket_getopt_value({ip,tos}, {ok, #{native := TOS, tos := _}}) ->
+    {ok, TOS};
 socket_getopt_value({Level,pktoptions}, {ok, PktOpts})
   when Level =:= ip,   is_list(PktOpts);
        Level =:= ipv6, is_list(PktOpts) ->
-    {ok, [{Type, Value} || #{type := Type, value := Value} <- PktOpts]};
+    {ok,
+     [case {Type, Value} of
+          {tos, #{native := TOS, tos := _}} ->
+              {Type, TOS};
+          Type_Value ->
+              Type_Value
+      end || #{type := Type, value := Value} <- PktOpts]};
 socket_getopt_value(_Tag, {ok, _Value} = Ok) -> Ok;
 socket_getopt_value(_Tag, {error, _} = Error) -> Error.
 

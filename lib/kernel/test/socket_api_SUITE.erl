@@ -20582,7 +20582,8 @@ api_opt_ip_recvtos_udp(InitState) ->
 
          #{desc => "extract the (expected) recvtos \"default\" value",
            cmd  => fun(#{sock_dst := Sock} = State) ->
-                           {ok, DefValue} = socket:getopt(Sock, ip, tos),
+                           {ok, #{tos := DefValue}} =
+                               socket:getopt(Sock, ip, tos),
                            ?SEV_IPRINT("(expected) recvtos def value: ~w",
                                        [DefValue]),
                            {ok, State#{dst_def_value => DefValue}}
@@ -20608,7 +20609,7 @@ api_opt_ip_recvtos_udp(InitState) ->
                            case Recv(Sock) of
                                {ok, {Src, [#{level := ip,
                                              type  := TOS,
-                                             value := DefValue}], ?BASIC_REQ}}
+                                             value := #{tos := DefValue}}], ?BASIC_REQ}}
                                  when (TOS =:= tos) orelse
                                       (TOS =:= recvtos) ->
                                    ?SEV_IPRINT("got default TOS (~w) "
@@ -20645,10 +20646,13 @@ api_opt_ip_recvtos_udp(InitState) ->
 
          #{desc => "set tos = reliability on src sock",
            cmd  => fun(#{sock_src := Sock}) ->
-                           ok = socket:setopt(Sock, ip, tos, reliability)
+                           ok = socket:setopt(Sock,
+                                              ip, tos,
+                                              #{precedence => routine,
+                                                tos        => throughput})
                    end},
 
-         #{desc => "send req (to dst) (w tos = mincost)",
+         #{desc => "send req (to dst) (w tos = throughput)",
            cmd  => fun(#{sock_src := Sock, sa_dst := Dst, send := Send}) ->
                            Send(Sock, ?BASIC_REQ, Dst, default)
                    end},
@@ -20657,7 +20661,7 @@ api_opt_ip_recvtos_udp(InitState) ->
                            case Recv(Sock) of
                                {ok, {Src, [#{level := ip,
                                              type  := TOS,
-                                             value := reliability = TOSData}],
+                                             value := #{tos := #{tos := throughput = TOSData}}}],
                                      ?BASIC_REQ}} 
                                  when ((TOS =:= tos) orelse (TOS =:= recvtos)) ->
                                    ?SEV_IPRINT("got expected TOS (~w) = ~w "
@@ -21243,13 +21247,15 @@ api_opt_ip_tos_udp(InitState) ->
                            end
                    end},
 
+         %% The default value for TOS is usually 'default', but on FreeBSD...
          #{desc => "get default tos",
            cmd  => fun(#{sock := Sock, get := Get} = _State) ->
                            case Get(Sock) of
-                               {ok, 0 = Value} ->
-                                   ?SEV_IPRINT("expected default tos: ~p", [Value]),
+                               {ok, #{native := 0} = Value} ->
+                                   ?SEV_IPRINT("expected default tos: ~p",
+                                               [Value]),
                                    ok;
-                               {ok, Value} ->
+                               {ok, #{tos := #{tos := Value}}} ->
                                    %% On FreeBSD 14 & 15 default value is not 0!
                                    case os:type() of
                                        {unix, freebsd} ->
@@ -21280,6 +21286,7 @@ api_opt_ip_tos_udp(InitState) ->
                            end
                    end},
 
+         %% 'mincost' does not exist on all platforms
          %% #{desc => "set tos " ++ TOS1Str,
          %%   cmd  => fun(#{sock := Sock, set := Set} = _State) ->
          %%                   socket:setopt(Sock, otp, debug, true),
@@ -21327,7 +21334,7 @@ api_opt_ip_tos_udp(InitState) ->
          #{desc => "get tos (expect " ++ TOS2Str ++ ")",
            cmd  => fun(#{sock := Sock, get := Get} = _State) ->
                            case Get(Sock) of
-                               {ok, TOS2 = Value} ->
+                               {ok, #{tos := #{tos := TOS2 = Value}}} ->
                                    ?SEV_IPRINT("expected tos (~p)", [Value]),
                                    ok;
                                {ok, Unexpected} ->
@@ -21356,7 +21363,7 @@ api_opt_ip_tos_udp(InitState) ->
          #{desc => "get tos (expect " ++ TOS3Str ++ ")",
            cmd  => fun(#{sock := Sock, get := Get} = _State) ->
                            case Get(Sock) of
-                               {ok, TOS3 = Value} ->
+                               {ok, #{tos := #{tos := TOS3 = Value}}} ->
                                    ?SEV_IPRINT("expected tos (~p)", [Value]),
                                    ok;
                                {ok, Unexpected} ->
@@ -21385,7 +21392,7 @@ api_opt_ip_tos_udp(InitState) ->
          #{desc => "get tos (expect " ++ TOS4Str ++ ")",
            cmd  => fun(#{sock := Sock, get := Get} = _State) ->
                            case Get(Sock) of
-                               {ok, TOS4 = Value} ->
+                               {ok, #{tos := #{tos := TOS4 = Value}}} ->
                                    ?SEV_IPRINT("expected tos (~p)", [Value]),
                                    ok;
                                {ok, Unexpected} ->
@@ -21414,7 +21421,7 @@ api_opt_ip_tos_udp(InitState) ->
          #{desc => "get tos (expect " ++ TOS5Str ++ ")",
            cmd  => fun(#{sock := Sock, get := Get} = _State) ->
                            case Get(Sock) of
-                               {ok, TOS5 = Value} ->
+                               {ok, #{native := TOS5 = Value}} ->
                                    ?SEV_IPRINT("expected tos (~p)", [Value]),
                                    ok;
                                {ok, Unexpected} ->
