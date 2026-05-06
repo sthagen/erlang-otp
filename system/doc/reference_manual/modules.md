@@ -170,7 +170,8 @@ Read more about behaviours and callback modules in
 
 ### Record Definitions
 
-The same syntax as for module attributes is used for record definitions:
+A syntax similar to that for module attributes is used for defining
+records:
 
 ```erlang
 -record(Record, Fields).
@@ -178,6 +179,18 @@ The same syntax as for module attributes is used for record definitions:
 
 Record definitions are allowed anywhere in a module, also among the function
 declarations. Read more in [Records](ref_man_records.md).
+
+### Native Record Definitions
+
+A syntax similar to that for module attributes is used for defining
+native records:
+
+```erlang
+-record #Record{Field1, Field2, ..., FieldN}.
+```
+
+Record definitions are allowed anywhere in a module, also among the function
+declarations. Read more in [Native Records](ref_man_native_records.md).
 
 ### Preprocessor
 
