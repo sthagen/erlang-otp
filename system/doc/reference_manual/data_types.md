@@ -768,6 +768,8 @@ false
 >
 > Native records were introduced in Erlang/OTP 29.
 
+Read more about native records in [Native Records](ref_man_native_records.md).
+
 ## Boolean
 
 There is no Boolean data type in Erlang. Instead, the atoms `true` and `false`

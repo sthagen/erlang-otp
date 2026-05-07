@@ -377,6 +377,13 @@ The syntax for this is as follows:
 -record(rec, {field1 :: Type1, field2, field3 :: Type3}).
 ```
 
+For a [native record](ref_man_native_records.md) the syntax is as
+follows:
+
+```erlang
+-record #rec{field1 :: Type1, field2, field3 :: Type3}.
+```
+
 For fields without type annotations, their type defaults to `any()`. That is, the
 previous example is a shorthand for the following:
 
@@ -428,13 +435,18 @@ by adding type information about the field as follows:
 #rec{some_field :: Type}
 ```
 
+This syntax is only supported for [tuple-based
+records](ref_man_records.md), not for [native
+records](ref_man_native_records.md).
+
 Any unspecified fields are assumed to have the type in the original record
 declaration.
 
 > #### Note {: .info }
 >
-> When records are used to create patterns for ETS and Mnesia match functions,
-> Dialyzer may need some help not to emit bad warnings. For example:
+> When tuple-based records are used to create patterns for ETS and Mnesia
+> match functions, Dialyzer may need some help not to emit bad warnings.
+> For example:
 >
 > ```erlang
 > -type height() :: pos_integer().

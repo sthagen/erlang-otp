@@ -144,6 +144,7 @@ KERNEL_MODULES= rtnode shell_test_lib
 KERNEL_HRL= shell_test_lib
 
 DOCTEST_MARKDOWN = ../doc/guides/uri_string_usage.md
+DOCTEST_NATIVE_RECORDS_MARKDOWN = $(ERL_TOP)/system/doc/reference_manual/ref_man_native_records.md
 
 ERL_FILES=	$(MODULES:%=%.erl) \
 		$(ERTS_MODULES:%=$(ERL_TOP)/erts/emulator/test/%.erl) \
@@ -211,6 +212,8 @@ release_tests_spec: make_emakefile
 	$(INSTALL_DATA) $(ERL_TOP)/make/otp_version_tickets "$(RELSYSDIR)/stdlib_SUITE_data"
 	$(INSTALL_DIR) "$(RELSYSDIR)/uri_string_SUITE_data"
 	$(INSTALL_DATA) $(DOCTEST_MARKDOWN) "$(RELSYSDIR)/uri_string_SUITE_data"
+	$(INSTALL_DIR) "$(RELSYSDIR)/records_SUITE_data"
+	$(INSTALL_DATA) $(DOCTEST_NATIVE_RECORDS_MARKDOWN) "$(RELSYSDIR)/records_SUITE_data"
 
 	cd ../examples && $(MAKE) $@
 
