@@ -27,7 +27,7 @@ A Tool for Handling Erlang Crash Dumps
 This module contains functions for decrypting encrypted Erlang crash dumps,
 which can be enabled with the `--enable-encrypted-crash-dumps` build flag.
 """.
--moduledoc(#{ since => "OTP @OTP-20085@"}).
+-moduledoc(#{ since => "OTP 29.0"}).
 -include_lib("public_key/include/public_key.hrl").
 
 -export([decrypt/2, decrypt/3, pem_decrypt/2, pem_decrypt/3]).
@@ -36,7 +36,7 @@ which can be enabled with the `--enable-encrypted-crash-dumps` build flag.
 This is a convenience wrapper around `crashdump:decrypt/2` that handles key
 extraction from a given PEM file.
 """.
--doc (#{ since => "OTP @OTP-20085@" }).
+-doc (#{ since => "OTP 29.0" }).
 -spec pem_decrypt(EncryptedFile, KeyFile) ->
           {ok, erlang:iovec()} | {error, Reason} when
       EncryptedFile :: file:name(),
@@ -51,7 +51,7 @@ pem_decrypt(EncryptedFile, KeyFile) ->
 This is a convenience wrapper around `crashdump:decrypt/3` that handles key
 extraction from a given PEM file.
 """.
--doc (#{ since => "OTP @OTP-20085@" }).
+-doc (#{ since => "OTP 29.0" }).
 -spec pem_decrypt(EncryptedFile, KeyFile, DecryptedFile) ->
           ok | {error, Reason} when
       EncryptedFile :: file:name(),
@@ -89,7 +89,7 @@ is_private_key(_) -> false.
 -doc """
 Decrypts the Erlang crash dump at `EncryptedFile` using `PrivateKey`.
 """.
--doc (#{ since => "OTP @OTP-20085@" }).
+-doc (#{ since => "OTP 29.0" }).
 -spec decrypt(EncryptedFile,
               PrivateKey) -> {ok, erlang:iovec()} | {error, Reason} when
       EncryptedFile :: file:name(),
@@ -110,7 +110,7 @@ decrypt(EncryptedFile, PrivateKey) ->
 Decrypts the Erlang crash dump at `EncryptedFile` using `PrivateKey`, writing
 the result to `DecryptedFile`.
 """.
--doc (#{ since => "OTP @OTP-20085@" }).
+-doc (#{ since => "OTP 29.0" }).
 -spec decrypt(EncryptedFile,
               PrivateKey,
               DecryptedFile) -> ok | {error, Reason} when

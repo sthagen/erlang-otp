@@ -50,7 +50,7 @@
 			  "kernel-10.0",
                           "erts-15.0",
                           "compiler-8.5",
-                          "public_key-@OTP-20085@",
-                          "crypto-@OTP-20085@"]}
+                          "public_key-1.21",
+                          "crypto-5.9"]}
  ]
 }. 

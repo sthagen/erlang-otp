@@ -27,6 +27,28 @@ as all enhancements and bugfixes for every release of Megaco. Each release of
 Megaco thus constitutes one section in this document. The title of each section
 is the version number of Megaco.
 
+## Megaco 4.9
+
+### Fixed Bugs and Malfunctions
+
+- Running Dialyzer on Windows in an Erlang repo, causes Dialyzer warnings for the megaco_flex_scanner module. This is because the flex scanner is not built on Windows. These warnings are now suppressed.
+
+  Own Id: OTP-20114 Aux Id: [PR-11025]
+
+[PR-11025]: https://github.com/erlang/otp/pull/11025
+
+### Improvements and New Features
+
+- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
+  
+  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
+  
+  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
+
+  Own Id: OTP-20066 Aux Id: [PR-10839]
+
+[PR-10839]: https://github.com/erlang/otp/pull/10839
+
 ## Megaco 4.8.3
 
 ### Improvements and New Features

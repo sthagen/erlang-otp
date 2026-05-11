@@ -23,6 +23,34 @@ limitations under the License.
 
 This document describes the changes made to the Wx application.
 
+## Wx 2.6
+
+### Fixed Bugs and Malfunctions
+
+- The examples for `wx` are now only installed in one place (in `doc/examples`).
+
+  Own Id: OTP-20119 Aux Id: ERIERL-1315, [PR-11032]
+
+[PR-11032]: https://github.com/erlang/otp/pull/11032
+
+### Improvements and New Features
+
+- Documentation about how to validate the SBOM using sigstore has been added.
+
+  Own Id: OTP-19766 Aux Id: [GH-10151], [PR-10187]
+
+- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
+  
+  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
+  
+  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
+
+  Own Id: OTP-20066 Aux Id: [PR-10839]
+
+[GH-10151]: https://github.com/erlang/otp/issues/10151
+[PR-10187]: https://github.com/erlang/otp/pull/10187
+[PR-10839]: https://github.com/erlang/otp/pull/10839
+
 ## Wx 2.5.4
 
 ### Improvements and New Features

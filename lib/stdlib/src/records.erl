@@ -32,7 +32,7 @@ This module contains functions for creating and inspecting native records.
 > and implementing tools (such as the Debugger). Use with care in
 > production code.
 """.
--moduledoc(#{since => ~"OTP @OTP-19785@"}).
+-moduledoc(#{since => ~"OTP 29.0"}).
 
 %% BIFs (implemented in the runtime system).
 -export([get/2, get_module/1, get_name/1, get_field_names/1,
@@ -71,7 +71,7 @@ or if `Key` does not exist in `Record`.
         called as records:get(y,#test:a{x = 1})
 ```
 """.
--doc #{since => ~"OTP @OTP-19785@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec get(Key, Record) -> dynamic() when
       Key :: atom(),
       Record :: record().
@@ -96,7 +96,7 @@ test
         called as records:get_module(#{})
 ```
 """.
--doc #{since => ~"OTP @OTP-19785@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec get_module(Record) -> Module when
       Record :: record(),
       Module :: module().
@@ -121,7 +121,7 @@ a
         called as records:get_name(#{})
 ```
 """.
--doc #{since => ~"OTP @OTP-19785@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec get_name(Record) -> Name when
       Record :: record(),
       Name :: atom().
@@ -148,7 +148,7 @@ native record.
         called as records:get_field_names({x,y})
 ```
 """.
--doc #{since => ~"OTP @OTP-19785@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec get_field_names(Record) -> [Name] when
       Record :: record(),
       Name :: atom().
@@ -175,7 +175,7 @@ false
         called as records:is_exported({x,y})
 ```
 """.
--doc #{since => ~"OTP @OTP-19785@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec is_exported(record()) -> boolean().
 is_exported(_Record) ->
     erlang:nif_error(undefined).
@@ -219,7 +219,7 @@ true
         called as records:create(test,a,[{x,1},{x,2}],#{is_exported => true})
 ```
 """.
--doc #{since => ~"OTP @OTP-19785@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec create(Module :: module(), RecordName :: atom(),
              Fields :: [{atom(), term()}],
              Options :: create_options()) -> record().
@@ -251,7 +251,7 @@ exist in `Record`.
         called as records:update(#test:a{x = 1,y = 2,z = 3},test,a,#{w => 42})
 ```
 """.
--doc #{since => ~"OTP @OTP-19785@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec update(Src :: record(), Module :: module(), RecordName :: atom(),
              FieldsMap :: #{atom() => term()}) -> record().
 update(_Src, _Module, _RecordName, _FieldsMap) ->
@@ -260,7 +260,7 @@ update(_Src, _Module, _RecordName, _FieldsMap) ->
 -doc """
 Retrieves the definition for native record `Name` in module `Module`.
 """.
--doc #{since => ~"OTP @OTP-19785@"}.
+-doc #{since => ~"OTP 29.0"}.
 -spec get_definition(Module :: module(),
                      RecordName :: atom()) ->
       {create_options(),
