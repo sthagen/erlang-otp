@@ -23,6 +23,155 @@ limitations under the License.
 
 This document describes the changes made to the Kernel application.
 
+## Kernel 11.0
+
+### Fixed Bugs and Malfunctions
+
+- Fixed (`inet`) module selection when calling (`gen_tcp`) listen and connect and (`gen_udp`) open. Depending on the order of the options, the module option (`tcp_module` or `udp_module`) was sometimes ignored.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-19695 Aux Id: [GH-9822], [PR-10013]
+
+- The TCP/UDP compatibility layer has been fixed so that `inet_backend = socket` now supports socket options `reuseport` and `reuseport_lb` for `gen_tcp` and `gen_udp`.
+
+  Own Id: OTP-19917 Aux Id: [PR-10514]
+
+- Some errors in config files for the application controller would result in very cryptic crashes. Error handling has been improved to ensure that the file name and line number of the offending token are now printed.
+
+  Own Id: OTP-20054 Aux Id: [GH-10214], [PR-10259]
+
+- The TOS handling on socket has been significantlyupdated and improved.  Socket did not properly handle set, get and recv (cmsg) of TOS.
+  
+  Note that the returned TOS value has been changed.  It was previously an atom or an integer.  Now it is a map with different interpretations of the TOS octet.  See the documentation.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20102 Aux Id: [GH-10968], [PR-11059]
+
+- Replaced a sleep clause in user_drv shutdown with a flush of the output buffer.
+
+  Own Id: OTP-20124 Aux Id: [PR-10808]
+
+[GH-9822]: https://github.com/erlang/otp/issues/9822
+[PR-10013]: https://github.com/erlang/otp/pull/10013
+[PR-10514]: https://github.com/erlang/otp/pull/10514
+[GH-10214]: https://github.com/erlang/otp/issues/10214
+[PR-10259]: https://github.com/erlang/otp/pull/10259
+[GH-10968]: https://github.com/erlang/otp/issues/10968
+[PR-11059]: https://github.com/erlang/otp/pull/11059
+[PR-10808]: https://github.com/erlang/otp/pull/10808
+
+### Improvements and New Features
+
+- Added an option to set the `erl_boot_server` listen port.
+
+  Own Id: OTP-19708 Aux Id: [PR-9894]
+
+- The memory footprint of some supervisors has been reduced by purging obsoleted data when the supervisor is transitioning to and from hibernation.
+
+  Own Id: OTP-19713 Aux Id: [PR-9866]
+
+- Improved name consistency of EPMD protocol messages in documentation and code. Renamed `PORT_PLEASE2_REQ` to `PORT2_REQ` and added prefix `EPMD_`.
+
+  Own Id: OTP-19734 Aux Id: [GH-10071], [PR-10078]
+
+- The legacy `and` and `or` operators have been replaced with other language constructs.
+
+  Own Id: OTP-19744 Aux Id: [PR-10114], [PR-10554], [PR-10568], [PR-10579], [PR-10585], [PR-10598], [PR-10710], [PR-10718], [PR-10580], [PR-10730]
+
+- Refactored a `kernel_load_completed` clause in the `init` module for conciseness.
+
+  Own Id: OTP-19786 Aux Id: [PR-10134]
+
+- Full support for SCTP in `m:socket`.
+  Not (yet) supported for FreeBSD.
+
+  Own Id: OTP-19834
+
+- In the default code path for the Erlang system, the current working directory (`.`) is now in the last position instead of the first.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-19842
+
+- It was previously not possible to check on the socket nif load result. A successful load was self-evident, but a failure was only visible from the fact that most `m:socket` functions failed with `notsup`.
+  This has now been improved such that the (socket nif) load result is visible in the info map (from `socket:info/0`).
+
+  Own Id: OTP-20003
+
+- Added support for socket functions `recvmmsg()` and `sendmmsg()`.
+
+  Own Id: OTP-20015 Aux Id: [PR-10564]
+
+- Added a new module called `io_ansi` that allows the user to emit Virtual Terminal Sequences (a.k.a. ANSI sequences) to the terminal in order to add colors/styling to text or create fully-fledged terminal applications.
+  
+  `io_ansi` uses the local terminfo database in order to be as cross-platform compatible as possible.
+  
+  It also works across nodes so that if functions on a remote node call `io_ansi:fwrite/1` it will use the destination terminal's terminfo database to determine which sequences to emit. In practice, this means that you can call functions in a remote shell session that use `io_ansi` and it will properly detect the terminal sequences the target terminal can handle and will print using them correctly.
+
+  Own Id: OTP-20028 Aux Id: [PR-9940], [PR-10905]
+
+- Polished the documentation groups, essentially removed groups that did nothing but obscure the documentation.
+
+  Own Id: OTP-20029 Aux Id: [PR-10755]
+
+- Added a new behavior, `data_publisher`, for building eventually consistent, replicated data stores across distributed nodes. This is a generalization of the `pg` module.
+
+  Own Id: OTP-20055 Aux Id: [PR-10426]
+
+- Added support for `-unsafe` attributes, which is used to mark functions as unsafe to use. 
+  
+  This is similar to but separate from deprecation, and the compiler will by default now generate warnings for calls to functions in Erlang/OTP that are known to be always unsafe.
+  
+  Furthermore, `m:xref` can now be used to find calls to functions in another application that lack a `-doc` attribute (`undocumented_function_calls`), calls to functions in another application marked `-doc false.` (`private_function_calls`), as well as calls to unsafe functions (`unsafe_function_calls`).
+
+  Own Id: OTP-20066 Aux Id: [PR-10839]
+
+- When implementing an [alternate distribution](`e:erts:alt_dist.md`) implementors can now use an alternate [*handshake complete* fun of arity 4](`e:erts:alt_dist.md#hs_data_f_handshake_complete`) if needed.
+
+  Own Id: OTP-20090 Aux Id: [PR-10478]
+
+- Added support for socket option SO_TIMESTAMPNS (not available on all platforms).
+
+  Own Id: OTP-20115 Aux Id: [PR-10929]
+
+- Added a flag `log_missed_net_ticks = true | false`
+  that controls whether a warning is logged for each missed sub-tick on a distribution
+    connection. A sub-tick is missed when no data has been received from a
+    connected node during one tick interval. A warning is emitted on every
+    subsequent missed sub-tick until the node is declared down after
+    `net_tickintensity` consecutive missed
+    sub-ticks, at which point a final timeout warning is always logged regardless
+    of this setting. Defaults to `false`.
+
+  Own Id: OTP-20117 Aux Id: [PR-11031]
+
+[PR-9894]: https://github.com/erlang/otp/pull/9894
+[PR-9866]: https://github.com/erlang/otp/pull/9866
+[GH-10071]: https://github.com/erlang/otp/issues/10071
+[PR-10078]: https://github.com/erlang/otp/pull/10078
+[PR-10114]: https://github.com/erlang/otp/pull/10114
+[PR-10554]: https://github.com/erlang/otp/pull/10554
+[PR-10568]: https://github.com/erlang/otp/pull/10568
+[PR-10579]: https://github.com/erlang/otp/pull/10579
+[PR-10585]: https://github.com/erlang/otp/pull/10585
+[PR-10598]: https://github.com/erlang/otp/pull/10598
+[PR-10710]: https://github.com/erlang/otp/pull/10710
+[PR-10718]: https://github.com/erlang/otp/pull/10718
+[PR-10580]: https://github.com/erlang/otp/pull/10580
+[PR-10730]: https://github.com/erlang/otp/pull/10730
+[PR-10134]: https://github.com/erlang/otp/pull/10134
+[PR-10564]: https://github.com/erlang/otp/pull/10564
+[PR-9940]: https://github.com/erlang/otp/pull/9940
+[PR-10905]: https://github.com/erlang/otp/pull/10905
+[PR-10755]: https://github.com/erlang/otp/pull/10755
+[PR-10426]: https://github.com/erlang/otp/pull/10426
+[PR-10839]: https://github.com/erlang/otp/pull/10839
+[PR-10478]: https://github.com/erlang/otp/pull/10478
+[PR-10929]: https://github.com/erlang/otp/pull/10929
+[PR-11031]: https://github.com/erlang/otp/pull/11031
+
 ## Kernel 10.6.3
 
 ### Fixed Bugs and Malfunctions

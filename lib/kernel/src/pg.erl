@@ -429,28 +429,28 @@ which_local_groups(Scope) when is_atom(Scope) ->
 %% Internal implementation
 
 %% local_data_published implementation
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec version() -> version().
 version() ->
     1.
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec init_global_view(scope(), options()) -> global_view().
 init_global_view(Scope, _Options) ->
     _ = ets:new(Scope, [set, protected, named_table, {read_concurrency, true}]),
     {Scope, #{}}.
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec init_local_data(options()) -> local_data().
 init_local_data(_Options) ->
     #{}.
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec stop_global_view(global_view()) -> term().
 stop_global_view({Scope, _Monitors}) ->
     ets:delete(Scope).
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec update_local_data(update(), local_data()) -> local_data().
 update_local_data([], LocalState) ->
     LocalState;
@@ -467,7 +467,7 @@ update_local_data([{Group, Add, Remove} | Tail], LocalState) ->
             update_local_data(Tail, LocalState#{Group => Add})
     end.
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec update_global_view_and_notify(node(), update(), subscriptions(), global_view()) -> global_view().
 update_global_view_and_notify(_Node, [], _Subscriptions, GlobalView) ->
     GlobalView;
@@ -525,7 +525,7 @@ update_global_view_and_notify(Node, [{Group, Add, Remove} | Tail], Subscriptions
     _ = notify(Group, Add, Remove, Subscriptions),
     update_global_view_and_notify(Node, Tail, Subscriptions, {Scope, Monitors}).
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec data_diff(Old :: local_data(), New :: local_data()) -> update().
 data_diff(Old, New) ->
     OldKeys = maps:keys(Old),
@@ -549,14 +549,14 @@ data_diff(Old, New) ->
         end
     ].
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec new_subscription(subscription(), global_view()) -> subscribe_result().
 new_subscription(scope, {Scope, _Monitors}) ->
     #{G => P || [G, P] <- ets:match(Scope, {'$1', '$2', '_'})};
 new_subscription({group, Group}, {Scope, _Monitors}) ->
     get_members(Scope, Group).
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec translate_update(MyVersion :: version(), PeerVersion :: version(), update()) ->
     update() | {'$plain_messages', [dynamic()]}.
 % legacy support, to be removed
@@ -582,7 +582,7 @@ translate_update(1, 0, Update) ->
 translate_update(1, _, Update) ->
     Update.
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec translate_local_data(MyVersion :: version(), PeerVersion :: version(), local_data()) ->
     local_data() | {'$plain_message', dynamic()}.
 % legacy support, to be removed
@@ -591,7 +591,7 @@ translate_local_data(1, 0, LocalState) ->
 translate_local_data(1, _, LocalState) ->
     LocalState.
 
--doc(#{since => "OTP @OTP-20055@"}).
+-doc(#{since => "OTP 29.0"}).
 -spec translate_message
     ({join, pid(), group(), pid() | [pid()]}, global_view()) -> {update, pid(), update(), global_view()};
     ({leave, pid(), pid() | [pid()], [group()]}, global_view()) -> {update, pid(), update(), global_view()};
