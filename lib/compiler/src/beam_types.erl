@@ -1742,7 +1742,7 @@ verified_normal_type(#t_tuple{size=Size,elements=Es}=T) ->
     %% entire tuple to 'none'.
     _ = [verified_type(Element) ||
             Index := Element <- Es,
-            is_integer(Index), 1 =< Index, Index =< Size,
+            is_integer(Index, 1, Size),
             Index =< ?TUPLE_ELEMENT_LIMIT,
             Element =/= any, Element =/= none],
     T;
@@ -1781,14 +1781,11 @@ verified_normal_type(#t_record{type=Type}=T) ->
 
 -define(BEAM_TYPES_VERSION_29, ?BEAM_TYPES_VERSION).
 -define(BEAM_TYPES_VERSION_27, 3).
--define(BEAM_TYPES_VERSION_26, 2).
 
 -spec convert_ext(pos_integer(), binary()) -> binary() | 'none'.
 convert_ext(?BEAM_TYPES_VERSION_29, Types) ->
     Types;
 convert_ext(?BEAM_TYPES_VERSION_27=Version, Types) ->
-    do_convert_ext(Version, Types);
-convert_ext(?BEAM_TYPES_VERSION_26=Version, Types) ->
     do_convert_ext(Version, Types);
 convert_ext(_Version, _Types) ->
     none.
@@ -1819,17 +1816,6 @@ rearrange_fun(?BEAM_TYPES_VERSION_27) ->
     fun(Bits) ->
             %% OTP 29 added a type bit for native records.
             (Bits band 16#0fff) bor ((Bits bsl 1) band 16#e000)
-    end;
-rearrange_fun(?BEAM_TYPES_VERSION_26) ->
-    ToOtp29 = rearrange_fun(?BEAM_TYPES_VERSION_27),
-    fun(Bits0) ->
-            %% OTP 27 removed #t_bs_context{} from the type
-            %% information, which used to occupy bit 2. As these
-            %% are now considered to be a regular bitstring that
-            %% happens to be mutable, we'll combine it with the
-            %% #t_bitstring{} type bit.
-            Bits = (Bits0 band 3) bor ((Bits0 band (bnot 3)) bsr 1),
-            ToOtp29(Bits)
     end.
 
 ext_type_mapping() ->
@@ -1953,7 +1939,7 @@ encode_range(Max, TypeBits, Extra) ->
     end.
 
 encode_unit(#t_bitstring{size_unit=Unit}) ->
-    true = is_integer(Unit) andalso 0 < Unit andalso Unit =< 256, %Assertion.
+    true = is_integer(Unit, 1, 256),            %Assertion.
     {?BEAM_TYPE_HAS_UNIT,<<(Unit-1):8>>};
 encode_unit(#t_union{other=Other}) ->
     encode_unit(Other);
@@ -1963,7 +1949,7 @@ encode_unit(_) ->
 %% Test whether the number is a small on a 64-bit machine.
 %% (Normally the compiler doesn't know/doesn't care whether something is
 %% bignum, but because the type representation is versioned this is safe.)
-is_small(N) when is_integer(N), -(1 bsl 59) =< N andalso N =< (1 bsl 59) - 1 ->
+is_small(N) when is_integer(N, -(1 bsl 59), (1 bsl 59) - 1) ->
     true;
 is_small(_) ->
     false.
