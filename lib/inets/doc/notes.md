@@ -81,6 +81,16 @@ limitations under the License.
 [PR-10950]: https://github.com/erlang/otp/pull/10950
 [PR-11073]: https://github.com/erlang/otp/pull/11073
 
+## Inets 9.6.2.1
+
+### Fixed Bugs and Malfunctions
+
+- A call to httpd:reload_config/2 now validates the new configuration before removing the old one, leaving the server running in case of faulty config, instead of putting it in an unrecoverable state.
+
+  Own Id: OTP-20128 Aux Id: [PR-11079], ERIERL-1314
+
+[PR-11079]: https://github.com/erlang/otp/pull/11079
+
 ## Inets 9.6.2
 
 ### Fixed Bugs and Malfunctions
@@ -252,6 +262,16 @@ limitations under the License.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9101]: https://github.com/erlang/otp/pull/9101
 
+## Inets 9.3.2.5
+
+### Fixed Bugs and Malfunctions
+
+- A call to httpd:reload_config/2 now validates the new configuration before removing the old one, leaving the server running in case of faulty config, instead of putting it in an unrecoverable state.
+
+  Own Id: OTP-20128 Aux Id: [PR-11079], ERIERL-1314
+
+[PR-11079]: https://github.com/erlang/otp/pull/11079
+
 ## Inets 9.3.2.4
 
 ### Fixed Bugs and Malfunctions
@@ -411,6 +431,14 @@ limitations under the License.
 [PR-7678]: https://github.com/erlang/otp/pull/7678
 [PR-8029]: https://github.com/erlang/otp/pull/8029
 [PR-8026]: https://github.com/erlang/otp/pull/8026
+
+## Inets 9.1.0.7
+
+### Fixed Bugs and Malfunctions
+
+* A call to httpd:reload_config/2 now validates the new configuration before removing the old one, leaving the server running in case of faulty config, instead of putting it in an unrecoverable state.
+
+  Own Id: OTP-20128 Aux Id: PR-11079, ERIERL-1314
 
 ## Inets 9.1.0.6
 

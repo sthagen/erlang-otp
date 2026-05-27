@@ -133,6 +133,8 @@
          pkix_path_validation/1,
          pkix_path_validation_root_expired/0,
          pkix_path_validation_root_expired/1,
+         pkix_path_validation_forged_chain/0,
+         pkix_path_validation_forged_chain/1,
          pkix_ext_key_usage/0,
          pkix_ext_key_usage/1,
          pkix_ext_key_usage_any/0,
@@ -224,6 +226,7 @@ all() ->
      pkix_encode,
      pkix_path_validation,
      pkix_path_validation_root_expired,
+     pkix_path_validation_forged_chain,
      pkix_ext_key_usage,
      pkix_ext_key_usage_any,
      pkix_path_validation_bad_date,
@@ -611,9 +614,9 @@ eddsa_pub(Config) when is_list(Config) ->
     EDDSAPubKey = public_key:pem_entry_decode(PemEntry),
     true = check_entry_type(EDDSAPubKey, 'ECPoint'),
     {_, {namedCurve, ?'id-Ed25519'}} = EDDSAPubKey,
-    PemEntry0 = public_key:pem_entry_encode('SubjectPublicKeyInfo', EDDSAPubKey),
-    ECPemNoEndNewLines = strip_licence(strip_superfluous_newlines(EDDSAPubPem)),
-    ECPemNoEndNewLines = strip_superfluous_newlines(public_key:pem_encode([PemEntry0])).
+    EncPemEntry = public_key:pem_entry_encode('SubjectPublicKeyInfo', EDDSAPubKey),
+    ECPemNoEndNewLines = strip_superfluous_newlines(EDDSAPubPem),
+    ECPemNoEndNewLines = strip_superfluous_newlines(public_key:pem_encode([EncPemEntry])).
 
 mldsa_priv_pkcs8() ->
     [{doc, "ML-DSA PKCS8 private key decode/encode"}].
@@ -1396,6 +1399,70 @@ pkix_path_validation_root_expired(Config) when is_list(Config) ->
     Peer = proplists:get_value(cert, Conf),
     {error, {bad_cert, cert_expired}} = public_key:pkix_path_validation(Root, [ICA, Peer], []).
 
+pkix_path_validation_forged_chain() ->
+    [{doc, "Test that end-entity can not be used as intermediate CA"}].
+pkix_path_validation_forged_chain(Config) when is_list(Config) ->
+    #{cert := Root} = SRootSpec = public_key:pkix_test_root_cert("OTP test server ROOT", []),
+     Exts = [#'Extension'{extnID = ?'id-ce-keyUsage',
+                          extnValue = [keyCertSign, digitalSignature]}],
+    #{server_config := ServerOpts0} =
+        public_key:pkix_test_data(#{server_chain =>
+                                        #{root => SRootSpec,
+                                          intermediates => [[]],
+                                          peer => [{extensions, Exts}]},
+                                    client_chain =>
+                                        #{root => [],
+                                          intermediates => [],
+                                          peer => []}}
+                                 ),
+    {ASN1, Key} = proplists:get_value(key, ServerOpts0),
+    ServerKey = public_key:der_decode(ASN1, Key),
+    ServerCert = public_key:pkix_decode_cert(proplists:get_value(cert, ServerOpts0), otp),
+    [ICA] = [I || I <- proplists:get_value(cacerts, ServerOpts0),
+                   not public_key:pkix_is_self_signed(I)],
+    {_, Subject} = public_key:pkix_subject_id(ServerCert),
+    #'ECPrivateKey'{parameters = Params,
+                    publicKey = PubKey} = public_key:generate_key({namedCurve, ?'secp256r1'}),
+    Algo = #'PublicKeyAlgorithm'{algorithm= ?'id-ecPublicKey', parameters = Params},
+    SPKI = #'OTPSubjectPublicKeyInfo'{algorithm = Algo,
+			       subjectPublicKey = #'ECPoint'{point = PubKey}},
+    #'OTPCertificate'{tbsCertificate = ServerTBC} = ServerCert,
+    NewTBC = ServerTBC#'OTPTBSCertificate'{issuer = Subject,
+                                           subject = {rdnSequence,
+                                                      [[{'AttributeTypeAndValue',
+                                                         {2,5,4,3},
+                                                         {printableString,"forged server Peer cert"}}],
+                                                       [{'AttributeTypeAndValue',
+                                                         {2,5,4,7},
+                                                         {printableString,"Stockholm"}}],
+                                                       [{'AttributeTypeAndValue',{2,5,4,6},"SE"}],
+                                                       [{'AttributeTypeAndValue',
+                                                         {2,5,4,10},
+                                                         {printableString,"erlang"}}],
+                                                       [{'AttributeTypeAndValue',
+                                                         {2,5,4,11},
+                                                         {printableString,"automated testing"}}]]},
+                                           subjectPublicKeyInfo = SPKI,
+                                           extensions = []},
+    ForgedCert = public_key:pkix_sign(NewTBC, ServerKey),
+    Fun = fun(_, _, {bad_cert, _} = R, _) ->
+                  {fail, R};
+             (_, _, {extension, _}, UserState) ->
+                  {unknown, UserState};
+             (_, _, valid, UserState) ->
+                  {valid, UserState};
+             (OTPCert, _, valid_peer, UserState) ->
+                  case public_key:pkix_verify_hostname(OTPCert,
+                                                       [{dns_id, net_adm:localhost()}], []) of
+                      true ->
+                          {valid, UserState};
+                      false ->
+                          {fail, {bad_cert, hostname_check_failed}}
+                  end
+          end,
+    {error, Err} = public_key:pkix_path_validation(Root, [ICA, ServerCert, ForgedCert],
+                                                   [{verify_fun, {Fun, []}}]).
+
 pkix_ext_key_usage() ->
     [{doc, "If extended key usage is a critical extension in a CA (usually not included) make sure it is compatible with keyUsage extension"}].
 pkix_ext_key_usage(Config) when is_list(Config) ->
@@ -1602,25 +1669,14 @@ pkix_verify_hostname_cn(Config) ->
     DataDir = proplists:get_value(data_dir, Config),
     {ok,Bin} = file:read_file(filename:join(DataDir,"pkix_verify_hostname_cn.pem")),
     Cert = public_key:pkix_decode_cert(element(2,hd(public_key:pem_decode(Bin))), otp),
-
-    %% Check that 1) only CNs are checked,
-    %%            2) an empty label does not match a wildcard and
-    %%            3) a wildcard does not match more than one label
+    %% Fallback hostname check against CommonName is no longer allowed
     false = public_key:pkix_verify_hostname(Cert, [{dns_id,"erlang.org"},
 						   {dns_id,"foo.EXAMPLE.com"},
 						   {dns_id,"b.a.foo.EXAMPLE.com"}]),
-
-    %% Check that a hostname is extracted from a https-uri and used for checking:
-    true =  public_key:pkix_verify_hostname(Cert, [{uri_id,"HTTPS://EXAMPLE.com"}]),
-
-    %% Check wildcard matching one label:
-    true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"a.foo.EXAMPLE.com"}]),
-
-    %% Check wildcard with surrounding chars matches one label:
-    true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"accb.bar.EXAMPLE.com"}]),
-
-    %% Check that a wildcard with surrounding chars matches an empty string:
-    true =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://ab.bar.EXAMPLE.com"}]).
+    false =  public_key:pkix_verify_hostname(Cert, [{uri_id,"HTTPS://EXAMPLE.com"}]),
+    false =  public_key:pkix_verify_hostname(Cert, [{dns_id,"a.foo.EXAMPLE.com"}]),
+    false =  public_key:pkix_verify_hostname(Cert, [{dns_id,"accb.bar.EXAMPLE.com"}]),
+    false =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://ab.bar.EXAMPLE.com"}]).
 
 %%--------------------------------------------------------------------
 %% To generate the PEM file contents:
@@ -1670,63 +1726,51 @@ pkix_verify_hostname_subjAltName(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Uses the pem-file for pkix_verify_hostname_cn
-%% Subject: C=SE, CN=example.com, CN=*.foo.example.com, CN=a*b.bar.example.com, O=erlang.org
+%% Uses the pem-file for pkix_verify_hostname_subjAltName.pem
+%% Subject: Subject Alt Names: 
+%%              [{dNSName,"kb.example.org"},
+%%              {uniformResourceIdentifier,"http://www.example.org"},
+%%              {uniformResourceIdentifier,"https://wws.example.org"}]}]
 pkix_verify_hostname_options(Config) ->
     DataDir = proplists:get_value(data_dir, Config),
-    {ok,Bin} = file:read_file(filename:join(DataDir,"pkix_verify_hostname_cn.pem")),
+    {ok,Bin} = file:read_file(filename:join(DataDir,"pkix_verify_hostname_subjAltName.pem")),
     Cert = public_key:pkix_decode_cert(element(2,hd(public_key:pem_decode(Bin))), otp),
 
     %% Check that the fail_callback is called and is presented the correct certificate:
-    true = public_key:pkix_verify_hostname(Cert, [{dns_id,"erlang.org"}],
+    true = public_key:pkix_verify_hostname(Cert, [{dns_id,"kb.example.org"}],
 					   [{fail_callback,
 					     fun(#'OTPCertificate'{}=C) when C==Cert ->
 						     true; % To test the return value matters
 						(#'OTPCertificate'{}=C) ->
 						     ct:log("~p:~p: Wrong cert:~n~p~nExpect~n~p",
 							    [?MODULE, ?LINE, C, Cert]),
-						     ct:fail("Wrong cert, see log");
+                                                     ct:fail("Wrong cert, see log");
 						(C) ->
 						     ct:log("~p:~p: Bad cert: ~p",[?MODULE,?LINE,C]),
-						     ct:fail("Bad cert, see log")
+                                                     ct:fail("Bad cert, see log")
 					     end}]),
 
-    %% Check the callback for user-provided match functions:
-    true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"very.wrong.domain"}],
-					    [{match_fun,
-					      fun("very.wrong.domain", {cn,"example.com"}) ->
-						      true;
-						 (_, _) ->
-						      false
-					      end}]),
-    false = public_key:pkix_verify_hostname(Cert, [{dns_id,"not.example.com"}],
+    false = public_key:pkix_verify_hostname(Cert, [{dns_id,"not.example.org"}],
 					    [{match_fun, fun(_, _) -> default end}]),
-    true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"example.com"}],
+    true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"kb.example.org"}],
 					    [{match_fun, fun(_, _) -> default end}]),
 
     %% Check the callback for user-provided fqdn extraction:
     true =  public_key:pkix_verify_hostname(Cert, [{uri_id,"some://very.wrong.domain"}],
-					    [{fqdn_fun,
-					      fun({uri_id, "some://very.wrong.domain"}) ->
-						      "example.com";
-						 (_) ->
-						      ""
-					      end}]),
-    true =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://example.com"}],
-					    [{fqdn_fun, fun(_) -> default end}]),
+                                            [{fqdn_fun,
+                                              fun({uri_id, "some://very.wrong.domain"}) ->
+                                                      "kb.example.org";
+                                                 (_) ->
+                                                      ""
+                                              end}]),
+    true =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://wws.example.org"}],
+                                            [{fqdn_fun, fun(_) -> default end}]),
     false =  public_key:pkix_verify_hostname(Cert, [{uri_id,"some://very.wrong.domain"}]),
 
-    true = public_key:pkix_verify_hostname(Cert, [{dns_id,"example.com"}]),
-    true = public_key:pkix_verify_hostname(Cert, [{dns_id,"abb.bar.example.com"}]),
-    false = public_key:pkix_verify_hostname(Cert, [{dns_id,"example.com"},
-                                                   {dns_id,"abb.bar.example.com"}],
-                                            [{fqdn_fun,fun(_)->undefined end}]),
-    %% Test that a common name is matched fully, that is do not allow prefix matches
-    %% with less dots (".")
-    {ok, PrefixBin} = file:read_file(filename:join(DataDir,"prefix-dots.pem")),
-    PrefixCert = public_key:pkix_decode_cert(element(2,hd(public_key:pem_decode(PrefixBin))), otp),
-    true = public_key:pkix_verify_hostname(PrefixCert, [{dns_id,"..a"}]),
-    false = public_key:pkix_verify_hostname(PrefixCert, [{dns_id,".a"}]).
+    true = public_key:pkix_verify_hostname(Cert,
+                                           [{dns_id,"foobar.example.org"}],
+                                           [{match_fun,
+                                             public_key:pkix_verify_hostname_match_fun(https)}]).
 
 %%--------------------------------------------------------------------
 %% To generate the PEM file contents:

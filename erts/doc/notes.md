@@ -23,6 +23,16 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 17.0.1
+
+### Fixed Bugs and Malfunctions
+
+- Comparison of two native records could return an incorrect result or crash the runtime system.
+
+  Own Id: OTP-20139 Aux Id: [PR-11107]
+
+[PR-11107]: https://github.com/erlang/otp/pull/11107
+
 ## Erts 17.0
 
 ### Fixed Bugs and Malfunctions
@@ -296,6 +306,20 @@ This document describes the changes made to the ERTS application.
 [PR-10619]: https://github.com/erlang/otp/pull/10619
 [PR-11004]: https://github.com/erlang/otp/pull/11004
 [PR-10929]: https://github.com/erlang/otp/pull/10929
+
+## Erts 16.4.0.1
+
+### Fixed Bugs and Malfunctions
+
+- Fixed `erlang:md5_init` to always return the same deterministic context binary. Only an issue in OTP 28.5 when OTP was built with `--disable-builtin-openssl` or `--enable-use-embedded-3pp-alternatives`.
+
+  Own Id: OTP-20123
+
+- Added explicit configure test for C++ function `std::to_chars` if options `--disable-builtin-ryu` or `--enable-use-embedded-3pp-alternatives` is used.
+
+  Own Id: OTP-20126 Aux Id: [PR-11067]
+
+[PR-11067]: https://github.com/erlang/otp/pull/11067
 
 ## Erts 16.4
 
@@ -1857,6 +1881,14 @@ This document describes the changes made to the ERTS application.
 [PR-7125]: https://github.com/erlang/otp/pull/7125
 [PR-7809]: https://github.com/erlang/otp/pull/7809
 [PR-7977]: https://github.com/erlang/otp/pull/7977
+
+## Erts 14.2.5.15
+
+### Fixed Bugs and Malfunctions
+
+* Fixed bug in `enif_make_map_from_arrays` for arrays with at least 33 keys. If duplicate keys existed, instead of failing, it would skip the duplicates. If less than 33 unique keys existed, an internally inconsistent and broken map was returned.
+
+  Own Id: OTP-20098 Aux Id: PR-10976
 
 ## Erts 14.2.5.14
 
