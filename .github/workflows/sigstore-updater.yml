@@ -103,16 +103,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # register `gh` as git credential helper => git push in otp-compliance
-      # uses the token from `gh`. otherwise, `persist-credentials` should not be `false`.
-      # changing `persist-credentials` is not a good option
-      - name: Configure git to use gh as credential helper
-        run: gh auth setup-git
-
       - name: Find modified OpenVEX files
         id: changed
         run: |
-          git diff --name-only --diff-filter=AM origin/master -- 'vex/*.openvex.json' > /tmp/changed-vex.txt
+          git diff --name-only --diff-filter=AM HEAD~1 HEAD -- 'vex/*.openvex.json' > /tmp/changed-vex.txt
           echo "Modified OpenVEX files:"
           cat /tmp/changed-vex.txt
           if [ -s /tmp/changed-vex.txt ]; then
@@ -120,6 +114,11 @@ jobs:
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Add license files for new OpenVEX files
+        if: steps.changed.outputs.found == 'true'
+        run: bash .github/scripts/add-vex-license.sh /tmp/changed-vex.txt
+
       - name: Check PR author permission
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
@@ -159,6 +158,14 @@ jobs:
           STEPS_APP_TOKEN_OUTPUTS_TOKEN: "${{ steps.app-token.outputs.token }}"
         run: |
           echo "${STEPS_APP_TOKEN_OUTPUTS_TOKEN}" | gh auth login --with-token
+
+      # register `gh` as git credential helper => git push in otp-compliance
+      # uses the token from `gh`. otherwise, `persist-credentials` should not be `false`.
+      # changing `persist-credentials` is not a good option
+      - name: Configure git to use gh as credential helper
+        if: steps.changed.outputs.found == 'true'
+        run: gh auth setup-git
+
       - name: Get GitHub App User ID
         if: steps.changed.outputs.found == 'true'
         id: get-user-id
@@ -181,6 +188,6 @@ jobs:
           done < /tmp/changed-vex.txt
           git config user.name "${STEPS_APP_TOKEN_OUTPUTS_APP_SLUG}[bot]"
           git config user.email "${STEPS_GET_USER_ID_OUTPUTS_USER_ID}+${STEPS_APP_TOKEN_OUTPUTS_APP_SLUG}[bot]@users.noreply.github.com"
-          git add vex/*.sigstore
+          git add vex/*.sigstore vex/*.sigstore.license
           git commit -m "Update sigstore attestations for OpenVEX files" || true
           git push
