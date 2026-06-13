@@ -21,6 +21,28 @@ limitations under the License.
 -->
 # SSH Release Notes
 
+## Ssh 6.0.1
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a timing-based username enumeration vulnerability during password authentication with the user_passwords option. A dummy PBKDF2 computation is now performed for invalid usernames to match the response time of valid ones.
+
+  Own Id: OTP-20153 Aux Id: [CVE-2026-48859], GHSA-3w6p-vwhf-wvp4, [PR-11157]
+
+- Fixed SSH_FXP_READLINK handler in ssh_sftpd to strip the backend root prefix from symlink targets before returning them to the client, preventing disclosure of the server's absolute filesystem path when the root option is configured.
+
+  Own Id: OTP-20162 Aux Id: [CVE-2026-48855], GHSA-pv7g-pjrq-x2fh, [PR-11192]
+
+- Fixed a race condition where SSH keep-alive responses could consume pending channel open requests, causing channel setup to fail silently.
+
+  Own Id: OTP-20181 Aux Id: [PR-11205]
+
+[CVE-2026-48859]: https://nvd.nist.gov/vuln/detail/2026-48859
+[PR-11157]: https://github.com/erlang/otp/pull/11157
+[CVE-2026-48855]: https://nvd.nist.gov/vuln/detail/2026-48855
+[PR-11192]: https://github.com/erlang/otp/pull/11192
+[PR-11205]: https://github.com/erlang/otp/pull/11205
+
 ## Ssh 6.0
 
 ### Fixed Bugs and Malfunctions
@@ -153,6 +175,17 @@ limitations under the License.
 [PR-10970]: https://github.com/erlang/otp/pull/10970
 [PR-11010]: https://github.com/erlang/otp/pull/11010
 [PR-11012]: https://github.com/erlang/otp/pull/11012
+
+## Ssh 5.5.2.1
+
+### Fixed Bugs and Malfunctions
+
+- Fixed SSH_FXP_READLINK handler in ssh_sftpd to strip the backend root prefix from symlink targets before returning them to the client, preventing disclosure of the server's absolute filesystem path when the root option is configured.
+
+  Own Id: OTP-20162 Aux Id: [CVE-2026-48855], GHSA-pv7g-pjrq-x2fh, [PR-11192]
+
+[CVE-2026-48855]: https://nvd.nist.gov/vuln/detail/2026-48855
+[PR-11192]: https://github.com/erlang/otp/pull/11192
 
 ## Ssh 5.5.2
 
@@ -365,6 +398,17 @@ limitations under the License.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9214]: https://github.com/erlang/otp/pull/9214
 [PR-9298]: https://github.com/erlang/otp/pull/9298
+
+## Ssh 5.2.11.8
+
+### Fixed Bugs and Malfunctions
+
+- Fixed SSH_FXP_READLINK handler in ssh_sftpd to strip the backend root prefix from symlink targets before returning them to the client, preventing disclosure of the server's absolute filesystem path when the root option is configured.
+
+  Own Id: OTP-20162 Aux Id: [CVE-2026-48855], GHSA-pv7g-pjrq-x2fh, [PR-11192]
+
+[CVE-2026-48855]: https://nvd.nist.gov/vuln/detail/2026-48855
+[PR-11192]: https://github.com/erlang/otp/pull/11192
 
 ## Ssh 5.2.11.7
 

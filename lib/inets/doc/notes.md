@@ -21,6 +21,20 @@ limitations under the License.
 -->
 # Inets Release Notes
 
+## Inets 9.7.1
+
+### Fixed Bugs and Malfunctions
+
+- The HTTP client (httpc) now removes Authorization, Proxy-Authorization, Cookie, Referer, and Origin headers when following a redirect to a different host or port. Previously these headers were forwarded verbatim, potentially leaking credentials to
+  unintended targets.
+  
+  This follows the requirements of RFC 9110 §15.4.
+
+  Own Id: OTP-20155 Aux Id: [CVE-2026-48856], GHSA-m75x-4vwg-ggjh, [PR-11212]
+
+[CVE-2026-48856]: https://nvd.nist.gov/vuln/detail/2026-48856
+[PR-11212]: https://github.com/erlang/otp/pull/11212
+
 ## Inets 9.7
 
 ### Fixed Bugs and Malfunctions
@@ -80,6 +94,20 @@ limitations under the License.
 [PR-10839]: https://github.com/erlang/otp/pull/10839
 [PR-10950]: https://github.com/erlang/otp/pull/10950
 [PR-11073]: https://github.com/erlang/otp/pull/11073
+
+## Inets 9.6.2.2
+
+### Fixed Bugs and Malfunctions
+
+- The HTTP client (httpc) now removes Authorization, Proxy-Authorization, Cookie, Referer, and Origin headers when following a redirect to a different host or port. Previously these headers were forwarded verbatim, potentially leaking credentials to
+  unintended targets.
+  
+  This follows the requirements of RFC 9110 §15.4.
+
+  Own Id: OTP-20155 Aux Id: [CVE-2026-48856], GHSA-m75x-4vwg-ggjh, [PR-11212]
+
+[CVE-2026-48856]: https://nvd.nist.gov/vuln/detail/2026-48856
+[PR-11212]: https://github.com/erlang/otp/pull/11212
 
 ## Inets 9.6.2.1
 
@@ -261,6 +289,20 @@ limitations under the License.
 [PR-9472]: https://github.com/erlang/otp/pull/9472
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9101]: https://github.com/erlang/otp/pull/9101
+
+## Inets 9.3.2.6
+
+### Fixed Bugs and Malfunctions
+
+- The HTTP client (httpc) now removes Authorization, Proxy-Authorization, Cookie, Referer, and Origin headers when following a redirect to a different host or port. Previously these headers were forwarded verbatim, potentially leaking credentials to
+  unintended targets.
+  
+  This follows the requirements of RFC 9110 §15.4.
+
+  Own Id: OTP-20155 Aux Id: [CVE-2026-48856], GHSA-m75x-4vwg-ggjh, [PR-11212]
+
+[CVE-2026-48856]: https://nvd.nist.gov/vuln/detail/2026-48856
+[PR-11212]: https://github.com/erlang/otp/pull/11212
 
 ## Inets 9.3.2.5
 

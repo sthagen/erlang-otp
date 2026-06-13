@@ -23,6 +23,14 @@ limitations under the License.
 
 This document describes the changes made to the Kernel application.
 
+## Kernel 11.0.2
+
+### Fixed Bugs and Malfunctions
+
+- gen_tcp_socket accept should explicitly inherit the same options as plain gen_tcp.
+
+  Own Id: OTP-20057
+
 ## Kernel 11.0.1
 
 ### Fixed Bugs and Malfunctions
@@ -182,6 +190,14 @@ This document describes the changes made to the Kernel application.
 [PR-10478]: https://github.com/erlang/otp/pull/10478
 [PR-10929]: https://github.com/erlang/otp/pull/10929
 [PR-11031]: https://github.com/erlang/otp/pull/11031
+
+## Kernel 10.6.3.2
+
+### Fixed Bugs and Malfunctions
+
+- gen_tcp_socket accept should explicitly inherit the same options as plain gen_tcp.
+
+  Own Id: OTP-20057
 
 ## Kernel 10.6.3.1
 

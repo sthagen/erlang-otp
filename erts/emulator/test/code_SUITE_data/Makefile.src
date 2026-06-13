@@ -1,10 +1,8 @@
-#-*-makefile-*-   ; force emacs to enter makefile-mode
-
 # %CopyrightBegin%
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright Ericsson AB 2001-2025. All Rights Reserved.
+# Copyright Ericsson AB 2026. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +18,17 @@
 #
 # %CopyrightEnd%
 
-APPLICATION = inets
-INETS_VSN   = 9.7.1
-PRE_VSN     =
-APP_VSN     = "$(APPLICATION)-$(INETS_VSN)$(PRE_VSN)"
+include @erts_lib_make_ethread@
+include @erts_lib_make_internal@
+
+NIF_LIBS = erts_test_sync_tracer@dll@
+
+SHLIB_EXTRA_CFLAGS =  $(ETHR_DEFS) -I@erts_lib_include_internal@ -I@erts_lib_include_internal_generated@
+
+all: $(NIF_LIBS)
+
+WSL=@WSL@
+
+@SHLIB_RULES@
+
+$(NIF_LIBS): erts_test_sync_tracer.c
