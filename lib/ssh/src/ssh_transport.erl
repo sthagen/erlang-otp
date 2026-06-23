@@ -67,7 +67,7 @@
 -define(MIN_DH_KEY_SIZE, 400).
 
 %%% For test suites
--export([pack/3, adjust_algs_for_peer_version/2]).
+-export([pack/3, adjust_algs_for_peer_version/2, hybrid_common/4]).
 
 %%%----------------------------------------------------------------------------
 %%%
@@ -1721,14 +1721,6 @@ do_verify(PlainText, HashAlg, Sig, {#'ECPoint'{},_} = Key, _) when HashAlg =/= u
         _ ->
             false
     end;
-
-do_verify(PlainText, HashAlg, Sig, #'RSAPublicKey'{}=Key, #ssh{role = server,
-                                                               c_version = "SSH-2.0-OpenSSH_7."++_})
-  when HashAlg == sha256; HashAlg == sha512 ->
-    %% Public key signing bug in OpenSSH >= 7.2
-    public_key:verify(PlainText, HashAlg, Sig, Key)
-        orelse public_key:verify(PlainText, sha, Sig, Key);
-
 do_verify(PlainText, HashAlg, Sig, Key, _) ->
     public_key:verify(PlainText, HashAlg, Sig, Key).
 
@@ -2395,10 +2387,8 @@ compute_key(Algorithm, PeerPublic, MyPrivate, Args) ->
 
 hybrid_common(K_pq_secret, Curve, PeerPublic, MyPrivate) ->
     K_cl_secret = compute_key(ecdh, PeerPublic, MyPrivate, Curve),
-    K_cl_secret_mpint = <<?Empint(K_cl_secret)>>,
-    K_cl_secret_mpint_trim =
-        binary:part(K_cl_secret_mpint, byte_size(K_cl_secret_mpint), -?X25519_PUBLICKEY_SIZE),
-    crypto:hash(sha(Curve), <<K_pq_secret/binary, K_cl_secret_mpint_trim/binary>>).
+    K_cl_secret_fixed = <<K_cl_secret:(?X25519_PUBLICKEY_SIZE*8)/big-unsigned-integer>>,
+    crypto:hash(sha(Curve), <<K_pq_secret/binary, K_cl_secret_fixed/binary>>).
 
 dh_bits(#alg{encrypt = Encrypt,
              send_mac = SendMac}) ->
