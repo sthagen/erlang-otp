@@ -21,6 +21,16 @@ limitations under the License.
 -->
 # Public_Key Release Notes
 
+## Public_Key 1.21.3
+
+### Fixed Bugs and Malfunctions
+
+- Hardened OCSP response verification by using constant-time hash comparisons and rejecting responses exceeding 100 KB before ASN.1 decoding.
+
+  Own Id: OTP-20197 Aux Id: [PR-11239]
+
+[PR-11239]: https://github.com/erlang/otp/pull/11239
+
 ## Public_Key 1.21.2
 
 ### Fixed Bugs and Malfunctions
@@ -96,6 +106,16 @@ limitations under the License.
 [PR-10033]: https://github.com/erlang/otp/pull/10033
 [PR-10839]: https://github.com/erlang/otp/pull/10839
 [PR-10993]: https://github.com/erlang/otp/pull/10993
+
+## Public_Key 1.20.3.3
+
+### Fixed Bugs and Malfunctions
+
+- Hardened OCSP response verification by using constant-time hash comparisons and rejecting responses exceeding 100 KB before ASN.1 decoding.
+
+  Own Id: OTP-20197 Aux Id: [PR-11239]
+
+[PR-11239]: https://github.com/erlang/otp/pull/11239
 
 ## Public_Key 1.20.3.2
 
@@ -308,6 +328,16 @@ limitations under the License.
 [PR-9677]: https://github.com/erlang/otp/pull/9677
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9774]: https://github.com/erlang/otp/pull/9774
+
+## Public_Key 1.17.1.4
+
+### Fixed Bugs and Malfunctions
+
+- Hardened OCSP response verification by using constant-time hash comparisons and rejecting responses exceeding 100 KB before ASN.1 decoding.
+
+  Own Id: OTP-20197 Aux Id: [PR-11239]
+
+[PR-11239]: https://github.com/erlang/otp/pull/11239
 
 ## Public_Key 1.17.1.3
 

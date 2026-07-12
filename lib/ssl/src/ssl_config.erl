@@ -128,7 +128,8 @@ get_ticket_store_size() ->
     application_int(server_session_ticket_store_size, 1000).
 
 get_max_early_data_size() ->
-    application_int(server_session_ticket_max_early_data, ?DEFAULT_MAX_EARLY_DATA_SIZE).
+    application_int(server_session_ticket_max_early_data,
+                    ?DEFAULT_MAX_EARLY_DATA_SIZE).
 
 get_internal_active_n() ->
     get_internal_active_n(false).
@@ -253,17 +254,17 @@ using_curve(Curve, [_ | Rest], Acc) ->
     using_curve(Curve, Rest, Acc).
 
 prio_rsa_pss(RSAPSS) ->
-       Order = fun(#{privat_key := {#'RSAPrivateKey'{modulus = N}, Params1}},
-                   #{private_key := {#'RSAPrivateKey'{modulus = N}, Params2}}) ->
-                       prio_params_1(Params1, Params2);
-                  (#{private_key := {#'RSAPrivateKey'{modulus = N}, _}},
-                   #{private_key := {#'RSAPrivateKey'{modulus = M}, _}}) when M > N ->
-                       true;
-                  (#{private_key := #{engine := _}}, _) ->
-                       true;
-                  (_,_) ->
-                       false
-               end,
+    Order = fun(#{private_key := {#'RSAPrivateKey'{modulus = N}, Params1}},
+                #{private_key := {#'RSAPrivateKey'{modulus = N}, Params2}}) ->
+                    prio_params_1(Params1, Params2);
+               (#{private_key := {#'RSAPrivateKey'{modulus = N}, _}},
+                #{private_key := {#'RSAPrivateKey'{modulus = M}, _}}) when M > N ->
+                    true;
+               (#{private_key := #{engine := _}}, _) ->
+                    true;
+               (_,_) ->
+                    false
+            end,
     lists:sort(Order, RSAPSS).
 
 prio_params_1(#'RSASSA-PSS-params'{hashAlgorithm = #'HashAlgorithm'{algorithm = Oid1}},

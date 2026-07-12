@@ -41,6 +41,7 @@
          aead_ng/1,
          all_ciphers/1,
          api_errors_ecdh/1,
+         api_errors_aead/1,
          api_ng/0,
          api_ng/1,
          api_ng_one_shot/0,
@@ -74,6 +75,7 @@
          concurrent_access/1,
          crypto_load/1,
          crypto_load_and_call/1,
+         doctests/1,
          encapsulate/1,
          exor/0,
          exor/1,
@@ -104,6 +106,8 @@
          no_hmac/1,
          no_poly1305/0,
          no_poly1305/1,
+         no_siphash/0,
+         no_siphash/1,
          no_sign_verify/0,
          no_sign_verify/1,
          no_support/0,
@@ -111,6 +115,8 @@
          node_supports_cache/1,
          poly1305/0,
          poly1305/1,
+         siphash/0,
+         siphash/1,
          private_encrypt/0,
          private_encrypt/1,
          public_encrypt/0,
@@ -202,6 +208,17 @@
          rsa_oaep_label/0
         ]).
 
+-define(AEAD_CIPHERS, [aes_128_ccm,
+                       aes_192_ccm,
+                       aes_256_ccm,
+                       aes_ccm,
+                       aes_128_gcm,
+                       aes_192_gcm,
+                       aes_256_gcm,
+                       aes_gcm,
+                       sm4_gcm,
+                       sm4_ccm,
+                       chacha20_poly1305]).
 
 %%--------------------------------------------------------------------
 %% Common Test interface functions -----------------------------------
@@ -219,6 +236,7 @@ all() ->
      {group, fips},
      {group, non_fips},
      cipher_padding,
+     doctests,
      ec_key_padding,
      node_supports_cache,
      mod_pow,
@@ -246,6 +264,7 @@ groups() ->
                      {group, blake2b},
                      {group, blake2s},
                      {group, poly1305},
+                     {group, siphash},
                      {group, dss},
                      {group, ecdsa},
                      {group, ed25519},
@@ -328,6 +347,7 @@ groups() ->
                  {group, no_blake2b},
                  {group, no_blake2s},
                  {group, no_poly1305},
+                 {group, no_siphash},
                  {group, dss},
                  {group, ecdsa},
                  {group, no_ed25519},
@@ -468,6 +488,8 @@ groups() ->
      {chacha20,             [], [api_ng, api_ng_one_shot]},
      {poly1305,             [], [poly1305]},
      {no_poly1305,          [], [no_poly1305]},
+     {siphash,              [], [siphash]},
+     {no_siphash,           [], [no_siphash]},
      {no_aes_cfb128,        [], [no_support]},
      {no_md4,               [], [no_support, no_hash]},
      {no_md5,               [], [no_support, no_hash, no_hmac]},
@@ -498,7 +520,8 @@ groups() ->
                                  bad_hmac_name,
                                  bad_cmac_name,
                                  bad_sign_name,
-                                 bad_verify_name
+                                 bad_verify_name,
+                                 api_errors_aead
                                 ]},
 
      %% New cipher nameing schema
@@ -523,6 +546,55 @@ groups() ->
      {aes_192_ofb,  [], [api_ng, api_ng_one_shot]},
      {aes_256_ofb,  [], [api_ng, api_ng_one_shot]}
     ].
+
+doctests(_Config) ->
+    ct_doctest:module(crypto, [
+        {missing_tests, [
+            {crypto_final,1},
+            {crypto_one_time_aead,4},
+            {crypto_update,2},
+            {decapsulate_key,3},
+            {enable_fips_mode,1},
+            {encapsulate_key,2},
+            {engine_add,1},
+            {engine_by_id,1},
+            {engine_ctrl_cmd_string,3},
+            {engine_ctrl_cmd_string,4},
+            {engine_get_id,1},
+            {engine_get_name,1},
+            {engine_list,0},
+            {engine_load,3},
+            {engine_register,2},
+            {engine_remove,1},
+            {engine_unload,1},
+            {engine_unregister,2},
+            {ensure_engine_loaded,2},
+            {hash_final,1},
+            {hash_update,2},
+            {info_fips,0},
+            {info_lib,0},
+            {info,0},
+            {mac_final,1}, 
+            {mac_finalN,2}, 
+            {mac_init,2},
+            {mac_update,2},
+            {mac,3},
+            {macN,4},
+            {private_decrypt,4},
+            {privkey_to_pubkey,2},
+            {public_decrypt,4},
+            {rand_seed_alg_s,1},
+            {rand_seed_alg,1},
+            {rand_seed_alg,2},
+            {rand_seed_s,0},
+            {rand_seed,0},
+            {rand_seed,1},
+            {start,0},
+            {stop,0},
+            {strong_rand_bytes,1},
+            {supports,1},
+            {verify,6}
+        ]}]).
 
 %%-------------------------------------------------------------------
 init_per_suite(Config) ->
@@ -639,6 +711,14 @@ init_per_testcase(generate, Config) ->
     end;
 init_per_testcase(hmac, Config) ->
     configure_mac(hmac, proplists:get_value(type,Config), Config);
+init_per_testcase(api_errors_aead, Config) ->
+    Supported = crypto:supports(ciphers),
+    case [C || C <- ?AEAD_CIPHERS, lists:member(C, Supported)] of
+        [_ | _] ->
+            Config;
+        _ ->
+            {skip, "Aead ciphers not supported."}
+    end;
 init_per_testcase(_Name,Config) ->
     Skip =
         lists:member(_Name, [%%i_ng_tls
@@ -883,6 +963,78 @@ no_poly1305(_Config) ->
             3,128,138,251,13,178,253,74,191,246,175,65,73,245,27>>,
     Txt = <<"Cryptographic Forum Research Group">>,
     notsup(fun crypto:mac/3, [poly1305,Key,Txt]).
+
+%%--------------------------------------------------------------------
+siphash() ->
+    [{doc, "Test siphash MAC with configurable rounds and output size"}].
+siphash(Config) ->
+    lists:foreach(fun siphash_check_vector/1, proplists:get_value(siphash, Config)),
+    siphash_extra_checks().
+
+%% Each vector is {SubType, Key, Txt, Expect} where SubType is 'undefined' or a
+%% siphash options map. Every vector is checked both one-shot (mac/4) and
+%% streaming (mac_init/3 + mac_update/2 + mac_final/1); the default configs
+%% ('undefined' or #{}) are additionally checked through the SubType-less mac/3
+%% and mac_init/2 to confirm they select the cryptolib defaults.
+siphash_check_vector({SubType, Key, Txt, Expect}) ->
+    siphash_eq(crypto:mac(siphash, SubType, Key, Txt), Expect, {mac4, SubType, Txt}),
+    Streamed = crypto:mac_final(
+                 crypto:mac_update(crypto:mac_init(siphash, SubType, Key), Txt)),
+    siphash_eq(Streamed, Expect, {mac_init3, SubType, Txt}),
+    case siphash_default_subtype(SubType) of
+        true ->
+            siphash_eq(crypto:mac(siphash, Key, Txt), Expect, {mac3, Txt}),
+            Streamed2 = crypto:mac_final(
+                          crypto:mac_update(crypto:mac_init(siphash, Key), Txt)),
+            siphash_eq(Streamed2, Expect, {mac_init2, Txt});
+        false ->
+            ok
+    end.
+
+siphash_default_subtype(undefined) -> true;
+siphash_default_subtype(Map) when is_map(Map) -> map_size(Map) =:= 0;
+siphash_default_subtype(_) -> false.
+
+siphash_eq(Got, Expect, Ctx) ->
+    case Got of
+        Expect -> ok;
+        _ -> ct:fail({siphash, Ctx, {expected, Expect}, {got, Got}})
+    end.
+
+%% macN truncation and option validation.
+siphash_extra_checks() ->
+    Key = hexstr2bin("000102030405060708090a0b0c0d0e0f"),
+    Txt = hexstr2bin("000102030405060708090a0b0c0d"),
+    %% macN truncates the (default 16 byte) output to N bytes
+    <<Trunc:8/binary, _/binary>> = crypto:mac(siphash, #{size => 16}, Key, Txt),
+    Trunc = crypto:macN(siphash, #{size => 16}, Key, Txt, 8),
+    Trunc = crypto:macN(siphash, Key, Txt, 8),
+    %% invalid options are rejected with badarg, including round counts that are
+    %% below 1 or above the cap (which would otherwise let a single call spin a
+    %% scheduler)
+    [ siphash_expect_badarg(fun() -> crypto:mac(siphash, Opts, Key, Txt) end)
+      || Opts <- [#{size => 12}, #{size => 0}, #{c_rounds => 0},
+                  #{d_rounds => 0}, #{c_rounds => 17}, #{d_rounds => 1000000000},
+                  #{unknown => 1}, not_a_map] ],
+    %% a wrong key length is rejected with badarg
+    siphash_expect_badarg(fun() -> crypto:mac(siphash, <<0,1,2,3>>, Txt) end),
+    ok.
+
+siphash_expect_badarg(F) ->
+    try F() of
+        R -> ct:fail({siphash, expected_badarg, {got, R}})
+    catch
+        error:badarg -> ok;
+        error:{badarg, _, _} -> ok
+    end.
+
+%%--------------------------------------------------------------------
+no_siphash() ->
+    [{doc, "Test disabled siphash function"}].
+no_siphash(_Config) ->
+    Key = <<0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15>>,
+    Txt = <<"Cryptographic Forum Research Group">>,
+    notsup(fun crypto:mac/3, [siphash,Key,Txt]).
 
 %%--------------------------------------------------------------------
 api_ng() ->
@@ -2516,6 +2668,66 @@ group_config(poly1305, Config) ->
          }
         ],
     [{poly1305,V} | Config];
+
+group_config(siphash, Config) ->
+    %% SipHash reference vectors (Aumasson & Bernstein). Key = 00 01 .. 0f and
+    %% message N is the byte string 00 01 .. (N-1), so the list index below is
+    %% the message length. Each vector is {SubType, Key, Txt, Expect}.
+    Key = hexstr2bin("000102030405060708090a0b0c0d0e0f"),
+    Msg = fun(Len) -> list_to_binary(lists:seq(0, Len - 1)) end,
+    %% SipHash-2-4, 8 byte output.
+    Mac24_64 =
+        ["310e0edd47db6f72","fd67dc93c539f874","5a4fa9d909806c0d","2d7efbd796666785",
+         "b7877127e09427cf","8da699cd64557618","cee3fe586e46c9cb","37d1018bf50002ab",
+         "6224939a79f5f593","b0e4a90bdf82009e","f3b9dd94c5bb5d7a","a7ad6b22462fb3f4",
+         "fbe50e86bc8f1e75","903d84c02756ea14","eef27a8e90ca23f7","e545be4961ca29a1"],
+    %% SipHash-2-4, 16 byte output (the cryptolib default).
+    Mac24_128 =
+        ["a3817f04ba25a8e66df67214c7550293","da87c1d86b99af44347659119b22fc45",
+         "8177228da4a45dc7fca38bdef60affe4","9c70b60c5267a94e5f33b6b02985ed51",
+         "f88164c12d9c8faf7d0f6e7c7bcd5579","1368875980776f8854527a07690e9627",
+         "14eeca338b208613485ea0308fd7a15e","a1f1ebbed8dbc153c0b84aa61ff08239",
+         "3b62a9ba6258f5610f83e264f31497b4","264499060ad9baabc47f8b02bb6d71ed",
+         "00110dc378146956c95447d3f3d0fbba","0151c568386b6677a2b4dc6f81e5dc18",
+         "d626b266905ef35882634df68532c125","9869e247e9c08b10d029934fc4b952f7",
+         "31fcefac66d7de9c7ec7485fe4494902","5493e99933b0a8117e08ec0f97cfc3d9"],
+    %% SipHash-1-3 for a subset of message lengths, exercising c_rounds/d_rounds.
+    %% There are no published test vectors for these parameters, so these were
+    %% produced with the Aumasson & Bernstein reference implementation run at
+    %% c=1, d=3. That same implementation reproduces the SipHash-2-4 vectors
+    %% above, which gives confidence in the SipHash-1-3 output. {Len, Expect}.
+    Mac13_64 =
+        [{0,"dcc40f055801acab"},{1,"93ca577df39bf4c9"},{7,"4011b19b987d92d3"},
+         {8,"8e9a298d11959036"},{15,"5699512a6dd820d3"}],
+    Mac13_128 =
+        [{0,"e77ebcb22788a5befd62db6add303001"},{1,"fc6f370460d3eda85e0573cc2b2ff063"},
+         {7,"1084b923f2aae0c3a62f2ec80848ab77"},{8,"aa12fee1d5e3dab4724f16ab35f9c799"},
+         {15,"c17e5505b2bd526c2921cdec1e7e0109"}],
+    %% SipHash-16-16, generated the same way, exercising the maximum accepted
+    %% round count (SIPHASH_MAX_ROUNDS); pairs with the c_rounds=>17 negative
+    %% case below to pin the cap boundary.
+    Mac16_64 =
+        [{0,"86ecdeea325a9e7e"},{8,"5d64ddb47a8d1519"},{15,"0e00e7042cc3da48"}],
+    Mac16_128 =
+        [{0,"060e750fc7757b430df2480f3f8d513b"},{8,"4e69d99dd90bafc34689e5795f985fa2"},
+         {15,"7f7d4a8075164bb2ca858483c433457e"}],
+    %% The default (16 byte) output is exercised through both 'undefined' and
+    %% #{size => 16}; #{size => 8} selects the classic 64-bit SipHash-2-4.
+    V = [ {undefined, Key, Msg(I), hexstr2bin(H)}
+          || {I, H} <- lists:zip(lists:seq(0, 15), Mac24_128) ]
+        ++ [ {#{size => 16}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- lists:zip(lists:seq(0, 15), Mac24_128) ]
+        ++ [ {#{size => 8}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- lists:zip(lists:seq(0, 15), Mac24_64) ]
+        ++ [ {#{c_rounds => 1, d_rounds => 3, size => 8}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- Mac13_64 ]
+        ++ [ {#{c_rounds => 1, d_rounds => 3, size => 16}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- Mac13_128 ]
+        ++ [ {#{c_rounds => 16, d_rounds => 16, size => 8}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- Mac16_64 ]
+        ++ [ {#{c_rounds => 16, d_rounds => 16, size => 16}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- Mac16_128 ],
+    [{siphash, V} | Config];
 
 group_config(F, Config) ->
     TestVectors = fun() -> ?MODULE:F(Config) end,
@@ -5072,6 +5284,16 @@ api_errors_ecdh(Config) when is_list(Config) ->
     Curves = [gaffel, 0, sect571r1],
     [_= (catch Test(O, C)) || O <- Others, C <- Curves],
     ok.
+
+api_errors_aead(Config) when is_list(Config) ->
+    %% Check that we don't segfault when failing argument validation
+    try crypto:crypto_one_time_aead_init(aes_256_gcm, <<1:256>>, 16, junk) of
+        Res ->
+            ct:fail("Call should fail, but succeeded with return: ~p~n", [Res])
+    catch
+        error : {badarg, _, _} ->
+            ok
+    end.
 
 
 %%%----- Tests for bad algorithm name as argument

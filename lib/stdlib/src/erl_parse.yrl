@@ -693,11 +693,17 @@ ssa_check_when_clauses -> ssa_check_when_clause ssa_check_when_clauses :
 
 ssa_check_when_clause -> '%ssa%' atom ssa_check_clause_args_ls 'when' atom '->'
                              ssa_check_exprs '.' :
-   {ssa_check_when, ?anno('$1'), '$2', '$3', '$5', '$7'}.
+   {ssa_check_when, ?anno('$1'), '$2', '$3', [], '$5', '$7'}.
+ssa_check_when_clause -> '%ssa%' atom ssa_check_clause_args_ls ssa_check_anno 'when' atom '->'
+                             ssa_check_exprs '.' :
+   {ssa_check_when, ?anno('$1'), '$2', '$3', '$4', '$6', '$8'}.
 
 ssa_check_when_clause -> '%ssa%' ssa_check_clause_args_ls 'when' atom '->'
                              ssa_check_exprs '.' :
-   {ssa_check_when, ?anno('$1'), {atom,?anno('$1'),pass}, '$2', '$4', '$6'}.
+   {ssa_check_when, ?anno('$1'), {atom,?anno('$1'),pass}, '$2', [], '$4', '$6'}.
+ssa_check_when_clause -> '%ssa%' ssa_check_clause_args_ls ssa_check_anno 'when' atom '->'
+                             ssa_check_exprs '.' :
+   {ssa_check_when, ?anno('$1'), {atom,?anno('$1'),pass}, '$2', '$3', '$5', '$7'}.
 
 ssa_check_exprs -> ssa_check_expr : [add_anno_check('$1', [])].
 ssa_check_exprs -> ssa_check_expr ssa_check_anno : [add_anno_check('$1', '$2')].
@@ -1649,7 +1655,8 @@ build_attribute({atom,Aa,import_record}, Val) ->
     case Val of
 	[{atom,_Am,Mod},StrList] ->
 	    {attribute,Aa,import_record,{Mod,native_record_name_list(StrList)}};
-        [_,Other|_] -> error_bad_decl(Other, import_record)
+        [_,Other|_] -> error_bad_decl(Other, import_record);
+        [Other|_] -> error_bad_decl(Other, import_record)
     end;
 build_attribute({atom,Aa,record}, Val) ->
     case Val of

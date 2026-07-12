@@ -49,7 +49,9 @@ This module provides a set of cryptographic functions.
 
   - **POLY1305** - [ChaCha20 and Poly1305 for IETF Protocols (RFC 7539)](http://www.ietf.org/rfc/rfc7539.txt)
 
-- **Symmetric Ciphers** - 
+  - **SipHash** - [SipHash: a fast short-input PRF](https://ia.cr/2012/351)
+
+- **Symmetric Ciphers** -
 
   - **DES, 3DES and AES** - [Block Cipher Techniques (NIST)](https://csrc.nist.gov/projects/block-cipher-techniques)
 
@@ -322,7 +324,8 @@ end
 
 -export_type([
               hmac_hash_algorithm/0,
-              cmac_cipher_algorithm/0
+              cmac_cipher_algorithm/0,
+              siphash_options/0
              ]).
 
 -export_type([engine_ref/0,
@@ -837,7 +840,7 @@ stop() ->
                              Ciphers :: [cipher()],
                              KEMs :: [kem()],
                              PKs :: [rsa | dss | ecdsa | dh | ecdh | eddh | ec_gf2m | mldsa() | slh_dsa()],
-                             Macs :: [hmac | cmac | poly1305],
+                             Macs :: [hmac | cmac | poly1305 | siphash],
                              Curves :: [ec_named_curve() | edwards_curve_dh() | edwards_curve_ed()],
                              RSAopts :: [rsa_sign_verify_opt() | rsa_opt()] .
 supports() ->
@@ -879,7 +882,7 @@ algorithms.
                              Ciphers :: [cipher()],
                              KEMs :: [kem()],
                              PKs :: [rsa | dss | ecdsa | dh | ecdh | eddh | ec_gf2m],
-                             Macs :: [hmac | cmac | poly1305],
+                             Macs :: [hmac | cmac | poly1305 | siphash],
                              Curves :: [ec_named_curve() | edwards_curve_dh() | edwards_curve_ed()],
                              RSAopts :: [rsa_sign_verify_opt() | rsa_opt()] .
 
@@ -1008,6 +1011,14 @@ PKCS #5 PBKDF2 (Password-Based Key Derivation Function 2) in combination with
 HMAC.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+```erlang
+1> crypto:pbkdf2_hmac(sha256, <<"password">>, <<"salt">>, 1, 16).
+<<18,15,182,207,252,248,179,44,67,231,34,82,86,196,248,55>>
+```
 """.
 -doc(#{group => <<"Engine API">>,since => <<"OTP 24.2">>}).
 -spec pbkdf2_hmac(Digest, Pass, Salt, Iter, KeyLen) -> Result
@@ -1040,6 +1051,14 @@ Returns a map with information about block_size, size and possibly other
 properties of the hash algorithm in question.
 
 For a list of supported hash algorithms, see [supports(hashs)](`supports/1`).
+
+
+## Examples
+
+```erlang
+1> crypto:hash_info(sha256).
+#{size => 32,type => 672,block_size => 64}
+```
 """.
 -doc(#{group => <<"Utility Functions">>,
        since => <<"OTP 22.0">>}).
@@ -1058,6 +1077,15 @@ Compute a message digest.
 Argument `Type` is the digest type and argument `Data` is the full message.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+```erlang
+1> crypto:hash(sha256, <<"abc">>).
+<<186,120,22,191,143,1,207,234,65,65,64,222,93,174,34,35,176,3,97,
+  163,150,23,122,156,180,16,255,97,242,0,21,173>>
+```
 """.
 -doc(#{group => <<"Hash API">>,
        since => <<"OTP R15B02">>}).
@@ -1079,6 +1107,21 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
 May raise exception `error:notsup` in case the chosen `Type` is not supported by
 the underlying libcrypto implementation.
+
+## Examples
+
+The supported XOF algorithms can vary with the linked libcrypto version. The example uses
+[`supports(hashs)`](`supports/1`) to check for `shake128` or `shake256` before
+demonstrating this function. The function will print the XOF hash (1 character,
+because of the 8 in the arguments) and output `ok`.
+
+```erlang
+1> S = <<"abc">>.
+2> Xofs = [io:format("XOF hash of '~s' with ~s: ~s\n", [S, Alg, crypto:hash_xof(Alg, S, 8)])
+   || Alg <- [shake128, shake256], lists:member(Alg, crypto:supports(hashs))],
+   ok.
+ok
+```
 """.
 -doc(#{group => <<"Hash API">>,
        since => <<"OTP 26.0">>}).
@@ -1100,6 +1143,17 @@ Argument `Type` determines which digest to use. The returned state should be
 used as argument to `hash_update/2`.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+```erlang
+1> S0 = crypto:hash_init(sha256),
+   S1 = crypto:hash_update(S0, <<"abc">>),
+   crypto:hash_final(S1).
+<<186,120,22,191,143,1,207,234,65,65,64,222,93,174,34,35,176,3,97,
+  163,150,23,122,156,180,16,255,97,242,0,21,173>>
+```
 """.
 -doc(#{group => <<"Hash API">>,
        since => <<"OTP R15B02">>}).
@@ -1120,6 +1174,11 @@ Returns `NewState` that must be passed into the next call to `hash_update/2` or
 `hash_final/1`.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+See `hash_init/1` for examples on how to use this function.
 """.
 -doc(#{group => <<"Hash API">>,
        since => <<"OTP R15B02">>}).
@@ -1139,6 +1198,11 @@ Argument `State` as returned from the last call to
 the type of hash function used to generate it.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+See `hash_init/1` for examples on how to use this function.
 """.
 -doc(#{group => <<"Hash API">>,
        since => <<"OTP R15B02">>}).
@@ -1170,24 +1234,50 @@ hash_final_xof(State, Length) ->
                                | rc2_cbc
                                  .
 
+-doc """
+Options controlling the `siphash` MAC, used as the `SubType` argument.
+
+- `size` - output size in bytes, either `8` or `16`. Defaults to `16`.
+- `c_rounds` - number of SipHash compression rounds, in the range `1..16`.
+  Defaults to `2`.
+- `d_rounds` - number of SipHash finalization rounds, in the range `1..16`.
+  Defaults to `4`.
+
+The defaults correspond to SipHash-2-4 with a 16 byte output. An empty map
+`#{}` (or `undefined`) selects all defaults; any subset of the keys may be
+given to override individual parameters. The round counts are capped (well
+above the strongest standard variant, SipHash-4-8) so that a single call
+cannot monopolise a scheduler.
+""".
+-doc(#{group => <<"MAC API">>}).
+-type siphash_options() :: #{size => 8 | 16,
+                             c_rounds => 1..16,
+                             d_rounds => 1..16}.
+
 %%%----------------------------------------------------------------
 %%% Calculate MAC for the whole text at once
 
 -doc """
-Compute a `poly1305` MAC (Message Authentication Code).
+Compute a `poly1305` or `siphash` MAC (Message Authentication Code).
 
-Same as [`mac(Type, undefined, Key, Data)`](`mac/4`).
+For `poly1305` this is the same as [`mac(poly1305, undefined, Key, Data)`](`mac/4`).
+For `siphash` this is the same as [`mac(siphash, #{}, Key, Data)`](`mac/4`), i.e.
+SipHash-2-4 with a 16 byte output; use [`mac/4`](`mac/4`) with a
+[`t:siphash_options/0`](`t:siphash_options/0`) map to configure the rounds or
+output size.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
--spec mac(Type :: poly1305, Key, Data) -> Mac
-                     when Key :: iodata(),
+-spec mac(Type, Key, Data) -> Mac
+                     when Type :: poly1305 | siphash,
+                          Key :: iodata(),
                           Data :: iodata(),
                           Mac :: binary().
 
-mac(poly1305, Key, Data) -> mac(poly1305, undefined, Key, Data).
+mac(poly1305, Key, Data) -> mac(poly1305, undefined, Key, Data);
+mac(siphash, Key, Data) -> mac(siphash, #{}, Key, Data).
 
 
 -doc """
@@ -1204,10 +1294,15 @@ Argument `Type` is the type of MAC and `Data` is the full message.
 - For `poly1305` it should be set to `undefined` or the [mac/2](`mac_init/2`)
   function could be used instead, see
   [Algorithm Details](algorithm_details.md#poly1305) in the User's Guide.
+- For `siphash` it is a [`t:siphash_options/0`](`t:siphash_options/0`) map (or
+  `undefined` / `#{}` for the defaults), selecting the output size and the
+  number of rounds, see [Algorithm Details](algorithm_details.md#siphash) in the
+  User's Guide.
 
 `Key` is the authentication key with a length according to the `Type` and
 `SubType`. The key length could be found with the `hash_info/1` (`hmac`) for and
 `cipher_info/1` (`cmac`) functions. For `poly1305` the key length is 32 bytes.
+For `siphash` the key length is 16 bytes.
 Note that the cryptographic quality of the key is not checked.
 
 The `Mac` result will have a default length depending on the `Type` and
@@ -1217,12 +1312,21 @@ default length is documented in
 the User's Guide.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+```erlang
+1> crypto:mac(hmac, sha256, <<"key">>, <<"data">>).
+<<80,49,254,61,152,156,109,21,55,160,19,250,110,115,157,162,52,99,253,
+  174,195,183,1,55,216,40,227,106,206,34,27,208>>
+```
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
 -spec mac(Type, SubType, Key, Data) -> Mac
-                     when Type :: hmac | cmac | poly1305,
-                          SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | undefined,
+                     when Type :: hmac | cmac | poly1305 | siphash,
+                          SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | siphash_options() | undefined,
                           Key :: iodata(),
                           Data :: iodata(),
                           Mac :: binary().
@@ -1233,16 +1337,21 @@ mac(Type, SubType, Key0, Data) ->
 
 
 -doc """
-Compute a `poly1305` MAC (Message Authentication Code) with a limited length.
+Compute a `poly1305` or `siphash` MAC (Message Authentication Code) with a
+limited length.
 
-Same as [`macN(Type, undefined, Key, Data, MacLength)`](`macN/5`).
+This is the same as [`macN(Type, undefined, Key, Data, MacLength)`](`macN/5`),
+i.e. the default `SubType` (for `siphash`, SipHash-2-4 with a 16 byte output
+before truncation). Use [`macN/5`](`macN/5`) with a
+[`t:siphash_options/0`](`t:siphash_options/0`) map to configure `siphash`.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
--spec macN(Type :: poly1305, Key, Data, MacLength) -> Mac
-                     when Key :: iodata(),
+-spec macN(Type, Key, Data, MacLength) -> Mac
+                     when Type :: poly1305 | siphash,
+                          Key :: iodata(),
                           Data :: iodata(),
                           Mac :: binary(),
                           MacLength :: pos_integer().
@@ -1262,12 +1371,20 @@ returned hash will have that shorter length instead.
 The max `MacLength` is documented in
 [Algorithm Details](algorithm_details.md#message-authentication-codes-macs) in
 the User's Guide.
+
+
+## Examples
+
+```erlang
+1> crypto:macN(hmac, sha256, <<"key">>, <<"data">>, 4).
+<<80,49,254,61>>
+```
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
 -spec macN(Type, SubType, Key, Data, MacLength) -> Mac
-                     when Type :: hmac | cmac | poly1305,
-                          SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | undefined,
+                     when Type :: hmac | cmac | poly1305 | siphash,
+                          SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | siphash_options() | undefined,
                           Key :: iodata(),
                           Data :: iodata(),
                           Mac :: binary(),
@@ -1288,19 +1405,25 @@ between function calls.
 -opaque mac_state() :: reference() .
 
 -doc """
-Initialize a state for streaming `poly1305` MAC calculation.
+Initialize a state for streaming `poly1305` or `siphash` MAC calculation.
 
-Same as [`mac_init(Type, undefined, Key)`](`mac_init/3`).
+For `poly1305` this is the same as [`mac_init(poly1305, undefined, Key)`](`mac_init/3`).
+For `siphash` this is the same as [`mac_init(siphash, #{}, Key)`](`mac_init/3`),
+i.e. SipHash-2-4 with a 16 byte output; use [`mac_init/3`](`mac_init/3`) with a
+[`t:siphash_options/0`](`t:siphash_options/0`) map to configure it.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
--spec mac_init(Type :: poly1305, Key) -> State
-                          when Key :: iodata(),
+-spec mac_init(Type, Key) -> State
+                          when Type :: poly1305 | siphash,
+                               Key :: iodata(),
                                State :: mac_state() .
 mac_init(poly1305, Key) ->
-    ?nif_call(mac_init_nif(poly1305, undefined, Key)).
+    ?nif_call(mac_init_nif(poly1305, undefined, Key));
+mac_init(siphash, Key) ->
+    ?nif_call(mac_init_nif(siphash, #{}, Key)).
 
 
 -doc """
@@ -1317,10 +1440,15 @@ Initialize the state for streaming MAC calculation.
 - For `poly1305` it should be set to `undefined` or the [mac/2](`mac_init/2`)
   function could be used instead, see
   [Algorithm Details](algorithm_details.md#poly1305) in the User's Guide.
+- For `siphash` it is a [`t:siphash_options/0`](`t:siphash_options/0`) map (or
+  `undefined` / `#{}` for the defaults), selecting the output size and the
+  number of rounds, see [Algorithm Details](algorithm_details.md#siphash) in the
+  User's Guide.
 
 `Key` is the authentication key with a length according to the `Type` and
 `SubType`. The key length could be found with the `hash_info/1` (`hmac`) for and
 `cipher_info/1` (`cmac`) functions. For `poly1305` the key length is 32 bytes.
+For `siphash` the key length is 16 bytes.
 Note that the cryptographic quality of the key is not checked.
 
 The returned `State` should be used in one or more subsequent calls to
@@ -1331,12 +1459,22 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
 See
 [examples in the User's Guide.](new_api.md#example-of-mac_init-mac_update-and-mac_final)
+
+
+## Examples
+
+```erlang
+1> S0 = crypto:mac_init(hmac, sha256, <<"key">>),
+   S1 = crypto:mac_update(S0, <<"data">>),
+   crypto:mac_finalN(S1, 4).
+<<80,49,254,61>>
+```
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
 -spec mac_init(Type, SubType, Key) -> State
-                          when Type :: hmac | cmac | poly1305,
-                               SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | undefined,
+                          when Type :: hmac | cmac | poly1305 | siphash,
+                               SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | siphash_options() | undefined,
                                Key :: iodata(),
                                State :: mac_state() .
 mac_init(Type, SubType, Key0) ->
@@ -1357,6 +1495,11 @@ internal state. Hence, it is not possible to branch off a data stream by reusing
 old states.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+See `mac_init/2` for examples on how to use this function.
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
@@ -1405,6 +1548,11 @@ The max `MacLength` is documented in
 the User's Guide.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+See `mac_init/2` for examples on how to use this function.
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
@@ -1454,6 +1602,15 @@ support and possibly other properties of the cipher algorithm in question.
 
 For a list of supported cipher algorithms, see
 [supports(ciphers)](`supports/1`).
+
+
+## Examples
+
+```erlang
+1> crypto:cipher_info(aes_128_ctr).
+#{type => undefined,mode => ctr_mode,block_size => 1,iv_length => 16,
+  key_length => 16,prop_aead => false}
+```
 """.
 -doc(#{group => <<"Utility Functions">>,
        since => <<"OTP 22.0">>}).
@@ -1554,6 +1711,15 @@ Equivalent to the call
 intended for ciphers without an IV (nounce).
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+```erlang
+1> S = crypto:crypto_init(aes_128_ecb, <<0:128>>, true),
+   crypto:crypto_update(S, <<0:128>>).
+<<102,233,75,212,239,138,44,59,136,76,250,89,202,52,43,46>>
+```
 """.
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 22.0">>}).
@@ -1603,6 +1769,15 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
 See
 [examples in the User's Guide.](new_api.md#examples-of-crypto_init-4-and-crypto_update-2)
+
+
+## Examples
+
+```erlang
+1> S = crypto:crypto_init(aes_128_ctr, <<0:128>>, <<0:128>>, true),
+   crypto:crypto_update(S, <<0:32>>).
+<<102,233,75,212>>
+```
 """.
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 22.0">>}).
@@ -1634,6 +1809,11 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
 See
 [examples in the User's Guide.](new_api.md#examples-of-crypto_init-4-and-crypto_update-2)
+
+
+## Examples
+
+See `crypto_init/4` for examples on how to use this function.
 """.
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 22.0">>}).
@@ -1688,6 +1868,16 @@ The information returned is a map, which currently contains at least:
 - **`encrypt`** - Is `true` if encryption is performed. It is `false` otherwise.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+```erlang
+1> S = crypto:crypto_init(aes_128_ctr, <<0:128>>, <<0:128>>, true),
+   crypto:crypto_update(S, <<0:32>>),
+   crypto:crypto_get_data(S).
+#{size => 4,encrypt => true,padding_size => -1,padding_type => undefined}
+```
 """.
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 23.0">>}).
@@ -1709,6 +1899,14 @@ Do a complete encrypt or decrypt of the full text.
 As `crypto_one_time/5` but for ciphers without IVs.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+```erlang
+1> crypto:crypto_one_time(aes_128_ecb, <<0:128>>, <<0:128>>, true).
+<<102,233,75,212,239,138,44,59,136,76,250,89,202,52,43,46>>
+```
 """.
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 22.0">>}).
@@ -1738,6 +1936,14 @@ For encryption, set the `FlagOrOptions` to `true`. For decryption, set it to
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
 See [examples in the User's Guide.](new_api.md#example-of-crypto_one_time-5)
+
+
+## Examples
+
+```erlang
+1> crypto:crypto_one_time(aes_128_ctr, <<0:128>>, <<0:128>>, <<0:32>>, true).
+<<102,233,75,212>>
+```
 """.
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 22.0">>}).
@@ -1763,6 +1969,14 @@ with the default tag length.
 Equivalent to
 `crypto_one_time_aead(Cipher, Key, IV, InText, AAD, TagLength, true)`
 where `TagLength` is the default tag length for the given `Cipher`.
+
+
+## Examples
+
+```erlang
+1> crypto:crypto_one_time_aead(aes_128_gcm, <<0:128>>, <<0:96>>, <<"abc">>, <<"aad">>, true).
+{<<98,234,185>>,<<88,198,190,128,13,104,95,237,144,165,63,181,213,115,99,216>>}
+```
 """.
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 22.0">>}).
@@ -1811,6 +2025,15 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
 See
 [examples in the User's Guide.](new_api.md#example-of-crypto_one_time_aead-6)
+
+
+## Examples
+
+```erlang
+1> {CipherText, Tag} = crypto:crypto_one_time_aead(aes_128_gcm, <<0:128>>, <<0:96>>, <<"abc">>, <<"aad">>, true),
+   crypto:crypto_one_time_aead(aes_128_gcm, <<0:128>>, <<0:96>>, CipherText, <<"aad">>, Tag, false).
+<<"abc">>
+```
 """.
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 22.0">>}).
@@ -1861,6 +2084,15 @@ Initializes AEAD cipher.
 Similar to 'crypto_one_time_aead/7' but only does the initialization part,
 returns a handle that can be used with 'crypto_one_time_aead/4' serveral times.
 
+
+
+## Examples
+
+```erlang
+1> S = crypto:crypto_one_time_aead_init(aes_128_gcm, <<0:128>>, 16, true),
+   crypto:crypto_one_time_aead(S, <<0:96>>, <<"abc">>, <<"aad">>).
+<<98,234,185,88,198,190,128,13,104,95,237,144,165,63,181,213,115,99,216>>
+```
 """).
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 28.0">>}).
@@ -1884,6 +2116,11 @@ Similar to 'crypto_one_time_aead/7' but uses the handle from 'crypto_one_time_ae
 
 Appends the tag of the specified 'TagLength' to the end of the encrypted data, when doing encryption.
 Strips the tag from the end of 'InText' and verifies it when doing decryption.
+
+
+## Examples
+
+See `crypto_one_time_aead_init/4` for examples on how to use this function.
 """).
 -doc(#{group => <<"Cipher API">>,
        since => <<"OTP 28.0">>}).
@@ -2055,6 +2292,13 @@ pseudo-random number generator. `To` must be larger than `From`.
 > Instead, use `strong_rand_range(To - From) + From`
 >
 > Be aware of the possible `error:low_entropy` exception.
+
+
+## Examples
+
+```erlang
+1> crypto:rand_uniform(0, 10).
+```
 """.
 -spec rand_uniform(crypto_integer(), crypto_integer()) ->
 			  crypto_integer().
@@ -2120,6 +2364,14 @@ in a `binary/0`, the return value is a non-negative integer in a `binary/0`.
 
 May raise exception `error:low_entropy` in case the random generator failed due
 to lack of secure "randomness".
+
+
+## Examples
+
+```erlang
+1> crypto:strong_rand_range(10).
+2> crypto:strong_rand_range(<<10>>).
+```
 """.
 -spec strong_rand_range(Range :: pos_integer()) -> N :: non_neg_integer();
                        (Range :: binary()) ->      N :: binary().
@@ -2212,7 +2464,7 @@ See `rand:bytes_s/2` and `strong_rand_bytes/1`.
 
 #### _Example_
 
-``` erlang
+```erlang
 S0 = crypto:rand_seed_s(),
 {RandomInteger, S1} = rand:uniform_s(1000, S0).
 ```
@@ -3048,6 +3300,16 @@ Algorithm `dss` can only be used together with digest type `sha`.
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
 See also `public_key:sign/3`.
+
+
+## Examples
+
+```erlang
+1> {PublicKey, PrivateKey} = crypto:generate_key(rsa, {512, 65537}),
+   Signature = crypto:sign(rsa, sha256, <<"abc">>, PrivateKey, []),
+   crypto:verify(rsa, sha256, <<"abc">>, Signature, PublicKey, []).
+true
+```
 """.
 -doc(#{group => <<"Sign/Verify API">>,
        since => <<"OTP 20.1">>}).
@@ -3140,6 +3402,11 @@ Algorithm `dss` can only be used together with digest type `sha`.
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
 See also `public_key:verify/4`.
+
+
+## Examples
+
+See `sign/5` for examples on how to use this function.
 """.
 -doc(#{group => <<"Sign/Verify API">>,
        since => <<"OTP 20.1">>}).
@@ -3236,6 +3503,16 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 >
 > This is a legacy function, for security reasons do not use together with rsa_pkcs1_padding.
 
+
+
+## Examples
+
+```erlang
+1> {PublicKey, PrivateKey} = crypto:generate_key(rsa, {512, 65537}),
+   CipherText = crypto:public_encrypt(rsa, <<"abc">>, PublicKey, rsa_pkcs1_padding),
+   crypto:private_decrypt(rsa, CipherText, PrivateKey, rsa_pkcs1_padding).
+<<"abc">>
+```
 """.
 -doc(#{group => <<"Legacy RSA Encryption API">>,
        since => <<"OTP R16B01">>}).
@@ -3265,6 +3542,11 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 >
 > This is a legacy function, for security reasons do not use with rsa_pkcs1_padding.
 
+
+
+## Examples
+
+See `public_encrypt/4` for examples on how to use this function.
 """.
 
 -doc(#{group => <<"Legacy RSA Encryption API">>,
@@ -3298,6 +3580,16 @@ Public-key decryption using the private key. See also `crypto:private_decrypt/4`
 > For digital signatures use of [`sign/4`](`sign/4`) together
 > with [`verify/5`](`verify/5`) is the prefered solution.
 
+
+
+## Examples
+
+```erlang
+1> {PublicKey, PrivateKey} = crypto:generate_key(rsa, {512, 65537}),
+   CipherText = crypto:private_encrypt(rsa, <<"abc">>, PrivateKey, rsa_pkcs1_padding),
+   crypto:public_decrypt(rsa, CipherText, PublicKey, rsa_pkcs1_padding).
+<<"abc">>
+```
 """.
 -doc(#{group => <<"Legacy RSA Encryption API">>,
         since => <<"OTP R16B01">>}).
@@ -3329,6 +3621,11 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 > For digital signatures use of [`verify/5`](`verify/5`) together
 > with [`sign/4`](`sign/4`) is the prefered solution.
 
+
+
+## Examples
+
+See `private_encrypt/4` for examples on how to use this function.
 """.
 -doc(#{group => <<"Legacy RSA Encryption API">>,
        since => <<"OTP R16B01">>}).
@@ -3389,6 +3686,18 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 >
 > then the optional key length parameter must be at least 224, 256, 302, 352 and
 > 400 for group sizes of 2048, 3072, 4096, 6144 and 8192, respectively.
+
+
+## Examples
+
+```erlang
+1> crypto:generate_key(ecdh, secp256r1, 1).
+{<<4,107,23,209,242,225,44,66,71,248,188,230,229,99,164,64,242,119,
+   3,125,129,45,235,51,160,244,161,57,69,216,152,194,150,79,227,66,
+   226,254,26,127,155,142,231,235,74,124,15,158,22,43,206,51,87,107,
+   49,94,206,203,182,64,104,55,191,81,245>>,
+ <<0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1>>}
+```
 """.
 -doc(#{group => <<"Key API">>,
        since => <<"OTP R16B01">>}).
@@ -3527,6 +3836,17 @@ key.
 See also `public_key:compute_key/2`.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
+
+
+## Examples
+
+```erlang
+1> {_PublicA, PrivateA} = crypto:generate_key(ecdh, secp256r1, 1),
+   {PublicB, _PrivateB} = crypto:generate_key(ecdh, secp256r1, 2),
+   crypto:compute_key(ecdh, PublicB, PrivateA, secp256r1).
+<<124,242,123,24,141,3,79,126,138,82,56,3,4,181,26,195,192,137,105,226,
+  119,242,27,53,166,11,72,252,71,102,153,120>>
+```
 """.
 -doc(#{group => <<"Key API">>,
        since => <<"OTP R16B01">>}).
@@ -3609,6 +3929,14 @@ evp_compute_key_nif(_Curve, _OthersBin, _MyBin) -> ?nif_stub.
 Perform bit-wise XOR (exclusive or) on the data supplied.
 
 The two byte sequences must be of equal length.
+
+
+## Examples
+
+```erlang
+1> crypto:exor(<<1,2,3>>, <<3,2,1>>).
+<<2,0,2>>
+```
 """.
 -spec exor(iodata(), iodata()) -> binary().
 
@@ -3627,7 +3955,16 @@ exor(Bin1, Bin2) ->
 
 -doc(#{group => <<"Utility Functions">>,
        since => <<"OTP R16B01">>}).
--doc "Compute the function `N^P mod M`.".
+-doc """
+Compute the function `N^P mod M`.
+
+## Examples
+
+```erlang
+1> {crypto:mod_pow(2, 10, 17), crypto:mod_pow(5, 0, 23)}.
+{<<4>>,<<1>>}
+```
+""".
 -spec mod_pow(N, P, M) -> Result when N :: binary() | integer(),
                                       P :: binary() | integer(),
                                       M :: binary() | integer(),
@@ -3689,6 +4026,19 @@ underlying OpenSSL implementation.
 
 See also the chapter [Engine Load](engine_load.md#engine_load) in the User's
 Guide.
+
+
+## Examples
+
+Example will print all supported methods, but if OpenSSL engines feature is disabled, 
+it will print a different message.
+
+```erlang
+1> try crypto:engine_get_all_methods() of 
+       L -> io:format("Supported engine methods: ~p~n", [L]) 
+   catch error:notsup -> io:format("Engine feature is disabled~n", []) end.
+ok
+```
 """.
 -doc(#{group => <<"Engine API">>,since => <<"OTP 20.2">>}).
 -spec engine_get_all_methods() -> Result when Result :: [engine_method_type()].
@@ -3710,7 +4060,7 @@ may also raise the exception `error:notsup` in case there is no engine support
 in the underlying OpenSSL implementation.
 
 See also the chapter [Engine Load](engine_load.md#engine_load) in the User's
-Guide.
+Guide. Crypto Engine was deprecated in OpenSSL 3.0.
 """.
 -doc(#{group => <<"Engine API">>,since => <<"OTP 20.2">>}).
 -spec engine_load(EngineId, PreCmds, PostCmds) ->
@@ -3959,7 +4309,7 @@ See also the chapter [Engine Load](engine_load.md#engine_load) in the User's
 Guide.
 
 May raise exception `error:notsup` in case engine functionality is not supported
-by the underlying OpenSSL implementation.
+by the underlying OpenSSL implementation. Crypto Engine was deprecated in OpenSSL 3.0.
 """.
 -doc(#{group => <<"Engine API">>,since => <<"OTP 20.2">>}).
 -spec engine_list() -> Result when Result :: [EngineId::unicode:chardata()].
@@ -4347,7 +4697,17 @@ ecdh_compute_key_nif(_Others, _Curve, _My) -> ?nif_stub.
 
 -doc(#{group => <<"Utility Functions">>,
        since => <<"OTP 17.0">>}).
--doc "Return all supported named elliptic curves.".
+-doc """
+Return all supported named elliptic curves.
+
+
+## Examples
+
+```erlang
+1> lists:member(secp256r1, crypto:ec_curves()).
+true
+```
+""".
 -spec ec_curves() -> [EllipticCurve] when EllipticCurve :: ec_named_curve()
                                                          | edwards_curve_dh()
                                                          | edwards_curve_ed() .
@@ -4357,7 +4717,17 @@ ec_curves() ->
 
 -doc(#{group => <<"Utility Functions">>,
        since => <<"OTP 17.0">>}).
--doc "Return the defining parameters of a elliptic curve.".
+-doc """
+Return the defining parameters of a elliptic curve.
+
+## Examples
+
+```erlang
+1> element(1, crypto:ec_curve(secp256r1)).
+{prime_field,<<255,255,255,255,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,
+               255,255,255,255,255,255,255,255,255,255,255,255>>}
+```
+""".
 -spec ec_curve(CurveName) -> ExplicitCurve when CurveName :: ec_named_curve(),
                                                 ExplicitCurve :: ec_explicit_curve() .
 ec_curve(X) ->
@@ -4447,6 +4817,14 @@ Compare two binaries in constant time, such as results of HMAC computations.
 Returns true if the binaries are identical, false if they are of the same length
 but not identical. The function raises an `error:badarg` exception if the
 binaries are of different size.
+
+
+## Examples
+
+```erlang
+1> {crypto:hash_equals(<<1,2>>, <<1,2>>), crypto:hash_equals(<<1,2>>, <<1,3>>)}.
+{true,false}
+```
 """.
 -doc(#{group => <<"Utility Functions">>, since => <<"OTP 25.0">>}).
 -spec hash_equals(BinA, BinB) -> Result
@@ -4480,7 +4858,16 @@ int_to_bin_neg(-1, Ds=[MSB|_]) when MSB >= 16#80 ->
 int_to_bin_neg(X,Ds) ->
     int_to_bin_neg(X bsr 8, [(X band 255)|Ds]).
 
--doc "Convert binary representation, of an integer, to an Erlang integer.".
+-doc """
+Convert binary representation, of an integer, to an Erlang integer.
+
+## Examples
+
+```erlang
+1> {crypto:bytes_to_integer(<<1,0>>), crypto:bytes_to_integer(<<255>>)}.
+{256,255}
+```
+""".
 -doc(#{group => <<"Utility Functions">>,
        since => <<"OTP R16B01">>}).
 -spec bytes_to_integer(binary()) -> integer() .

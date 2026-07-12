@@ -264,7 +264,7 @@ handle_data(0, ChannelId, <<?UINT32(Len), Msg:Len/binary, Rest/binary>>,
     end;
 handle_data(0, _ChannelId, Data, State = #state{pending = <<>>}) ->
     {ok, State#state{pending = Data}};
-handle_data(Type, ChannelId, Data0, State = #state{pending = Pending}) ->
+handle_data(0, ChannelId, Data0, State = #state{pending = Pending}) ->
     Data = <<Pending/binary, Data0/binary>>,
     Size = byte_size(Data),
     case Size > ?SSH_MAX_PACKET_SIZE of
@@ -285,8 +285,11 @@ handle_data(Type, ChannelId, Data0, State = #state{pending = Pending}) ->
             ?LOG_ERROR(ReportFun, [Size]),
             {stop, ChannelId, State};
         _ ->
-            handle_data(Type, ChannelId, Data, State#state{pending = <<>>})
-    end.
+            handle_data(0, ChannelId, Data, State#state{pending = <<>>})
+    end;
+handle_data(_Type, _ChannelId, _Data, State) ->
+    %% Same as openssh sftpd, we ignore extended data
+    {ok, State}.
 
 %% From draft-ietf-secsh-filexfer-02 "The file handle strings MUST NOT be longer than 256 bytes."
 handle_op(Request, ReqId, <<?UINT32(HLen), _/binary>>, State = #state{xf = XF})
@@ -330,19 +333,24 @@ handle_op(?SSH_FXP_INIT, Version, B, State) when is_binary(B) ->
     ssh_xfer:xf_send_reply(XF1, ?SSH_FXP_VERSION, <<?UINT32(Vsn)>>),
     State#state{xf = XF1};
 handle_op(?SSH_FXP_REALPATH, ReqId,
-	  <<?UINT32(RLen), RPath:RLen/binary>>,
-	  State0) ->
+          <<?UINT32(RLen), RPath:RLen/binary>>,
+          State0) ->
     RelPath = relate_file_name(RPath, State0, _Canonicalize=false),
-    {Res, State} = resolve_symlinks(RelPath, State0),
+    {Res, #state{root = Root} = State} = resolve_symlinks(RelPath, State0),
     case Res of
-	{ok, AbsPath} ->
-	    NewAbsPath = chroot_filename(AbsPath, State),
-	    XF = State#state.xf,
-	    Attr = #ssh_xfer_attr{type=directory},
-	    ssh_xfer:xf_send_name(XF, ReqId, NewAbsPath, Attr),
-	    State;
-	{error, _} = Error ->
-	    send_status(Error, ReqId, State)
+        {ok, AbsPath} ->
+            case Root =:= "" orelse is_within_root(Root, AbsPath) of
+                true ->
+                    NewAbsPath = chroot_filename(AbsPath, State),
+                    XF = State#state.xf,
+                    Attr = #ssh_xfer_attr{type=directory},
+                    ssh_xfer:xf_send_name(XF, ReqId, NewAbsPath, Attr),
+                    State;
+                false ->
+                    send_status({error, enoent}, ReqId, State)
+            end;
+        {error, _} = Error ->
+            send_status(Error, ReqId, State)
     end;
 handle_op(?SSH_FXP_OPENDIR, ReqId,
 	 <<?UINT32(RLen), RPath:RLen/binary>>,
