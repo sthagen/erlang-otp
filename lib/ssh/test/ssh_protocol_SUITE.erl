@@ -32,6 +32,10 @@
 -include("ssh_auth.hrl").
 -include("ssh_test_lib.hrl").
 
+%% RFC 3526 Group 14 — 2048-bit MODP prime (generator = 2).
+-define(RFC3526_GROUP14_PRIME,
+        16#FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AACAA68FFFFFFFFFFFFFFFF).
+
 -export([
          suite/0,
          all/0,
@@ -76,11 +80,14 @@
          kex_strict_violation/1,
          kex_strict_violation_2/1,
          kex_strict_msg_unknown/1,
+         dh_kexdh_init_e_out_of_bounds/1,
          gex_client_init_option_groups/1,
          gex_client_init_option_groups_file/1,
          gex_client_init_option_groups_moduli_file/1,
          gex_client_old_request_exact/1,
          gex_client_old_request_noexact/1,
+         gex_client_rejects_small_group/1,
+         gex_client_rejects_bad_generator/1,
          gex_server_gex_limit/1,
          lib_match/1,
          lib_no_match/1,
@@ -208,12 +215,15 @@ groups() ->
 		gex_client_init_option_groups_file,
 		gex_client_old_request_exact,
 		gex_client_old_request_noexact,
+                gex_client_rejects_small_group,
+                gex_client_rejects_bad_generator,
                 kex_strict_negotiated,
                 kex_strict_violation_key_exchange,
                 kex_strict_violation_new_keys,
                 kex_strict_violation,
                 kex_strict_violation_2,
-                kex_strict_msg_unknown]},
+                kex_strict_msg_unknown,
+                dh_kexdh_init_e_out_of_bounds]},
      {service_requests, [], [bad_service_name,
 			     bad_long_service_name,
 			     bad_very_long_service_name,
@@ -299,6 +309,9 @@ init_per_testcase(TC, Config) when TC == kex_strict_negotiated;
     Level = ssh_test_lib:get_log_level(),
     ssh_test_lib:set_log_level(debug),
     [{saved_log_level, Level} | Config];
+init_per_testcase(TC, Config) when TC == gex_client_rejects_small_group;
+                                   TC == gex_client_rejects_bad_generator ->
+    Config;
 init_per_testcase(TC, Config) when TC == gex_client_init_option_groups ;
 				   TC == gex_client_init_option_groups_moduli_file ;
 				   TC == gex_client_init_option_groups_file ;
@@ -307,10 +320,8 @@ init_per_testcase(TC, Config) when TC == gex_client_init_option_groups ;
 				   TC == gex_client_old_request_noexact ->
     Opts = case TC of
 	       gex_client_init_option_groups ->
-		   [{dh_gex_groups, 
-                     [{1023, 5, 
-                       16#D9277DAA27DB131C03B108D41A76B4DA8ACEECCCAE73D2E48CEDAAA70B09EF9F04FB020DCF36C51B8E485B26FABE0337E24232BE4F4E693548310244937433FB1A5758195DC73B84ADEF8237472C46747D79DC0A2CF8A57CE8DBD8F466A20F8551E7B1B824B2E4987A8816D9BC0741C2798F3EBAD3ADEBCC78FCE6A770E2EC9F
-                      }]}];
+                   [{dh_gex_groups,
+                     [{2048, 2, ?RFC3526_GROUP14_PRIME}]}];
 	       gex_client_init_option_groups_file ->
 		   DataDir = proplists:get_value(data_dir, Config),
 		   F = filename:join(DataDir, "dh_group_test"),
@@ -661,9 +672,8 @@ no_common_alg_client_disconnects(Config) ->
 
 %%%--------------------------------------------------------------------
 gex_client_init_option_groups(Config) ->
-    do_gex_client_init(Config, {512, 2048, 4000},
-		       {5,16#D9277DAA27DB131C03B108D41A76B4DA8ACEECCCAE73D2E48CEDAAA70B09EF9F04FB020DCF36C51B8E485B26FABE0337E24232BE4F4E693548310244937433FB1A5758195DC73B84ADEF8237472C46747D79DC0A2CF8A57CE8DBD8F466A20F8551E7B1B824B2E4987A8816D9BC0741C2798F3EBAD3ADEBCC78FCE6A770E2EC9F}
-                      ).
+    do_gex_client_init(Config, {2048, 2048, 4000},
+                       {2, ?RFC3526_GROUP14_PRIME}).
 
 gex_client_init_option_groups_file(Config) ->
     do_gex_client_init(Config, {2000, 2048, 4000},
@@ -739,6 +749,67 @@ do_gex_client_init_old(Config, N, {G,P}) ->
 	   {match, #ssh_msg_kex_dh_gex_group{p=P, g=G, _='_'},  receive_msg}
 	  ]
 	 ).
+
+%%%--------------------------------------------------------------------
+%%% Client rejects a DH GEX group with too-small prime (512 bits).
+%%% The test lib acts as server and sends a bad GEX_GROUP; the real
+%%% OTP client must disconnect with KEY_EXCHANGE_FAILED.
+gex_client_rejects_small_group(Config) ->
+    %% 512-bit number (not even prime — doesn't matter, size check rejects first)
+    SmallP = 16#D4BCD52406F2C926B7E8BE5FF5D2B2E3B956F79441CE5B2E35,
+    gex_client_rejects_group(Config, SmallP, 2).
+
+%%% Client rejects a DH GEX group with invalid generator (G=1).
+gex_client_rejects_bad_generator(Config) ->
+    %% Valid 2048-bit prime (RFC 3526 group 14), but generator = 1
+    gex_client_rejects_group(Config, ?RFC3526_GROUP14_PRIME, 1).
+
+gex_client_rejects_group(Config, P, G) ->
+    {ok, InitialState} = ssh_trpt_test_lib:exec(listen),
+    HostPort = ssh_trpt_test_lib:server_host_port(InitialState),
+    Parent = self(),
+
+    %% Server side: accept, negotiate DH-GEX, send bad group
+    Pid =
+        spawn_link(
+          fun() ->
+                  Parent !
+                      {result, self(),
+                       ssh_trpt_test_lib:exec(
+                         [{set_options, [print_ops, print_seqnums, print_messages]},
+                          {accept, [{system_dir, ssh_test_lib:system_dir(Config)},
+                                    {user_dir, ssh_test_lib:user_dir(Config)}]},
+                          receive_hello,
+                          {send, hello},
+                          {send, ssh_msg_kexinit},
+                          {match, #ssh_msg_kexinit{_='_'}, receive_msg},
+                          {match, #ssh_msg_kex_dh_gex_request{_='_'}, receive_msg},
+                          {send, #ssh_msg_kex_dh_gex_group{p = P, g = G}},
+                          {match, disconnect(?SSH_DISCONNECT_KEY_EXCHANGE_FAILED),
+                           receive_msg}
+                         ],
+                         InitialState)}
+          end),
+
+    %% Client side: connect forcing DH-GEX
+    Result = std_connect(HostPort, Config,
+                         [{preferred_algorithms,
+                           [{kex, ['diffie-hellman-group-exchange-sha256']},
+                            {cipher, ?DEFAULT_CIPHERS}]}]),
+    ct:log("Client connect result: ~p", [Result]),
+
+    receive
+        {result, Pid, {ok, _}} ->
+            ok;
+        {result, Pid, {error, {Op, ExecResult, S}}} ->
+            ct:log("ERROR!~nOp = ~p~nExecResult = ~p~nState =~n~s",
+                   [Op, ExecResult, ssh_trpt_test_lib:format_msg(S)]),
+            {fail, ExecResult};
+        {result, Pid, X} ->
+            ct:fail(X)
+    after
+        30000 -> ct:fail("timeout ~p:~p", [?MODULE, ?LINE])
+    end.
 
 %%%--------------------------------------------------------------------
 bad_service_name(Config) -> 
@@ -1394,8 +1465,14 @@ kex_strict_violation(Config) ->
            {send, ssh_msg_kexinit},
            {match, #ssh_msg_kexinit{_='_'}, receive_msg},
            {send, ssh_msg_kexdh_init_dup},
-           {match,# ssh_msg_kexdh_reply{_='_'}, receive_msg},
-           {match, disconnect(?SSH_DISCONNECT_KEY_EXCHANGE_FAILED), receive_msg}]},
+           {match, #ssh_msg_kexdh_reply{_='_'}, receive_msg},
+           %% Server processes first kexdh_init (sends newkeys), then
+           %% detects the duplicate and disconnects. Depending on timing
+           %% we may see newkeys, disconnect, or tcp_closed here.
+           %% The actual violation assertion is verified via event_logged.
+           {match, {'or', [#ssh_msg_newkeys{_='_'},
+                           #ssh_msg_disconnect{code = ?SSH_DISCONNECT_KEY_EXCHANGE_FAILED},
+                           tcp_closed]}, receive_msg}]},
          {new_keys, "Message ssh_msg_newkeys in wrong state",
           [receive_hello,
            {send, hello},
@@ -1498,6 +1575,40 @@ kex_strict_msg_unknown(Config) ->
          {match, #ssh_msg_kexdh_reply{_='_'}, receive_msg},
          {match, disconnect(?SSH_DISCONNECT_KEY_EXCHANGE_FAILED), receive_msg}],
     kex_strict_helper(Config, TestMessages, ExpectedReason).
+
+%% RFC 4253 §8 / RFC 4419 §3: a peer's DH value must satisfy 1 < e < p-1.
+%% A peer driving e (or, on the client side, f) to one of {0, 1, p-1, p}
+%% must be rejected with SSH_DISCONNECT_KEY_EXCHANGE_FAILED. Verify this
+%% for the server, which receives e from the client.
+dh_kexdh_init_e_out_of_bounds(Config) ->
+    {_G, P} = ?dh_group14,
+    [verify_kexdh_init_rejected(Config, E) || E <- [0, 1, P-1, P]],
+    ok.
+
+verify_kexdh_init_rejected(Config, E) ->
+    ct:log("Trying kexdh_init with e=~p", [E]),
+    {ok, InitialState} = ssh_trpt_test_lib:exec(
+                          [{set_options, [print_ops, print_seqnums, print_messages]}]),
+    {ok, _} =
+        ssh_trpt_test_lib:exec(
+          [{connect,
+            ssh_test_lib:server_host(Config), ssh_test_lib:server_port(Config),
+            [{preferred_algorithms,
+              [{kex, ['diffie-hellman-group14-sha256']},
+               {cipher, ?DEFAULT_CIPHERS}]},
+             {silently_accept_hosts, true},
+             {recv_ext_info, false},
+             {user_dir, ssh_test_lib:user_dir(Config)},
+             {user_interaction, false}
+             | proplists:get_value(extra_options, Config, [])
+            ]},
+           receive_hello,
+           {send, hello},
+           {send, ssh_msg_kexinit},
+           {match, #ssh_msg_kexinit{_='_'}, receive_msg},
+           {send, #ssh_msg_kexdh_init{e = E}},
+           {match, disconnect(?SSH_DISCONNECT_KEY_EXCHANGE_FAILED), receive_msg}],
+          InitialState).
 
 kex_strict_helper(Config0, TestMessages, ExpectedReason) ->
     Config = ssh_test_lib:add_log_handler(?FUNCTION_NAME, Config0),
