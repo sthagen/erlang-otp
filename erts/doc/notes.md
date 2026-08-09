@@ -23,6 +23,58 @@ limitations under the License.
 
 This document describes the changes made to the ERTS application.
 
+## Erts 17.0.5
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a regression in the previous patch release that prevented epmd from binding to localhost.
+
+  Own Id: OTP-20275 Aux Id: [PR-11409], [GH-11402]
+
+[PR-11409]: https://github.com/erlang/otp/pull/11409
+[GH-11402]: https://github.com/erlang/otp/issues/11402
+
+## Erts 17.0.4
+
+### Fixed Bugs and Malfunctions
+
+- Mitigated a denial of service attack in epmd.
+  
+  Thanks to Ryan Moore for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20136 Aux Id: [CVE-2026-42792], [PR-11386]
+
+- Fixed heap corruption when an invalidly encoded tuple with an arity of 2^31 or larger is decoded from Erlang's External Term Format (binary_to_term).
+
+  Own Id: OTP-20214 Aux Id: [PR-11297], [CVE-2026-55737]
+
+- When send_timeout is set and send_timeout_close is set to true, a 'tcp_closed' message is expected when the timeout occurs, but that (message) was not delivered.
+  This has now been fixed.
+
+  Own Id: OTP-20257 Aux Id: [GH-11319]
+
+- A crafted External Term Format (ETF) payload could crash the runtime system.
+  
+  Thanks to Paul Guyot for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  Own Id: OTP-20259 Aux Id: [CVE-2026-54890], [PR-11386]
+
+- Fixed a rounding error in 16-bit float conversion.
+
+  Own Id: OTP-20260 Aux Id: [GH-11332], [PR-11334]
+
+[CVE-2026-42792]: https://nvd.nist.gov/vuln/detail/2026-42792
+[PR-11386]: https://github.com/erlang/otp/pull/11386
+[PR-11297]: https://github.com/erlang/otp/pull/11297
+[CVE-2026-55737]: https://nvd.nist.gov/vuln/detail/2026-55737
+[GH-11319]: https://github.com/erlang/otp/issues/11319
+[CVE-2026-54890]: https://nvd.nist.gov/vuln/detail/2026-54890
+[PR-11386]: https://github.com/erlang/otp/pull/11386
+[GH-11332]: https://github.com/erlang/otp/issues/11332
+[PR-11334]: https://github.com/erlang/otp/pull/11334
+
 ## Erts 17.0.3
 
 ### Fixed Bugs and Malfunctions
@@ -351,6 +403,58 @@ This document describes the changes made to the ERTS application.
 [PR-10619]: https://github.com/erlang/otp/pull/10619
 [PR-11004]: https://github.com/erlang/otp/pull/11004
 [PR-10929]: https://github.com/erlang/otp/pull/10929
+
+## Erts 16.4.0.5
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a regression in the previous patch release that prevented epmd from binding to localhost.
+
+  Own Id: OTP-20275 Aux Id: [PR-11409], [GH-11402]
+
+[PR-11409]: https://github.com/erlang/otp/pull/11409
+[GH-11402]: https://github.com/erlang/otp/issues/11402
+
+## Erts 16.4.0.4
+
+### Fixed Bugs and Malfunctions
+
+- Mitigated a denial of service attack in epmd.
+  
+  Thanks to Ryan Moore for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20136 Aux Id: [CVE-2026-42792], [PR-11386]
+
+- Fixed heap corruption when an invalidly encoded tuple with an arity of 2^31 or larger is decoded from Erlang's External Term Format (binary_to_term).
+
+  Own Id: OTP-20214 Aux Id: [PR-11297], [CVE-2026-55737]
+
+- When send_timeout is set and send_timeout_close is set to true, a 'tcp_closed' message is expected when the timeout occurs, but that (message) was not delivered.
+  This has now been fixed.
+
+  Own Id: OTP-20257 Aux Id: [GH-11319]
+
+- A crafted External Term Format (ETF) payload could crash the runtime system.
+  
+  Thanks to Paul Guyot for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  Own Id: OTP-20259 Aux Id: [CVE-2026-54890], [PR-11386]
+
+- Fixed a rounding error in 16-bit float conversion.
+
+  Own Id: OTP-20260 Aux Id: [GH-11332], [PR-11334]
+
+[CVE-2026-42792]: https://nvd.nist.gov/vuln/detail/2026-42792
+[PR-11386]: https://github.com/erlang/otp/pull/11386
+[PR-11297]: https://github.com/erlang/otp/pull/11297
+[CVE-2026-55737]: https://nvd.nist.gov/vuln/detail/2026-55737
+[GH-11319]: https://github.com/erlang/otp/issues/11319
+[CVE-2026-54890]: https://nvd.nist.gov/vuln/detail/2026-54890
+[PR-11386]: https://github.com/erlang/otp/pull/11386
+[GH-11332]: https://github.com/erlang/otp/issues/11332
+[PR-11334]: https://github.com/erlang/otp/pull/11334
 
 ## Erts 16.4.0.3
 
@@ -1155,6 +1259,52 @@ This document describes the changes made to the ERTS application.
 [PR-9775]: https://github.com/erlang/otp/pull/9775
 [PR-9759]: https://github.com/erlang/otp/pull/9759
 [PR-9809]: https://github.com/erlang/otp/pull/9809
+
+## Erts 15.2.7.12
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a regression in the previous patch release that prevented epmd from binding to localhost.
+
+  Own Id: OTP-20275 Aux Id: [PR-11409], [GH-11402]
+
+[PR-11409]: https://github.com/erlang/otp/pull/11409
+[GH-11402]: https://github.com/erlang/otp/issues/11402
+
+## Erts 15.2.7.11
+
+### Fixed Bugs and Malfunctions
+
+- Mitigated a denial of service attack in epmd.
+  
+  Thanks to Ryan Moore for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20136 Aux Id: [CVE-2026-42792], [PR-11386]
+
+- Fixed heap corruption when an invalidly encoded tuple with an arity of 2^31 or larger is decoded from Erlang's External Term Format (binary_to_term).
+
+  Own Id: OTP-20214 Aux Id: [PR-11297], [CVE-2026-55737]
+
+- When send_timeout is set and send_timeout_close is set to true, a 'tcp_closed' message is expected when the timeout occurs, but that (message) was not delivered.
+  This has now been fixed.
+
+  Own Id: OTP-20257 Aux Id: [GH-11319]
+
+- A crafted External Term Format (ETF) payload could crash the runtime system.
+  
+  Thanks to Paul Guyot for finding and responsibly disclosing this vulnerability to the Erlang/OTP project.
+
+  Own Id: OTP-20259 Aux Id: [CVE-2026-54890], [PR-11386]
+
+[CVE-2026-42792]: https://nvd.nist.gov/vuln/detail/2026-42792
+[PR-11386]: https://github.com/erlang/otp/pull/11386
+[PR-11297]: https://github.com/erlang/otp/pull/11297
+[CVE-2026-55737]: https://nvd.nist.gov/vuln/detail/2026-55737
+[GH-11319]: https://github.com/erlang/otp/issues/11319
+[CVE-2026-54890]: https://nvd.nist.gov/vuln/detail/2026-54890
+[PR-11386]: https://github.com/erlang/otp/pull/11386
 
 ## Erts 15.2.7.10
 
