@@ -5333,10 +5333,15 @@ convert_time_unit(Time, FromUnit, ToUnit) ->
 
 		 _ when ToUnit > 0 -> ToUnit
 	     end,
-	case Time < 0 of
-	    true -> TU*Time - (FU - 1);
-	    false -> TU*Time
-	end div FU
+    case (FU =:= TU) andalso erlang:is_integer(Time) of
+        true ->
+            Time;
+        false ->
+            case Time < 0 of
+                true -> TU*Time - (FU - 1);
+                false -> TU*Time
+            end div FU
+    end
     catch
 	_ : _ ->
 	    error_with_info(badarg, [Time, FromUnit, ToUnit])
@@ -10456,6 +10461,8 @@ the `CpuTopology` type to change.
          (end_time) -> non_neg_integer();
          (ets_count) -> pos_integer();
          (ets_limit) -> pos_integer();
+         (export_count) -> pos_integer();
+         (export_limit) -> pos_integer();
          (fullsweep_after) -> {fullsweep_after, non_neg_integer()};
          (garbage_collection) -> garbage_collection_defaults();
          (heap_sizes) -> [non_neg_integer()];
@@ -10473,6 +10480,8 @@ the `CpuTopology` type to change.
          (min_bin_vheap_size) -> {min_bin_vheap_size,
                                   MinBinVHeapSize :: pos_integer()};
          (modified_timing_level) -> integer() | undefined;
+         (module_count) -> pos_integer();
+         (module_limit) -> pos_integer();
          (multi_scheduling) -> disabled | blocked | blocked_normal | enabled;
          (multi_scheduling_blockers) -> [Pid :: pid()];
          (nif_version) -> string();

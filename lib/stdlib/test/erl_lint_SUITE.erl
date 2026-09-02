@@ -3829,7 +3829,17 @@ otp_11861(Conf) when is_list(Conf) ->
               good(_) -> ok.
              ">>,
            [],
-           {warnings,[{{3,16},erl_lint,{ill_defined_optional_callbacks,bad_behaviour3}}]}}
+           {warnings,[{{3,16},erl_lint,{ill_defined_optional_callbacks,bad_behaviour3}}]}},
+
+           {bad_module_name,
+           <<"
+              -export([good/1]).
+              -behaviour(bad_behaviour/2).
+              good(_) -> ok.
+             ">>,
+           [],
+           {error,[{{3,16},erl_lint,bad_module_name}],
+            [{{3,16},erl_lint,{undefined_behaviour,{bad_behaviour,2}}}]}}
 	 ],
     [] = run(Conf, Ts),
 
@@ -5650,9 +5660,10 @@ illegal_zip_generator(Config) ->
 
     ok.
 
-%% GH-9694. Only record_info/2 should be checked for illegal_record_info
 record_info_0(Config) ->
-    Ts = [{record_info_0,
+    Ts = [%% GH-9694. Only record_info/2 should be checked for
+          %% illegal_record_info
+          {record_info_0,
            <<"-export([f/0]).
               record_info() -> ok.
               f() -> record_info().
@@ -5663,6 +5674,14 @@ record_info_0(Config) ->
            <<"-export([g/0]).
               record_info(X) -> X.
               g() -> record_info(ok).
+            ">>,
+           [],
+           []},
+          %% ERIERL-1345: record_info/2 should mark tuple records as used
+          {record_info_2,
+           <<"-export([h/0]).
+              -record(rec,{a,b,c}).
+               h() -> record_info(fields, rec).
             ">>,
            [],
            []}

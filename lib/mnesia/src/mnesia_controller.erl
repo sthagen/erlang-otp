@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1996-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1077,7 +1077,7 @@ handle_cast({force_load_updated, Tab}, State) ->
 handle_cast({master_nodes_updated, Tab, Masters}, State) ->
     Active = val({Tab, active_replicas}),
     Valid =
-	case val({Tab, load_by_force}) of
+        case ?catch_val({Tab, load_by_force}) of
 	    true ->
 		Active;
 	    false ->
@@ -1086,7 +1086,9 @@ handle_cast({master_nodes_updated, Tab, Masters}, State) ->
 			Active;
 		    true ->
 			mnesia_lib:intersect(Masters, Active)
-		end
+                end;
+            _ ->
+                []
 	end,
     case Valid of
 	[] ->

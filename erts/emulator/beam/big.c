@@ -2411,19 +2411,117 @@ erts_uint64_array_to_big(Uint **hpp, int neg, int len, Uint64 *array)
 int
 big_to_double(Eterm x, double* resp)
 {
-    double d = 0.0;
     Eterm* xp = big_val(x);
     dsize_t xl = BIG_SIZE(xp);
-    ErtsDigit* s = BIG_V(xp) + xl;
+    ErtsDigit* v = BIG_V(xp);
     short xsgn = BIG_SIGN(xp);
-    double dbase = ((double)(D_MASK)+1);
+    ErtsDigit msd;
+    Uint64 mant;
+    int bitlen, guard, msd_bits, half_bit, exp;
+    ErtsDigit lesser_bits;
+    dsize_t i;
+    double d;
 
-    while (xl--) {
-        d = d * dbase + *--s;
+    ASSERT(xl > 0);
+    msd = v[xl-1];
+    ASSERT(msd != 0);
 
-        if (!erts_isfinite(d)) {
-            return -1;
+    /* Bit length of the most significant digit, and of the whole value. */
+    msd_bits = erts_fit_in_bits_uint(msd);
+    bitlen = (xl-1) * D_EXP + msd_bits;
+
+#if D_EXP == 64
+    ERTS_CT_ASSERT(SMALL_BITS > 53);
+    ASSERT(bitlen > 53);
+#elif D_EXP == 32
+    if (bitlen <= 53) {
+        /*
+         * The value fits the double mantissa exactly, so accumulating
+         * digit by digit cannot round.
+         */
+        ASSERT(xl == 1 || xl == 2);
+
+        d = (double) v[0];
+        if (xl == 2) {
+            const double dbase = ((double)(D_MASK)+1);
+            d += ((double) v[1]) * dbase;
         }
+        *resp = xsgn ? -d : d;
+        return 0;
+    }
+#endif
+
+    /*
+     * More than 1024 bits is at least 2^1024, above the largest finite double
+     * (2^1024 - 2^971). Reject it here rather than in the loop below, which
+     * may visit every digit to determine rounding. Exactly 1024 bits can still
+     * be finite, so it takes the rounding path, where the erts_isfinite()
+     * check catches a mantissa that carries up to 2^1024.
+     */
+    if (bitlen > 1024) {
+        return -1;
+    }
+
+    /*
+     * Wider than the mantissa, so the result must be rounded. Accumulating
+     * `d = d * base + digit` per digit rounds once per digit and compounds
+     * the error, which can land on the wrong side of the true value; IEEE 754
+     * requires the nearest representable double, ties to even.
+     *
+     * First take the top 54 bits (53 of mantissa plus one half bit).
+     *
+     * Then visit as few lower bignum words as possible to determine rounding.
+     * Round up if the half bit is set and either the mantissa is odd
+     * or some lesser bits are set.
+     */
+    guard = bitlen - 54;
+    mant = 0;
+
+    for (i = xl-1; ; i--) {
+        ErtsDigit dig = v[i];
+        Uint lsb = i * D_EXP;   /* bit position of this digit's LSB */
+
+        if (lsb > guard) {
+            /* Entirely above the cut; every set bit lands within 54 bits. */
+            mant |= (Uint64)dig << (lsb - guard);
+        } else {
+            /* Lowest part of mantissa plus maybe some lesser bits */
+            Uint k = guard - lsb;
+
+            lesser_bits = (dig & (((ErtsDigit)1 << k) - 1));
+            mant |= (Uint64)(dig >> k);
+            break;
+        }
+    }
+
+    half_bit = (int)(mant & 1);
+    mant >>= 1;                      /* 53 significant bits remain */
+    exp = (int)(guard + 1);
+
+    /* Round to nearest, ties to even. */
+    if (half_bit) {
+        if (!(mant & 1)) {
+            while (!lesser_bits) {
+                if (i == 0) {
+                    /* Exactly even and a half, round down */
+                    goto mant_exp_done;
+                }
+                lesser_bits = v[--i];
+            }
+        }
+
+        /* Round up */
+        mant++;
+        if (mant == ((Uint64)1 << 53)) {
+            mant >>= 1;              /* carried out of the mantissa */
+            exp++;
+        }
+    }
+mant_exp_done:
+
+    d = ldexp((double)mant, exp);
+    if (!erts_isfinite(d)) {
+        return -1;
     }
 
     *resp = xsgn ? -d : d;
@@ -3984,13 +4082,13 @@ static ERTS_INLINE byte c2int_digit_from_base(byte ch) {
 
 /*
  * How many bits are needed to store 1 digit of given base in binary
- * Wo.Alpha formula: Table [log2[n], {n,2,36}]
+ * Wo.Alpha formula: Table[Floor[10^5 * Log2[n]] / 10^5, {n,2,36}]
  */
 static const double lg2_lookup[36-1] = {
-    1.0, 1.58496, 2.0, 2.32193, 2.58496, 2.80735, 3.0, 3.16993, 3.32193,
-    3.45943, 3.58496, 3.70044, 3.80735, 3.90689, 4.0, 4.08746, 4.16993, 4.24793,
-    4.32193, 4.39232, 4.45943, 4.52356, 4.58496, 4.64386, 4.70044, 4.75489,
-    4.80735, 4.85798, 4.90689, 4.9542, 5.0, 5.04439, 5.08746, 5.12928, 5.16993
+    1.0, 1.58496, 2.0, 2.32192, 2.58496, 2.80735, 3.0, 3.16992, 3.32192,
+    3.45943, 3.58496, 3.70043, 3.80735, 3.90689, 4.0, 4.08746, 4.16992, 4.24792,
+    4.32192, 4.39231, 4.45943, 4.52356, 4.58496, 4.64385, 4.70043, 4.75488,
+    4.80735, 4.85798, 4.90689, 4.95419, 5, 5.04439, 5.08746, 5.12928, 5.16992
 };
 
 /*

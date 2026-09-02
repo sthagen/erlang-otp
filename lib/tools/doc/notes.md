@@ -23,6 +23,19 @@ limitations under the License.
 
 This document describes the changes made to the Tools application.
 
+## Tools 4.2.2
+
+### Fixed Bugs and Malfunctions
+
+- tools: fixes tprof not stopping tracing
+  
+  A call to `tprof:enable_trace(new|existing)` starts tracing processes.
+  To stop it, one calls `tprof:disable_trace(new|existing)`. However, the guard to stop tracing was matching on `new_processes | existing_processes`. The return happens to say `0` processes are traced now, but the tracing did not stop. This issue has been fixed.
+
+  Own Id: OTP-20302 Aux Id: [PR-11481]
+
+[PR-11481]: https://github.com/erlang/otp/pull/11481
+
 ## Tools 4.2.1
 
 ### Fixed Bugs and Malfunctions
@@ -81,6 +94,19 @@ This document describes the changes made to the Tools application.
 [PR-10592]: https://github.com/erlang/otp/pull/10592
 [PR-10839]: https://github.com/erlang/otp/pull/10839
 [PR-10993]: https://github.com/erlang/otp/pull/10993
+
+## Tools 4.1.4.1
+
+### Fixed Bugs and Malfunctions
+
+- tools: fixes tprof not stopping tracing
+  
+  A call to `tprof:enable_trace(new|existing)` starts tracing processes.
+  To stop it, one calls `tprof:disable_trace(new|existing)`. However, the guard to stop tracing was matching on `new_processes | existing_processes`. The return happens to say `0` processes are traced now, but the tracing did not stop. This issue has been fixed.
+
+  Own Id: OTP-20302 Aux Id: [PR-11481]
+
+[PR-11481]: https://github.com/erlang/otp/pull/11481
 
 ## Tools 4.1.4
 
@@ -161,6 +187,19 @@ This document describes the changes made to the Tools application.
   Own Id: OTP-19575 Aux Id: [PR-9670]
 
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## Tools 4.1.1.1
+
+### Fixed Bugs and Malfunctions
+
+- tools: fixes tprof not stopping tracing
+  
+  A call to `tprof:enable_trace(new|existing)` starts tracing processes.
+  To stop it, one calls `tprof:disable_trace(new|existing)`. However, the guard to stop tracing was matching on `new_processes | existing_processes`. The return happens to say `0` processes are traced now, but the tracing did not stop. This issue has been fixed.
+
+  Own Id: OTP-20302 Aux Id: [PR-11481]
+
+[PR-11481]: https://github.com/erlang/otp/pull/11481
 
 ## Tools 4.1.1
 

@@ -23,6 +23,17 @@ limitations under the License.
 
 This document describes the changes made to the Compiler application.
 
+## Compiler 10.0.4
+
+### Fixed Bugs and Malfunctions
+
+- compiler: Fix bug in `beam_types:subtract/2` for bitstrings
+
+  Own Id: OTP-20312 Aux Id: [GH-11494], [PR-11503]
+
+[GH-11494]: https://github.com/erlang/otp/issues/11494
+[PR-11503]: https://github.com/erlang/otp/pull/11503
+
 ## Compiler 10.0.3
 
 ### Fixed Bugs and Malfunctions
@@ -293,6 +304,17 @@ This document describes the changes made to the Compiler application.
 [PR-10819]: https://github.com/erlang/otp/pull/10819
 [PR-9814]: https://github.com/erlang/otp/pull/9814
 [PR-10839]: https://github.com/erlang/otp/pull/10839
+
+## Compiler 9.0.6.2
+
+### Fixed Bugs and Malfunctions
+
+- compiler: Fix bug in `beam_types:subtract/2` for bitstrings
+
+  Own Id: OTP-20312 Aux Id: [GH-11494], [PR-11503]
+
+[GH-11494]: https://github.com/erlang/otp/issues/11494
+[PR-11503]: https://github.com/erlang/otp/pull/11503
 
 ## Compiler 9.0.6.1
 
@@ -744,6 +766,17 @@ This document describes the changes made to the Compiler application.
 [PR-8670]: https://github.com/erlang/otp/pull/8670
 [PR-9334]: https://github.com/erlang/otp/pull/9334
 [PR-9604]: https://github.com/erlang/otp/pull/9604
+
+## Compiler 8.6.1.6
+
+### Fixed Bugs and Malfunctions
+
+- compiler: Fix bug in `beam_types:subtract/2` for bitstrings
+
+  Own Id: OTP-20312 Aux Id: [GH-11494], [PR-11503]
+
+[GH-11494]: https://github.com/erlang/otp/issues/11494
+[PR-11503]: https://github.com/erlang/otp/pull/11503
 
 ## Compiler 8.6.1.5
 

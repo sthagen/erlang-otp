@@ -395,6 +395,8 @@ static BIF_RETTYPE link_opt(Process *c_p, Eterm other, Eterm opts)
 
     ERTS_BIF_PREP_ERROR(ret_val, c_p, BADARG);
 
+    return ret_val;
+
 done:
 
     if (prio_change) {
@@ -484,10 +486,13 @@ demonitor(Process *c_p, Eterm ref, Eterm *multip)
    case ERTS_ML_STATE_ALIAS_DEMONITOR:
    default:
        erts_monitor_tree_delete(&ERTS_P_MONITORS(c_p), mon);
-       if (mon->flags & ERTS_ML_FLG_PRIO_ML)
-           erts_proc_sig_prio_item_deleted(c_p, ERTS_PRIO_ITEM_TYPE_MONITOR);
+       if (mon->flags & ERTS_ML_FLG_PRIO_ALIAS)
+           erts_proc_sig_prio_item_deleted(c_p, ERTS_PRIO_ITEM_TYPE_ALIAS);
        break;
    }
+
+   if (mon->flags & ERTS_ML_FLG_PRIO_ML)
+       erts_proc_sig_prio_item_deleted(c_p, ERTS_PRIO_ITEM_TYPE_MONITOR);
 
    switch (ERTS_ML_GET_TYPE(mon)) {
 
@@ -773,7 +778,11 @@ static BIF_RETTYPE monitor(Process *c_p, Eterm type, Eterm target,
 
         local_process:
 
-            if (id != c_p->common.id) {
+            if (id == c_p->common.id) {
+                /* No monitoring of self... */
+                add_oflags = 0;
+            }
+            else {
                 mdp = erts_monitor_create(ERTS_MON_TYPE_PROC,
                                           ref, c_p->common.id,
                                           id, name, tag);
@@ -960,6 +969,7 @@ static BIF_RETTYPE monitor(Process *c_p, Eterm type, Eterm target,
 
 badarg:
 
+    add_oflags = 0;
     ERTS_BIF_PREP_ERROR(ret_val, c_p, BADARG);
     
 done:
@@ -1366,16 +1376,16 @@ BIF_RETTYPE hibernate_3(BIF_ALIST_3)
         BIF_ERROR(BIF_P, BADARG);
     }
 
-    while (is_list(args) && arity <= MAX_ARG) {
-        args = CDR(list_val(args));
-        arity++;
+    while (is_list(args)) {
+        if (arity < MAX_ARG) {
+            args = CDR(list_val(args));
+            arity++;
+        } else {
+            BIF_ERROR(BIF_P, SYSTEM_LIMIT);
+        }
     }
 
     if (is_not_nil(args)) {
-        if (arity > MAX_ARG) {
-            BIF_ERROR(BIF_P, SYSTEM_LIMIT);
-        }
-
         BIF_ERROR(BIF_P, BADARG);
     }
 
@@ -4742,7 +4752,8 @@ BIF_RETTYPE list_to_ref_1(BIF_ALIST_1)
         n++;
         if (ints[i] > ~((Uint32) 0)) goto bad;
         if (*cp == '>') break;
-        if (*cp++ != '.') goto bad;
+        /* We don't find a ., or we are on the last position and do find a dot */
+        if (*cp++ != '.' || i == sizeof(ints)/sizeof(Uint) - 1) goto bad;
     }
 
     if (*cp++ != '>') goto bad;

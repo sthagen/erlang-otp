@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1997-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -111,6 +111,7 @@
          spawn_monitor_alias/1,
          demonitor_aliasmonitor/1,
          down_aliasmonitor/1,
+         monitor_time_offset_alias/1,
          monitor_tag/1,
          no_pid_wrap/1,
          processes_iter/1]).
@@ -215,6 +216,7 @@ groups() ->
      {alias, [],
       [alias_bif, monitor_alias, spawn_monitor_alias,
        demonitor_aliasmonitor, down_aliasmonitor,
+       monitor_time_offset_alias,
        dist_frag_alias, dist_frag_unaliased]}].
 
 init_per_suite(Config) ->
@@ -5530,6 +5532,49 @@ spawn_monitor_alias(Config) when is_list(Config) ->
     spawn_monitor_alias_test(Peer3, Node3, spawn_request, normal),
     {ok, Peer4, Node4} = ?CT_PEER(),
     spawn_monitor_alias_test(Peer4, Node4, spawn_request, make_ref()),
+
+    %% Make sure we don't get a monitor alias if a spawn_request fails on noconnect...
+
+    {ok, Peer5, Node5} = ?CT_PEER(#{args => ["-kernel", "connect_all", "false"]}),
+    {ok, Peer6, Node6} = ?CT_PEER(#{args => ["-kernel", "connect_all", "false"]}),
+
+    ThisNode = node(),
+    ok = erpc:call(Node5, net_kernel, allow, [[ThisNode]]),
+    {ok, [ThisNode]} = erpc:call(Node5, net_kernel, allowed, []),
+    ok = erpc:call(Node6, net_kernel, allow, [[ThisNode]]),
+    {ok, [ThisNode]} = erpc:call(Node6, net_kernel, allowed, []),
+
+    wait_until(fun () ->
+                       _ = erpc:call(Node5, erlang, disconnect_node, [Node6]),
+                       _ = erpc:call(Node6, erlang, disconnect_node, [Node5]),
+                       Res5 = erpc:call(Node5, erlang, nodes, []),
+                       Res6 = erpc:call(Node6, erlang, nodes, []),
+                       Res5 == [ThisNode] andalso Res6 == [ThisNode]
+               end),
+
+    MonAliasFun =
+        fun (UnaliasOpt) ->
+                fun () ->
+                        erlang:yield(),
+                        MAF = spawn_request(Node6, fun () -> ok end,
+                                            [{monitor, [{alias, UnaliasOpt}]}]),
+                        MAF ! should_not_be_delivered_1,
+                        [{spawn_reply, MAF, ResType, Result}] = recv_msgs(1),
+                        error = ResType,
+                        noconnection = Result,
+                        MAF ! should_not_be_delivered_2,
+                        self() ! should_be_delivered,
+                        [should_be_delivered] = recv_msgs(1),
+                        ok
+                end
+        end,
+
+    ok = erpc:call(Node5, MonAliasFun(explicit_unalias)),
+    ok = erpc:call(Node5, MonAliasFun(reply_demonitor)),
+    ok = erpc:call(Node5, MonAliasFun(demonitor)),
+
+    peer:stop(Peer5),
+    peer:stop(Peer6),
     ok.
 
 spawn_monitor_alias_test(Peer, Node, SpawnType, ExitReason) ->
@@ -5648,6 +5693,29 @@ spawn_monitor_alias_test(Peer, Node, SpawnType, ExitReason) ->
     P5 ! {alias, MA5},
     [{MA5,1},{'DOWN', M_5, _, _, ExitReason}] = recv_msgs(2),
 
+    if SpawnType == spawn_request ->
+            %% Make sure we don't get a monitor alias if a spawn_request fails on badopt...
+            MonAliasFun =
+                fun (UnaliasOpt) ->
+                        erlang:yield(),
+                        MAF = spawn_request(Node, fun () -> ok end,
+                                            [{monitor, [{alias, UnaliasOpt}]}, invalid_opt]),
+                        MAF ! should_not_be_delivered_1,
+                        [{spawn_reply, MAF, ResType, Result}] = recv_msgs(1),
+                        error = ResType,
+                        badopt = Result,
+                        MAF ! should_not_be_delivered_2,
+                        self() ! should_be_delivered,
+                        [should_be_delivered] = recv_msgs(1),
+                        ok
+                end,
+            MonAliasFun(explicit_unalias),
+            MonAliasFun(reply_demonitor),
+            MonAliasFun(demonitor);
+       true ->
+            ok
+    end,
+
     case Node == node() of
         true ->
             ok;
@@ -5712,6 +5780,84 @@ down_aliasmonitor(Config) when is_list(Config) ->
     %% remote use of the alias to stop working...
     RPid ! {alias, AliasMonitor},
     receive {alias_reply, AliasMonitor, RPid} -> ok end,
+    peer:stop(Peer),
+    ok.
+
+monitor_time_offset_alias(Config) when is_list(Config) ->
+    monitor_time_offset_alias_test(explicit_unalias),
+    monitor_time_offset_alias_test(demonitor),
+    monitor_time_offset_alias_test(reply_demonitor).
+
+monitor_time_offset_alias_test(Deactivate) ->
+    Me = self(),
+    {ok, Peer, Node} = ?CT_PEER(#{args => ["+C", "single_time_warp"]}),
+    TrySelfAlias = fun (Alias) ->
+                           Ref = make_ref(),
+                           Alias ! Ref,
+                           receive Ref -> active
+                           after 0 -> inactive
+                           end
+                   end,
+    Tester = spawn_link(Node,
+                        fun () ->
+                                MonAlias = monitor(time_offset, clock_service,
+                                                   [{alias, Deactivate}]),
+                                Me ! {self(), mon_alias, MonAlias},
+                                receive
+                                    {Me, finalize_time_offset} ->
+                                        ok
+                                end,
+                                preliminary = erlang:system_flag(time_offset, finalize),
+                                receive
+                                    {'CHANGE', MonAlias, time_offset, clock_service, _} ->
+                                        ok
+                                after
+                                    1000 ->
+                                        exit(missing_time_offset_change_message)
+                                end,
+                                Me ! {self(), finalized_time_offset},
+                                receive
+                                    {Me, alias_message} ->
+                                        Me ! {self(), alias_message}
+                                end,
+                                case Deactivate of
+                                    explicit_unalias ->
+                                        active = TrySelfAlias(MonAlias),
+                                        unalias(MonAlias);
+                                    demonitor ->
+                                        active = TrySelfAlias(MonAlias),
+                                        demonitor(MonAlias);
+                                    reply_demonitor ->
+                                        ok
+                                end,
+                                inactive = TrySelfAlias(MonAlias),
+                                receive
+                                    {Me, pid_message} ->
+                                        Me ! {self(), pid_message}
+                                end
+                        end),
+    Alias = receive
+                {Tester, mon_alias, MonAlias} ->
+                    MonAlias
+            end,
+    Tester ! {self(), finalize_time_offset},
+    receive
+        {Tester, finalized_time_offset} ->
+            ok
+    end,
+    Alias ! {self(), alias_message},
+    Tester ! {self(), pid_message},
+    receive
+        {Tester, alias_message} ->
+            ok;
+        {Tester, pid_message} ->
+            ct:fail(alias_did_not_work)
+    end,
+    receive
+        {Tester, pid_message} ->
+            ok
+    end,
+    unlink(Tester),
     peer:stop(Peer),
     ok.
 

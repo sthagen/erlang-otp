@@ -27,6 +27,16 @@ as all enhancements and bugfixes for every release of Megaco. Each release of
 Megaco thus constitutes one section in this document. The title of each section
 is the version number of Megaco.
 
+## Megaco 4.9.2
+
+### Fixed Bugs and Malfunctions
+
+- Numeric fields in megaco text-encoded messages are now validated for digit-string length before integer conversion, improving robustness of the text decoder. Per-field digit limits based on the H.248.1 ASN.1 type constraints are enforced (e.g., 10 digits for UINT32, 2 digits for timer values), along with a 100 KB overall message size cap at the scanner entry point. The binary (BER/PER) codec is not affected.
+
+  Own Id: OTP-20234 Aux Id: [PR-11325]
+
+[PR-11325]: https://github.com/erlang/otp/pull/11325
+
 ## Megaco 4.9.1
 
 ### Fixed Bugs and Malfunctions
@@ -58,6 +68,16 @@ is the version number of Megaco.
   Own Id: OTP-20066 Aux Id: [PR-10839]
 
 [PR-10839]: https://github.com/erlang/otp/pull/10839
+
+## Megaco 4.8.3.2
+
+### Fixed Bugs and Malfunctions
+
+- Numeric fields in megaco text-encoded messages are now validated for digit-string length before integer conversion, improving robustness of the text decoder. Per-field digit limits based on the H.248.1 ASN.1 type constraints are enforced (e.g., 10 digits for UINT32, 2 digits for timer values), along with a 100 KB overall message size cap at the scanner entry point. The binary (BER/PER) codec is not affected.
+
+  Own Id: OTP-20234 Aux Id: [PR-11325]
+
+[PR-11325]: https://github.com/erlang/otp/pull/11325
 
 ## Megaco 4.8.3.1
 
@@ -157,6 +177,16 @@ is the version number of Megaco.
 [PR-8734]: https://github.com/erlang/otp/pull/8734
 [PR-9441]: https://github.com/erlang/otp/pull/9441
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## Megaco 4.7.2.3
+
+### Fixed Bugs and Malfunctions
+
+- Numeric fields in megaco text-encoded messages are now validated for digit-string length before integer conversion, improving robustness of the text decoder. Per-field digit limits based on the H.248.1 ASN.1 type constraints are enforced (e.g., 10 digits for UINT32, 2 digits for timer values), along with a 100 KB overall message size cap at the scanner entry point. The binary (BER/PER) codec is not affected.
+
+  Own Id: OTP-20234 Aux Id: [PR-11325]
+
+[PR-11325]: https://github.com/erlang/otp/pull/11325
 
 ## Megaco 4.7.2.2
 

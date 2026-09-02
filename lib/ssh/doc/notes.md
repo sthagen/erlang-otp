@@ -21,6 +21,16 @@ limitations under the License.
 -->
 # SSH Release Notes
 
+## Ssh 6.0.5
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a bug where multiple subsystem requests could succeed on same ssh channel which is forbidden by RFC 4254 §6.5
+
+  Own Id: OTP-20284 Aux Id: [PR-11437]
+
+[PR-11437]: https://github.com/erlang/otp/pull/11437
+
 ## Ssh 6.0.4
 
 ### Fixed Bugs and Malfunctions
@@ -237,6 +247,16 @@ limitations under the License.
 [PR-10970]: https://github.com/erlang/otp/pull/10970
 [PR-11010]: https://github.com/erlang/otp/pull/11010
 [PR-11012]: https://github.com/erlang/otp/pull/11012
+
+## Ssh 5.5.2.5
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a bug where multiple subsystem requests could succeed on same ssh channel which is forbidden by RFC 4254 §6.5
+
+  Own Id: OTP-20284 Aux Id: [PR-11437]
+
+[PR-11437]: https://github.com/erlang/otp/pull/11437
 
 ## Ssh 5.5.2.4
 
@@ -517,6 +537,16 @@ limitations under the License.
 [PR-9670]: https://github.com/erlang/otp/pull/9670
 [PR-9214]: https://github.com/erlang/otp/pull/9214
 [PR-9298]: https://github.com/erlang/otp/pull/9298
+
+## Ssh 5.2.11.12
+
+### Fixed Bugs and Malfunctions
+
+- Fixed a bug where multiple subsystem requests could succeed on same ssh channel which is forbidden by RFC 4254 §6.5
+
+  Own Id: OTP-20284 Aux Id: [PR-11437]
+
+[PR-11437]: https://github.com/erlang/otp/pull/11437
 
 ## Ssh 5.2.11.11
 

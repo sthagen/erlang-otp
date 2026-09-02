@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 1996-2025. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -498,7 +498,7 @@ erts_port_free(Port *prt)
 static void initq(Port* prt)
 {
     ERTS_LC_ASSERT(!prt->port_data_lock);
-    erts_ioq_init(&prt->ioq, ERTS_ALC_T_IOQ, 1);
+    erts_ioq_init(&prt->ioq, ERTS_ALC_T_IOQ, true);
 }
 
 static void stopq(Port* prt)
@@ -2118,6 +2118,8 @@ erts_port_output(Process *c_p,
 	    ASSERT(esdp);
 	    ns_pthp = &esdp->nosuspend_port_task_handle;
 	    sigdp->flags &= ~ERTS_P2P_SIG_DATA_FLG_NOSUSPEND;
+            sigdp->flags |= ERTS_P2P_SIG_DATA_FLG_ASYNC_NOSUSPEND;
+            task_flags = ERTS_PT_FLG_WAIT_BUSY|ERTS_PT_FLG_ASYNC_NOSUSPEND;
 	}
 	else if (flags & ERTS_P2P_SIG_DATA_FLG_NOSUSPEND)
 	    task_flags = ERTS_PT_FLG_NOSUSPEND;
@@ -2149,7 +2151,7 @@ erts_port_output(Process *c_p,
 	    if (!async_nosuspend)
 		return ERTS_PORT_OP_BUSY_SCHEDULED;
 	    else {
-		if (erts_port_task_abort(ns_pthp) == 0)
+                if (erts_port_task_abort(prt, ns_pthp) == 0)
 		    return ERTS_PORT_OP_BUSY;
 		else
 		    erts_port_task_tmp_handle_detach(ns_pthp);
@@ -3150,9 +3152,9 @@ void erts_lcnt_update_port_locks(int enable) {
  * Parameters:
  * bufsiz - The (maximum) size of the line buffer.
  */
-LineBuf *allocate_linebuf(int bufsiz)
+LineBuf *allocate_linebuf(Sint bufsiz)
 {
-    int ovsiz = (bufsiz < LINEBUF_INITIAL) ? bufsiz : LINEBUF_INITIAL;
+    Sint ovsiz = (bufsiz < LINEBUF_INITIAL) ? bufsiz : LINEBUF_INITIAL;
     LineBuf *lb = (LineBuf *) erts_alloc(ERTS_ALC_T_LINEBUF,
 					 sizeof(LineBuf)+ovsiz);
     lb->ovsiz = ovsiz;

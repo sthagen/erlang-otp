@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2007-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -303,7 +303,8 @@ encode_handshake(Package, Version) ->
 get_tls_handshakes(Version, Data, <<>>, Options) ->
     get_tls_handshakes_aux(Version, Data, Options, []);
 get_tls_handshakes(Version, Data, Buffer, Options) ->
-    get_tls_handshakes_aux(Version, list_to_binary([Buffer, Data]), Options, []).
+    get_tls_handshakes_aux(Version, <<Buffer/binary, Data/binary>>,
+                           Options, []).
 
 %%--------------------------------------------------------------------
 %%% Handshake helper
