@@ -91,36 +91,85 @@
 opt_start(StMap, FuncDb0) when FuncDb0 =/= #{} ->
     {ArgDb, MetaCache, FuncDb} = signatures(StMap, FuncDb0),
 
-    opt_start_1(maps:keys(StMap), ArgDb, StMap, FuncDb, MetaCache);
+    %% After having completed the signature pass (see below), we start
+    %% optimization of each function at a time.
+    %%
+    %% Here, as opposed to the signature pass, the important invariant is
+    %% that types must only be monotonically narrowed, never widened.
+    %%
+    %% Here we also consolidate information kept in ArgDb and MetaCache
+    %% into the function database FuncDb. We only visit functions that
+    %% will actually be called. Functions never visited are unreachable
+    %% and will be discarded.
+    Wl = opt_init_wl(FuncDb),
+    Seen = sets:new(),
+    opt_start_1(Wl, ArgDb, StMap, FuncDb, MetaCache, Seen);
 opt_start(StMap, FuncDb) ->
     %% Module-level analysis is disabled, likely because of a call to
     %% load_nif/2 or similar. opt_continue/4 will assume that all arguments and
     %% return types are 'any'.
     {StMap, FuncDb}.
 
-opt_start_1([Id | Ids], ArgDb, StMap0, FuncDb0, MetaCache) ->
-    case ArgDb of
-        #{ Id := ArgTypes } ->
+opt_init_wl(FuncDb) ->
+    %% Initialize the worklist with the exported functions, since they
+    %% can always be called.
+    Roots = [Id || Id := FI <- FuncDb, FI#func_info.exported],
+    wl_defer_list(Roots, wl_new()).
+
+opt_start_1(Wl0, ArgDb, StMap0, FuncDb0, MetaCache, Seen0) ->
+    case wl_next(Wl0) of
+        empty ->
+            remove_unreachable(maps:keys(StMap0), Seen0, StMap0, FuncDb0);
+        {ok, Id} ->
+            Wl1 = wl_pop(Id, Wl0),
+            Seen = sets:add_element(Id, Seen0),
+            ArgTypes = map_get(Id, ArgDb),
             #opt_st{ssa=Linear0,args=Args} = St0 = map_get(Id, StMap0),
 
             Ts = #{Arg => Type || Arg <- Args && Type <- ArgTypes},
-            {Linear, FuncDb} = opt_function(Linear0, Args, Id, Ts, FuncDb0, MetaCache),
-
+            {Linear, FuncDb} = opt_function(Linear0, Args, Id, Ts,
+                                            FuncDb0, MetaCache),
             St = St0#opt_st{ssa=Linear},
             StMap = StMap0#{ Id := St },
 
-            opt_start_1(Ids, ArgDb, StMap, FuncDb, MetaCache);
-        #{} ->
-            %% Unreachable functions must be removed so that opt_continue/4
-            %% won't process them and potentially taint the argument types of
-            %% other functions.
+            %% Append to the worklist all called by this function and
+            %% not previously processed.
+            Wl = opt_update_wl(Linear, Seen, Wl1),
+
+            opt_start_1(Wl, ArgDb, StMap, FuncDb, MetaCache, Seen)
+    end.
+
+remove_unreachable([Id|Ids], Seen, StMap0, FuncDb0) ->
+    case sets:is_element(Id, Seen) of
+        true ->
+            remove_unreachable(Ids, Seen, StMap0, FuncDb0);
+        false ->
             StMap = maps:remove(Id, StMap0),
             FuncDb = maps:remove(Id, FuncDb0),
-
-            opt_start_1(Ids, ArgDb, StMap, FuncDb, MetaCache)
+            remove_unreachable(Ids, Seen, StMap, FuncDb)
     end;
-opt_start_1([], _CommittedArgs, StMap, FuncDb, _MetaCache) ->
+remove_unreachable([], _Seen, StMap, FuncDb) ->
     {StMap, FuncDb}.
+
+opt_update_wl([{_,#b_blk{is=Is}}|Bs], Seen, Wl0) ->
+    Wl = opt_update_wl_is(Is, Seen, Wl0),
+    opt_update_wl(Bs, Seen, Wl);
+opt_update_wl([], _Seen, Wl) ->
+    Wl.
+
+opt_update_wl_is([#b_set{op=Op,args=[#b_local{}=Id|_]}|Is], Seen, Wl0)
+  when Op =:= call; Op =:= make_fun ->
+    case sets:is_element(Id, Seen) of
+        true ->
+            opt_update_wl_is(Is, Seen, Wl0);
+        false ->
+            Wl = wl_defer_list([Id], Wl0),
+            opt_update_wl_is(Is, Seen, Wl)
+    end;
+opt_update_wl_is([_|Is], Seen, Wl) ->
+    opt_update_wl_is(Is, Seen, Wl);
+opt_update_wl_is([], _Seen, Wl) ->
+    Wl.
 
 %%
 %% The initial signature analysis is based on the paper "Practical Type
@@ -129,11 +178,15 @@ opt_start_1([], _CommittedArgs, StMap, FuncDb, _MetaCache) ->
 %%
 %% The general idea is to start out at the module's entry points and propagate
 %% types to the functions we call. The argument types of all exported functions
-%% start out a 'any', whereas local functions start at 'none'. Every time a
+%% start out as 'any', whereas local functions start at 'none'. Every time a
 %% function call widens the argument types, we analyze the callee again and
 %% propagate its return types to the callers, analyzing them again, and
 %% continuing this process until all arguments and return types have been
 %% widened as far as they can be.
+%%
+%% During the signature pass an important invariant must be
+%% maintained: the types of the function arguments must only be
+%% monotonically widened, not narrowed.
 %%
 %% Note that we do not "jump-start the analysis" by first determining success
 %% types as in the paper because we need to know all possible inputs including
@@ -214,7 +267,7 @@ do_sig_function(Id, StMap, State0, FuncDb0) ->
             {State#sig_st{wl=Wl}, FuncDb}
     end.
 
-sig_function_1(Id, StMap, State0, FuncDb) ->
+sig_function_1(Id, StMap, State0, FuncDb0) ->
     #opt_st{ssa=Linear,args=Args} = map_get(Id, StMap),
 
     {ArgTypes, State1} = sig_commit_args(Id, State0),
@@ -238,7 +291,8 @@ sig_function_1(Id, StMap, State0, FuncDb) ->
     Uvs0 = maps:get(Id, Unstable0, #{}),
     State3 = State2#sig_st{uvs=Uvs0},
 
-    {State4, SuccTypes} = sig_bs(Linear, Ds, Ls, FuncDb, #{}, [], Meta, State3),
+    {State4, SuccTypes, FuncDb} =
+        sig_bs(Linear, Id, Ds, Ls, FuncDb0, #{}, [], Meta, State3),
 
     Uvs = State4#sig_st.uvs,
     Unstable = Unstable0#{Id => Uvs},
@@ -267,13 +321,13 @@ sig_init_metadata(Id, Linear, Args, #sig_st{meta_cache=MetaCache} = State) ->
     end.
 
 sig_bs([{L, #b_blk{is=Is,last=Last0}} | Bs],
-       Ds0, Ls0, Fdb, Sub0, SuccTypes0, Meta, State0) ->
+       Id, Ds0, Ls0, Fdb0, Sub0, SuccTypes0, Meta, State0) ->
     case Ls0 of
         #{ L := Incoming } ->
             {incoming, Ts0} = Incoming,         %Assertion.
 
-            {Ts, Ds, Sub, State} =
-                sig_is(Is, Ts0, Ds0, Ls0, Fdb, Sub0, State0),
+            {Ts, Ds, Fdb, Sub, State} =
+                sig_is(Is, Id, Ts0, Ds0, Ls0, Fdb0, Sub0, State0),
 
             Last = simplify_terminator(Last0, Ts, Ds, Sub),
             SuccTypes = update_success_types(Last, Ts, Ds, Meta, SuccTypes0),
@@ -286,18 +340,18 @@ sig_bs([{L, #b_blk{is=Is,last=Last0}} | Bs],
             %% nodes, but there's nothing to gain from that at the moment so
             %% we'll store the current Ts to save memory.
             Ls = Ls1#{ L := {outgoing, Ts} },
-            sig_bs(Bs, Ds, Ls, Fdb, Sub, SuccTypes, Meta, State);
+            sig_bs(Bs, Id, Ds, Ls, Fdb, Sub, SuccTypes, Meta, State);
         #{} ->
             %% This block is never reached. Ignore it.
-            sig_bs(Bs, Ds0, Ls0, Fdb, Sub0, SuccTypes0, Meta, State0)
+            sig_bs(Bs, Id, Ds0, Ls0, Fdb0, Sub0, SuccTypes0, Meta, State0)
     end;
-sig_bs([], _Ds, _Ls, _Fdb, _Sub, SuccTypes, _Meta, State) ->
-    {State, SuccTypes}.
+sig_bs([], _Id, _Ds, _Ls, Fdb, _Sub, SuccTypes, _Meta, State) ->
+    {State, SuccTypes, Fdb}.
 
 sig_is([#b_set{op=call,
                args=[#b_local{}=Callee | _]=Args0,
                dst=Dst}=I0 | Is],
-       Ts0, Ds0, Ls, Fdb, Sub, State0) ->
+       Id, Ts0, Ds0, Ls, Fdb, Sub, State0) ->
     Args = simplify_args(Args0, Ts0, Sub),
     I1 = I0#b_set{args=Args},
 
@@ -306,21 +360,21 @@ sig_is([#b_set{op=call,
 
     Ts = update_types(I, Ts0, Ds0),
     Ds = Ds0#{ Dst => I },
-    sig_is(Is, Ts, Ds, Ls, Fdb, Sub, State);
+    sig_is(Is, Id, Ts, Ds, Ls, Fdb, Sub, State);
 sig_is([#b_set{op=call,
                args=[#b_var{} | _]=Args0,
                dst=Dst}=I0 | Is],
-       Ts0, Ds0, Ls, Fdb, Sub, State0) ->
+       Id, Ts0, Ds0, Ls, Fdb0, Sub, State0) ->
     Args = simplify_args(Args0, Ts0, Sub),
     I1 = I0#b_set{args=Args},
 
-    {I, State} = sig_fun_call(I1, Args, Ts0, Ds0, Fdb, Sub, State0),
+    {I, State, Fdb} = sig_fun_call(Id, I1, Args, Ts0, Ds0, Fdb0, Sub, State0),
 
     Ts = update_types(I, Ts0, Ds0),
     Ds = Ds0#{ Dst => I },
-    sig_is(Is, Ts, Ds, Ls, Fdb, Sub, State);
+    sig_is(Is, Id, Ts, Ds, Ls, Fdb, Sub, State);
 sig_is([#b_set{op=make_fun,args=Args0,dst=Dst}=I0|Is],
-       Ts0, Ds0, Ls, Fdb, Sub0, State0) ->
+       Id, Ts0, Ds0, Ls, Fdb, Sub0, State0) ->
     Args = simplify_args(Args0, Ts0, Sub0),
     I1 = I0#b_set{args=Args},
 
@@ -328,22 +382,22 @@ sig_is([#b_set{op=make_fun,args=Args0,dst=Dst}=I0|Is],
 
     Ts = update_types(I, Ts0, Ds0),
     Ds = Ds0#{ Dst => I },
-    sig_is(Is, Ts, Ds, Ls, Fdb, Sub0, State);
-sig_is([I0 | Is], Ts0, Ds0, Ls, Fdb, Sub0, State0) ->
+    sig_is(Is, Id, Ts, Ds, Ls, Fdb, Sub0, State);
+sig_is([I0 | Is], Id, Ts0, Ds0, Ls, Fdb, Sub0, State0) ->
     Uvs0 = State0#sig_st.uvs,
     case simplify(I0, Uvs0, Ts0, Ds0, Ls, Sub0) of
         {#b_set{}, Ts, Ds} ->
-            sig_is(Is, Ts, Ds, Ls, Fdb, Sub0, State0);
+            sig_is(Is, Id, Ts, Ds, Ls, Fdb, Sub0, State0);
         {#b_set{}, Ts, Ds, Uvs} ->
             State = State0#sig_st{uvs=Uvs},
-            sig_is(Is, Ts, Ds, Ls, Fdb, Sub0, State);
+            sig_is(Is, Id, Ts, Ds, Ls, Fdb, Sub0, State);
         Sub when is_map(Sub) ->
-            sig_is(Is, Ts0, Ds0, Ls, Fdb, Sub, State0)
+            sig_is(Is, Id, Ts0, Ds0, Ls, Fdb, Sub, State0)
     end;
-sig_is([], Ts, Ds, _Ls, _Fdb, Sub, State) ->
-    {Ts, Ds, Sub, State}.
+sig_is([], _Id, Ts, Ds, _Ls, Fdb, Sub, State) ->
+    {Ts, Ds, Fdb, Sub, State}.
 
-sig_fun_call(I0, Args, Ts, Ds, Fdb, Sub, State0) ->
+sig_fun_call(Id, I0, Args, Ts, Ds, Fdb0, Sub, State0) ->
     [Fun | CallArgs0] = Args,
     FunType = normalized_type(Fun, Ts),
     Arity = length(CallArgs0),
@@ -355,19 +409,34 @@ sig_fun_call(I0, Args, Ts, Ds, Fdb, Sub, State0) ->
             %% When a fun is used and defined in the same function, we can make
             %% a direct call since the environment is still available.
             CallArgs = CallArgs0 ++ simplify_args(Env, Ts, Sub),
-            I = I0#b_set{args=[Callee | CallArgs]},
-            sig_local_call(I, Callee, CallArgs, Ts, Fdb, State0);
+            I1 = I0#b_set{args=[Callee | CallArgs]},
+            {I, State} = sig_local_call(I1, Callee, CallArgs, Ts, Fdb0, State0),
+            {I, State, Fdb0};
         {#t_fun{arity=Arity,target={Name,Arity}}, _} ->
-            %% When a fun lacks free variables, we can make a direct call even
-            %% when we don't know where it was defined.
+            %% When a fun lacks free variables, we can make a direct
+            %% call even when we don't know where it was defined.
             Callee = #b_local{name=#b_literal{val=Name},
                               arity=Arity},
-            I = I0#b_set{args=[Callee | CallArgs0]},
-            sig_local_call(I, Callee, CallArgs0, Ts, Fdb, State0);
+            I1 = I0#b_set{args=[Callee | CallArgs0]},
+            {I, State} = sig_local_call(I1, Callee, CallArgs0, Ts, Fdb0, State0),
+
+            %% If callee is recursively defined, its type might not be
+            %% fully resolved yet, and therefore the callee will be
+            %% re-analyzed. When that happens, it is essential that
+            %% the current function is also re-analyzed to pick up the
+            %% correct return type of the call. Therefore, the current
+            %% function must be registered as a caller of the callee.
+            CalleeFi0 = map_get(Callee, Fdb0),
+            #func_info{in=In0} = CalleeFi0,
+            In = ordsets:add_element(Id, In0),
+            CalleeFi = CalleeFi0#func_info{in=In},
+            Fdb = Fdb0#{Callee := CalleeFi},
+
+            {I, State, Fdb};
         {#t_fun{type=Type}, _} when Type =/= any ->
-            {beam_ssa:add_anno(result_type, Type, I0), State0};
+            {beam_ssa:add_anno(result_type, Type, I0), State0, Fdb0};
         _ ->
-            {I0, State0}
+            {I0, State0, Fdb0}
     end.
 
 sig_local_call(I0, Callee, Args, Ts, Fdb, State) ->
@@ -417,11 +486,30 @@ sig_commit_args(Id, #sig_st{updates=Us,committed=Committed0}=State0) ->
     Types = map_get(Id, Us),
     Committed = Committed0#{ Id => Types },
     State = State0#sig_st{committed=Committed},
+
+    %% During the signature pass, argument types for each function
+    %% must only become monotonically wider, never narrower. It is
+    %% tempting to add an assertion for this here, but it would never
+    %% fire because the only way the argument types are updated is via
+    %% `sig_update_args/3`, which updates the argument types by joining
+    %% them with the previous argument types.
+
     {Types, State}.
 
 sig_update_args(Callee, Types, #sig_st{committed=Committed}=State) ->
     case Committed of
         #{ Callee := Current } ->
+            %% The arguments for each individual call site must never
+            %% get narrower. Currently, we cannot add an assertion for
+            %% this here because we don’t keep track of the arguments
+            %% for each call site (only the join of each argument from
+            %% all call sites).  Keeping track of each individual call
+            %% site (as we do in the optimizing type analysis pass)
+            %% could potentially allow us to abort as soon as a
+            %% narrower argument is seen. It is probably not worth it
+            %% because such bugs seem to be noticed anyway by the
+            %% `beam_validator` pass.
+
             case parallel_join(Current, Types) of
                 Current ->
                     %% We've already processed this function with these
@@ -442,6 +530,15 @@ sig_update_args_1(Callee, Types, #sig_st{updates=Us0,wl=Wl0}=State) ->
                  Us0#{ Callee => Types }
          end,
     State#sig_st{updates=Us,wl=wl_add(Callee, Wl0)}.
+
+%%
+%% Continue type-based optimization of a single function.
+%%
+%% The invariant that types must only be monotonically narrowed, never
+%% widened, must still be maintained. The caller, when doing optimizations,
+%% must take care not to remove type test that could cause types to be
+%% widened.
+%%
 
 -spec opt_continue(Linear, Args, Anno, FuncDb) -> {Linear, FuncDb} when
       Linear :: [{non_neg_integer(), beam_ssa:b_blk()}],
@@ -692,6 +789,10 @@ benefits_from_type_anno(get_map_element, _Args) ->
     true;
 benefits_from_type_anno(has_map_field, _Args) ->
     true;
+benefits_from_type_anno(put_record, _Args) ->
+    true;
+benefits_from_type_anno(get_record_element, _Args) ->
+    true;
 
 %% The types are used to avoid falsely detecting aliasing of
 %% non-boxed things.
@@ -791,6 +892,14 @@ opt_local_return(I, _Callee, _ArgTyps, _Fdb) ->
     I.
 
 update_arg_types([ArgType | ArgTypes], [TypeMap0 | TypeMaps], CallId) ->
+    %% Theoretically, each argument at each individual call site
+    %% should never get wider. In practice, we have optimizations (for
+    %% example, `combine_eqs/1` in `beam_ssa_dead`) that combine two
+    %% call sites into one, keeping the ID of one of the original call
+    %% sites and effectively widening the argument types of that call
+    %% site. If we were to add assertions that no argument is widened,
+    %% we would have to update those optimizations to invent a new
+    %% call ID (that is, create a new variable name).
     TypeMap = TypeMap0#{ CallId => ArgType },
     [TypeMap | update_arg_types(ArgTypes, TypeMaps, CallId)];
 update_arg_types([], [], _CallId) ->
@@ -1555,6 +1664,17 @@ will_succeed_1(#b_set{op=update_tuple,args=[Tuple | Updates]}, _Src, Ts) ->
     beam_call_types:will_succeed(erlang, setelement, Args);
 will_succeed_1(#b_set{op=update_record}, _Src, _Ts) ->
     yes;
+
+will_succeed_1(#b_set{op=put_record,args=[#b_literal{val=empty}|_]}, Src, Ts) ->
+    case concrete_type(Src, Ts) of
+        #t_record{local_creation=true} ->
+            %% Creating a local record can't fail; erl_lint rejects attempts
+            %% to use unknown field names or failing to provide a value for
+            %% each field.
+            yes;
+        _ ->
+            'maybe'
+    end;
 
 will_succeed_1(#b_set{op=bs_create_bin}, _Src, _Ts) ->
     %% Intentionally don't try to determine whether construction will
@@ -2430,7 +2550,18 @@ put_record_type(Args, Anno, Ts) ->
             #t_record{name=nil, type=Fs};
         #b_literal{val=Tag} when is_atom(Tag) ->
             Mod = map_get(record_module, Anno),
-            #t_record{name={Mod,Tag}, type=Fs}
+            LC = case Src of
+                     #b_literal{val=empty} ->
+                         true;
+                     _ ->
+                         case Ts of
+                             #{Src := #t_record{local_creation=LC0}} ->
+                                 LC0;
+                             _ ->
+                                 false
+                         end
+                 end,
+            #t_record{name={Mod,Tag}, type=Fs, local_creation=LC}
     end.
 
 record_field_types([#b_literal{val=Key}, Value0 | Fs], Ts, Acc) ->

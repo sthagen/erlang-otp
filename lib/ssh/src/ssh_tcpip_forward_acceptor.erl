@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2008-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -90,8 +90,9 @@ acceptor_loop(LSock, ListenAddrStr, ListenPort, ConnectToAddr, ChanType, ChanCB,
                 {ok,ChId} ->
                     gen_tcp:controlling_process(Sock, ConnPid),
                     ConnPid ! {fwd_connect_received, Sock, ChId, ChanCB};
-                _ ->
-                    gen_tcp:close(Sock)
+                Other ->
+                    gen_tcp:close(Sock),
+                    ConnPid ! {fwd_connect_failed, Other}
             end,
             acceptor_loop(LSock, ListenAddrStr, ListenPort, ConnectToAddr, ChanType, ChanCB, ConnPid);
 
