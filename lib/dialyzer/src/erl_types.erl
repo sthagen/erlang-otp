@@ -2802,9 +2802,9 @@ t_inf_aux(?nominal(LHS_Name, ?nominal(_, _)=LHS_Inner),
 t_inf_aux(?nominal(_, ?nominal_set(_, _))=LHS,
           ?nominal(RHS_Name, ?nominal(_, _)=RHS_Inner)) ->
   t_inf_aux(LHS, ?nominal(RHS_Name, ?nominal_set([RHS_Inner], ?none)));
-t_inf_aux(?nominal(LHS_Name, ?nominal_set(_, _))=LHS,
+t_inf_aux(?nominal(LHS_Name, ?nominal_set(L_Ns, _L_S)),
           ?nominal(_, _)=RHS) ->
-  t_inf_aux(LHS, ?nominal(LHS_Name, RHS));
+  t_nominal(LHS_Name, inf_nominal_sets(L_Ns, [RHS]));
 t_inf_aux(?nominal(_, _)=LHS,
           ?nominal(_, ?nominal_set(_, _))=RHS) ->
   t_inf_aux(RHS, LHS);

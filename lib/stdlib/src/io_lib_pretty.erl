@@ -961,13 +961,13 @@ print_length(Term, _D, _T, _RF, {_In, utf8}, _Str, _Ord) ->
             S = float_to_binary(Term, [short]),
             {S, byte_size(S), 0, no_more};
        is_pid(Term) ->
-            S = list_to_binary(pid_to_list(Term)),
+            S = erlang:pid_to_binary(Term),
             {S, byte_size(S), 0, no_more};
        is_reference(Term) ->
-            S = list_to_binary(ref_to_list(Term)),
+            S = erlang:ref_to_binary(Term),
             {S, byte_size(S), 0, no_more};
        is_port(Term) ->
-            S = list_to_binary(erlang:port_to_list(Term)),
+            S = erlang:port_to_binary(Term),
             {S, byte_size(S), 0, no_more}
     end;
 print_length(Term, _D, _T, _RF, _Enc, _Str, _Ord) ->
@@ -1336,55 +1336,34 @@ printable_bin(Bin, Len, D, _Uni, Out) ->
 
 %% -> all | integer() >=0. Adopted from io_lib.erl.
 printable_latin1_list([_ | _], 0) -> 0;
-printable_latin1_list([C | Cs], N) when is_integer(C), C >= $\s, C =< $~ ->
-    printable_latin1_list(Cs, N - 1);
-printable_latin1_list([C | Cs], N) when is_integer(C), C >= $\240, C =< $\377 ->
-    printable_latin1_list(Cs, N - 1);
-printable_latin1_list([$\n | Cs], N) -> printable_latin1_list(Cs, N - 1);
-printable_latin1_list([$\r | Cs], N) -> printable_latin1_list(Cs, N - 1);
-printable_latin1_list([$\t | Cs], N) -> printable_latin1_list(Cs, N - 1);
-printable_latin1_list([$\v | Cs], N) -> printable_latin1_list(Cs, N - 1);
-printable_latin1_list([$\b | Cs], N) -> printable_latin1_list(Cs, N - 1);
-printable_latin1_list([$\f | Cs], N) -> printable_latin1_list(Cs, N - 1);
-printable_latin1_list([$\e | Cs], N) -> printable_latin1_list(Cs, N - 1);
+printable_latin1_list([C | Cs], N) when is_integer(C) ->
+    case io_lib:printable_character(C, latin1) of
+        true -> printable_latin1_list(Cs, N - 1);
+        false -> N
+    end;
 printable_latin1_list([], _) -> all;
 printable_latin1_list(_, N) -> N.
 
 printable_latin1_bin(<<>>, _) -> all;
 printable_latin1_bin(_, 0) -> 0;
-printable_latin1_bin(<<Char:8, Rest/binary>>, N) ->
-    case printable_char(Char, latin1) of
+printable_latin1_bin(<<C:8, Rest/binary>>, N) when N > 0 ->
+    case io_lib:printable_character(C, latin1) of
         true -> printable_latin1_bin(Rest, N-1);
         false -> N
-    end.
+    end;
+printable_latin1_bin(_, N) -> N.
 
-printable_unicode_bin(<<C/utf8, R/binary>>=Bin, I, Range) when I > 0 ->
-    case printable_char(C, Range) of
-        true -> printable_unicode_bin(R, I-1, Range);
+printable_unicode_bin(<<_/utf8, _R/binary>> = Bin, 0, _) ->
+    {0, Bin};
+printable_unicode_bin(<<Char/utf8, R/binary>> = Bin, I, PrintableRange) when I > 0 ->
+    case io_lib:printable_character(Char, PrintableRange) of
+        true -> printable_unicode_bin(R, I-1, PrintableRange);
         false -> {I, Bin}
     end;
-printable_unicode_bin(<<_/utf8, _/binary>>=Bin, I, _Range) ->
-    {I, Bin};
 printable_unicode_bin(<<>>, I, _Range) ->
     {I, <<>>};
 printable_unicode_bin(_, _, _) ->
     not_utf8.
-
-printable_char($\n,_) -> true;
-printable_char($\r,_) -> true;
-printable_char($\t,_) -> true;
-printable_char($\v,_) -> true;
-printable_char($\b,_) -> true;
-printable_char($\f,_) -> true;
-printable_char($\e,_) -> true;
-printable_char(C,latin1) ->
-    C >= $\s andalso C =< $~ orelse
-    C >= 16#A0 andalso C =< 16#FF;
-printable_char(C,unicode) ->
-    C >= $\s andalso C =< $~ orelse
-    C >= 16#A0 andalso C < 16#D800 orelse
-    C > 16#DFFF andalso C < 16#FFFE orelse
-    C > 16#FFFF andalso C =< 16#10FFFF.
 
 write_atom(A, latin1) ->
     S = io_lib:write_atom_as_latin1(A),

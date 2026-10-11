@@ -26,7 +26,8 @@
 	 init_per_group/2,end_per_group/2,
          local_basic/1,local_updates/1,non_atomic_names/1,
          external_records/1,any_record/1,
-         matching/1,is_record_bif/1,type_opts/1,
+         matching/1,is_record_bif/1,type_opts/1,fail_label/1,
+         sys_core_nomatch/1,
          cerl_update_tree/1]).
 
 %% Unexported records.
@@ -70,6 +71,8 @@ groups() ->
        matching,
        is_record_bif,
        type_opts,
+       fail_label,
+       sys_core_nomatch,
        cerl_update_tree
       ]}].
 
@@ -815,6 +818,30 @@ cerl_update_tree(_Config) ->
     Pair = cerl:update_tree(Pair, cerl:subtrees(Pair)),
     R = cerl:c_record(cerl:c_atom(rec), [Pair]),
     R = cerl:update_tree(R, cerl:subtrees(R)),
+    ok.
+
+%% Compiler passes did not handle put_record/6 instruction with
+%% a non-zero fail label.
+fail_label(_Config) ->
+    [true] = ext_creation(),
+    [true] = ext_update(#ext_records:vector{}),
+    ok.
+
+
+ext_creation() ->
+    [try #ext_records:vector{a = 1} catch _:_ -> true end].
+
+ext_update(R) ->
+    [try R#ext_records:vector{a = 1} catch _:_ -> true end].
+
+%% gh-11724: Crash in sys_core_fold. A nomatch warning should be
+%% emitted for `sys_core_nomatch_1/1`.
+sys_core_nomatch(_Config) ->
+    ?assertError({badmatch,#{true:=0}}, sys_core_nomatch_1(id(0))),
+    ok.
+
+sys_core_nomatch_1(X) ->
+    #d{f = X} = #{true => X},
     ok.
 
 %%% Common utilities.

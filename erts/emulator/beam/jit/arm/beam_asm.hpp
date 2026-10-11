@@ -858,6 +858,8 @@ protected:
     public:
         template<typename... Regs>
         ImmedRegCache(BeamAssembler &ba, Regs... regs) : regs{regs...}, ba(ba) {
+            static_assert(sizeof...(Regs) == N,
+                          "ImmedRegCache register count must match N");
             reg_values.fill(THE_NON_VALUE);
         }
 
@@ -882,9 +884,6 @@ protected:
             return new_reg;
         }
     };
-
-    template<typename... Args>
-    ImmedRegCache(Args...) -> ImmedRegCache<sizeof...(Args) - 1>;
 };
 
 #include "beam_asm_global.hpp"
@@ -1163,6 +1162,9 @@ public:
 
     void codegen(char *buff, size_t len);
 
+    AsmMetadata prepared_metadata;
+    bool metadata_prepared = false;
+    void prepare_metadata(const BeamCodeHeader *header);
     void *register_metadata(const BeamCodeHeader *header);
 
     ErtsCodePtr getCode(unsigned label);
@@ -2008,6 +2010,6 @@ protected:
 void *beamasm_metadata_insert(std::string module_name,
                               ErtsCodePtr base_address,
                               size_t code_size,
-                              const std::vector<AsmRange> &ranges);
+                              const AsmMetadata &metadata);
 void beamasm_metadata_early_init();
 void beamasm_metadata_late_init();

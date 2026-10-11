@@ -259,18 +259,18 @@ void BeamModuleAssembler::emit_i_create_local_native_record(
     a.stp(TMP1, TMP2, a64::Mem(HTOP).post(sizeof(Eterm[2])));
 
     /* We'll keep a cache of loaded immediate values. */
-    ImmedRegCache values(*this,
-                         ARG4,
-                         ARG5,
-                         ARG6,
-                         ARG7,
-                         ARG8,
-                         TMP1,
-                         TMP2,
-                         TMP3,
-                         TMP4,
-                         TMP5,
-                         TMP6);
+    ImmedRegCache<11> values(*this,
+                             ARG4,
+                             ARG5,
+                             ARG6,
+                             ARG7,
+                             ARG8,
+                             TMP1,
+                             TMP2,
+                             TMP3,
+                             TMP4,
+                             TMP5,
+                             TMP6);
 
     argp = 0;
     for (int i = 0; i < field_count; i += 2) {
@@ -426,12 +426,12 @@ void BeamGlobalAssembler::emit_create_native_record_shared() {
 }
 
 void BeamModuleAssembler::emit_i_create_native_record(
+        const ArgLabel &Fail,
         const ArgConstant &Id,
         const ArgRegister &Dst,
         const ArgWord &Live,
         const ArgWord &size,
         const Span<const ArgVal> &args) {
-    Label next = a.new_label();
     Uint size_live = (args.size() << 10) | Live.get();
 
     mov_arg(ARG4, Id);
@@ -440,10 +440,17 @@ void BeamModuleAssembler::emit_i_create_native_record(
 
     fragment_call(ga->get_create_native_record_shared());
 
-    emit_branch_if_value(ARG1, next);
-    emit_raise_exception();
+    if (Fail.get() != 0) {
+        emit_branch_if_not_value(ARG1, resolve_beam_label(Fail, dispUnknown));
+    } else {
+        Label next = a.new_label();
 
-    a.bind(next);
+        emit_branch_if_value(ARG1, next);
+
+        emit_raise_exception();
+
+        a.bind(next);
+    }
     mov_arg(Dst, ARG1);
 }
 
@@ -488,13 +495,12 @@ void BeamModuleAssembler::emit_i_update_local_native_record(
 }
 
 void BeamModuleAssembler::emit_i_update_native_record(
+        const ArgLabel &Fail,
         const ArgSource &Src,
         const ArgRegister &Dst,
         const ArgWord &Live,
         const ArgWord &size,
         const Span<const ArgVal> &args) {
-    Label next = a.new_label();
-
     mov_arg(ARG3, Src);
     a.mov(ARG1, c_p);
     load_x_reg_array(ARG2);
@@ -512,10 +518,16 @@ void BeamModuleAssembler::emit_i_update_native_record(
     emit_leave_runtime<Update::eHeapAlloc | Update::eXRegs |
                        Update::eReductions>();
 
-    emit_branch_if_value(ARG1, next);
-    emit_raise_exception();
+    if (Fail.get() != 0) {
+        emit_branch_if_not_value(ARG1, resolve_beam_label(Fail, dispUnknown));
+    } else {
+        Label next = a.new_label();
 
-    a.bind(next);
+        emit_branch_if_value(ARG1, next);
+        emit_raise_exception();
+
+        a.bind(next);
+    }
     mov_arg(Dst, ARG1);
 }
 

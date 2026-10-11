@@ -53,6 +53,16 @@ extern "C"
 #include "beam_types.h"
 }
 
+/* JIT metadata consumers and producers must use the same platform guards. */
+#if !(defined(WIN32) || defined(__APPLE__) || defined(__MACH__) ||             \
+      defined(__DARWIN__))
+#    define HAVE_GDB_SUPPORT
+#endif
+
+#if defined(HAVE_GDB_SUPPORT) || defined(HAVE_LINUX_PERF_SUPPORT)
+#    define HAVE_BEAMASM_METADATA_SUPPORT
+#endif
+
 /* On Windows, the min and max macros may be defined. */
 #undef min
 #undef max
@@ -66,15 +76,20 @@ using namespace asmjit;
 struct AsmRange {
     ErtsCodePtr start;
     ErtsCodePtr stop;
-    const std::string name;
+    std::string name;
 
     struct LineData {
         ErtsCodePtr start;
-        const std::string file;
+        Uint32 file;
         unsigned line;
     };
 
-    const std::vector<LineData> lines;
+    std::vector<LineData> lines;
+};
+
+struct AsmMetadata {
+    std::vector<std::string> files;
+    std::vector<AsmRange> ranges;
 };
 
 /* This is a partial class for `BeamAssembler`, containing various fields and
